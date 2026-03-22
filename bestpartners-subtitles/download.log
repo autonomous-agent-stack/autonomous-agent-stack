@@ -1,0 +1,681 @@
+开始下载字幕...
+总计视频数: 48
+输出目录: /home/lisa/.openclaw/workspace/bestpartners-subtitles
+---
+[1/48] 下载: JqFUbl-OVzc
+[youtube] Extracting URL: https://www.youtube.com/watch?v=JqFUbl-OVzc
+[youtube] JqFUbl-OVzc: Downloading webpage
+[youtube] JqFUbl-OVzc: Downloading android vr player API JSON
+[youtube] JqFUbl-OVzc: Downloading player 1ebf2aa6-main
+WARNING: [youtube] [jsc] Error solving n challenge request using "node" provider: Failed to load player for JS challenge: Download of 1ebf2aa6-main failed: [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000) (caused by SSLError('[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000)')); please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q= , filling out the appropriate issue template. Confirm you are on the latest version using  yt-dlp -U.
+         input = NChallengeInput(player_url='https://www.youtube.com/s/player/1ebf2aa6/player_ias.vflset/en_US/base.js', challenges=['zfyT3AMp27fKOLkK', 'IGtgDkzBXfM3ha91'])
+         Please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q= , filling out the appropriate issue template. Confirm you are on the latest version using  yt-dlp -U
+WARNING: [youtube] JqFUbl-OVzc: n challenge solving failed: Some formats may be missing. Ensure you have a supported JavaScript runtime and challenge solver script distribution installed. Review any warnings presented before this message. For more details, refer to  https://github.com/yt-dlp/yt-dlp/wiki/EJS
+[info] JqFUbl-OVzc: Downloading 1 format(s): 399+251
+[info] There are no subtitles for the requested languages
+[2/48] 下载: aKG7_3bkrvg
+[youtube] Extracting URL: https://www.youtube.com/watch?v=aKG7_3bkrvg
+[youtube] aKG7_3bkrvg: Downloading webpage
+[youtube] aKG7_3bkrvg: Downloading android vr player API JSON
+WARNING: [youtube] aKG7_3bkrvg: Some web_safari client https formats have been skipped as they are DRM protected. 
+[youtube] aKG7_3bkrvg: Downloading player 1ebf2aa6-main
+WARNING: [youtube] [jsc] Error solving n challenge request using "node" provider: Failed to load player for JS challenge: Download of 1ebf2aa6-main failed: [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000) (caused by SSLError('[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000)')); please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q= , filling out the appropriate issue template. Confirm you are on the latest version using  yt-dlp -U.
+         input = NChallengeInput(player_url='https://www.youtube.com/s/player/1ebf2aa6/player_ias.vflset/en_US/base.js', challenges=['BLOiy9qNWtxsBfLI', 'niYfKCoHxBRmQkKL'])
+         Please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q= , filling out the appropriate issue template. Confirm you are on the latest version using  yt-dlp -U
+WARNING: [youtube] aKG7_3bkrvg: n challenge solving failed: Some formats may be missing. Ensure you have a supported JavaScript runtime and challenge solver script distribution installed. Review any warnings presented before this message. For more details, refer to  https://github.com/yt-dlp/yt-dlp/wiki/EJS
+[info] aKG7_3bkrvg: Downloading 1 format(s): 399+251
+[info] There are no subtitles for the requested languages
+[3/48] 下载: m9j3pGsXM2Q
+[youtube] Extracting URL: https://www.youtube.com/watch?v=m9j3pGsXM2Q
+[youtube] m9j3pGsXM2Q: Downloading webpage
+WARNING: [youtube] [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000). Retrying (1/3)...
+[youtube] m9j3pGsXM2Q: Downloading webpage
+WARNING: [youtube] [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000). Retrying (2/3)...
+[youtube] m9j3pGsXM2Q: Downloading webpage
+[youtube] m9j3pGsXM2Q: Downloading android vr player API JSON
+WARNING: [youtube] [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000). Retrying (1/3)...
+[youtube] m9j3pGsXM2Q: Downloading android vr player API JSON
+[youtube] m9j3pGsXM2Q: Downloading player 1ebf2aa6-main
+[youtube] [jsc:node] Solving JS challenges using node
+[youtube] m9j3pGsXM2Q: Downloading m3u8 information
+[info] m9j3pGsXM2Q: Downloading subtitles: zh-Hans
+[info] m9j3pGsXM2Q: Downloading 1 format(s): 399+251
+[info] Writing video subtitles to: /home/lisa/.openclaw/workspace/bestpartners-subtitles/m9j3pGsXM2Q.zh-Hans.vtt
+[hlsnative] Downloading m3u8 manifest
+[hlsnative] Total fragments: 3
+[download] Destination: /home/lisa/.openclaw/workspace/bestpartners-subtitles/m9j3pGsXM2Q.zh-Hans.vtt
+[download] 100.0% of ~   1.00KiB at    289.04B/s ETA 00:00 (frag 0/3)[download] 100.0% of ~   3.00KiB at    289.04B/s ETA 00:00 (frag 0/3)[download]  77.8% of ~   9.00KiB at    2.08KiB/s ETA 00:00 (frag 0/3)[download]  71.4% of ~  21.00KiB at    5.27KiB/s ETA 00:00 (frag 0/3)[download]  40.6% of ~  45.00KiB at    5.27KiB/s ETA 00:00 (frag 0/3)[download]  16.7% of ~ 109.56KiB at    5.27KiB/s ETA 00:00 (frag 1/3)[download]  70.3% of ~  27.39KiB at    6.21KiB/s ETA 00:00 (frag 1/3)[download]  73.6% of ~  28.89KiB at    6.21KiB/s ETA 00:00 (frag 1/3)[download]  79.2% of ~  31.89KiB at    7.56KiB/s ETA 00:00 (frag 1/3)[download]  87.8% of ~  37.89KiB at    9.34KiB/s ETA 00:00 (frag 1/3)[download]  73.5% of ~  49.89KiB at    9.34KiB/s ETA 00:00 (frag 1/3)[download]  44.4% of ~  82.60KiB at    9.34KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  36.78KiB at   10.86KiB/s ETA 00:00 (frag 2/3)[download]  99.7% of ~  36.89KiB at   10.86KiB/s ETA 00:00 (frag 3/3)[download] 100% of   36.57KiB in 00:00:03 at 10.31KiB/s              
+[4/48] 下载: IRhhzGAcEjo
+[youtube] Extracting URL: https://www.youtube.com/watch?v=IRhhzGAcEjo
+[youtube] IRhhzGAcEjo: Downloading webpage
+[youtube] IRhhzGAcEjo: Downloading android vr player API JSON
+[youtube] IRhhzGAcEjo: Downloading player 1ebf2aa6-main
+[youtube] [jsc:node] Solving JS challenges using node
+[youtube] IRhhzGAcEjo: Downloading m3u8 information
+[info] IRhhzGAcEjo: Downloading subtitles: zh-Hans
+[info] IRhhzGAcEjo: Downloading 1 format(s): 399+251
+[info] Writing video subtitles to: /home/lisa/.openclaw/workspace/bestpartners-subtitles/IRhhzGAcEjo.zh-Hans.vtt
+[hlsnative] Downloading m3u8 manifest
+[hlsnative] Total fragments: 5
+[download] Destination: /home/lisa/.openclaw/workspace/bestpartners-subtitles/IRhhzGAcEjo.zh-Hans.vtt
+[download] 100.0% of ~   1.00KiB at    293.50B/s ETA 00:00 (frag 0/5)[download]  60.0% of ~   5.00KiB at    293.50B/s ETA 00:00 (frag 0/5)[download]  46.7% of ~  15.00KiB at    293.50B/s ETA 00:00 (frag 0/5)[download]  42.9% of ~  35.00KiB at    293.50B/s ETA 00:00 (frag 0/5)[download]  22.7% of ~  75.00KiB at    293.50B/s ETA 00:00 (frag 0/5)[download]  10.0% of ~ 169.95KiB at    293.50B/s ETA 00:00 (frag 1/5)[download]  42.4% of ~  42.49KiB at    2.54KiB/s ETA 00:00 (frag 1/5)[download]  44.4% of ~  44.99KiB at    2.54KiB/s ETA 00:00 (frag 1/5)[download]  48.0% of ~  49.99KiB at    4.76KiB/s ETA 00:00 (frag 1/5)[download]  53.3% of ~  59.99KiB at    7.15KiB/s ETA 00:00 (frag 1/5)[download]  43.3% of ~  79.99KiB at    7.15KiB/s ETA 00:00 (frag 1/5)[download]  26.5% of ~ 130.60KiB at    7.15KiB/s ETA 00:00 (frag 2/5)[download]  61.7% of ~  57.70KiB at    8.79KiB/s ETA 00:00 (frag 2/5)[download]  63.4% of ~  59.36KiB at   10.08KiB/s ETA 00:00 (frag 2/5)[download]  66.4% of ~  62.70KiB at   11.32KiB/s ETA 00:00 (frag 2/5)[download]  71.5% of ~  69.36KiB at   12.83KiB/s ETA 00:00 (frag 2/5)[download]  63.9% of ~  82.70KiB at   12.83KiB/s ETA 00:00 (frag 2/5)[download]  44.6% of ~ 118.42KiB at   12.83KiB/s ETA 00:00 (frag 3/5)[download]  81.5% of ~  66.04KiB at   12.85KiB/s ETA 00:00 (frag 3/5)[download]  83.0% of ~  67.29KiB at   12.85KiB/s ETA 00:00 (frag 3/5)[download]  85.7% of ~  69.79KiB at   12.85KiB/s ETA 00:00 (frag 3/5)[download]  90.7% of ~  74.79KiB at   14.27KiB/s ETA 00:00 (frag 3/5)[download]  84.6% of ~  84.79KiB at   14.27KiB/s ETA 00:00 (frag 3/5)[download]  63.3% of ~ 113.39KiB at   14.27KiB/s ETA 00:00 (frag 4/5)[download] 100.0% of ~  72.77KiB at   14.60KiB/s ETA 00:00 (frag 4/5)[download] 100.0% of ~  74.77KiB at   14.60KiB/s ETA 00:00 (frag 4/5)[download] 100.0% of ~  78.77KiB at   14.60KiB/s ETA 00:00 (frag 4/5)[download] 100.0% of ~  80.42KiB at   14.60KiB/s ETA 00:00 (frag 4/5)[download]  90.3% of ~  89.08KiB at   14.60KiB/s ETA 00:00 (frag 5/5)[download] 100% of   80.03KiB in 00:00:06 at 12.82KiB/s              
+[5/48] 下载: zyRKFw0EO3M
+[youtube] Extracting URL: https://www.youtube.com/watch?v=zyRKFw0EO3M
+[youtube] zyRKFw0EO3M: Downloading webpage
+WARNING: [youtube] [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000). Retrying (1/3)...
+[youtube] zyRKFw0EO3M: Downloading webpage
+[youtube] zyRKFw0EO3M: Downloading android vr player API JSON
+[youtube] zyRKFw0EO3M: Downloading player 1ebf2aa6-main
+[youtube] [jsc:node] Solving JS challenges using node
+[youtube] zyRKFw0EO3M: Downloading m3u8 information
+[info] zyRKFw0EO3M: Downloading subtitles: zh-Hans
+[info] zyRKFw0EO3M: Downloading 1 format(s): 399+251
+[info] Writing video subtitles to: /home/lisa/.openclaw/workspace/bestpartners-subtitles/zyRKFw0EO3M.zh-Hans.vtt
+[hlsnative] Downloading m3u8 manifest
+[hlsnative] Total fragments: 3
+[download] Destination: /home/lisa/.openclaw/workspace/bestpartners-subtitles/zyRKFw0EO3M.zh-Hans.vtt
+[download] 100.0% of ~   1.00KiB at    260.09B/s ETA 00:00 (frag 0/3)[download] 100.0% of ~   3.00KiB at    260.09B/s ETA 00:00 (frag 0/3)[download]  77.8% of ~   9.00KiB at    1.83KiB/s ETA 00:00 (frag 0/3)[download]  71.4% of ~  21.00KiB at    4.54KiB/s ETA 00:00 (frag 0/3)[download]  34.8% of ~  45.00KiB at    4.54KiB/s ETA 00:00 (frag 0/3)[download]  16.7% of ~  93.98KiB at    4.54KiB/s ETA 00:00 (frag 1/3)[download]  70.9% of ~  23.50KiB at    5.19KiB/s ETA 00:00 (frag 1/3)[download]  74.7% of ~  25.00KiB at    5.19KiB/s ETA 00:00 (frag 1/3)[download]  81.0% of ~  28.00KiB at    5.19KiB/s ETA 00:00 (frag 1/3)[download]  90.2% of ~  34.00KiB at    7.23KiB/s ETA 00:00 (frag 1/3)[download]  69.6% of ~  46.00KiB at    7.23KiB/s ETA 00:00 (frag 1/3)[download]  44.1% of ~  72.48KiB at    7.23KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  32.99KiB at    9.08KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  34.04KiB at    9.08KiB/s ETA 00:00 (frag 2/3)[download]  94.3% of ~  36.08KiB at    9.08KiB/s ETA 00:00 (frag 3/3)[download] 100% of   33.84KiB in 00:00:03 at 9.48KiB/s               
+[6/48] 下载: J3ozcmiIp8A
+[youtube] Extracting URL: https://www.youtube.com/watch?v=J3ozcmiIp8A
+[youtube] J3ozcmiIp8A: Downloading webpage
+[youtube] J3ozcmiIp8A: Downloading android vr player API JSON
+[youtube] J3ozcmiIp8A: Downloading player 1ebf2aa6-main
+[youtube] [jsc:node] Solving JS challenges using node
+[youtube] J3ozcmiIp8A: Downloading m3u8 information
+[info] J3ozcmiIp8A: Downloading subtitles: zh-Hans
+[info] J3ozcmiIp8A: Downloading 1 format(s): 399+251
+[info] Writing video subtitles to: /home/lisa/.openclaw/workspace/bestpartners-subtitles/J3ozcmiIp8A.zh-Hans.vtt
+[hlsnative] Downloading m3u8 manifest
+[hlsnative] Total fragments: 2
+[download] Destination: /home/lisa/.openclaw/workspace/bestpartners-subtitles/J3ozcmiIp8A.zh-Hans.vtt
+[download] 100.0% of ~   1.00KiB at    300.25B/s ETA 00:00 (frag 0/2)[download] 100.0% of ~   3.00KiB at    300.25B/s ETA 00:00 (frag 0/2)[download] 100.0% of ~   7.00KiB at    300.25B/s ETA 00:00 (frag 0/2)[download] 100.0% of ~  15.00KiB at    300.25B/s ETA 00:00 (frag 0/2)[download]  60.1% of ~  30.00KiB at    300.25B/s ETA 00:00 (frag 0/2)[download]  25.0% of ~  72.07KiB at    5.24KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  19.02KiB at    6.13KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  21.02KiB at    6.13KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  25.02KiB at    7.43KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  28.64KiB at    7.43KiB/s ETA 00:00 (frag 1/2)[download]  72.9% of ~  39.27KiB at    7.43KiB/s ETA 00:00 (frag 2/2)[download] 100% of   28.53KiB in 00:00:02 at 11.89KiB/s              
+[7/48] 下载: BGaepdtpJTY
+[youtube] Extracting URL: https://www.youtube.com/watch?v=BGaepdtpJTY
+[youtube] BGaepdtpJTY: Downloading webpage
+[youtube] BGaepdtpJTY: Downloading android vr player API JSON
+[youtube] BGaepdtpJTY: Downloading player 1ebf2aa6-main
+[youtube] [jsc:node] Solving JS challenges using node
+[youtube] BGaepdtpJTY: Downloading m3u8 information
+WARNING: [youtube] Failed to download m3u8 information: [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000)
+[info] BGaepdtpJTY: Downloading 1 format(s): 399+251
+[info] There are no subtitles for the requested languages
+[8/48] 下载: Ua7DZv0qGHQ
+[youtube] Extracting URL: https://www.youtube.com/watch?v=Ua7DZv0qGHQ
+[youtube] Ua7DZv0qGHQ: Downloading webpage
+[youtube] Ua7DZv0qGHQ: Downloading android vr player API JSON
+[youtube] Ua7DZv0qGHQ: Downloading player 1ebf2aa6-main
+[youtube] [jsc:node] Solving JS challenges using node
+[youtube] Ua7DZv0qGHQ: Downloading m3u8 information
+[info] Ua7DZv0qGHQ: Downloading subtitles: zh-Hans
+[info] Ua7DZv0qGHQ: Downloading 1 format(s): 399+251
+[info] Writing video subtitles to: /home/lisa/.openclaw/workspace/bestpartners-subtitles/Ua7DZv0qGHQ.zh-Hans.vtt
+[hlsnative] Downloading m3u8 manifest
+[hlsnative] Total fragments: 3
+[download] Destination: /home/lisa/.openclaw/workspace/bestpartners-subtitles/Ua7DZv0qGHQ.zh-Hans.vtt
+[download] Got error: [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000). Retrying (1/10)...
+[download] Got error: [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000). Retrying (2/10)...
+[download] 100.0% of ~   1.00KiB at    118.65B/s ETA 00:00 (frag 0/3)[download] 100.0% of ~   3.00KiB at    118.65B/s ETA 00:00 (frag 0/3)[download]  77.8% of ~   9.00KiB at    892.50B/s ETA 00:00 (frag 0/3)[download]  71.4% of ~  21.00KiB at    2.25KiB/s ETA 00:00 (frag 0/3)[download]  39.9% of ~  45.00KiB at    2.25KiB/s ETA 00:00 (frag 0/3)[download]  16.7% of ~ 107.65KiB at    2.25KiB/s ETA 00:00 (frag 1/3)[download]  70.4% of ~  26.91KiB at    5.73KiB/s ETA 00:00 (frag 1/3)[download]  73.7% of ~  28.41KiB at    5.73KiB/s ETA 00:00 (frag 1/3)[download]  79.4% of ~  31.41KiB at    9.27KiB/s ETA 00:00 (frag 1/3)[download]  88.1% of ~  37.41KiB at   13.06KiB/s ETA 00:00 (frag 1/3)[download]  72.8% of ~  49.41KiB at   13.06KiB/s ETA 00:00 (frag 1/3)[download]  44.4% of ~  80.93KiB at   13.06KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  36.40KiB at   13.25KiB/s ETA 00:00 (frag 2/3)[download]  98.8% of ~  36.85KiB at   13.25KiB/s ETA 00:00 (frag 3/3)[download] 100% of   36.15KiB in 00:00:05 at 6.98KiB/s               
+[9/48] 下载: So9lS8j5bLY
+[youtube] Extracting URL: https://www.youtube.com/watch?v=So9lS8j5bLY
+[youtube] So9lS8j5bLY: Downloading webpage
+WARNING: [youtube] [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000). Retrying (1/3)...
+[youtube] So9lS8j5bLY: Downloading webpage
+WARNING: [youtube] [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000). Retrying (2/3)...
+[youtube] So9lS8j5bLY: Downloading webpage
+[youtube] So9lS8j5bLY: Downloading android vr player API JSON
+[youtube] So9lS8j5bLY: Downloading player 1ebf2aa6-main
+[youtube] [jsc:node] Solving JS challenges using node
+[youtube] So9lS8j5bLY: Downloading m3u8 information
+[info] So9lS8j5bLY: Downloading subtitles: zh-Hans
+[info] So9lS8j5bLY: Downloading 1 format(s): 399+251
+[info] Writing video subtitles to: /home/lisa/.openclaw/workspace/bestpartners-subtitles/So9lS8j5bLY.zh-Hans.vtt
+[hlsnative] Downloading m3u8 manifest
+[hlsnative] Total fragments: 2
+[download] Destination: /home/lisa/.openclaw/workspace/bestpartners-subtitles/So9lS8j5bLY.zh-Hans.vtt
+[download] 100.0% of ~   1.00KiB at    317.73B/s ETA Unknown (frag 0/2)[download] 100.0% of ~   3.00KiB at    317.73B/s ETA Unknown (frag 0/2)[download] 100.0% of ~   7.00KiB at    317.73B/s ETA Unknown (frag 0/2)[download] 100.0% of ~  15.00KiB at    4.61KiB/s ETA 00:00 (frag 0/2)  [download]  58.9% of ~  30.00KiB at    4.61KiB/s ETA 00:00 (frag 0/2)[download]  25.0% of ~  70.72KiB at    4.61KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  18.68KiB at    5.65KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  20.68KiB at    5.65KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  24.68KiB at    7.03KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  29.22KiB at    7.03KiB/s ETA 00:00 (frag 1/2)[download]  71.7% of ~  40.75KiB at    7.03KiB/s ETA 00:00 (frag 2/2)[download] 100% of   29.11KiB in 00:00:02 at 11.95KiB/s              
+[10/48] 下载: 7gOIvcO7MyI
+[youtube] Extracting URL: https://www.youtube.com/watch?v=7gOIvcO7MyI
+[youtube] 7gOIvcO7MyI: Downloading webpage
+[youtube] 7gOIvcO7MyI: Downloading android vr player API JSON
+WARNING: [youtube] [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000). Retrying (1/3)...
+[youtube] 7gOIvcO7MyI: Downloading android vr player API JSON
+WARNING: [youtube] [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000). Retrying (2/3)...
+[youtube] 7gOIvcO7MyI: Downloading android vr player API JSON
+[youtube] 7gOIvcO7MyI: Downloading player 1ebf2aa6-main
+[youtube] [jsc:node] Solving JS challenges using node
+[youtube] 7gOIvcO7MyI: Downloading m3u8 information
+[info] 7gOIvcO7MyI: Downloading subtitles: zh-Hans
+[info] 7gOIvcO7MyI: Downloading 1 format(s): 399+251
+[info] Writing video subtitles to: /home/lisa/.openclaw/workspace/bestpartners-subtitles/7gOIvcO7MyI.zh-Hans.vtt
+[hlsnative] Downloading m3u8 manifest
+[hlsnative] Total fragments: 3
+[download] Destination: /home/lisa/.openclaw/workspace/bestpartners-subtitles/7gOIvcO7MyI.zh-Hans.vtt
+[download] 100.0% of ~   1.00KiB at    298.02B/s ETA 00:00 (frag 0/3)[download] 100.0% of ~   3.00KiB at    298.02B/s ETA 00:00 (frag 0/3)[download]  77.8% of ~   9.00KiB at    298.02B/s ETA 00:00 (frag 0/3)[download]  71.4% of ~  21.00KiB at    4.32KiB/s ETA 00:00 (frag 0/3)[download]  41.3% of ~  45.00KiB at    4.32KiB/s ETA 00:00 (frag 0/3)[download]  16.7% of ~ 111.40KiB at    4.32KiB/s ETA 00:00 (frag 1/3)[download]  70.3% of ~  27.85KiB at    5.82KiB/s ETA 00:00 (frag 1/3)[download]  73.5% of ~  29.35KiB at    5.82KiB/s ETA 00:00 (frag 1/3)[download]  79.0% of ~  32.35KiB at    5.82KiB/s ETA 00:00 (frag 1/3)[download]  87.5% of ~  38.35KiB at    8.73KiB/s ETA 00:00 (frag 1/3)[download]  75.4% of ~  50.35KiB at    8.73KiB/s ETA 00:00 (frag 1/3)[download]  44.1% of ~  85.97KiB at    8.73KiB/s ETA 00:00 (frag 2/3)[download] Got error: [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000). Retrying (1/10)...
+[download] 100.0% of ~  38.94KiB at   10.04KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  40.94KiB at   10.04KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  44.94KiB at   10.04KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  48.28KiB at   10.04KiB/s ETA 00:00 (frag 2/3)[download]  82.4% of ~  58.63KiB at   10.04KiB/s ETA 00:00 (frag 3/3)[download] 100% of   48.07KiB in 00:00:03 at 12.12KiB/s              
+[11/48] 下载: mNhHjkf_ahM
+[youtube] Extracting URL: https://www.youtube.com/watch?v=mNhHjkf_ahM
+[youtube] mNhHjkf_ahM: Downloading webpage
+WARNING: [youtube] [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000). Retrying (1/3)...
+[youtube] mNhHjkf_ahM: Downloading webpage
+[youtube] mNhHjkf_ahM: Downloading android vr player API JSON
+[youtube] mNhHjkf_ahM: Downloading player 1ebf2aa6-main
+[youtube] [jsc:node] Solving JS challenges using node
+[youtube] mNhHjkf_ahM: Downloading m3u8 information
+[info] mNhHjkf_ahM: Downloading subtitles: zh-Hans
+[info] mNhHjkf_ahM: Downloading 1 format(s): 399+251
+[info] Writing video subtitles to: /home/lisa/.openclaw/workspace/bestpartners-subtitles/mNhHjkf_ahM.zh-Hans.vtt
+[hlsnative] Downloading m3u8 manifest
+[hlsnative] Total fragments: 3
+[download] Destination: /home/lisa/.openclaw/workspace/bestpartners-subtitles/mNhHjkf_ahM.zh-Hans.vtt
+[download] 100.0% of ~   1.00KiB at    299.19B/s ETA 00:00 (frag 0/3)[download] 100.0% of ~   3.00KiB at    299.19B/s ETA 00:00 (frag 0/3)[download]  77.8% of ~   9.00KiB at    299.19B/s ETA 00:00 (frag 0/3)[download]  71.4% of ~  21.00KiB at    4.33KiB/s ETA 00:00 (frag 0/3)[download]  42.3% of ~  45.00KiB at    4.33KiB/s ETA 00:00 (frag 0/3)[download]  16.7% of ~ 114.13KiB at    4.33KiB/s ETA 00:00 (frag 1/3)[download]  70.2% of ~  28.53KiB at    5.66KiB/s ETA 00:00 (frag 1/3)[download]  73.3% of ~  30.03KiB at    5.66KiB/s ETA 00:00 (frag 1/3)[download]  78.8% of ~  33.03KiB at    5.66KiB/s ETA 00:00 (frag 1/3)[download]  87.2% of ~  39.03KiB at    8.16KiB/s ETA 00:00 (frag 1/3)[download]  75.8% of ~  51.03KiB at    8.16KiB/s ETA 00:00 (frag 1/3)[download]  44.2% of ~  87.49KiB at    8.16KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  39.67KiB at   10.49KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  41.67KiB at   10.49KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  45.67KiB at   10.49KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  50.42KiB at   10.49KiB/s ETA 00:00 (frag 2/3)[download]  81.1% of ~  62.17KiB at   10.49KiB/s ETA 00:00 (frag 3/3)[download] 100% of   50.16KiB in 00:00:03 at 14.39KiB/s              
+[12/48] 下载: D5rlQiSvbek
+[youtube] Extracting URL: https://www.youtube.com/watch?v=D5rlQiSvbek
+[youtube] D5rlQiSvbek: Downloading webpage
+[youtube] D5rlQiSvbek: Downloading android vr player API JSON
+[youtube] D5rlQiSvbek: Downloading player 1ebf2aa6-main
+[youtube] [jsc:node] Solving JS challenges using node
+[youtube] D5rlQiSvbek: Downloading m3u8 information
+[info] D5rlQiSvbek: Downloading subtitles: zh-Hans
+[info] D5rlQiSvbek: Downloading 1 format(s): 399+251
+[info] Writing video subtitles to: /home/lisa/.openclaw/workspace/bestpartners-subtitles/D5rlQiSvbek.zh-Hans.vtt
+[hlsnative] Downloading m3u8 manifest
+[hlsnative] Total fragments: 3
+[download] Destination: /home/lisa/.openclaw/workspace/bestpartners-subtitles/D5rlQiSvbek.zh-Hans.vtt
+[download] 100.0% of ~   1.00KiB at    275.51B/s ETA 00:00 (frag 0/3)[download] 100.0% of ~   3.00KiB at    275.51B/s ETA 00:00 (frag 0/3)[download]  77.8% of ~   9.00KiB at    275.51B/s ETA 00:00 (frag 0/3)[download]  71.4% of ~  21.00KiB at    3.86KiB/s ETA 00:00 (frag 0/3)[download]  41.1% of ~  45.00KiB at    3.86KiB/s ETA 00:00 (frag 0/3)[download]  16.7% of ~ 110.85KiB at    3.86KiB/s ETA 00:00 (frag 1/3)[download]  70.3% of ~  27.71KiB at    5.19KiB/s ETA 00:00 (frag 1/3)[download]  73.5% of ~  29.21KiB at    5.19KiB/s ETA 00:00 (frag 1/3)[download]  79.1% of ~  32.21KiB at    6.80KiB/s ETA 00:00 (frag 1/3)[download]  87.6% of ~  38.21KiB at    8.79KiB/s ETA 00:00 (frag 1/3)[download]  74.8% of ~  50.21KiB at    8.79KiB/s ETA 00:00 (frag 1/3)[download]  44.2% of ~  84.91KiB at    8.79KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  38.54KiB at   10.81KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  40.54KiB at   10.81KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  44.30KiB at   10.81KiB/s ETA 00:00 (frag 2/3)[download]  86.8% of ~  51.06KiB at   10.81KiB/s ETA 00:00 (frag 3/3)[download] 100% of   44.00KiB in 00:00:03 at 12.41KiB/s              
+[13/48] 下载: vEcAYRQfiuQ
+[youtube] Extracting URL: https://www.youtube.com/watch?v=vEcAYRQfiuQ
+[youtube] vEcAYRQfiuQ: Downloading webpage
+[youtube] vEcAYRQfiuQ: Downloading android vr player API JSON
+[youtube] vEcAYRQfiuQ: Downloading player 1ebf2aa6-main
+[youtube] [jsc:node] Solving JS challenges using node
+[youtube] vEcAYRQfiuQ: Downloading m3u8 information
+[info] vEcAYRQfiuQ: Downloading subtitles: zh-Hans
+[info] vEcAYRQfiuQ: Downloading 1 format(s): 399+251
+[info] Writing video subtitles to: /home/lisa/.openclaw/workspace/bestpartners-subtitles/vEcAYRQfiuQ.zh-Hans.vtt
+[hlsnative] Downloading m3u8 manifest
+[hlsnative] Total fragments: 2
+[download] Destination: /home/lisa/.openclaw/workspace/bestpartners-subtitles/vEcAYRQfiuQ.zh-Hans.vtt
+[download] 100.0% of ~   1.00KiB at    245.84B/s ETA 00:00 (frag 0/2)[download] 100.0% of ~   3.00KiB at    245.84B/s ETA 00:00 (frag 0/2)[download] 100.0% of ~   7.00KiB at    245.84B/s ETA 00:00 (frag 0/2)[download] 100.0% of ~  15.00KiB at    3.60KiB/s ETA 00:00 (frag 0/2)[download]  59.9% of ~  30.00KiB at    3.60KiB/s ETA 00:00 (frag 0/2)[download]  25.0% of ~  71.87KiB at    3.60KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  18.97KiB at    4.69KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  20.97KiB at    5.64KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  24.97KiB at    6.68KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  27.44KiB at    6.68KiB/s ETA 00:00 (frag 1/2)[download]  74.3% of ~  36.91KiB at    6.68KiB/s ETA 00:00 (frag 2/2)[download] 100% of   27.40KiB in 00:00:02 at 9.99KiB/s               
+[14/48] 下载: qua6FfJmydo
+[youtube] Extracting URL: https://www.youtube.com/watch?v=qua6FfJmydo
+[youtube] qua6FfJmydo: Downloading webpage
+[youtube] qua6FfJmydo: Downloading android vr player API JSON
+[youtube] qua6FfJmydo: Downloading player 1ebf2aa6-main
+[youtube] [jsc:node] Solving JS challenges using node
+[youtube] qua6FfJmydo: Downloading m3u8 information
+WARNING: [youtube] Failed to download m3u8 information: [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000)
+[info] qua6FfJmydo: Downloading 1 format(s): 399+251
+[info] There are no subtitles for the requested languages
+[15/48] 下载: KqCHcPYbqPI
+[youtube] Extracting URL: https://www.youtube.com/watch?v=KqCHcPYbqPI
+[youtube] KqCHcPYbqPI: Downloading webpage
+[youtube] KqCHcPYbqPI: Downloading android vr player API JSON
+[youtube] KqCHcPYbqPI: Downloading player 1ebf2aa6-main
+[youtube] [jsc:node] Solving JS challenges using node
+[youtube] KqCHcPYbqPI: Downloading m3u8 information
+[info] KqCHcPYbqPI: Downloading subtitles: zh-Hans
+[info] KqCHcPYbqPI: Downloading 1 format(s): 248+251
+[info] Writing video subtitles to: /home/lisa/.openclaw/workspace/bestpartners-subtitles/KqCHcPYbqPI.zh-Hans.vtt
+[hlsnative] Downloading m3u8 manifest
+[hlsnative] Total fragments: 2
+[download] Destination: /home/lisa/.openclaw/workspace/bestpartners-subtitles/KqCHcPYbqPI.zh-Hans.vtt
+[download] 100.0% of ~   1.00KiB at    262.77B/s ETA 00:00 (frag 0/2)[download] 100.0% of ~   3.00KiB at    262.77B/s ETA 00:00 (frag 0/2)[download] 100.0% of ~   7.00KiB at    1.88KiB/s ETA 00:00 (frag 0/2)[download] 100.0% of ~  15.00KiB at    4.73KiB/s ETA 00:00 (frag 0/2)[download]  58.7% of ~  30.00KiB at    4.73KiB/s ETA 00:00 (frag 0/2)[download]  25.0% of ~  70.46KiB at    4.73KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  18.62KiB at    5.75KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  20.62KiB at    5.75KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  24.62KiB at    5.75KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  32.62KiB at    8.18KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  35.11KiB at    8.18KiB/s ETA 00:00 (frag 1/2)[download]  66.7% of ~  52.60KiB at    8.18KiB/s ETA 00:00 (frag 2/2)[download] 100% of   35.00KiB in 00:00:02 at 14.86KiB/s              
+[16/48] 下载: AFFVDmMA6U0
+[youtube] Extracting URL: https://www.youtube.com/watch?v=AFFVDmMA6U0
+[youtube] AFFVDmMA6U0: Downloading webpage
+[youtube] AFFVDmMA6U0: Downloading android vr player API JSON
+[youtube] AFFVDmMA6U0: Downloading player 1ebf2aa6-main
+WARNING: [youtube] [jsc] Error solving n challenge request using "node" provider: Failed to load player for JS challenge: Download of 1ebf2aa6-main failed: [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000) (caused by SSLError('[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000)')); please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q= , filling out the appropriate issue template. Confirm you are on the latest version using  yt-dlp -U.
+         input = NChallengeInput(player_url='https://www.youtube.com/s/player/1ebf2aa6/player_ias.vflset/en_US/base.js', challenges=['7ZAzaaCoqlei0yzo', '1170S5NendrZSTzo'])
+         Please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q= , filling out the appropriate issue template. Confirm you are on the latest version using  yt-dlp -U
+WARNING: [youtube] AFFVDmMA6U0: n challenge solving failed: Some formats may be missing. Ensure you have a supported JavaScript runtime and challenge solver script distribution installed. Review any warnings presented before this message. For more details, refer to  https://github.com/yt-dlp/yt-dlp/wiki/EJS
+[info] AFFVDmMA6U0: Downloading 1 format(s): 399+251
+[info] There are no subtitles for the requested languages
+[17/48] 下载: RIL6RXzxGqc
+[youtube] Extracting URL: https://www.youtube.com/watch?v=RIL6RXzxGqc
+[youtube] RIL6RXzxGqc: Downloading webpage
+[youtube] RIL6RXzxGqc: Downloading android vr player API JSON
+[youtube] RIL6RXzxGqc: Downloading player 1ebf2aa6-main
+[youtube] [jsc:node] Solving JS challenges using node
+[youtube] RIL6RXzxGqc: Downloading m3u8 information
+[info] RIL6RXzxGqc: Downloading subtitles: zh-Hans
+[info] RIL6RXzxGqc: Downloading 1 format(s): 399+251
+[info] Writing video subtitles to: /home/lisa/.openclaw/workspace/bestpartners-subtitles/RIL6RXzxGqc.zh-Hans.vtt
+[hlsnative] Downloading m3u8 manifest
+[hlsnative] Total fragments: 3
+[download] Destination: /home/lisa/.openclaw/workspace/bestpartners-subtitles/RIL6RXzxGqc.zh-Hans.vtt
+[download] 100.0% of ~   1.00KiB at    305.82B/s ETA 00:00 (frag 0/3)[download] 100.0% of ~   3.00KiB at    305.82B/s ETA 00:00 (frag 0/3)[download]  77.8% of ~   9.00KiB at    305.82B/s ETA 00:00 (frag 0/3)[download]  71.4% of ~  21.00KiB at    4.45KiB/s ETA 00:00 (frag 0/3)[download]  40.5% of ~  45.00KiB at    4.45KiB/s ETA 00:00 (frag 0/3)[download]  16.7% of ~ 109.38KiB at    4.45KiB/s ETA 00:00 (frag 1/3)[download]  70.3% of ~  27.35KiB at    5.71KiB/s ETA 00:00 (frag 1/3)[download]  73.6% of ~  28.85KiB at    5.71KiB/s ETA 00:00 (frag 1/3)[download]  79.2% of ~  31.85KiB at    7.31KiB/s ETA 00:00 (frag 1/3)[download]  87.8% of ~  37.85KiB at    9.24KiB/s ETA 00:00 (frag 1/3)[download]  74.0% of ~  49.85KiB at    9.24KiB/s ETA 00:00 (frag 1/3)[download]  44.3% of ~  83.28KiB at    9.24KiB/s ETA 00:00 (frag 2/3)[download] Got error: [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000). Retrying (1/10)...
+[download] 100.0% of ~  37.88KiB at    9.16KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  39.88KiB at    9.16KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  42.78KiB at    9.16KiB/s ETA 00:00 (frag 2/3)[download]  87.9% of ~  48.69KiB at    9.16KiB/s ETA 00:00 (frag 3/3)[download] 100% of   42.57KiB in 00:00:04 at 9.89KiB/s               
+[18/48] 下载: wxd9oWMtHho
+[youtube] Extracting URL: https://www.youtube.com/watch?v=wxd9oWMtHho
+[youtube] wxd9oWMtHho: Downloading webpage
+[youtube] wxd9oWMtHho: Downloading android vr player API JSON
+[youtube] wxd9oWMtHho: Downloading player 1ebf2aa6-main
+[youtube] [jsc:node] Solving JS challenges using node
+[youtube] wxd9oWMtHho: Downloading m3u8 information
+[info] wxd9oWMtHho: Downloading subtitles: zh-Hans
+[info] wxd9oWMtHho: Downloading 1 format(s): 399+251
+[info] Writing video subtitles to: /home/lisa/.openclaw/workspace/bestpartners-subtitles/wxd9oWMtHho.zh-Hans.vtt
+[hlsnative] Downloading m3u8 manifest
+[hlsnative] Total fragments: 3
+[download] Destination: /home/lisa/.openclaw/workspace/bestpartners-subtitles/wxd9oWMtHho.zh-Hans.vtt
+[download] 100.0% of ~   1.00KiB at    314.58B/s ETA Unknown (frag 0/3)[download] 100.0% of ~   3.00KiB at    314.58B/s ETA Unknown (frag 0/3)[download]  77.8% of ~   9.00KiB at    314.58B/s ETA Unknown (frag 0/3)[download]  71.4% of ~  21.00KiB at    4.55KiB/s ETA 00:00 (frag 0/3)  [download]  39.1% of ~  45.00KiB at    4.55KiB/s ETA 00:00 (frag 0/3)[download]  16.7% of ~ 105.55KiB at    4.55KiB/s ETA 00:00 (frag 1/3)[download]  70.5% of ~  26.39KiB at    5.77KiB/s ETA 00:00 (frag 1/3)[download]  73.8% of ~  27.89KiB at    5.77KiB/s ETA 00:00 (frag 1/3)[download]  79.6% of ~  30.89KiB at    7.37KiB/s ETA 00:00 (frag 1/3)[download]  88.4% of ~  36.89KiB at    9.46KiB/s ETA 00:00 (frag 1/3)[download]  74.6% of ~  48.89KiB at    9.46KiB/s ETA 00:00 (frag 1/3)[download]  43.9% of ~  83.00KiB at    9.46KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  37.46KiB at   11.20KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  39.46KiB at   11.20KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  41.53KiB at   11.20KiB/s ETA 00:00 (frag 2/3)[download]  89.1% of ~  46.60KiB at   11.20KiB/s ETA 00:00 (frag 3/3)[download] 100% of   41.31KiB in 00:00:03 at 12.24KiB/s              
+[19/48] 下载: GZSJ_GXjkCE
+[youtube] Extracting URL: https://www.youtube.com/watch?v=GZSJ_GXjkCE
+[youtube] GZSJ_GXjkCE: Downloading webpage
+[youtube] GZSJ_GXjkCE: Downloading android vr player API JSON
+[youtube] GZSJ_GXjkCE: Downloading player 1ebf2aa6-main
+[youtube] [jsc:node] Solving JS challenges using node
+[youtube] GZSJ_GXjkCE: Downloading m3u8 information
+[info] GZSJ_GXjkCE: Downloading subtitles: zh-Hans
+[info] GZSJ_GXjkCE: Downloading 1 format(s): 399+251
+[info] Writing video subtitles to: /home/lisa/.openclaw/workspace/bestpartners-subtitles/GZSJ_GXjkCE.zh-Hans.vtt
+[hlsnative] Downloading m3u8 manifest
+[hlsnative] Total fragments: 2
+[download] Destination: /home/lisa/.openclaw/workspace/bestpartners-subtitles/GZSJ_GXjkCE.zh-Hans.vtt
+[download] 100.0% of ~   1.00KiB at    277.44B/s ETA 00:00 (frag 0/2)[download] 100.0% of ~   3.00KiB at    277.44B/s ETA 00:00 (frag 0/2)[download] 100.0% of ~   7.00KiB at    277.44B/s ETA 00:00 (frag 0/2)[download] 100.0% of ~  15.00KiB at    3.86KiB/s ETA 00:00 (frag 0/2)[download]  62.4% of ~  30.00KiB at    3.86KiB/s ETA 00:00 (frag 0/2)[download]  25.0% of ~  74.83KiB at    3.86KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  19.71KiB at    5.21KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  21.71KiB at    5.21KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  25.71KiB at    6.84KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  32.88KiB at    6.84KiB/s ETA 00:00 (frag 1/2)[download]  69.9% of ~  47.05KiB at    6.84KiB/s ETA 00:00 (frag 2/2)[download] 100% of   32.78KiB in 00:00:02 at 13.34KiB/s              
+[20/48] 下载: 2LcxRQJuA54
+[youtube] Extracting URL: https://www.youtube.com/watch?v=2LcxRQJuA54
+[youtube] 2LcxRQJuA54: Downloading webpage
+[youtube] 2LcxRQJuA54: Downloading android vr player API JSON
+[youtube] 2LcxRQJuA54: Downloading player 1ebf2aa6-main
+[youtube] [jsc:node] Solving JS challenges using node
+[youtube] 2LcxRQJuA54: Downloading m3u8 information
+WARNING: [youtube] Failed to download m3u8 information: [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000)
+[info] 2LcxRQJuA54: Downloading 1 format(s): 399+251
+[info] There are no subtitles for the requested languages
+[21/48] 下载: 5HR8oMSz-XY
+[youtube] Extracting URL: https://www.youtube.com/watch?v=5HR8oMSz-XY
+[youtube] 5HR8oMSz-XY: Downloading webpage
+[youtube] 5HR8oMSz-XY: Downloading android vr player API JSON
+[youtube] 5HR8oMSz-XY: Downloading player 1ebf2aa6-main
+[youtube] [jsc:node] Solving JS challenges using node
+[youtube] 5HR8oMSz-XY: Downloading m3u8 information
+[info] 5HR8oMSz-XY: Downloading subtitles: zh-Hans
+[info] 5HR8oMSz-XY: Downloading 1 format(s): 398+251
+[info] Writing video subtitles to: /home/lisa/.openclaw/workspace/bestpartners-subtitles/5HR8oMSz-XY.zh-Hans.vtt
+[hlsnative] Downloading m3u8 manifest
+[hlsnative] Total fragments: 3
+[download] Destination: /home/lisa/.openclaw/workspace/bestpartners-subtitles/5HR8oMSz-XY.zh-Hans.vtt
+[download] 100.0% of ~   1.00KiB at    298.61B/s ETA 00:00 (frag 0/3)[download] 100.0% of ~   3.00KiB at    298.61B/s ETA 00:00 (frag 0/3)[download]  77.8% of ~   9.00KiB at    298.61B/s ETA 00:00 (frag 0/3)[download]  71.4% of ~  21.00KiB at    4.33KiB/s ETA 00:00 (frag 0/3)[download]  37.6% of ~  45.00KiB at    4.33KiB/s ETA 00:00 (frag 0/3)[download]  16.7% of ~ 101.44KiB at    4.33KiB/s ETA 00:00 (frag 1/3)[download]  70.6% of ~  25.36KiB at    5.54KiB/s ETA 00:00 (frag 1/3)[download]  74.1% of ~  26.86KiB at    5.54KiB/s ETA 00:00 (frag 1/3)[download]  80.1% of ~  29.86KiB at    5.54KiB/s ETA 00:00 (frag 1/3)[download]  89.0% of ~  35.86KiB at    8.20KiB/s ETA 00:00 (frag 1/3)[download]  71.6% of ~  47.86KiB at    8.20KiB/s ETA 00:00 (frag 1/3)[download]  44.2% of ~  77.51KiB at    8.20KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  35.29KiB at   10.46KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  37.29KiB at   10.46KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  41.29KiB at   10.46KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  48.04KiB at   10.46KiB/s ETA 00:00 (frag 2/3)[download]  77.7% of ~  61.80KiB at   10.46KiB/s ETA 00:00 (frag 3/3)[download] 100% of   47.85KiB in 00:00:03 at 14.69KiB/s              
+[22/48] 下载: WP3VRGdhxHw
+[youtube] Extracting URL: https://www.youtube.com/watch?v=WP3VRGdhxHw
+[youtube] WP3VRGdhxHw: Downloading webpage
+[youtube] WP3VRGdhxHw: Downloading android vr player API JSON
+[youtube] WP3VRGdhxHw: Downloading player 1ebf2aa6-main
+[youtube] [jsc:node] Solving JS challenges using node
+[youtube] WP3VRGdhxHw: Downloading m3u8 information
+[info] WP3VRGdhxHw: Downloading subtitles: zh-Hans
+[info] WP3VRGdhxHw: Downloading 1 format(s): 399+251
+[info] Writing video subtitles to: /home/lisa/.openclaw/workspace/bestpartners-subtitles/WP3VRGdhxHw.zh-Hans.vtt
+[hlsnative] Downloading m3u8 manifest
+[hlsnative] Total fragments: 2
+[download] Destination: /home/lisa/.openclaw/workspace/bestpartners-subtitles/WP3VRGdhxHw.zh-Hans.vtt
+[download] 100.0% of ~   1.00KiB at    244.61B/s ETA 00:00 (frag 0/2)[download] 100.0% of ~   3.00KiB at    244.61B/s ETA 00:00 (frag 0/2)[download] 100.0% of ~   7.00KiB at    1.73KiB/s ETA 00:00 (frag 0/2)[download] 100.0% of ~  15.00KiB at    4.31KiB/s ETA 00:00 (frag 0/2)[download]  62.4% of ~  30.00KiB at    4.31KiB/s ETA 00:00 (frag 0/2)[download]  25.0% of ~  74.90KiB at    4.31KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  19.72KiB at    5.38KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  21.72KiB at    5.38KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  25.72KiB at    5.38KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  33.72KiB at    7.60KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  35.80KiB at    7.60KiB/s ETA 00:00 (frag 1/2)[download]  67.7% of ~  52.88KiB at    7.60KiB/s ETA 00:00 (frag 2/2)[download] 100% of   35.68KiB in 00:00:02 at 13.49KiB/s              
+[23/48] 下载: B8w9eHKtnJU
+[youtube] Extracting URL: https://www.youtube.com/watch?v=B8w9eHKtnJU
+[youtube] B8w9eHKtnJU: Downloading webpage
+[youtube] B8w9eHKtnJU: Downloading android vr player API JSON
+[youtube] B8w9eHKtnJU: Downloading player 1ebf2aa6-main
+[youtube] [jsc:node] Solving JS challenges using node
+[youtube] B8w9eHKtnJU: Downloading m3u8 information
+[info] B8w9eHKtnJU: Downloading subtitles: zh-Hans
+[info] B8w9eHKtnJU: Downloading 1 format(s): 399+251
+[info] Writing video subtitles to: /home/lisa/.openclaw/workspace/bestpartners-subtitles/B8w9eHKtnJU.zh-Hans.vtt
+[hlsnative] Downloading m3u8 manifest
+[hlsnative] Total fragments: 3
+[download] Destination: /home/lisa/.openclaw/workspace/bestpartners-subtitles/B8w9eHKtnJU.zh-Hans.vtt
+[download] Got error: [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000). Retrying (1/10)...
+[download] 100.0% of ~   1.00KiB at    172.70B/s ETA 00:00 (frag 0/3)[download] 100.0% of ~   3.00KiB at    172.70B/s ETA 00:00 (frag 0/3)[download]  77.8% of ~   9.00KiB at    172.70B/s ETA 00:00 (frag 0/3)[download]  71.4% of ~  21.00KiB at    172.70B/s ETA 00:00 (frag 0/3)[download]  40.8% of ~  45.00KiB at    2.69KiB/s ETA 00:00 (frag 0/3)[download]  16.7% of ~ 110.14KiB at    2.69KiB/s ETA 00:00 (frag 1/3)[download]  70.3% of ~  27.53KiB at    5.64KiB/s ETA 00:00 (frag 1/3)[download]  73.6% of ~  29.03KiB at    5.64KiB/s ETA 00:00 (frag 1/3)[download]  79.2% of ~  32.03KiB at    5.64KiB/s ETA 00:00 (frag 1/3)[download]  87.7% of ~  38.03KiB at   10.30KiB/s ETA 00:00 (frag 1/3)[download]  73.1% of ~  50.03KiB at   10.30KiB/s ETA 00:00 (frag 1/3)[download]  44.5% of ~  82.25KiB at   10.30KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  37.59KiB at   11.39KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  39.59KiB at   11.39KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  43.59KiB at   11.39KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  49.74KiB at   13.43KiB/s ETA 00:00 (frag 2/3)[download]  79.1% of ~  62.89KiB at   13.43KiB/s ETA 00:00 (frag 3/3)[download] 100% of   49.47KiB in 00:00:04 at 11.09KiB/s              
+[24/48] 下载: Q1wQB8YZf3g
+[youtube] Extracting URL: https://www.youtube.com/watch?v=Q1wQB8YZf3g
+[youtube] Q1wQB8YZf3g: Downloading webpage
+[youtube] Q1wQB8YZf3g: Downloading android vr player API JSON
+[youtube] Q1wQB8YZf3g: Downloading player 1ebf2aa6-main
+[youtube] [jsc:node] Solving JS challenges using node
+[youtube] Q1wQB8YZf3g: Downloading m3u8 information
+[info] Q1wQB8YZf3g: Downloading subtitles: zh-Hans
+[info] Q1wQB8YZf3g: Downloading 1 format(s): 399+251
+[info] Writing video subtitles to: /home/lisa/.openclaw/workspace/bestpartners-subtitles/Q1wQB8YZf3g.zh-Hans.vtt
+[hlsnative] Downloading m3u8 manifest
+[hlsnative] Total fragments: 3
+[download] Destination: /home/lisa/.openclaw/workspace/bestpartners-subtitles/Q1wQB8YZf3g.zh-Hans.vtt
+[download] Got error: [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000). Retrying (1/10)...
+[download] 100.0% of ~   1.00KiB at    168.61B/s ETA 00:00 (frag 0/3)[download] 100.0% of ~   3.00KiB at    168.61B/s ETA 00:00 (frag 0/3)[download]  77.8% of ~   9.00KiB at    168.61B/s ETA 00:00 (frag 0/3)[download]  71.4% of ~  21.00KiB at    2.51KiB/s ETA 00:00 (frag 0/3)[download]  39.9% of ~  45.00KiB at    2.51KiB/s ETA 00:00 (frag 0/3)[download]  16.7% of ~ 107.72KiB at    2.51KiB/s ETA 00:00 (frag 1/3)[download]  70.4% of ~  26.93KiB at    3.71KiB/s ETA 00:00 (frag 1/3)[download]  73.7% of ~  28.43KiB at    3.71KiB/s ETA 00:00 (frag 1/3)[download]  79.4% of ~  31.43KiB at    3.71KiB/s ETA 00:00 (frag 1/3)[download]  88.0% of ~  37.43KiB at    5.93KiB/s ETA 00:00 (frag 1/3)[download]  72.5% of ~  49.43KiB at    5.93KiB/s ETA 00:00 (frag 1/3)[download]  44.5% of ~  80.64KiB at    5.93KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  36.86KiB at    9.08KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  37.65KiB at    9.08KiB/s ETA 00:00 (frag 2/3)[download]  95.4% of ~  39.45KiB at    9.08KiB/s ETA 00:00 (frag 3/3)[download] 100% of   37.44KiB in 00:00:04 at 9.35KiB/s               
+[25/48] 下载: u75huJEChxI
+[youtube] Extracting URL: https://www.youtube.com/watch?v=u75huJEChxI
+[youtube] u75huJEChxI: Downloading webpage
+[youtube] u75huJEChxI: Downloading android vr player API JSON
+[youtube] u75huJEChxI: Downloading player 1ebf2aa6-main
+[youtube] [jsc:node] Solving JS challenges using node
+[youtube] u75huJEChxI: Downloading m3u8 information
+[info] u75huJEChxI: Downloading subtitles: zh-Hans
+[info] u75huJEChxI: Downloading 1 format(s): 399+251
+[info] Writing video subtitles to: /home/lisa/.openclaw/workspace/bestpartners-subtitles/u75huJEChxI.zh-Hans.vtt
+[hlsnative] Downloading m3u8 manifest
+[hlsnative] Total fragments: 3
+[download] Destination: /home/lisa/.openclaw/workspace/bestpartners-subtitles/u75huJEChxI.zh-Hans.vtt
+[download] 100.0% of ~   1.00KiB at    233.08B/s ETA 00:00 (frag 0/3)[download] 100.0% of ~   3.00KiB at    233.08B/s ETA 00:00 (frag 0/3)[download]  77.8% of ~   9.00KiB at    1.66KiB/s ETA 00:00 (frag 0/3)[download]  71.4% of ~  21.00KiB at    4.14KiB/s ETA 00:00 (frag 0/3)[download]  39.9% of ~  45.00KiB at    4.14KiB/s ETA 00:00 (frag 0/3)[download]  16.7% of ~ 107.77KiB at    4.14KiB/s ETA 00:00 (frag 1/3)[download]  70.4% of ~  26.94KiB at    5.16KiB/s ETA 00:00 (frag 1/3)[download]  73.7% of ~  28.44KiB at    5.16KiB/s ETA 00:00 (frag 1/3)[download]  79.4% of ~  31.44KiB at    5.16KiB/s ETA 00:00 (frag 1/3)[download]  88.0% of ~  37.44KiB at    7.46KiB/s ETA 00:00 (frag 1/3)[download]  71.9% of ~  49.44KiB at    7.46KiB/s ETA 00:00 (frag 1/3)[download]  44.6% of ~  79.74KiB at    7.46KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  36.56KiB at    9.90KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  38.56KiB at    9.90KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  42.56KiB at    9.90KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  45.45KiB at    9.90KiB/s ETA 00:00 (frag 2/3)[download]  82.1% of ~  55.34KiB at    9.90KiB/s ETA 00:00 (frag 3/3)[download] 100% of   45.20KiB in 00:00:03 at 12.44KiB/s              
+[26/48] 下载: aLRKaAAPLQQ
+[youtube] Extracting URL: https://www.youtube.com/watch?v=aLRKaAAPLQQ
+[youtube] aLRKaAAPLQQ: Downloading webpage
+[youtube] aLRKaAAPLQQ: Downloading android vr player API JSON
+[youtube] aLRKaAAPLQQ: Downloading player 1ebf2aa6-main
+[youtube] [jsc:node] Solving JS challenges using node
+[youtube] aLRKaAAPLQQ: Downloading m3u8 information
+[info] aLRKaAAPLQQ: Downloading subtitles: zh-Hans
+[info] aLRKaAAPLQQ: Downloading 1 format(s): 399+251
+[info] Writing video subtitles to: /home/lisa/.openclaw/workspace/bestpartners-subtitles/aLRKaAAPLQQ.zh-Hans.vtt
+[hlsnative] Downloading m3u8 manifest
+[hlsnative] Total fragments: 2
+[download] Destination: /home/lisa/.openclaw/workspace/bestpartners-subtitles/aLRKaAAPLQQ.zh-Hans.vtt
+[download] 100.0% of ~   1.00KiB at    269.15B/s ETA 00:00 (frag 0/2)[download] 100.0% of ~   3.00KiB at    269.15B/s ETA 00:00 (frag 0/2)[download] 100.0% of ~   7.00KiB at    269.15B/s ETA 00:00 (frag 0/2)[download] 100.0% of ~  15.00KiB at    3.90KiB/s ETA 00:00 (frag 0/2)[download]  56.2% of ~  30.00KiB at    3.90KiB/s ETA 00:00 (frag 0/2)[download]  25.0% of ~  67.50KiB at    3.90KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  17.87KiB at    5.04KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  19.87KiB at    5.04KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  23.87KiB at    5.04KiB/s ETA 00:00 (frag 1/2)[download]  77.3% of ~  30.86KiB at    5.04KiB/s ETA 00:00 (frag 2/2)[download] 100% of   23.75KiB in 00:00:02 at 10.09KiB/s              
+[27/48] 下载: S7L-VuyvKus
+[youtube] Extracting URL: https://www.youtube.com/watch?v=S7L-VuyvKus
+[youtube] S7L-VuyvKus: Downloading webpage
+[youtube] S7L-VuyvKus: Downloading android vr player API JSON
+[youtube] S7L-VuyvKus: Downloading player 1ebf2aa6-main
+[youtube] [jsc:node] Solving JS challenges using node
+[youtube] S7L-VuyvKus: Downloading m3u8 information
+[info] S7L-VuyvKus: Downloading subtitles: zh-Hans
+[info] S7L-VuyvKus: Downloading 1 format(s): 399+251
+[info] Writing video subtitles to: /home/lisa/.openclaw/workspace/bestpartners-subtitles/S7L-VuyvKus.zh-Hans.vtt
+[hlsnative] Downloading m3u8 manifest
+[hlsnative] Total fragments: 2
+[download] Destination: /home/lisa/.openclaw/workspace/bestpartners-subtitles/S7L-VuyvKus.zh-Hans.vtt
+[download] Got error: [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000). Retrying (1/10)...
+[download] Got error: [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000). Retrying (2/10)...
+[download] 100.0% of ~   1.00KiB at    123.13B/s ETA 00:00 (frag 0/2)[download] 100.0% of ~   3.00KiB at    123.13B/s ETA 00:00 (frag 0/2)[download] 100.0% of ~   7.00KiB at    123.13B/s ETA 00:00 (frag 0/2)[download] 100.0% of ~  15.00KiB at    1.85KiB/s ETA 00:00 (frag 0/2)[download]  61.0% of ~  30.00KiB at    1.85KiB/s ETA 00:00 (frag 0/2)[download]  25.0% of ~  73.18KiB at    1.85KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  19.29KiB at    6.46KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  21.29KiB at    6.46KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  25.29KiB at    6.46KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  26.16KiB at    6.46KiB/s ETA 00:00 (frag 1/2)[download]  76.9% of ~  34.02KiB at    6.46KiB/s ETA 00:00 (frag 2/2)[download] 100% of   26.05KiB in 00:00:03 at 7.28KiB/s               
+[28/48] 下载: HjzStgZyS3w
+[youtube] Extracting URL: https://www.youtube.com/watch?v=HjzStgZyS3w
+[youtube] HjzStgZyS3w: Downloading webpage
+[youtube] HjzStgZyS3w: Downloading android vr player API JSON
+WARNING: [youtube] [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000). Retrying (1/3)...
+[youtube] HjzStgZyS3w: Downloading android vr player API JSON
+WARNING: [youtube] [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000). Retrying (2/3)...
+[youtube] HjzStgZyS3w: Downloading android vr player API JSON
+[youtube] HjzStgZyS3w: Downloading player 1ebf2aa6-main
+WARNING: [youtube] [jsc] Error solving n challenge request using "node" provider: Failed to load player for JS challenge: Download of 1ebf2aa6-main failed: [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000) (caused by SSLError('[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000)')); please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q= , filling out the appropriate issue template. Confirm you are on the latest version using  yt-dlp -U.
+         input = NChallengeInput(player_url='https://www.youtube.com/s/player/1ebf2aa6/player_ias.vflset/en_US/base.js', challenges=['RD7xcJoOCNlB0daQ', '4JSlPXxLl7XqF7cI'])
+         Please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q= , filling out the appropriate issue template. Confirm you are on the latest version using  yt-dlp -U
+WARNING: [youtube] HjzStgZyS3w: n challenge solving failed: Some formats may be missing. Ensure you have a supported JavaScript runtime and challenge solver script distribution installed. Review any warnings presented before this message. For more details, refer to  https://github.com/yt-dlp/yt-dlp/wiki/EJS
+[info] HjzStgZyS3w: Downloading 1 format(s): 399+251
+[info] There are no subtitles for the requested languages
+[29/48] 下载: dCLqGa0OrI4
+[youtube] Extracting URL: https://www.youtube.com/watch?v=dCLqGa0OrI4
+[youtube] dCLqGa0OrI4: Downloading webpage
+[youtube] dCLqGa0OrI4: Downloading android vr player API JSON
+[youtube] dCLqGa0OrI4: Downloading player 1ebf2aa6-main
+[youtube] [jsc:node] Solving JS challenges using node
+[youtube] dCLqGa0OrI4: Downloading m3u8 information
+[info] dCLqGa0OrI4: Downloading subtitles: zh-Hans
+[info] dCLqGa0OrI4: Downloading 1 format(s): 399+251
+[info] Writing video subtitles to: /home/lisa/.openclaw/workspace/bestpartners-subtitles/dCLqGa0OrI4.zh-Hans.vtt
+[hlsnative] Downloading m3u8 manifest
+[hlsnative] Total fragments: 3
+[download] Destination: /home/lisa/.openclaw/workspace/bestpartners-subtitles/dCLqGa0OrI4.zh-Hans.vtt
+[download] 100.0% of ~   1.00KiB at    217.35B/s ETA 00:00 (frag 0/3)[download] 100.0% of ~   3.00KiB at    217.35B/s ETA 00:00 (frag 0/3)[download]  77.8% of ~   9.00KiB at    1.55KiB/s ETA 00:00 (frag 0/3)[download]  71.4% of ~  21.00KiB at    3.82KiB/s ETA 00:00 (frag 0/3)[download]  42.2% of ~  45.00KiB at    3.82KiB/s ETA 00:00 (frag 0/3)[download]  16.7% of ~ 113.83KiB at    3.82KiB/s ETA 00:00 (frag 1/3)[download]  70.2% of ~  28.46KiB at    4.97KiB/s ETA 00:00 (frag 1/3)[download]  73.3% of ~  29.96KiB at    4.97KiB/s ETA 00:00 (frag 1/3)[download]  78.8% of ~  32.96KiB at    4.97KiB/s ETA 00:00 (frag 1/3)[download]  87.2% of ~  38.96KiB at    7.28KiB/s ETA 00:00 (frag 1/3)[download]  75.1% of ~  50.96KiB at    7.28KiB/s ETA 00:00 (frag 1/3)[download]  44.3% of ~  86.35KiB at    7.28KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  39.27KiB at    9.33KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  41.27KiB at    9.33KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  45.27KiB at   11.31KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  51.44KiB at   13.27KiB/s ETA 00:00 (frag 2/3)[download]  79.6% of ~  64.61KiB at   13.27KiB/s ETA 00:00 (frag 3/3)[download] 100% of   51.24KiB in 00:00:04 at 12.05KiB/s              
+[30/48] 下载: ZePkVcWENxk
+[youtube] Extracting URL: https://www.youtube.com/watch?v=ZePkVcWENxk
+[youtube] ZePkVcWENxk: Downloading webpage
+[youtube] ZePkVcWENxk: Downloading android vr player API JSON
+[youtube] ZePkVcWENxk: Downloading player 1ebf2aa6-main
+[youtube] [jsc:node] Solving JS challenges using node
+[youtube] ZePkVcWENxk: Downloading m3u8 information
+[info] ZePkVcWENxk: Downloading subtitles: zh-Hans
+[info] ZePkVcWENxk: Downloading 1 format(s): 399+251
+[info] Writing video subtitles to: /home/lisa/.openclaw/workspace/bestpartners-subtitles/ZePkVcWENxk.zh-Hans.vtt
+[hlsnative] Downloading m3u8 manifest
+[hlsnative] Total fragments: 2
+[download] Destination: /home/lisa/.openclaw/workspace/bestpartners-subtitles/ZePkVcWENxk.zh-Hans.vtt
+[download] 100.0% of ~   1.00KiB at    143.64B/s ETA 00:00 (frag 0/2)[download] 100.0% of ~   3.00KiB at    143.64B/s ETA 00:00 (frag 0/2)[download] 100.0% of ~   7.00KiB at    143.64B/s ETA 00:00 (frag 0/2)[download] 100.0% of ~  14.98KiB at    2.15KiB/s ETA 00:00 (frag 0/2)[download]  25.0% of ~  59.91KiB at    2.15KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  15.98KiB at    5.69KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  17.98KiB at    5.69KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  21.98KiB at    5.69KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  26.04KiB at    5.69KiB/s ETA 00:00 (frag 1/2)[download]  70.2% of ~  37.10KiB at    5.69KiB/s ETA 00:00 (frag 2/2)[download] 100% of   25.92KiB in 00:00:03 at 7.97KiB/s               
+[31/48] 下载: CebOMyVP5TI
+[youtube] Extracting URL: https://www.youtube.com/watch?v=CebOMyVP5TI
+[youtube] CebOMyVP5TI: Downloading webpage
+[youtube] CebOMyVP5TI: Downloading android vr player API JSON
+[youtube] CebOMyVP5TI: Downloading player 1ebf2aa6-main
+[youtube] [jsc:node] Solving JS challenges using node
+[youtube] CebOMyVP5TI: Downloading m3u8 information
+WARNING: [youtube] Failed to download m3u8 information: [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000)
+[info] CebOMyVP5TI: Downloading 1 format(s): 399+251
+[info] There are no subtitles for the requested languages
+[32/48] 下载: 6wx1VU7m4JM
+[youtube] Extracting URL: https://www.youtube.com/watch?v=6wx1VU7m4JM
+[youtube] 6wx1VU7m4JM: Downloading webpage
+[youtube] 6wx1VU7m4JM: Downloading android vr player API JSON
+[youtube] 6wx1VU7m4JM: Downloading player 1ebf2aa6-main
+[youtube] [jsc:node] Solving JS challenges using node
+[youtube] 6wx1VU7m4JM: Downloading m3u8 information
+[info] 6wx1VU7m4JM: Downloading subtitles: zh-Hans
+[info] 6wx1VU7m4JM: Downloading 1 format(s): 399+251
+[info] Writing video subtitles to: /home/lisa/.openclaw/workspace/bestpartners-subtitles/6wx1VU7m4JM.zh-Hans.vtt
+[hlsnative] Downloading m3u8 manifest
+[hlsnative] Total fragments: 3
+[download] Destination: /home/lisa/.openclaw/workspace/bestpartners-subtitles/6wx1VU7m4JM.zh-Hans.vtt
+[download] 100.0% of ~   1.00KiB at    305.40B/s ETA 00:00 (frag 0/3)[download] 100.0% of ~   3.00KiB at    305.40B/s ETA 00:00 (frag 0/3)[download]  77.8% of ~   9.00KiB at    305.40B/s ETA 00:00 (frag 0/3)[download]  71.4% of ~  21.00KiB at    4.42KiB/s ETA 00:00 (frag 0/3)[download]  40.9% of ~  45.00KiB at    4.42KiB/s ETA 00:00 (frag 0/3)[download]  16.7% of ~ 110.56KiB at    4.42KiB/s ETA 00:00 (frag 1/3)[download]  70.3% of ~  27.64KiB at    5.97KiB/s ETA 00:00 (frag 1/3)[download]  73.5% of ~  29.14KiB at    5.97KiB/s ETA 00:00 (frag 1/3)[download]  79.1% of ~  32.14KiB at    5.97KiB/s ETA 00:00 (frag 1/3)[download]  87.6% of ~  38.14KiB at    8.98KiB/s ETA 00:00 (frag 1/3)[download]  72.8% of ~  50.14KiB at    8.98KiB/s ETA 00:00 (frag 1/3)[download]  44.6% of ~  81.88KiB at    8.98KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  37.51KiB at   10.94KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  38.24KiB at   10.94KiB/s ETA 00:00 (frag 2/3)[download]  95.7% of ~  39.96KiB at   10.94KiB/s ETA 00:00 (frag 3/3)[download] 100% of   38.00KiB in 00:00:03 at 11.30KiB/s              
+[33/48] 下载: WErA87X5ahc
+[youtube] Extracting URL: https://www.youtube.com/watch?v=WErA87X5ahc
+[youtube] WErA87X5ahc: Downloading webpage
+[youtube] WErA87X5ahc: Downloading android vr player API JSON
+[youtube] WErA87X5ahc: Downloading player 1ebf2aa6-main
+[youtube] [jsc:node] Solving JS challenges using node
+[youtube] WErA87X5ahc: Downloading m3u8 information
+[info] WErA87X5ahc: Downloading subtitles: zh-Hans
+[info] WErA87X5ahc: Downloading 1 format(s): 399+251
+[info] Writing video subtitles to: /home/lisa/.openclaw/workspace/bestpartners-subtitles/WErA87X5ahc.zh-Hans.vtt
+[hlsnative] Downloading m3u8 manifest
+[hlsnative] Total fragments: 2
+[download] Destination: /home/lisa/.openclaw/workspace/bestpartners-subtitles/WErA87X5ahc.zh-Hans.vtt
+[download] 100.0% of ~   1.00KiB at    239.07B/s ETA 00:00 (frag 0/2)[download] 100.0% of ~   3.00KiB at    239.07B/s ETA 00:00 (frag 0/2)[download] 100.0% of ~   7.00KiB at    1.69KiB/s ETA 00:00 (frag 0/2)[download] 100.0% of ~  15.00KiB at    4.25KiB/s ETA 00:00 (frag 0/2)[download]  54.9% of ~  30.00KiB at    4.25KiB/s ETA 00:00 (frag 0/2)[download]  25.0% of ~  65.93KiB at    4.25KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  17.48KiB at    5.03KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  19.48KiB at    5.03KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  23.48KiB at    5.03KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  26.16KiB at    5.03KiB/s ETA 00:00 (frag 1/2)[download]  73.0% of ~  35.83KiB at    5.03KiB/s ETA 00:00 (frag 2/2)[download] 100% of   26.04KiB in 00:00:02 at 10.07KiB/s              
+[34/48] 下载: PG9fh6W1eIE
+[youtube] Extracting URL: https://www.youtube.com/watch?v=PG9fh6W1eIE
+[youtube] PG9fh6W1eIE: Downloading webpage
+[youtube] PG9fh6W1eIE: Downloading android vr player API JSON
+[youtube] PG9fh6W1eIE: Downloading player 1ebf2aa6-main
+[youtube] [jsc:node] Solving JS challenges using node
+[youtube] PG9fh6W1eIE: Downloading m3u8 information
+[info] PG9fh6W1eIE: Downloading subtitles: zh-Hans
+[info] PG9fh6W1eIE: Downloading 1 format(s): 303+251
+[info] Writing video subtitles to: /home/lisa/.openclaw/workspace/bestpartners-subtitles/PG9fh6W1eIE.zh-Hans.vtt
+[hlsnative] Downloading m3u8 manifest
+[hlsnative] Total fragments: 3
+[download] Destination: /home/lisa/.openclaw/workspace/bestpartners-subtitles/PG9fh6W1eIE.zh-Hans.vtt
+[download] Got error: [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000). Retrying (1/10)...
+[download] 100.0% of ~   1.00KiB at    155.54B/s ETA 00:00 (frag 0/3)[download] 100.0% of ~   3.00KiB at    155.54B/s ETA 00:00 (frag 0/3)[download]  77.8% of ~   9.00KiB at    1.14KiB/s ETA 00:00 (frag 0/3)[download]  71.4% of ~  21.00KiB at    2.91KiB/s ETA 00:00 (frag 0/3)[download]  38.7% of ~  45.00KiB at    2.91KiB/s ETA 00:00 (frag 0/3)[download]  16.7% of ~ 104.51KiB at    2.91KiB/s ETA 00:00 (frag 1/3)[download]  70.5% of ~  26.13KiB at    6.62KiB/s ETA 00:00 (frag 1/3)[download]  73.9% of ~  27.63KiB at    9.41KiB/s ETA 00:00 (frag 1/3)[download]  79.7% of ~  30.63KiB at    9.41KiB/s ETA 00:00 (frag 1/3)[download]  88.5% of ~  36.63KiB at    9.41KiB/s ETA 00:00 (frag 1/3)[download]  72.7% of ~  48.63KiB at    9.41KiB/s ETA 00:00 (frag 1/3)[download]  44.2% of ~  79.97KiB at    9.41KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  36.37KiB at   11.34KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  38.37KiB at   11.34KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  39.23KiB at   11.34KiB/s ETA 00:00 (frag 2/3)[download]  91.0% of ~  43.10KiB at   11.34KiB/s ETA 00:00 (frag 3/3)[download] 100% of   39.00KiB in 00:00:04 at 9.26KiB/s               
+[35/48] 下载: sR1grBQ2-Xc
+[youtube] Extracting URL: https://www.youtube.com/watch?v=sR1grBQ2-Xc
+[youtube] sR1grBQ2-Xc: Downloading webpage
+[youtube] sR1grBQ2-Xc: Downloading android vr player API JSON
+[youtube] sR1grBQ2-Xc: Downloading player 1ebf2aa6-main
+[youtube] [jsc:node] Solving JS challenges using node
+[youtube] sR1grBQ2-Xc: Downloading m3u8 information
+[info] sR1grBQ2-Xc: Downloading subtitles: zh-Hans
+[info] sR1grBQ2-Xc: Downloading 1 format(s): 399+251
+[info] Writing video subtitles to: /home/lisa/.openclaw/workspace/bestpartners-subtitles/sR1grBQ2-Xc.zh-Hans.vtt
+[hlsnative] Downloading m3u8 manifest
+[hlsnative] Total fragments: 2
+[download] Destination: /home/lisa/.openclaw/workspace/bestpartners-subtitles/sR1grBQ2-Xc.zh-Hans.vtt
+[download] Got error: [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000). Retrying (1/10)...
+[download] 100.0% of ~   1.00KiB at    142.64B/s ETA 00:00 (frag 0/2)[download] 100.0% of ~   3.00KiB at    142.64B/s ETA 00:00 (frag 0/2)[download] 100.0% of ~   7.00KiB at    142.64B/s ETA 00:00 (frag 0/2)[download] 100.0% of ~  15.00KiB at    142.64B/s ETA 00:00 (frag 0/2)[download]  58.1% of ~  30.00KiB at    142.64B/s ETA 00:00 (frag 0/2)[download]  25.0% of ~  69.74KiB at    142.64B/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  18.44KiB at    5.38KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  20.44KiB at    5.38KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  24.44KiB at    5.38KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  27.73KiB at    5.38KiB/s ETA 00:00 (frag 1/2)[download]  72.9% of ~  38.03KiB at    5.38KiB/s ETA 00:00 (frag 2/2)[download] 100% of   27.62KiB in 00:00:03 at 8.68KiB/s               
+[36/48] 下载: xYYWMevfk54
+[youtube] Extracting URL: https://www.youtube.com/watch?v=xYYWMevfk54
+[youtube] xYYWMevfk54: Downloading webpage
+[youtube] xYYWMevfk54: Downloading android vr player API JSON
+WARNING: [youtube] [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000). Retrying (1/3)...
+[youtube] xYYWMevfk54: Downloading android vr player API JSON
+WARNING: [youtube] [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000). Retrying (2/3)...
+[youtube] xYYWMevfk54: Downloading android vr player API JSON
+[youtube] xYYWMevfk54: Downloading player 1ebf2aa6-main
+[youtube] [jsc:node] Solving JS challenges using node
+[youtube] xYYWMevfk54: Downloading m3u8 information
+[info] xYYWMevfk54: Downloading subtitles: zh-Hans
+[info] xYYWMevfk54: Downloading 1 format(s): 399+251
+[info] Writing video subtitles to: /home/lisa/.openclaw/workspace/bestpartners-subtitles/xYYWMevfk54.zh-Hans.vtt
+[hlsnative] Downloading m3u8 manifest
+[hlsnative] Total fragments: 2
+[download] Destination: /home/lisa/.openclaw/workspace/bestpartners-subtitles/xYYWMevfk54.zh-Hans.vtt
+[download] 100.0% of ~   1.00KiB at    205.75B/s ETA 00:00 (frag 0/2)[download] 100.0% of ~   3.00KiB at    205.75B/s ETA 00:00 (frag 0/2)[download] 100.0% of ~   7.00KiB at    205.75B/s ETA 00:00 (frag 0/2)[download] 100.0% of ~  15.00KiB at    3.02KiB/s ETA 00:00 (frag 0/2)[download]  59.5% of ~  30.00KiB at    3.02KiB/s ETA 00:00 (frag 0/2)[download]  25.0% of ~  71.44KiB at    3.02KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  18.86KiB at    4.10KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  20.86KiB at    4.10KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  22.20KiB at    6.68KiB/s ETA 00:00 (frag 1/2)[download]  83.6% of ~  26.55KiB at    6.68KiB/s ETA 00:00 (frag 2/2)[download] 100% of   22.07KiB in 00:00:03 at 6.97KiB/s               
+[37/48] 下载: 4cTSbUGKtRY
+[youtube] Extracting URL: https://www.youtube.com/watch?v=4cTSbUGKtRY
+[youtube] 4cTSbUGKtRY: Downloading webpage
+[youtube] 4cTSbUGKtRY: Downloading android vr player API JSON
+[youtube] 4cTSbUGKtRY: Downloading player 1ebf2aa6-main
+[youtube] [jsc:node] Solving JS challenges using node
+[youtube] 4cTSbUGKtRY: Downloading m3u8 information
+[info] 4cTSbUGKtRY: Downloading subtitles: zh-Hans
+[info] 4cTSbUGKtRY: Downloading 1 format(s): 399+251
+[info] Writing video subtitles to: /home/lisa/.openclaw/workspace/bestpartners-subtitles/4cTSbUGKtRY.zh-Hans.vtt
+[hlsnative] Downloading m3u8 manifest
+[hlsnative] Total fragments: 2
+[download] Destination: /home/lisa/.openclaw/workspace/bestpartners-subtitles/4cTSbUGKtRY.zh-Hans.vtt
+[download] 100.0% of ~   1.00KiB at    238.82B/s ETA 00:00 (frag 0/2)[download] 100.0% of ~   3.00KiB at    238.82B/s ETA 00:00 (frag 0/2)[download] 100.0% of ~   7.00KiB at    1.70KiB/s ETA 00:00 (frag 0/2)[download] 100.0% of ~  15.00KiB at    4.05KiB/s ETA 00:00 (frag 0/2)[download]  56.2% of ~  30.00KiB at    4.05KiB/s ETA 00:00 (frag 0/2)[download]  25.0% of ~  67.41KiB at    4.05KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  17.85KiB at    4.69KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  19.85KiB at    4.69KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  23.85KiB at    5.72KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  31.30KiB at    9.28KiB/s ETA 00:00 (frag 1/2)[download]  68.4% of ~  45.75KiB at    9.28KiB/s ETA 00:00 (frag 2/2)[download] 100% of   31.15KiB in 00:00:03 at 10.33KiB/s              
+[38/48] 下载: IXBFj_2fqBE
+[youtube] Extracting URL: https://www.youtube.com/watch?v=IXBFj_2fqBE
+[youtube] IXBFj_2fqBE: Downloading webpage
+[youtube] IXBFj_2fqBE: Downloading android vr player API JSON
+[youtube] IXBFj_2fqBE: Downloading player 1ebf2aa6-main
+[youtube] [jsc:node] Solving JS challenges using node
+[youtube] IXBFj_2fqBE: Downloading m3u8 information
+[info] IXBFj_2fqBE: Downloading subtitles: zh-Hans
+[info] IXBFj_2fqBE: Downloading 1 format(s): 399+251
+[info] Writing video subtitles to: /home/lisa/.openclaw/workspace/bestpartners-subtitles/IXBFj_2fqBE.zh-Hans.vtt
+[hlsnative] Downloading m3u8 manifest
+[hlsnative] Total fragments: 2
+[download] Destination: /home/lisa/.openclaw/workspace/bestpartners-subtitles/IXBFj_2fqBE.zh-Hans.vtt
+[download] 100.0% of ~   1.00KiB at    229.81B/s ETA 00:00 (frag 0/2)[download] 100.0% of ~   3.00KiB at    229.81B/s ETA 00:00 (frag 0/2)[download] 100.0% of ~   7.00KiB at    1.62KiB/s ETA 00:00 (frag 0/2)[download] 100.0% of ~  15.00KiB at    4.02KiB/s ETA 00:00 (frag 0/2)[download]  57.2% of ~  30.00KiB at    4.02KiB/s ETA 00:00 (frag 0/2)[download]  25.0% of ~  68.64KiB at    4.02KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  18.16KiB at    4.81KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  18.60KiB at    6.45KiB/s ETA 00:00 (frag 1/2)[download]  92.8% of ~  20.05KiB at    6.45KiB/s ETA 00:00 (frag 2/2)[download] 100% of   18.46KiB in 00:00:03 at 6.05KiB/s               
+[39/48] 下载: fpaNa04fcgo
+[youtube] Extracting URL: https://www.youtube.com/watch?v=fpaNa04fcgo
+[youtube] fpaNa04fcgo: Downloading webpage
+[youtube] fpaNa04fcgo: Downloading android vr player API JSON
+[youtube] fpaNa04fcgo: Downloading player 1ebf2aa6-main
+[youtube] [jsc:node] Solving JS challenges using node
+[youtube] fpaNa04fcgo: Downloading m3u8 information
+[info] fpaNa04fcgo: Downloading subtitles: zh-Hans
+[info] fpaNa04fcgo: Downloading 1 format(s): 399+251
+[info] Writing video subtitles to: /home/lisa/.openclaw/workspace/bestpartners-subtitles/fpaNa04fcgo.zh-Hans.vtt
+[hlsnative] Downloading m3u8 manifest
+[hlsnative] Total fragments: 3
+[download] Destination: /home/lisa/.openclaw/workspace/bestpartners-subtitles/fpaNa04fcgo.zh-Hans.vtt
+[download] 100.0% of ~   1.00KiB at    228.13B/s ETA 00:00 (frag 0/3)[download] 100.0% of ~   3.00KiB at    228.13B/s ETA 00:00 (frag 0/3)[download]  77.8% of ~   9.00KiB at    1.60KiB/s ETA 00:00 (frag 0/3)[download]  71.4% of ~  21.00KiB at    3.96KiB/s ETA 00:00 (frag 0/3)[download]  36.3% of ~  45.00KiB at    3.96KiB/s ETA 00:00 (frag 0/3)[download]  16.7% of ~  97.92KiB at    3.96KiB/s ETA 00:00 (frag 1/3)[download]  70.8% of ~  24.48KiB at    4.61KiB/s ETA 00:00 (frag 1/3)[download]  74.4% of ~  25.98KiB at    4.61KiB/s ETA 00:00 (frag 1/3)[download]  80.5% of ~  28.98KiB at    4.61KiB/s ETA 00:00 (frag 1/3)[download]  89.5% of ~  34.98KiB at    6.47KiB/s ETA 00:00 (frag 1/3)[download]  70.6% of ~  46.98KiB at    6.47KiB/s ETA 00:00 (frag 1/3)[download]  44.2% of ~  74.97KiB at    6.47KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  34.15KiB at    8.14KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  34.31KiB at    8.14KiB/s ETA 00:00 (frag 2/3)[download]  96.7% of ~  35.48KiB at    8.14KiB/s ETA 00:00 (frag 3/3)[download] 100% of   34.09KiB in 00:00:04 at 8.30KiB/s               
+[40/48] 下载: I2ncS9-tPPY
+[youtube] Extracting URL: https://www.youtube.com/watch?v=I2ncS9-tPPY
+[youtube] I2ncS9-tPPY: Downloading webpage
+[youtube] I2ncS9-tPPY: Downloading android vr player API JSON
+[youtube] I2ncS9-tPPY: Downloading player 1ebf2aa6-main
+[youtube] [jsc:node] Solving JS challenges using node
+[youtube] I2ncS9-tPPY: Downloading m3u8 information
+[info] I2ncS9-tPPY: Downloading subtitles: zh-Hans
+[info] I2ncS9-tPPY: Downloading 1 format(s): 399+251
+[info] Writing video subtitles to: /home/lisa/.openclaw/workspace/bestpartners-subtitles/I2ncS9-tPPY.zh-Hans.vtt
+[hlsnative] Downloading m3u8 manifest
+[hlsnative] Total fragments: 2
+[download] Destination: /home/lisa/.openclaw/workspace/bestpartners-subtitles/I2ncS9-tPPY.zh-Hans.vtt
+[download] 100.0% of ~   1.00KiB at    251.92B/s ETA 00:00 (frag 0/2)[download] 100.0% of ~   3.00KiB at    251.92B/s ETA 00:00 (frag 0/2)[download] 100.0% of ~   7.00KiB at    251.92B/s ETA 00:00 (frag 0/2)[download] 100.0% of ~  15.00KiB at    251.92B/s ETA 00:00 (frag 0/2)[download]  59.3% of ~  30.00KiB at    251.92B/s ETA 00:00 (frag 0/2)[download]  25.0% of ~  71.17KiB at    251.92B/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  18.79KiB at    2.17KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  20.79KiB at    2.17KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  24.79KiB at    4.06KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  32.72KiB at    7.25KiB/s ETA 00:00 (frag 1/2)[download]  68.7% of ~  47.65KiB at    7.25KiB/s ETA 00:00 (frag 2/2)[download] 100% of   32.61KiB in 00:00:03 at 9.64KiB/s               
+[41/48] 下载: LAKY3Ewb3M0
+[youtube] Extracting URL: https://www.youtube.com/watch?v=LAKY3Ewb3M0
+[youtube] LAKY3Ewb3M0: Downloading webpage
+[youtube] LAKY3Ewb3M0: Downloading android vr player API JSON
+[youtube] LAKY3Ewb3M0: Downloading player 1ebf2aa6-main
+[youtube] [jsc:node] Solving JS challenges using node
+[youtube] LAKY3Ewb3M0: Downloading m3u8 information
+[info] LAKY3Ewb3M0: Downloading subtitles: zh-Hans
+[info] LAKY3Ewb3M0: Downloading 1 format(s): 399+251
+[info] Writing video subtitles to: /home/lisa/.openclaw/workspace/bestpartners-subtitles/LAKY3Ewb3M0.zh-Hans.vtt
+[hlsnative] Downloading m3u8 manifest
+[hlsnative] Total fragments: 3
+[download] Destination: /home/lisa/.openclaw/workspace/bestpartners-subtitles/LAKY3Ewb3M0.zh-Hans.vtt
+[download] 100.0% of ~   1.00KiB at    208.32B/s ETA 00:00 (frag 0/3)[download] 100.0% of ~   3.00KiB at    208.32B/s ETA 00:00 (frag 0/3)[download]  77.8% of ~   9.00KiB at    1.49KiB/s ETA 00:00 (frag 0/3)[download]  71.4% of ~  21.00KiB at    3.72KiB/s ETA 00:00 (frag 0/3)[download]  36.1% of ~  45.00KiB at    3.72KiB/s ETA 00:00 (frag 0/3)[download]  16.7% of ~  97.44KiB at    3.72KiB/s ETA 00:00 (frag 1/3)[download]  70.8% of ~  24.36KiB at    4.40KiB/s ETA 00:00 (frag 1/3)[download]  74.4% of ~  25.86KiB at    4.40KiB/s ETA 00:00 (frag 1/3)[download]  80.5% of ~  28.86KiB at    5.43KiB/s ETA 00:00 (frag 1/3)[download]  89.6% of ~  34.86KiB at    9.59KiB/s ETA 00:00 (frag 1/3)[download]  71.7% of ~  46.86KiB at    9.59KiB/s ETA 00:00 (frag 1/3)[download]  44.0% of ~  76.45KiB at    9.59KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  34.60KiB at   10.44KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  36.60KiB at   10.44KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  40.60KiB at   10.44KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  42.42KiB at   10.44KiB/s ETA 00:00 (frag 2/3)[download]  82.8% of ~  51.23KiB at   10.44KiB/s ETA 00:00 (frag 3/3)[download] 100% of   42.16KiB in 00:00:04 at 10.06KiB/s              
+[42/48] 下载: wa6LqgXoUSg
+[youtube] Extracting URL: https://www.youtube.com/watch?v=wa6LqgXoUSg
+[youtube] wa6LqgXoUSg: Downloading webpage
+[youtube] wa6LqgXoUSg: Downloading android vr player API JSON
+[youtube] wa6LqgXoUSg: Downloading player 1ebf2aa6-main
+[youtube] [jsc:node] Solving JS challenges using node
+[youtube] wa6LqgXoUSg: Downloading m3u8 information
+[info] wa6LqgXoUSg: Downloading subtitles: zh-Hans
+[info] wa6LqgXoUSg: Downloading 1 format(s): 399+251
+[info] Writing video subtitles to: /home/lisa/.openclaw/workspace/bestpartners-subtitles/wa6LqgXoUSg.zh-Hans.vtt
+[hlsnative] Downloading m3u8 manifest
+[hlsnative] Total fragments: 2
+[download] Destination: /home/lisa/.openclaw/workspace/bestpartners-subtitles/wa6LqgXoUSg.zh-Hans.vtt
+[download] 100.0% of ~   1.00KiB at    166.68B/s ETA 00:00 (frag 0/2)[download] 100.0% of ~   3.00KiB at    166.68B/s ETA 00:00 (frag 0/2)[download] 100.0% of ~   7.00KiB at    1.21KiB/s ETA 00:00 (frag 0/2)[download] 100.0% of ~  15.00KiB at    3.00KiB/s ETA 00:00 (frag 0/2)[download]  56.4% of ~  30.00KiB at    3.00KiB/s ETA 00:00 (frag 0/2)[download]  25.0% of ~  67.71KiB at    3.00KiB/s ETA 00:00 (frag 1/2)[download] Got error: [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000). Retrying (1/10)...
+[download] 100.0% of ~  17.93KiB at    2.39KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  19.93KiB at    6.94KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  23.93KiB at   13.47KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  30.48KiB at   20.27KiB/s ETA 00:00 (frag 1/2)[download]  69.2% of ~  44.03KiB at   20.27KiB/s ETA 00:00 (frag 2/2)[download] 100% of   30.34KiB in 00:00:05 at 5.58KiB/s               
+[43/48] 下载: NiRHIW4BHWo
+[youtube] Extracting URL: https://www.youtube.com/watch?v=NiRHIW4BHWo
+[youtube] NiRHIW4BHWo: Downloading webpage
+[youtube] NiRHIW4BHWo: Downloading android vr player API JSON
+[youtube] NiRHIW4BHWo: Downloading player 1ebf2aa6-main
+WARNING: [youtube] [jsc] Error solving n challenge request using "node" provider: Failed to load player for JS challenge: Download of 1ebf2aa6-main failed: [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000) (caused by SSLError('[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000)')); please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q= , filling out the appropriate issue template. Confirm you are on the latest version using  yt-dlp -U.
+         input = NChallengeInput(player_url='https://www.youtube.com/s/player/1ebf2aa6/player_ias.vflset/en_US/base.js', challenges=['pMXYfGZgGzUMR5se', 'KMy-gFA6OxEcaNor'])
+         Please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q= , filling out the appropriate issue template. Confirm you are on the latest version using  yt-dlp -U
+WARNING: [youtube] NiRHIW4BHWo: n challenge solving failed: Some formats may be missing. Ensure you have a supported JavaScript runtime and challenge solver script distribution installed. Review any warnings presented before this message. For more details, refer to  https://github.com/yt-dlp/yt-dlp/wiki/EJS
+[info] NiRHIW4BHWo: Downloading 1 format(s): 399+251
+[info] There are no subtitles for the requested languages
+[44/48] 下载: -OlBmXFOScQ
+[youtube] Extracting URL: https://www.youtube.com/watch?v=-OlBmXFOScQ
+[youtube] -OlBmXFOScQ: Downloading webpage
+[youtube] -OlBmXFOScQ: Downloading android vr player API JSON
+[youtube] -OlBmXFOScQ: Downloading player 1ebf2aa6-main
+WARNING: [youtube] [jsc] Error solving n challenge request using "node" provider: Failed to load player for JS challenge: Download of 1ebf2aa6-main failed: [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000) (caused by SSLError('[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000)')); please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q= , filling out the appropriate issue template. Confirm you are on the latest version using  yt-dlp -U.
+         input = NChallengeInput(player_url='https://www.youtube.com/s/player/1ebf2aa6/player_ias.vflset/en_US/base.js', challenges=['Sdhg283ARNmZnskX', 'XdpbCXX3PhjE5khM'])
+         Please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q= , filling out the appropriate issue template. Confirm you are on the latest version using  yt-dlp -U
+WARNING: [youtube] -OlBmXFOScQ: n challenge solving failed: Some formats may be missing. Ensure you have a supported JavaScript runtime and challenge solver script distribution installed. Review any warnings presented before this message. For more details, refer to  https://github.com/yt-dlp/yt-dlp/wiki/EJS
+[info] -OlBmXFOScQ: Downloading 1 format(s): 399+251
+[info] There are no subtitles for the requested languages
+[45/48] 下载: Z83nVSeMMXM
+[youtube] Extracting URL: https://www.youtube.com/watch?v=Z83nVSeMMXM
+[youtube] Z83nVSeMMXM: Downloading webpage
+[youtube] Z83nVSeMMXM: Downloading android vr player API JSON
+[youtube] Z83nVSeMMXM: Downloading player 1ebf2aa6-main
+[youtube] [jsc:node] Solving JS challenges using node
+[youtube] Z83nVSeMMXM: Downloading m3u8 information
+[info] Z83nVSeMMXM: Downloading subtitles: zh-Hans
+[info] Z83nVSeMMXM: Downloading 1 format(s): 399+251
+[info] Writing video subtitles to: /home/lisa/.openclaw/workspace/bestpartners-subtitles/Z83nVSeMMXM.zh-Hans.vtt
+[hlsnative] Downloading m3u8 manifest
+[hlsnative] Total fragments: 3
+[download] Destination: /home/lisa/.openclaw/workspace/bestpartners-subtitles/Z83nVSeMMXM.zh-Hans.vtt
+[download] 100.0% of ~   1.00KiB at    227.65B/s ETA 00:00 (frag 0/3)[download] 100.0% of ~   3.00KiB at    227.65B/s ETA 00:00 (frag 0/3)[download]  77.8% of ~   9.00KiB at    1.61KiB/s ETA 00:00 (frag 0/3)[download]  71.4% of ~  21.00KiB at    4.01KiB/s ETA 00:00 (frag 0/3)[download]  36.3% of ~  45.00KiB at    4.01KiB/s ETA 00:00 (frag 0/3)[download]  16.7% of ~  97.91KiB at    4.01KiB/s ETA 00:00 (frag 1/3)[download]  70.8% of ~  24.48KiB at    4.72KiB/s ETA 00:00 (frag 1/3)[download]  74.4% of ~  25.98KiB at    4.72KiB/s ETA 00:00 (frag 1/3)[download]  80.5% of ~  28.98KiB at    5.80KiB/s ETA 00:00 (frag 1/3)[download]  89.5% of ~  34.98KiB at    7.29KiB/s ETA 00:00 (frag 1/3)[download]  69.9% of ~  46.98KiB at    7.29KiB/s ETA 00:00 (frag 1/3)[download]  44.4% of ~  74.06KiB at    7.29KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  33.84KiB at    8.55KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  35.84KiB at    8.55KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  39.84KiB at    8.55KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  47.84KiB at   10.68KiB/s ETA 00:00 (frag 2/3)[download] 100.0% of ~  48.08KiB at   10.68KiB/s ETA 00:00 (frag 2/3)[download]  75.9% of ~  63.32KiB at   10.68KiB/s ETA 00:00 (frag 3/3)[download] 100% of   47.82KiB in 00:00:04 at 11.00KiB/s              
+[46/48] 下载: 4-cNU1ekTAc
+[youtube] Extracting URL: https://www.youtube.com/watch?v=4-cNU1ekTAc
+[youtube] 4-cNU1ekTAc: Downloading webpage
+[youtube] 4-cNU1ekTAc: Downloading android vr player API JSON
+[youtube] 4-cNU1ekTAc: Downloading player 1ebf2aa6-main
+[youtube] [jsc:node] Solving JS challenges using node
+[youtube] 4-cNU1ekTAc: Downloading m3u8 information
+[info] 4-cNU1ekTAc: Downloading subtitles: zh-Hans
+[info] 4-cNU1ekTAc: Downloading 1 format(s): 399+251
+[info] Writing video subtitles to: /home/lisa/.openclaw/workspace/bestpartners-subtitles/4-cNU1ekTAc.zh-Hans.vtt
+[hlsnative] Downloading m3u8 manifest
+[hlsnative] Total fragments: 2
+[download] Destination: /home/lisa/.openclaw/workspace/bestpartners-subtitles/4-cNU1ekTAc.zh-Hans.vtt
+[download] 100.0% of ~   1.00KiB at      0.00B/s ETA Unknown (frag 0/2)[download] 100.0% of ~   3.00KiB at      0.00B/s ETA Unknown (frag 0/2)[download] 100.0% of ~   7.00KiB at      0.00B/s ETA Unknown (frag 0/2)[download] 100.0% of ~  15.00KiB at   28.39KiB/s ETA 00:00 (frag 0/2)  [download]  51.8% of ~  30.00KiB at   28.39KiB/s ETA 00:00 (frag 0/2)[download]  25.0% of ~  62.20KiB at   28.39KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  16.55KiB at   23.34KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  18.55KiB at   23.34KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  22.55KiB at   20.94KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  30.47KiB at   20.94KiB/s ETA 00:00 (frag 1/2)[download]  67.1% of ~  45.39KiB at   20.73KiB/s ETA 00:00 (frag 2/2)[download] 100% of   30.36KiB in 00:00:05 at 5.92KiB/s               
+[47/48] 下载: s3awPa_XEFE
+[youtube] Extracting URL: https://www.youtube.com/watch?v=s3awPa_XEFE
+[youtube] s3awPa_XEFE: Downloading webpage
+[youtube] s3awPa_XEFE: Downloading android vr player API JSON
+[youtube] s3awPa_XEFE: Downloading player 1ebf2aa6-main
+[youtube] [jsc:node] Solving JS challenges using node
+[youtube] s3awPa_XEFE: Downloading m3u8 information
+[info] s3awPa_XEFE: Downloading subtitles: zh-Hans
+[info] s3awPa_XEFE: Downloading 1 format(s): 399+251
+[info] Writing video subtitles to: /home/lisa/.openclaw/workspace/bestpartners-subtitles/s3awPa_XEFE.zh-Hans.vtt
+[hlsnative] Downloading m3u8 manifest
+ERROR: Unable to download video subtitles for 'zh-Hans': [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000)
+[48/48] 下载: x0hh6BZTw00
+[youtube] Extracting URL: https://www.youtube.com/watch?v=x0hh6BZTw00
+[youtube] x0hh6BZTw00: Downloading webpage
+[youtube] x0hh6BZTw00: Downloading android vr player API JSON
+[youtube] x0hh6BZTw00: Downloading player 1ebf2aa6-main
+[youtube] [jsc:node] Solving JS challenges using node
+[youtube] x0hh6BZTw00: Downloading m3u8 information
+[info] x0hh6BZTw00: Downloading subtitles: zh-Hans
+[info] x0hh6BZTw00: Downloading 1 format(s): 399+251
+[info] Writing video subtitles to: /home/lisa/.openclaw/workspace/bestpartners-subtitles/x0hh6BZTw00.zh-Hans.vtt
+[hlsnative] Downloading m3u8 manifest
+[hlsnative] Total fragments: 2
+[download] Destination: /home/lisa/.openclaw/workspace/bestpartners-subtitles/x0hh6BZTw00.zh-Hans.vtt
+[download] 100.0% of ~   1.00KiB at    160.81B/s ETA 00:00 (frag 0/2)[download] 100.0% of ~   3.00KiB at    160.81B/s ETA 00:00 (frag 0/2)[download] 100.0% of ~   7.00KiB at    160.81B/s ETA 00:00 (frag 0/2)[download] 100.0% of ~  15.00KiB at    2.40KiB/s ETA 00:00 (frag 0/2)[download]  53.8% of ~  30.00KiB at    2.40KiB/s ETA 00:00 (frag 0/2)[download]  25.0% of ~  64.52KiB at    2.40KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  17.13KiB at    4.48KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  19.13KiB at    4.48KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  23.13KiB at    4.48KiB/s ETA 00:00 (frag 1/2)[download] 100.0% of ~  26.94KiB at    4.48KiB/s ETA 00:00 (frag 1/2)[download]  71.4% of ~  37.75KiB at    4.48KiB/s ETA 00:00 (frag 2/2)[download] 100% of   26.82KiB in 00:00:03 at 7.32KiB/s               
+---
+下载完成！
+字幕文件数: 37

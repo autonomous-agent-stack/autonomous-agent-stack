@@ -1,0 +1,23 @@
+{
+  "lastHeartbeat": "2026-03-22T21:56:00+08:00",
+  "tasks": {
+    "xBookmarks": {
+      "status": "checked",
+      "lastCheck": "2026-03-22T10:25:00Z",
+      "nextCheck": "2026-03-23T02:00:00Z",
+      "notes": "3.5小时前已检查，下次凌晨2点"
+    },
+    "knowledgeBase": {
+      "status": "maintained",
+      "lastUpdate": "2026-03-22T21:51:00+08:00",
+      "files": 149,
+      "notes": "claude-code-learning仓库已建立"
+    },
+    "repoHealthCheck": {
+      "status": "scheduled",
+      "nextCheck": "2026-03-22T23:00:00+08:00",
+      "notes": "距离下次检查还有1小时4分钟"
+    }
+  },
+  "summary": "所有任务正常，下次检查23:00"
+}

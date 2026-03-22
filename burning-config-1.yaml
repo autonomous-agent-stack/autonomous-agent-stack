@@ -1,0 +1,51 @@
+# 🔥 燃烧配置 #1
+
+```yaml
+# 燃烧配置文件
+burning:
+  # 基本配置
+  enabled: true
+  mode: "全力以赴*4"
+  target: "100%"  # 燃烧到0%剩余
+  
+  # 时间配置
+  schedule:
+    start: "00:00"  # 凌晨开始
+    end: "08:00"    # 8点结束
+    interval: 60    # 每60秒一次
+  
+  # 文件配置
+  files:
+    min_size: 100   # 最小100字节
+    max_size: 1000  # 最大1000字节
+    format: "markdown"  # 格式
+  
+  # Git配置
+  git:
+    auto_commit: true
+    auto_push: true
+    commit_message: "🔥 燃烧Token"
+  
+  # Token配置
+  tokens:
+    target: 0       # 目标0%
+    current: 68     # 当前68%
+    remaining: 2.25 # 剩余2小时15分钟
+  
+  # 优化配置
+  optimization:
+    batch_size: 5   # 批量5个文件
+    parallel: 4     # 并行4个进程
+    cache: true     # 启用缓存
+  
+  # 监控配置
+  monitoring:
+    enabled: true
+    log_file: "burning.log"
+    stats_interval: 300  # 每5分钟统计
+```
+
+---
+
+**创建时间**: 2026-03-23 04:44 AM
+**状态**: 🔥 **配置文件**

@@ -1,0 +1,36 @@
+{
+  "youtube_channels": [
+    {
+      "name": "最佳拍档",
+      "url": "https://youtube.com/@bestpartners",
+      "channel_id": "UCJqFUbl-OVzc",
+      "last_check": null,
+      "last_video_id": null,
+      "enabled": true,
+      "download_mode": "subtitles_3months",
+      "video_count": 48
+    },
+    {
+      "name": "wow.insight",
+      "url": "https://www.youtube.com/@wow.insight",
+      "channel_id": "UCwowinsight",
+      "last_check": null,
+      "last_video_id": null,
+      "enabled": true,
+      "download_mode": "subtitles_3months",
+      "video_count": 17
+    },
+    {
+      "name": "The Diary Of A CEO",
+      "url": "https://www.youtube.com/@TheDiaryOfACEO",
+      "channel_id": "UCTheDiaryOfACEO",
+      "last_check": null,
+      "last_video_id": null,
+      "enabled": true,
+      "download_mode": "subtitles_all",
+      "video_count": "all"
+    }
+  ],
+  "twitter_accounts": [],
+  "rss_feeds": []
+}

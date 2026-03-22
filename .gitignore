@@ -1,0 +1,35 @@
+.autoresearch/
+projects/
+pua/
+.openclaw/
+.git/
+projects/ai-agent/*/
+pua/
+autoresearch/.git
+
+!projects/claude-code-learning/
+
+# 大文件忽略规则
+*.webm
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.flv
+*.zip
+*.tar.gz
+*.rar
+*.7z
+*.iso
+*.dmg
+*.exe
+*.msi
+
+# 其他仓库的.git目录（避免Git冲突）
+awesome-ai-agents/.git/
+cherry-studio/.git/
+NeMo-Agent-Toolkit/.git/
+plannotator/.git/
+OpenViking/.git/
+swarms/.git/
+MASFactory/.git/
