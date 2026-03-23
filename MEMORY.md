@@ -52,6 +52,12 @@
   - Introduction to Agent Skills
   - Introduction to Subagents
   - 详见: `memory/anthropic-academy-courses.md`
+- **非技术人员友好资源**: 详见 `memory/non-technical-ai-resources.md`
+  - Prompt Engineering Guide（72k stars，13种语言）
+  - Awesome ChatGPT Prompts（123k stars）
+  - 实用 AI 工具（Claude、ChatGPT、Perplexity、Gamma、Notion AI）
+  - 场景化 Prompt 模板
+  - 学习路径推荐
 - **Claude Cookbooks 中文版**: https://github.com/srxly888-creator/claude-cookbooks-zh
   - 已翻译：21/67 notebooks（核心能力 + 工具使用 + Agent 模式）
   - 适合：Python 开发者

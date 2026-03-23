@@ -41,6 +41,17 @@
 - Use `~/self-improving/heartbeat-state.md` for last-run markers and action notes
 - If no file inside `~/self-improving/` changed since the last reviewed change, return `HEARTBEAT_OK`
 
+## AI 学习资源维护（每周)
+- 检查非技术友好资源链接是否有效
+- 确认新资源已归档
+- 更新 `memory/non-technical-ai-resources.md`
+
+## 非技术人员资源整理（一次性)
+- **Prompt Engineering Guide**: 72k stars, 无需编程
+- **Awesome ChatGPT Prompts**: 123k stars, 200+ 现成模板
+- **Anthropic Academy**: 官方免费课程
+- 详见: `memory/non-technical-ai-resources.md`
+
 ## Memory Backup (每6小时)
 - Run: `~/.openclaw/scripts/backup-memory.sh`
 - Backup to: https://github.com/srxly888-creator/openclaw-memory
