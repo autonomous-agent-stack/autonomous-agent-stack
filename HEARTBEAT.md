@@ -14,12 +14,13 @@
   - 生成总结报告
   - 状态文件: `~/.openclaw/workspace/.bookmark-state.json`
 
-- [ ] YouTube 频道监控（每次心跳）
-  - 频道: @bestpartners（最佳拍档）
+- [x] YouTube 频道监控（每次心跳） ✅ 已完成
+  - 频道: @bestpartners（最佳拍档）⚠️ **链接已失效** - 使用 `@bestpartnerstv` 替代
   - 监控: 最新视频
   - 下载: 字幕（如有）
   - 整理: 关键内容
   - 配置: `~/.openclaw/workspace/.channel-subscriptions.json`
+  - 状态: 4 个活跃频道，4 个失效频道（2026-03-24）
 
 - [ ] 知识库维护（每日）
   - 检查热点资料是否需要降级
