@@ -86,17 +86,12 @@
   - 文档分析
   - 长文本处理
 
-### 8. Perplexity AI
-- **网址**: https://www.perplexity.ai/
-- **适合**: 零基础
-- **特点**: AI 搜索引擎，带引用
-
-### 9. Gamma
+### 8. Gamma
 - **网址**: https://gamma.app/
 - **适合**: 零基础
 - **用途**: AI 生成 PPT、文档、网页
 
-### 10. Notion AI
+### 9. Notion AI
 - **网址**: https://www.notion.so/product/ai
 - **适合**: 零基础
 - **用途**: 笔记、写作、头脑风暴
