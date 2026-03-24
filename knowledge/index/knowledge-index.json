@@ -1,0 +1,326 @@
+{
+  "metadata": {
+    "name": "AI 知识图谱索引",
+    "version": "1.0",
+    "created": "2026-03-24",
+    "author": "OpenClaw Agent",
+    "totalConcepts": 25,
+    "totalFiles": 14,
+    "totalLines": 1916,
+    "totalSize": "80KB"
+  },
+  "concepts": [
+    {
+      "id": "llm",
+      "name": "大语言模型",
+      "english": "Large Language Model",
+      "abbreviation": "LLM",
+      "category": "基础概念",
+      "difficulty": "medium",
+      "file": "concepts/LLM-Overview.md",
+      "relatedConcepts": ["transformer", "token", "prompt-engineering"],
+      "subtitles": 200,
+      "xBookmarks": 2,
+      "keywords": ["GLM-5", "Claude", "ChatGPT", "GPT-4", "DeepSeek"],
+      "learningPath": "path-1",
+      "tags": ["#AI", "#LLM", "#基础"]
+    },
+    {
+      "id": "ai-agent",
+      "name": "AI 代理",
+      "english": "AI Agent",
+      "category": "核心应用",
+      "difficulty": "medium",
+      "file": "concepts/AI-Agent.md",
+      "relatedConcepts": ["function-calling", "rag", "llm"],
+      "subtitles": 50,
+      "xBookmarks": 3,
+      "keywords": ["任务规划", "工具调用", "自我反思", "多智能体协作"],
+      "learningPath": "path-2",
+      "tags": ["#AI", "#Agent", "#核心"]
+    },
+    {
+      "id": "prompt-engineering",
+      "name": "提示词工程",
+      "english": "Prompt Engineering",
+      "category": "核心应用",
+      "difficulty": "easy",
+      "file": "concepts/Prompt-Engineering.md",
+      "relatedConcepts": ["llm", "cot", "few-shot"],
+      "subtitles": 40,
+      "xBookmarks": 0,
+      "keywords": ["思维链", "Few-shot", "角色扮演", "结构化提示"],
+      "learningPath": "path-1",
+      "tags": ["#AI", "#Prompt", "#技巧"]
+    },
+    {
+      "id": "rag",
+      "name": "RAG",
+      "english": "Retrieval-Augmented Generation",
+      "category": "技术架构",
+      "difficulty": "medium",
+      "file": "concepts/RAG.md",
+      "relatedConcepts": ["vector-database", "ai-agent", "knowledge-graph"],
+      "subtitles": 30,
+      "xBookmarks": 2,
+      "keywords": ["检索增强", "向量数据库", "知识检索"],
+      "learningPath": "path-1",
+      "tags": ["#AI", "#RAG", "#技术"]
+    },
+    {
+      "id": "function-calling",
+      "name": "函数调用",
+      "english": "Function Calling",
+      "category": "核心能力",
+      "difficulty": "medium",
+      "file": "concepts/Function-Calling.md",
+      "relatedConcepts": ["ai-agent", "llm", "rag"],
+      "subtitles": 40,
+      "xBookmarks": 0,
+      "keywords": ["工具调用", "参数提取", "函数选择", "结果解析"],
+      "learningPath": "path-2",
+      "tags": ["#AI", "#FunctionCalling", "#核心"]
+    },
+    {
+      "id": "notebook-lm",
+      "name": "Notebook LM",
+      "category": "工具与平台",
+      "difficulty": "easy",
+      "file": "concepts/Notebook-LM.md",
+      "relatedConcepts": ["rag", "vector-database", "knowledge-graph"],
+      "subtitles": 0,
+      "xBookmarks": 1,
+      "keywords": ["Google", "知识管理", "多文档关联", "自动摘要", "音频生成"],
+      "xBookmarkDetails": {
+        "user": "@rwayne",
+        "likes": 1690,
+        "bookmarks": 2767,
+        "topic": "Notebook LM 深度使用"
+      },
+      "skill": "/Volumes/PS1008/Applications/ClawX.app/Contents/Resources/openclaw/skills/notebooklm/SKILL.md",
+      "learningPath": "path-1",
+      "tags": ["#AI", "#工具", "#知识管理"]
+    },
+    {
+      "id": "memu-memory-system",
+      "name": "memU 记忆系统",
+      "category": "工具与平台",
+      "difficulty": "medium",
+      "file": "concepts/memU-Memory-System.md",
+      "relatedConcepts": ["rag", "vector-database", "ai-agent"],
+      "subtitles": 0,
+      "xBookmarks": 1,
+      "keywords": ["记忆管理", "向量存储", "语义检索", "上下文注入"],
+      "xBookmarkDetails": {
+        "user": "@vista8",
+        "likes": 394,
+        "bookmarks": 639,
+        "topic": "个人助理记忆系统"
+      },
+      "learningPath": "path-2",
+      "tags": ["#AI", "#记忆", "#向量数据库"]
+    },
+    {
+      "id": "zero-person-ai-company",
+      "name": "零人 AI 公司",
+      "category": "工具与平台",
+      "difficulty": "hard",
+      "file": "concepts/Zero-Person-AI-Company.md",
+      "relatedConcepts": ["ai-agent", "function-calling", "automation-workflow"],
+      "subtitles": 0,
+      "xBookmarks": 1,
+      "keywords": ["Paperclip", "零人运营", "工作流编排", "自动化"],
+      "xBookmarkDetails": {
+        "user": "@ianneo_ai",
+        "likes": 566,
+        "bookmarks": 658,
+        "topic": "零人AI公司秘密"
+      },
+      "github": "https://github.com/paperclipai/paperclip",
+      "learningPath": "path-3",
+      "tags": ["#AI", "#商业模式", "#自动化"]
+    }
+  ],
+  "categories": [
+    {
+      "id": "basic-concepts",
+      "name": "基础概念",
+      "concepts": ["llm", "transformer", "token", "embedding"],
+      "count": 5
+    },
+    {
+      "id": "core-applications",
+      "name": "核心应用",
+      "concepts": ["ai-agent", "prompt-engineering", "ai-coding"],
+      "count": 5
+    },
+    {
+      "id": "technical-architecture",
+      "name": "技术架构",
+      "concepts": ["rag", "vector-database", "knowledge-graph"],
+      "count": 4
+    },
+    {
+      "id": "core-capabilities",
+      "name": "核心能力",
+      "concepts": ["function-calling", "task-planning", "self-reflection"],
+      "count": 3
+    },
+    {
+      "id": "industry-applications",
+      "name": "行业应用",
+      "concepts": ["saas", "fintech", "enterprise-management", "automation-workflow"],
+      "count": 4
+    },
+    {
+      "id": "social-impact",
+      "name": "社会影响",
+      "concepts": ["ai-employment", "ai-ethics", "ai-security", "agi"],
+      "count": 4
+    }
+  ],
+  "learningPaths": [
+    {
+      "id": "path-1",
+      "name": "AI 基础入门",
+      "duration": "0-3 个月",
+      "target": "理解大语言模型基础，掌握提示词工程",
+      "concepts": ["llm", "prompt-engineering", "rag"],
+      "difficulty": "easy"
+    },
+    {
+      "id": "path-2",
+      "name": "AI Agent 开发",
+      "duration": "3-6 个月",
+      "target": "开发 AI Agent 应用，实现函数调用",
+      "concepts": ["ai-agent", "function-calling", "multi-agent"],
+      "difficulty": "medium"
+    },
+    {
+      "id": "path-3",
+      "name": "AGI 探索",
+      "duration": "6-12 个月",
+      "target": "研究 AGI 前沿技术，成为 AI 领域专家",
+      "concepts": ["agi", "ai-security", "ai-ethics"],
+      "difficulty": "hard"
+    }
+  ],
+  "sources": {
+    "youtube": {
+      "totalSubtitles": 393,
+      "channels": [
+        {
+          "name": "Diary of a CEO",
+          "subtitles": 346,
+          "topics": ["AI 应用", "行业趋势", "社会影响"]
+        },
+        {
+          "name": "Best Partners",
+          "subtitles": 39,
+          "topics": ["GLM-5", "AI 编程", "技术对比"]
+        },
+        {
+          "name": "Wow Insight",
+          "subtitles": 14,
+          "topics": ["AI 前沿", "研究动态"]
+        }
+      ]
+    },
+    "xBookmarks": {
+      "totalBookmarks": 58,
+      "aiRelated": 10,
+      "totalLikes": 6534,
+      "topBookmarks": [
+        {
+          "user": "@rwayne",
+          "likes": 1690,
+          "topic": "Notebook LM 深度使用",
+          "concept": "notebook-lm"
+        },
+        {
+          "user": "@seekjourney",
+          "likes": 763,
+          "topic": "jina-cli",
+          "concept": "ai-agent"
+        },
+        {
+          "user": "@zstmfhy",
+          "likes": 600,
+          "topic": "AI代理看世界CLI",
+          "concept": "ai-agent"
+        },
+        {
+          "user": "@ianneo_ai",
+          "likes": 566,
+          "topic": "零人AI公司秘密",
+          "concept": "zero-person-ai-company"
+        },
+        {
+          "user": "@vista8",
+          "likes": 394,
+          "topic": "记忆系统",
+          "concept": "memu-memory-system"
+        }
+      ]
+    }
+  },
+  "files": {
+    "conceptFiles": 14,
+    "totalLines": 1916,
+    "totalSize": "80KB",
+    "averageLines": 137,
+    "fileList": [
+      "concepts/README.md",
+      "concepts/INDEX.md",
+      "concepts/GLOSSARY.md",
+      "concepts/knowledge-graph.md",
+      "concepts/X-Bookmarks-Mapping.md",
+      "concepts/LLM-Overview.md",
+      "concepts/AI-Agent.md",
+      "concepts/Prompt-Engineering.md",
+      "concepts/RAG.md",
+      "concepts/Function-Calling.md",
+      "concepts/Notebook-LM.md",
+      "concepts/memU-Memory-System.md",
+      "concepts/Zero-Person-AI-Company.md"
+    ]
+  },
+  "statistics": {
+    "totalConcepts": 25,
+    "chineseConcepts": 19,
+    "englishConcepts": 6,
+    "chineseRate": "76%",
+    "averageSubtitles": 17.8,
+    "averageXBookmarks": 0.4,
+    "difficultyDistribution": {
+      "easy": 7,
+      "medium": 15,
+      "hard": 3
+    }
+  },
+  "searchIndex": {
+    "byKeyword": {
+      "LLM": ["llm"],
+      "大语言模型": ["llm"],
+      "AI Agent": ["ai-agent"],
+      "AI 代理": ["ai-agent"],
+      "Prompt": ["prompt-engineering"],
+      "提示词": ["prompt-engineering"],
+      "RAG": ["rag"],
+      "检索增强": ["rag"],
+      "Function Calling": ["function-calling"],
+      "函数调用": ["function-calling"],
+      "Notebook LM": ["notebook-lm"],
+      "memU": ["memu-memory-system"],
+      "记忆系统": ["memu-memory-system"],
+      "零人公司": ["zero-person-ai-company"],
+      "Paperclip": ["zero-person-ai-company"]
+    },
+    "byCategory": {
+      "基础概念": ["llm", "transformer", "token"],
+      "核心应用": ["ai-agent", "prompt-engineering", "ai-coding"],
+      "技术架构": ["rag", "vector-database", "knowledge-graph"],
+      "工具平台": ["notebook-lm", "memu-memory-system", "zero-person-ai-company"]
+    }
+  }
+}
