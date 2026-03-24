@@ -1,0 +1,14 @@
+# 错误处理库依赖项
+
+# 测试框架
+pytest>=7.0.0
+pytest-cov>=4.0.0
+
+# 可选：日志增强
+structlog>=23.0.0
+
+# 可选：监控集成
+sentry-sdk>=1.30.0
+
+# 可选：性能分析
+memory-profiler>=0.61.0

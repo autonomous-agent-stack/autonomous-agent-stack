@@ -1,12 +1,12 @@
 {
-  "lastBookmarkId": "2035631071392587952",
-  "lastCheckTime": "2026-03-22T10:25:00Z",
-  "totalProcessed": 46,
-  "newBookmarks": 38,
-  "highValue": 5,
+  "lastBookmarkId": "2035631071392587954",
+  "lastCheckTime": "2026-03-24T07:54:53.896672+00:00",
+  "totalProcessed": 48,
+  "newBookmarks": 2,
+  "highValue": 6,
   "categories": {
-    "aiTools": 12,
-    "aiMemory": 3,
+    "aiTools": 13,
+    "aiMemory": 4,
     "business": 5,
     "techTrends": 8,
     "others": 10
