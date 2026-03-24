@@ -1,0 +1,41 @@
+# Dependencies
+node_modules
+npm-debug.log
+
+# Build output
+dist
+build
+
+# Testing
+coverage
+.nyc_output
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Git
+.git
+.gitignore
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Documentation
+README.md
+docs
+*.md
+
+# CI/CD
+.github
+.gitlab-ci.yml
+.travis.yml
+
+# Misc
+.DS_Store
+*.log
