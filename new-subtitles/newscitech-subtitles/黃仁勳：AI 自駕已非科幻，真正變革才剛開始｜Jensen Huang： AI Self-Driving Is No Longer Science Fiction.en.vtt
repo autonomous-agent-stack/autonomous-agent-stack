@@ -1,0 +1,1869 @@
+WEBVTT
+Kind: captions
+Language: en
+
+00:00:00.166 --> 00:00:02.300
+So we're going to San Francisco today.
+
+00:00:02.366 --> 00:00:04.166
+That's right. I was gonna say—
+
+00:00:04.166 --> 00:00:05.800
+let me know when you're in autonomous mode.
+
+00:00:05.800 --> 00:00:08.966
+Then I could be less concerned about my safety.
+
+00:00:09.233 --> 00:00:11.766
+We have the only stack in the world that has an
+
+00:00:11.766 --> 00:00:13.500
+end-to-end— that's right—
+
+00:00:13.500 --> 00:00:15.033
+AV stack, that's right,
+
+00:00:15.033 --> 00:00:18.966
+as well as a traceable, human-engineered one.
+
+00:00:20.400 --> 00:00:22.166
+That's right, that's right.
+
+00:00:23.000 --> 00:00:25.000
+Which is very critical because,
+
+00:00:25.000 --> 00:00:26.000
+you know, for an end-to-end model,
+
+00:00:26.000 --> 00:00:27.700
+it's very difficult to verify
+
+00:00:27.700 --> 00:00:29.633
+that basically it's always safe, right?
+
+00:00:29.633 --> 00:00:30.100
+That's right.
+
+00:00:30.100 --> 00:00:33.466
+And the classical stack is developed based on all the
+
+00:00:33.666 --> 00:00:35.100
+safety protocols and the process.
+
+00:00:35.100 --> 00:00:38.466
+We know how to ensure safety in software.
+
+00:00:40.000 --> 00:00:42.266
+Yeah, the thing that's a miracle about Autopilot
+
+00:00:42.266 --> 00:00:44.200
+is that it does amazing things.
+
+00:00:44.200 --> 00:00:45.866
+Yeah, and it drives like a human.
+
+00:00:45.966 --> 00:00:46.966
+That's right. Um—
+
+00:00:46.966 --> 00:00:48.500
+Because it's—
+
+00:00:48.500 --> 00:00:49.866
+because it's end-to-end,
+
+00:00:49.866 --> 00:00:52.600
+whenever there are things that need to be improved,
+
+00:00:52.600 --> 00:00:54.500
+you know that
+
+00:00:54.500 --> 00:00:57.766
+you can backpropagate that through the whole model,
+
+00:00:57.766 --> 00:00:59.400
+and you'll improve it for sure.
+
+00:00:59.400 --> 00:01:00.366
+Yeah, I think the—
+
+00:01:00.366 --> 00:01:01.366
+the challenge, of course,
+
+00:01:01.366 --> 00:01:03.166
+is our AV model, as—
+
+00:01:03.633 --> 00:01:05.533
+as incredibly smart as it is,
+
+00:01:05.766 --> 00:01:08.700
+and it can reason about the circumstances,
+
+00:01:08.766 --> 00:01:10.900
+we don't know what it can't do.
+
+00:01:10.900 --> 00:01:11.866
+That's right, yeah.
+
+00:01:11.866 --> 00:01:13.833
+And so that's—
+
+00:01:13.833 --> 00:01:15.233
+that's the challenge, and that's the reason
+
+00:01:15.233 --> 00:01:17.600
+why our classical stack is so incredibly important.
+
+00:01:17.600 --> 00:01:18.400
+That's right.
+
+00:01:18.400 --> 00:01:20.666
+The thing that's really great about our AV model
+
+00:01:20.666 --> 00:01:23.666
+and our stack is that I don't ever feel
+
+00:01:23.666 --> 00:01:26.166
+that our AV model would ever be allowed to do
+
+00:01:26.166 --> 00:01:27.366
+something
+
+00:01:27.500 --> 00:01:29.966
+that is out of distribution.
+
+00:01:30.033 --> 00:01:31.233
+And the reason for that
+
+00:01:31.233 --> 00:01:33.000
+is because our classical stack gets involved
+
+00:01:33.000 --> 00:01:35.333
+and prevents it from happening, right?
+
+00:01:39.900 --> 00:01:41.700
+One thing great about our AV model
+
+00:01:41.700 --> 00:01:44.266
+is the development speed is just amazing.
+
+00:01:44.266 --> 00:01:46.233
+You know, we have iterated the—
+
+00:01:46.233 --> 00:01:49.933
+right now the version is, I think, twenty-three hundred.
+
+00:01:50.566 --> 00:01:53.433
+We label based on the number of iterations we have,
+
+00:01:53.433 --> 00:01:55.266
+essentially, and roughly speaking,
+
+00:01:55.266 --> 00:01:56.700
+we have, you know—
+
+00:01:56.700 --> 00:01:58.400
+this is roughly over a year, right?
+
+00:01:58.400 --> 00:02:02.900
+So we have, on average, less than seven models being
+
+00:02:02.900 --> 00:02:05.466
+iterated every day. Obviously not every—
+
+00:02:05.466 --> 00:02:07.500
+every single one of them makes it to the car.
+
+00:02:07.866 --> 00:02:10.466
+But because this process is,
+
+00:02:10.466 --> 00:02:13.866
+you know, just the imaging and trajectory output,
+
+00:02:13.966 --> 00:02:16.700
+there's manual steps in between,
+
+00:02:16.700 --> 00:02:17.666
+in the development process,
+
+00:02:17.666 --> 00:02:18.466
+they're just minimal.
+
+00:02:18.466 --> 00:02:20.533
+That's why we can iterate super fast.
+
+00:02:20.900 --> 00:02:23.000
+Well—
+The thing that's really great about end-to-end models
+
+00:02:23.000 --> 00:02:26.000
+is that whenever you're improving the model—
+
+00:02:26.000 --> 00:02:27.000
+uh-huh, um—
+
+00:02:27.000 --> 00:02:29.866
+because it's one giant model that's end-to-end—
+
+00:02:29.866 --> 00:02:30.933
+that's right—
+
+00:02:31.200 --> 00:02:34.466
+you're not gonna fix one thing and break something else.
+
+00:02:34.466 --> 00:02:35.800
+The classical models—
+
+00:02:35.800 --> 00:02:37.366
+because there's so many different modules,
+
+00:02:37.366 --> 00:02:38.666
+you fix this one thing,
+
+00:02:38.666 --> 00:02:40.666
+the logic sometimes contradicts with each other.
+
+00:02:40.666 --> 00:02:41.866
+That's right, yeah.
+
+00:02:42.033 --> 00:02:44.600
+And so it's so brittle, and you fix one thing,
+
+00:02:44.600 --> 00:02:46.500
+you're chasing bugs all around the table,
+
+00:02:46.500 --> 00:02:48.066
+and it's really hard, you know.
+
+00:02:48.066 --> 00:02:51.433
+Most control systems which are built the classical way
+
+00:02:51.433 --> 00:02:52.866
+have the same problem.
+
+00:02:52.866 --> 00:02:56.500
+And it has so many steps.
+
+00:02:56.633 --> 00:02:57.600
+For example, right,
+
+00:02:57.600 --> 00:02:59.500
+today we're actually gonna see a speed bump.
+
+00:02:59.500 --> 00:03:01.200
+You know, based on our model,
+
+00:03:01.500 --> 00:03:02.566
+if you think about it,
+
+00:03:02.566 --> 00:03:05.533
+how do you detect a speed bump and react to it properly?
+
+00:03:05.600 --> 00:03:06.866
+You have to break it into many,
+
+00:03:06.866 --> 00:03:09.366
+many steps, from perception and—
+
+00:03:09.366 --> 00:03:11.633
+you know, it has to be added in the world model,
+
+00:03:11.633 --> 00:03:12.966
+in the context fusion,
+
+00:03:13.366 --> 00:03:15.666
+and then basically you have to decide
+
+00:03:15.766 --> 00:03:18.866
+how early you have to slow down, by how much,
+
+00:03:18.900 --> 00:03:19.766
+you know, and—
+
+00:03:19.766 --> 00:03:22.033
+maybe even based on different speed bumps,
+
+00:03:22.033 --> 00:03:23.333
+we have to do things differently.
+
+00:03:23.433 --> 00:03:25.800
+But with the end-to-end model, it just—
+
+00:03:25.800 --> 00:03:27.566
+basically just happen, actually.
+
+00:03:27.566 --> 00:03:30.800
+We didn't even plan for it. It just happened.
+
+00:03:30.800 --> 00:03:31.366
+Yeah, right.
+
+00:03:31.366 --> 00:03:33.500
+So it's pretty amazing.
+
+00:03:33.566 --> 00:03:35.966
+There's so many people building end-to-end models, right?
+
+00:03:35.966 --> 00:03:39.233
+But I really think that it's the fusion of the two—
+
+00:03:39.233 --> 00:03:40.500
+yes, that's revolutionary—
+
+00:03:40.500 --> 00:03:41.666
+that gives you
+
+00:03:41.666 --> 00:03:43.066
+the superhuman—
+
+00:03:43.066 --> 00:03:45.200
+amazing driving capability and the safety.
+
+00:03:45.200 --> 00:03:47.833
+And back to the model, actually, you know,
+
+00:03:47.833 --> 00:03:48.866
+it does—
+
+00:03:48.866 --> 00:03:51.300
+because it's so big, right?
+
+00:03:51.300 --> 00:03:53.100
+Actually, we do see sometimes,
+
+00:03:53.100 --> 00:03:55.300
+you know, when you try to address something,
+
+00:03:55.466 --> 00:03:57.500
+it has some, you know—
+
+00:03:57.500 --> 00:04:00.033
+something else might get regressed, right?
+
+00:04:00.033 --> 00:04:04.966
+So being able to establish a basically full-blown,
+
+00:04:04.966 --> 00:04:07.033
+very comprehensive,
+
+00:04:07.033 --> 00:04:09.100
+basically a closed-loop evaluation,
+
+00:04:09.100 --> 00:04:11.200
+what we call CLE, is super critical.
+
+00:04:11.366 --> 00:04:13.400
+This is how we gate our model,
+
+00:04:13.400 --> 00:04:16.766
+to make sure sort of the bad behaviors, yeah,
+
+00:04:16.800 --> 00:04:19.500
+get filtered out. The thing that I still love, though,
+
+00:04:19.500 --> 00:04:22.200
+and I think this proves to be true—
+
+00:04:22.433 --> 00:04:25.266
+that even when you have a regression on our AV model,
+
+00:04:26.266 --> 00:04:28.666
+your classical stack would always guardrail it.
+
+00:04:28.666 --> 00:04:30.066
+That's right, actually.
+
+00:04:30.066 --> 00:04:31.566
+That's why, basically,
+
+00:04:31.666 --> 00:04:34.466
+our development speed has been so good,
+
+00:04:34.500 --> 00:04:37.566
+because you always have a backup, essentially.
+
+00:04:37.566 --> 00:04:38.366
+That's right, you know—
+
+00:04:38.366 --> 00:04:40.166
+even if you have minor hiccups—
+
+00:04:40.166 --> 00:04:40.766
+that's right, okay—
+
+00:04:40.766 --> 00:04:42.800
+we will keep retraining, and—
+
+00:04:42.800 --> 00:04:43.233
+that's right, you know—
+
+00:04:43.233 --> 00:04:44.733
+just keep getting better.
+
+00:04:44.766 --> 00:04:46.266
+You never have a loss of safety.
+
+00:04:46.266 --> 00:04:47.633
+You have a loss of capability,
+
+00:04:47.633 --> 00:04:49.466
+but not a loss of safety, yeah.
+
+00:04:51.200 --> 00:04:53.966
+This is gonna be so critical for a robotaxi.
+
+00:04:55.266 --> 00:04:57.166
+When that happens, you know what I'm saying.
+
+00:04:57.166 --> 00:04:57.966
+That's right.
+
+00:04:58.866 --> 00:05:00.700
+That is the advantage we have,
+
+00:05:00.700 --> 00:05:03.333
+as well as we move into L3 and L4.
+
+00:05:03.400 --> 00:05:05.033
+Because we have redundant stack,
+
+00:05:05.033 --> 00:05:07.400
+even L2++—to scale it, basically—
+
+00:05:07.400 --> 00:05:08.566
+for L3 and L4, it's—
+
+00:05:08.566 --> 00:05:10.600
+it's just so natural. That's right.
+
+00:05:11.666 --> 00:05:12.933
+Yeah, that's critical.
+
+00:05:13.633 --> 00:05:14.966
+And then, and then, um—
+
+00:05:15.600 --> 00:05:17.400
+then there'll be the—
+
+00:05:17.400 --> 00:05:18.333
+teleoperations.
+
+00:05:19.433 --> 00:05:20.833
+Right, as a backup system.
+
+00:05:20.833 --> 00:05:22.633
+And then, you know, every—
+
+00:05:22.633 --> 00:05:24.033
+every robotaxi—
+
+00:05:24.033 --> 00:05:26.266
+every robotaxi service should have,
+
+00:05:26.866 --> 00:05:30.066
+you know, an air traffic control center.
+
+00:05:30.766 --> 00:05:32.900
+And the thing that's really great with our technology
+
+00:05:32.900 --> 00:05:33.766
+is that—
+
+00:05:34.466 --> 00:05:35.466
+for whatever reason,
+
+00:05:35.466 --> 00:05:37.733
+if the robotaxi were to get stuck—
+
+00:05:37.766 --> 00:05:40.266
+uh-huh—
+all you have to do is give it a couple of waypoints.
+
+00:05:41.633 --> 00:05:43.433
+The human-injected waypoint.
+
+00:05:43.433 --> 00:05:45.100
+That's right, and it should be able to navigate itself
+
+00:05:45.100 --> 00:05:46.900
+right out of it, right?
+
+00:05:47.233 --> 00:05:49.133
+And because it has a—
+
+00:05:49.300 --> 00:05:52.566
+has a safety stack, a backup stack—
+
+00:05:52.700 --> 00:05:55.500
+no safety would ever be jeopardized.
+
+00:05:55.500 --> 00:05:58.100
+That's right. And the other thing our AV model does really,
+
+00:05:58.100 --> 00:06:00.700
+really well is lane-changing capability.
+
+00:06:02.200 --> 00:06:04.300
+Because classically, when we do a lane change,
+
+00:06:04.300 --> 00:06:05.566
+we have to select the gap,
+
+00:06:05.566 --> 00:06:07.000
+we have to do a lot of, basically,
+
+00:06:07.033 --> 00:06:09.233
+rules and heuristics, essentially, right?
+
+00:06:09.233 --> 00:06:12.233
+to make sure it's safe. So sometimes it's a bit timid,
+
+00:06:12.233 --> 00:06:13.566
+essentially, when you have,
+
+00:06:13.700 --> 00:06:15.000
+you know, cars in the front,
+
+00:06:15.000 --> 00:06:16.166
+you have cars in the back,
+
+00:06:16.166 --> 00:06:18.066
+basically there's so many rules.
+
+00:06:18.066 --> 00:06:19.700
+That's right, yeah, yeah.
+
+00:06:20.300 --> 00:06:22.833
+And the AV model, basically, in the city,
+
+00:06:22.833 --> 00:06:25.500
+it's just doing an amazing job in the lane change.
+
+00:06:25.500 --> 00:06:27.433
+It's also very human-like, essentially,
+
+00:06:27.433 --> 00:06:30.700
+and never gives you the feeling of rigidity.
+
+00:06:31.033 --> 00:06:31.700
+Well, it—
+
+00:06:31.700 --> 00:06:32.766
+it imitates the human
+
+00:06:32.766 --> 00:06:34.433
+from all the drives that it's been on.
+
+00:06:34.433 --> 00:06:36.233
+Yeah, and then it generalizes from that.
+
+00:06:36.233 --> 00:06:37.666
+That's right, yeah.
+
+00:06:38.366 --> 00:06:40.533
+You know, the basic concept of deep learning
+
+00:06:41.066 --> 00:06:44.966
+is essentially to memorize and generalize.
+
+00:06:46.566 --> 00:06:48.600
+Works just fine for a self-driving car.
+
+00:06:49.233 --> 00:06:52.833
+AI is the single most important technology
+
+00:06:52.833 --> 00:06:56.166
+that made self-driving possible, essentially.
+
+00:06:56.166 --> 00:06:57.666
+But, um—
+
+00:06:58.266 --> 00:06:59.400
+you know, I have been working on this,
+
+00:06:59.400 --> 00:07:00.200
+obviously, as you know,
+
+00:07:00.200 --> 00:07:02.200
+for a long time, but the last two—
+
+00:07:02.200 --> 00:07:03.500
+three years, my God—
+
+00:07:03.500 --> 00:07:04.500
+you know, yeah—
+
+00:07:04.500 --> 00:07:05.300
+just—
+
+00:07:05.700 --> 00:07:07.833
+it's iterating so fast.
+
+00:07:07.833 --> 00:07:08.633
+Yeah.
+
+00:07:09.200 --> 00:07:11.466
+If you think about particularly the—
+
+00:07:11.466 --> 00:07:12.266
+the, uh—
+
+00:07:12.866 --> 00:07:14.500
+using an end-to-end model—
+
+00:07:14.600 --> 00:07:15.800
+that's right, yeah—
+
+00:07:15.800 --> 00:07:17.300
+was a big deal, yeah.
+
+00:07:17.300 --> 00:07:18.600
+Yeah, basically—
+
+00:07:21.700 --> 00:07:23.566
+to some extent, you can think that the—
+
+00:07:23.566 --> 00:07:26.366
+the whole industry iterated on the first architecture,
+
+00:07:26.366 --> 00:07:27.966
+which is, you know, um—
+
+00:07:27.966 --> 00:07:30.233
+ML-based perception only, right?
+
+00:07:30.233 --> 00:07:31.466
+For ten years, yeah.
+
+00:07:31.466 --> 00:07:33.466
+And we made lots of progress.
+
+00:07:33.466 --> 00:07:34.433
+You know, you know—
+
+00:07:34.433 --> 00:07:36.966
+robotaxi can be done that way.
+
+00:07:36.966 --> 00:07:38.400
+Yeah, um—
+
+00:07:38.500 --> 00:07:40.700
+But, you know, over the last three years,
+
+00:07:40.700 --> 00:07:42.000
+we're iterating on, you know—
+
+00:07:42.000 --> 00:07:43.966
+we first brought in a world model,
+
+00:07:43.966 --> 00:07:45.500
+now we're adding reasoning to it.
+
+00:07:45.500 --> 00:07:47.833
+It's really two generations in three years.
+
+00:07:47.833 --> 00:07:50.100
+The two fundamental technologies
+
+00:07:50.100 --> 00:07:51.900
+that we're building on top of.
+
+00:07:52.000 --> 00:07:52.600
+You know, so—
+
+00:07:52.600 --> 00:07:53.200
+so of course,
+
+00:07:53.200 --> 00:07:56.366
+this end-to-end model architecture is revolutionary.
+
+00:07:56.366 --> 00:07:58.866
+But what differentiates us—
+
+00:07:58.866 --> 00:08:00.300
+uh-huh, um—
+
+00:08:00.466 --> 00:08:03.266
+and what's gonna make it incredibly fast
+
+00:08:03.266 --> 00:08:05.366
+for us to deploy to get to Level 3,
+
+00:08:05.366 --> 00:08:06.966
+Level 4, and robotaxis—
+
+00:08:07.266 --> 00:08:10.266
+is the fact that we have a classical stack
+
+00:08:10.266 --> 00:08:13.133
+as a guardrail, as a safety system.
+
+00:08:13.200 --> 00:08:15.866
+And because we have a reasoning system—
+
+00:08:15.866 --> 00:08:16.666
+uh-huh—
+
+00:08:17.400 --> 00:08:20.666
+so the long tail of experiences that are
+
+00:08:20.800 --> 00:08:24.866
+probably not in our dataset,
+
+00:08:25.066 --> 00:08:27.766
+can still be decomposed into routine,
+
+00:08:27.766 --> 00:08:30.766
+type of experiences that are in our dataset.
+
+00:08:30.766 --> 00:08:33.700
+Yeah, and the car will be able to reason its way through,
+
+00:08:33.700 --> 00:08:36.233
+you know, how to navigate and how to operate.
+
+00:08:36.233 --> 00:08:39.300
+And so I really think that between these two ideas,
+
+00:08:39.700 --> 00:08:42.366
+no matter what the reasoning system decides to do or
+
+00:08:42.366 --> 00:08:43.700
+or achieve,
+
+00:08:43.900 --> 00:08:46.300
+you always have a safety guardrail behind it.
+
+00:08:46.866 --> 00:08:49.066
+And so this iteration system that we have
+
+00:08:49.066 --> 00:08:50.966
+is going to move incredibly fast.
+
+00:08:50.966 --> 00:08:51.600
+The reasoning—
+
+00:08:51.600 --> 00:08:54.600
+and guardrailing—is going to be just revolutionary.
+
+00:08:54.600 --> 00:08:56.433
+That's right. All of our—
+
+00:08:56.433 --> 00:08:57.833
+all of our—
+
+00:08:57.833 --> 00:08:59.666
+L2++ work—
+
+00:08:59.766 --> 00:09:01.600
+that entire flywheel—
+
+00:09:01.633 --> 00:09:02.700
+you know—
+
+00:09:02.700 --> 00:09:04.466
+collecting data on the road and—
+
+00:09:04.466 --> 00:09:05.066
+that's right, you know—
+
+00:09:05.066 --> 00:09:07.100
+processing the data—
+
+00:09:07.700 --> 00:09:09.066
+now we enhance that by
+
+00:09:09.066 --> 00:09:10.433
+using Neurad and—
+
+00:09:10.433 --> 00:09:11.100
+and, and—
+
+00:09:11.100 --> 00:09:12.466
+and then Cosmos.
+
+00:09:13.166 --> 00:09:14.500
+Yeah, good job.
+
+00:09:15.100 --> 00:09:16.000
+Good job.
+
+00:09:18.266 --> 00:09:20.333
+Who knows what a human driver would have done.
+
+00:09:24.666 --> 00:09:25.900
+That's pretty good.
+
+00:09:27.033 --> 00:09:29.300
+Yeah, that entire flywheel is essential.
+
+00:09:29.300 --> 00:09:30.700
+Yup, yup.
+
+00:09:32.700 --> 00:09:34.700
+As I said, right, on the model side,
+
+00:09:34.700 --> 00:09:35.566
+you know—
+
+00:09:35.566 --> 00:09:37.600
+closed-loop evaluation is so important.
+
+00:09:37.900 --> 00:09:39.166
+We are running essentially—
+
+00:09:39.166 --> 00:09:39.833
+you know, as you know—
+
+00:09:39.833 --> 00:09:42.333
+two million tests every day.
+
+00:09:42.366 --> 00:09:44.466
+And they are all pixel-based, basically—
+
+00:09:45.666 --> 00:09:47.000
+reconstruction of the world.
+
+00:09:47.000 --> 00:09:50.166
+It's just amazing, basically, how the technology evolves.
+
+00:09:50.700 --> 00:09:51.300
+The neural reconstruction we have—
+
+00:09:51.300 --> 00:09:52.600
+it's so great, yes.
+
+00:09:52.600 --> 00:09:54.200
+That's right. It's so critical.
+
+00:09:54.300 --> 00:09:56.900
+And then Cosmos can be introduced as well,
+
+00:09:56.900 --> 00:09:58.633
+which we are working on, basically,
+
+00:09:58.633 --> 00:10:00.000
+to add—
+
+00:10:00.000 --> 00:10:02.566
+Cosmos can cover the really rare corner cases,
+
+00:10:02.566 --> 00:10:05.900
+and also it can be used to amplify the neural reconstruction.
+
+00:10:05.900 --> 00:10:07.200
+Neural reconstruction is just reconstruction,
+
+00:10:07.200 --> 00:10:08.866
+but if you put Cosmos on it,
+
+00:10:08.866 --> 00:10:09.666
+it can—
+
+00:10:10.033 --> 00:10:10.966
+you know, change the—
+
+00:10:10.966 --> 00:10:11.800
+you know, background,
+
+00:10:11.800 --> 00:10:12.966
+change the weather, yeah.
+
+00:10:12.966 --> 00:10:14.433
+You could augment it, that's right.
+
+00:10:14.433 --> 00:10:16.366
+Yeah, that's right, exactly, yeah.
+
+00:10:16.500 --> 00:10:18.166
+The combination of these technologies
+
+00:10:18.166 --> 00:10:20.200
+has really been revolutionary, yeah.
+
+00:10:22.033 --> 00:10:24.266
+There's probably an accident here somewhere.
+
+00:10:24.666 --> 00:10:27.333
+Well, they really ought to get one of our cars.
+
+00:10:31.766 --> 00:10:33.400
+Look how beautiful it is.
+
+00:10:33.400 --> 00:10:37.200
+Here we are driving autonomously into San Francisco.
+
+00:10:38.233 --> 00:10:38.900
+You know, this—
+
+00:10:38.900 --> 00:10:39.966
+this interchange here—
+
+00:10:39.966 --> 00:10:41.400
+always gives me a lot of anxiety,
+
+00:10:41.400 --> 00:10:42.766
+because there's so many different highways,
+
+00:10:42.766 --> 00:10:44.833
+and if you just miss one, you're—
+
+00:10:44.833 --> 00:10:45.800
+you're gonna be gone.
+
+00:10:45.800 --> 00:10:47.866
+You're gonna be late for about forty-five minutes.
+
+00:10:48.266 --> 00:10:51.333
+And so it's so, so terrific to do this autonomously.
+
+00:10:53.266 --> 00:10:55.766
+So exciting. You said ten cameras—
+
+00:10:55.966 --> 00:10:57.000
+uh-huh— five radars?
+
+00:10:57.000 --> 00:10:58.633
+Five radars, uh-huh.
+
+00:10:58.633 --> 00:11:02.666
+And how many ultrasonics? Twelve? Twelve ultrasonics?
+
+00:11:04.900 --> 00:11:08.066
+This spot actually can be pretty tricky.
+
+00:11:08.066 --> 00:11:08.900
+Um, wow.
+
+00:11:08.900 --> 00:11:09.800
+That's nice.
+
+00:11:09.800 --> 00:11:12.633
+Because basically there's a lot of occlusion,
+
+00:11:12.633 --> 00:11:14.600
+and when you get on the highway,
+
+00:11:14.800 --> 00:11:16.866
+sometimes the car just stops there,
+
+00:11:16.866 --> 00:11:18.833
+but you don't see it until basically you turn—
+
+00:11:18.833 --> 00:11:21.366
+make this turn, so you have to control your speed.
+
+00:11:21.366 --> 00:11:22.700
+Well, I know this exit very well.
+
+00:11:22.700 --> 00:11:24.000
+I come here all the time.
+
+00:11:27.500 --> 00:11:27.866
+You know,
+
+00:11:27.866 --> 00:11:32.166
+people underestimate how gigantic of an effort it is.
+
+00:11:32.500 --> 00:11:33.233
+You know, you've got—
+
+00:11:33.233 --> 00:11:34.400
+you've got to build a chip.
+
+00:11:34.400 --> 00:11:36.000
+Yeah, build a computer.
+
+00:11:36.066 --> 00:11:37.433
+And even building the computer
+
+00:11:37.433 --> 00:11:39.900
+that is functionally safe—
+
+00:11:40.266 --> 00:11:41.566
+so that you've got the chip,
+
+00:11:41.566 --> 00:11:42.833
+you've got the system itself,
+
+00:11:42.833 --> 00:11:46.200
+the system has functional safety designed into it.
+
+00:11:46.766 --> 00:11:48.100
+Um, the software stack,
+
+00:11:48.100 --> 00:11:49.800
+the DRIVE OS software—
+
+00:11:49.800 --> 00:11:52.166
+you know, as in, you know—
+
+00:11:54.433 --> 00:11:56.566
+every component of even the classical stack
+
+00:11:56.566 --> 00:11:58.200
+need to get to a certain ISO—
+
+00:11:58.200 --> 00:12:00.900
+basically. We're gonna make a lane change here.
+
+00:12:00.900 --> 00:12:02.266
+Let's see how we do it. See—
+
+00:12:02.266 --> 00:12:04.166
+this is how— yeah, fantastic.
+
+00:12:05.600 --> 00:12:07.066
+Very human-like.
+
+00:12:13.033 --> 00:12:15.666
+Yeah, that's so human-like, right?
+
+00:12:16.066 --> 00:12:19.666
+Hard to describe in code.
+
+00:12:19.766 --> 00:12:20.700
+That's right, yeah.
+
+00:12:21.033 --> 00:12:22.100
+The most rule-based
+
+00:12:22.100 --> 00:12:24.366
+would have had the car completely pass us.
+
+00:12:24.366 --> 00:12:25.000
+Yeah, yeah.
+
+00:12:25.000 --> 00:12:27.066
+And then we make one deliberate—
+
+00:12:27.066 --> 00:12:28.766
+one deliberate move. That's right.
+
+00:12:28.766 --> 00:12:30.166
+And that's what the one stage—
+
+00:12:30.166 --> 00:12:31.566
+what we call speed adaptation—
+
+00:12:31.566 --> 00:12:33.066
+that we try to, you know,
+
+00:12:33.066 --> 00:12:35.900
+speed up or slow down, try to get in the gap,
+
+00:12:35.900 --> 00:12:37.300
+then start the lateral move.
+
+00:12:37.300 --> 00:12:38.100
+You know.
+
+00:12:38.700 --> 00:12:41.066
+But that's not how humans do it, obviously.
+
+00:12:41.066 --> 00:12:41.833
+And then, you know,
+
+00:12:41.833 --> 00:12:42.266
+our mind—
+
+00:12:42.266 --> 00:12:44.966
+our mind is just mimicking what everybody else is doing.
+
+00:12:44.966 --> 00:12:46.766
+So it's amazing.
+
+00:12:47.666 --> 00:12:48.433
+You know, there's—
+
+00:12:48.433 --> 00:12:50.400
+there's of course the AI in the car,
+
+00:12:50.800 --> 00:12:55.700
+but our AI starts with AI, even AI,
+
+00:12:55.700 --> 00:12:58.166
+to curate the data that we collect.
+
+00:12:58.166 --> 00:13:00.200
+That's right, so that—
+
+00:13:00.833 --> 00:13:02.466
+Alright, that's an interesting scenario.
+
+00:13:02.466 --> 00:13:03.400
+Let's see how we handle it.
+
+00:13:03.400 --> 00:13:05.500
+Oh, we detect from here.
+
+00:13:06.033 --> 00:13:07.566
+Wow, decided to do the lane change.
+
+00:13:07.566 --> 00:13:10.300
+Uh-huh, that makes a lot of sense, actually.
+
+00:13:10.666 --> 00:13:12.566
+Because once you cross the street—
+
+00:13:12.566 --> 00:13:14.533
+that's right, once you cross the street—
+
+00:13:14.566 --> 00:13:17.933
+that's not very much distance to stop.
+
+00:13:19.200 --> 00:13:20.600
+Is it? We're going straight.
+
+00:13:20.966 --> 00:13:22.333
+That's gonna be interesting.
+
+00:13:22.433 --> 00:13:23.233
+So we go—
+
+00:13:23.233 --> 00:13:26.000
+we'll go past them and then do a lane change back,
+
+00:13:26.000 --> 00:13:27.966
+I think. But it's like the whole—
+
+00:13:27.966 --> 00:13:29.400
+this actually makes sense.
+
+00:13:29.800 --> 00:13:30.633
+Yeah, see how we do this.
+
+00:13:30.633 --> 00:13:31.766
+Okay, uh-huh.
+
+00:13:31.800 --> 00:13:33.233
+It's blocked on the right.
+
+00:13:33.233 --> 00:13:34.966
+Yeah, it's already blocked on the right.
+
+00:13:34.966 --> 00:13:36.700
+And so it anticipated that,
+
+00:13:36.866 --> 00:13:38.233
+and so we moved to the middle lane.
+
+00:13:38.233 --> 00:13:39.366
+Yeah, yeah, um—
+
+00:13:41.100 --> 00:13:42.800
+Oh, look at this. This is great.
+
+00:13:44.433 --> 00:13:46.300
+This will be tricky.
+
+00:13:46.300 --> 00:13:47.333
+Let's see.
+
+00:13:48.100 --> 00:13:49.500
+We're just about to pass a—
+
+00:13:49.566 --> 00:13:50.566
+pass a bus.
+
+00:13:51.666 --> 00:13:53.566
+Alright, okay, fantastic.
+
+00:13:55.100 --> 00:13:58.500
+Wow, that's so graceful. Yep.
+
+00:14:00.900 --> 00:14:02.900
+It's more peaceful than humans are driving.
+
+00:14:03.900 --> 00:14:06.400
+Actually, this is what the media reporters—
+
+00:14:06.400 --> 00:14:07.166
+they feel, right?
+
+00:14:07.166 --> 00:14:08.066
+Safe, for instance.
+
+00:14:08.066 --> 00:14:09.366
+Yeah, it's confident.
+
+00:14:09.366 --> 00:14:12.800
+It's calm, it's safe.
+
+00:14:14.300 --> 00:14:16.500
+So we have all the AI models that's inside the car,
+
+00:14:16.500 --> 00:14:19.700
+we have AI models just to curate the data.
+
+00:14:19.766 --> 00:14:20.400
+Uh-huh, right.
+
+00:14:20.400 --> 00:14:22.100
+We don't want a whole bunch of wasted—
+
+00:14:22.100 --> 00:14:23.033
+yes, same thing, you know—
+
+00:14:23.033 --> 00:14:24.300
+to retest it with the same thing.
+
+00:14:24.300 --> 00:14:25.566
+And so you're looking for—
+
+00:14:25.633 --> 00:14:27.666
+for out-of-distribution things, you're looking for—
+
+00:14:27.666 --> 00:14:31.066
+that's right, like circumstances that—
+
+00:14:31.066 --> 00:14:32.833
+that we have the terminology for this,
+
+00:14:32.833 --> 00:14:34.933
+it's called a functional scenario tree.
+
+00:14:35.200 --> 00:14:37.000
+If you think about it, it's really basically,
+
+00:14:37.000 --> 00:14:38.133
+you know, um—
+
+00:14:39.000 --> 00:14:40.833
+a bunch of nodes, which are the—
+
+00:14:40.833 --> 00:14:42.733
+you know, cases we need to cover.
+
+00:14:42.900 --> 00:14:45.766
+And then we have an AI tool to curate data
+
+00:14:45.766 --> 00:14:47.400
+to fill in these different nodes.
+
+00:14:47.833 --> 00:14:50.666
+And when we see a new scenario pop up on the road,
+
+00:14:50.666 --> 00:14:51.766
+testing, then we're gonna—
+
+00:14:51.766 --> 00:14:53.200
+you know, create one more layer,
+
+00:14:53.200 --> 00:14:56.366
+right, or one more node on this functional scenario tree.
+
+00:14:56.366 --> 00:14:57.000
+Yeah, okay.
+
+00:14:57.000 --> 00:14:59.433
+So this is called the functional scenario tree.
+
+00:14:59.433 --> 00:15:01.966
+So this with the double-parked car is really great, basically.
+
+00:15:01.966 --> 00:15:03.566
+You know, it just—
+
+00:15:03.566 --> 00:15:04.866
+literally we crossed the lane,
+
+00:15:04.866 --> 00:15:06.300
+but it was perfectly safe to do so.
+
+00:15:06.300 --> 00:15:07.733
+That's right, yeah, yeah, yeah.
+
+00:15:08.266 --> 00:15:10.000
+You will see, you know,
+
+00:15:10.000 --> 00:15:12.900
+some hesitation sometimes,
+
+00:15:12.900 --> 00:15:13.700
+um—
+
+00:15:14.100 --> 00:15:15.000
+like we're definitely—
+
+00:15:15.000 --> 00:15:16.800
+I would say more conservative than—
+
+00:15:16.800 --> 00:15:18.600
+than average driver.
+
+00:15:18.600 --> 00:15:19.500
+Because, for example,
+
+00:15:19.500 --> 00:15:20.500
+we'll get that definitely—
+
+00:15:20.500 --> 00:15:23.233
+we'll get to at least a moment of full stop
+
+00:15:23.233 --> 00:15:25.133
+in front of every stop sign,
+
+00:15:25.266 --> 00:15:26.766
+which is the right thing to do, obviously.
+
+00:15:26.766 --> 00:15:27.666
+But yeah—
+
+00:15:27.966 --> 00:15:29.700
+and so we have the data,
+
+00:15:29.700 --> 00:15:31.433
+we have AI models
+
+00:15:31.433 --> 00:15:33.500
+for your functional scenario trees,
+
+00:15:33.600 --> 00:15:36.966
+you have AI models for synthetic data generation—
+
+00:15:36.966 --> 00:15:37.766
+that's right, maybe—
+
+00:15:37.766 --> 00:15:39.566
+and we have AI models for neural reconstruction.
+
+00:15:39.566 --> 00:15:40.400
+For sure, right.
+
+00:15:40.400 --> 00:15:41.433
+We have— yeah, yeah—
+
+00:15:41.433 --> 00:15:42.233
+for, uh—
+
+00:15:42.700 --> 00:15:45.100
+drive logs to reconstruction.
+
+00:15:45.100 --> 00:15:46.300
+Right, yeah.
+
+00:15:47.666 --> 00:15:51.166
+When you do engineering, you can keep progressing
+
+00:15:51.166 --> 00:15:54.200
+and keep adding more capabilities,
+
+00:15:55.266 --> 00:15:58.066
+only if the foundation is strong.
+
+00:15:58.066 --> 00:15:59.233
+It's strong, yes.
+
+00:15:59.233 --> 00:16:00.500
+You know, when you're—
+
+00:16:00.500 --> 00:16:01.366
+you're taking—
+
+00:16:02.000 --> 00:16:04.666
+you're investing all these new capabilities,
+
+00:16:04.666 --> 00:16:05.566
+but, you know,
+
+00:16:05.566 --> 00:16:07.766
+you can only do so with confidence
+
+00:16:07.766 --> 00:16:08.233
+if you know—
+
+00:16:08.233 --> 00:16:09.866
+there's no regression, right?
+
+00:16:09.866 --> 00:16:11.066
+That's really one of the—
+
+00:16:11.066 --> 00:16:14.100
+the most powerful things about our classical stack.
+
+00:16:14.100 --> 00:16:15.366
+It's so safe.
+
+00:16:17.366 --> 00:16:18.666
+Every one of these iterations—
+
+00:16:18.666 --> 00:16:19.700
+every single month—
+
+00:16:19.700 --> 00:16:22.966
+you're quite confident deploying it onto the road.
+
+00:16:22.966 --> 00:16:24.700
+You know, between the evaluation systems
+
+00:16:24.700 --> 00:16:26.266
+and the validation systems,
+
+00:16:26.766 --> 00:16:29.500
+and the methodology and the guardrails—
+
+00:16:29.500 --> 00:16:31.533
+that's right, it's always safe.
+
+00:16:32.266 --> 00:16:34.833
+From here on, our velocity is gonna be so high.
+
+00:16:34.833 --> 00:16:36.166
+Yeah, yeah.
+
+00:16:37.366 --> 00:16:39.066
+So this is a residential area,
+
+00:16:39.066 --> 00:16:40.266
+so in this area—
+
+00:16:40.266 --> 00:16:41.200
+as I said, buses
+
+00:16:41.200 --> 00:16:44.500
+are a challenge, and then a lot of random parked cars.
+
+00:16:44.500 --> 00:16:47.066
+We call them DPVs, double-parked vehicles.
+
+00:16:47.766 --> 00:16:49.066
+And navigating around them is really,
+
+00:16:49.066 --> 00:16:50.466
+really critical, um—
+
+00:16:50.466 --> 00:16:53.666
+we got a lot of delivery vans and trucks.
+
+00:16:53.666 --> 00:16:55.666
+A lot of them, that's right, exactly.
+
+00:16:55.866 --> 00:16:57.633
+Weekends are better, but weekdays,
+
+00:16:57.633 --> 00:16:59.866
+you know, there's just a lot of them.
+
+00:17:01.300 --> 00:17:04.200
+And DPV nudging is also, you know, um,
+
+00:17:04.200 --> 00:17:05.000
+quite difficult.
+
+00:17:05.633 --> 00:17:07.400
+Difficult to get right, but the model, again,
+
+00:17:07.400 --> 00:17:08.400
+is learning, you know,
+
+00:17:08.400 --> 00:17:10.033
+what humans do, essentially,
+
+00:17:10.033 --> 00:17:11.000
+which is great.
+
+00:17:11.000 --> 00:17:13.466
+But even sometimes humans make mistakes.
+
+00:17:13.466 --> 00:17:15.000
+Uh-huh, you know, um—
+
+00:17:15.266 --> 00:17:17.300
+so if you make the wrong decision,
+
+00:17:17.300 --> 00:17:19.800
+you will end up being in the oncoming lane,
+
+00:17:19.800 --> 00:17:20.633
+you know, and yeah—
+
+00:17:20.633 --> 00:17:21.633
+sometimes you get stuck.
+
+00:17:21.633 --> 00:17:25.066
+You know, that's why I think what we are doing
+
+00:17:25.066 --> 00:17:26.166
+in the current implementation,
+
+00:17:26.166 --> 00:17:28.866
+is still slightly on the conservative side,
+
+00:17:29.033 --> 00:17:31.966
+because the cost of making a wrong decision is too high.
+
+00:17:31.966 --> 00:17:32.766
+Yeah.
+
+00:17:37.366 --> 00:17:39.866
+Safety first. Safety first. Exactly.
+
+00:17:39.866 --> 00:17:41.433
+It's okay to get stuck, essentially,
+
+00:17:41.433 --> 00:17:43.700
+for an L2++ product, yeah.
+
+00:17:43.700 --> 00:17:45.100
+Even if it's ugly, I think it's okay.
+
+00:17:45.100 --> 00:17:46.366
+Yeah, that's right.
+
+00:17:46.366 --> 00:17:49.366
+If the human's in the car, that's right, right, yeah.
+
+00:17:50.700 --> 00:17:53.800
+That's so great that we got the highest—
+
+00:17:53.800 --> 00:17:56.366
+highest rating in NCAP. I know, yeah.
+
+00:17:56.666 --> 00:17:58.300
+First time out, it's incredible.
+
+00:17:58.300 --> 00:17:59.300
+That's right.
+
+00:17:59.833 --> 00:18:01.366
+Because this is the right decision as well.
+
+00:18:01.366 --> 00:18:02.233
+Yeah, because it's oncoming.
+
+00:18:02.233 --> 00:18:04.400
+Exactly, and we're just patiently waiting.
+
+00:18:04.400 --> 00:18:07.966
+And a human might be slightly faster,
+
+00:18:07.966 --> 00:18:09.666
+but I think we did— I don't think so.
+
+00:18:09.800 --> 00:18:11.666
+I think I would have done about the same.
+
+00:18:13.700 --> 00:18:14.500
+Ha ha.
+
+00:18:14.800 --> 00:18:15.600
+Interesting.
+
+00:18:21.633 --> 00:18:22.366
+And NCAP 2025—
+
+00:18:22.366 --> 00:18:24.000
+so rigorous—
+
+00:18:24.000 --> 00:18:25.766
+and the Euro NCAP,
+
+00:18:25.766 --> 00:18:27.233
+the standards are so high.
+
+00:18:27.233 --> 00:18:28.033
+Yeah.
+
+00:18:28.833 --> 00:18:30.400
+And we got the highest score.
+
+00:18:30.400 --> 00:18:32.533
+That's crazy. That's so exciting.
+
+00:18:33.366 --> 00:18:34.800
+I knew we were gonna pass,
+
+00:18:34.800 --> 00:18:37.000
+but to get the highest score is really incredible.
+
+00:18:37.000 --> 00:18:39.766
+Yeah, that's again many years of hard work.
+
+00:18:39.766 --> 00:18:42.233
+Yeah, which is also very important,
+
+00:18:42.233 --> 00:18:44.433
+because all this work—that's our safety guardrail.
+
+00:18:44.433 --> 00:18:46.233
+That's right, and it will translate into
+
+00:18:46.233 --> 00:18:47.966
+L3 and L4 capabilities.
+
+00:18:51.600 --> 00:18:53.100
+Not bad, not bad.
+
+00:18:53.100 --> 00:18:56.066
+Wow, excellent.
+
+00:18:56.066 --> 00:18:58.433
+That was a good speed-up. Oh yeah.
+
+00:18:58.433 --> 00:18:59.233
+You know—
+
+00:19:00.233 --> 00:19:01.466
+Okay, oh—
+
+00:19:01.466 --> 00:19:03.266
+good move, very nice.
+
+00:19:03.566 --> 00:19:04.700
+Yeah, makes sense, yeah.
+
+00:19:06.866 --> 00:19:10.566
+So some people just drive right over a little pothole.
+
+00:19:10.800 --> 00:19:13.400
+I kind of drive around it personally.
+
+00:19:13.466 --> 00:19:14.266
+Uh-huh, uh-huh.
+
+00:19:14.400 --> 00:19:16.066
+I think we have to work on it,
+
+00:19:16.066 --> 00:19:18.533
+but that's a very important feature to have.
+
+00:19:18.600 --> 00:19:19.966
+Especially on highways, you know.
+
+00:19:19.966 --> 00:19:21.766
+Yeah, if you don't avoid a pothole—
+
+00:19:21.766 --> 00:19:23.500
+but what do our drivers do?
+
+00:19:24.400 --> 00:19:25.866
+Our drivers, yeah.
+
+00:19:25.866 --> 00:19:26.233
+Oh, you—
+
+00:19:26.233 --> 00:19:28.766
+you mean just now? It would probably—
+
+00:19:28.833 --> 00:19:31.200
+I wonder what they do. I think they would get around it.
+
+00:19:31.200 --> 00:19:32.633
+You think so? I don't know.
+
+00:19:32.633 --> 00:19:33.233
+Yeah, we can—
+
+00:19:33.233 --> 00:19:34.666
+but we can, I would say, just now,
+
+00:19:34.666 --> 00:19:36.033
+hopefully some of them do.
+
+00:19:36.033 --> 00:19:37.766
+And we can always select those—
+
+00:19:37.766 --> 00:19:38.800
+those data, you know,
+
+00:19:38.800 --> 00:19:40.600
+in our fine-tuning step.
+
+00:19:40.933 --> 00:19:42.633
+And we can also do reinforcement learning.
+
+00:19:42.633 --> 00:19:44.000
+Yeah, reinforcement learning is—
+
+00:19:44.000 --> 00:19:47.300
+is very effective, really, to have a more capable model.
+
+00:19:47.300 --> 00:19:48.433
+Right, this is what we are gonna—
+
+00:19:48.433 --> 00:19:51.166
+what we are working on for the next generation, right?
+
+00:19:51.166 --> 00:19:53.633
+I think reasoning, once it has memory, is very,
+
+00:19:53.633 --> 00:19:54.766
+very important.
+
+00:19:56.566 --> 00:19:57.666
+It can get—
+
+00:19:57.800 --> 00:20:00.266
+it will need less help from the classical stack.
+
+00:20:00.266 --> 00:20:01.066
+Yeah.
+
+00:20:01.900 --> 00:20:03.233
+It's so incredible
+
+00:20:03.233 --> 00:20:09.500
+that a billion-parameter model can encode and—
+
+00:20:09.766 --> 00:20:11.000
+you know, all of this.
+
+00:20:11.000 --> 00:20:14.200
+But I guess in the end, the question is,
+
+00:20:14.200 --> 00:20:15.500
+looking at all these features,
+
+00:20:15.500 --> 00:20:18.166
+what are the salient features
+
+00:20:18.166 --> 00:20:19.300
+it needs to encode?
+
+00:20:19.300 --> 00:20:21.866
+It probably is not that much information, right?
+
+00:20:21.866 --> 00:20:23.066
+Yeah, yeah.
+
+00:20:23.100 --> 00:20:24.600
+But the salient features—
+
+00:20:24.600 --> 00:20:26.700
+necessary to predict the trajectory—
+
+00:20:26.700 --> 00:20:27.100
+uh-huh, uh-huh—
+
+00:20:27.100 --> 00:20:29.600
+is probably extremely,
+
+00:20:29.633 --> 00:20:31.733
+extremely small. That's right.
+
+00:20:32.166 --> 00:20:33.766
+We see a lot in the world,
+
+00:20:33.766 --> 00:20:36.800
+so we are impressed by the amount of information,
+
+00:20:36.800 --> 00:20:38.700
+but how much of it does it really—
+
+00:20:38.700 --> 00:20:39.500
+does it really—
+
+00:20:40.166 --> 00:20:42.666
+need to contribute to trajectory prediction?
+
+00:20:42.666 --> 00:20:43.900
+It's probably very, very small.
+
+00:20:43.900 --> 00:20:45.100
+Very small, yes.
+
+00:20:51.033 --> 00:20:53.500
+That's so great, yeah.
+
+00:20:54.400 --> 00:20:57.100
+It started to turn before the car even passed us.
+
+00:20:57.100 --> 00:20:58.400
+Uh-huh, yeah.
+
+00:20:59.066 --> 00:21:00.666
+That's what the model does.
+
+00:21:01.266 --> 00:21:02.433
+That's what people would do.
+
+00:21:02.433 --> 00:21:04.166
+That's what people would do, yes.
+
+00:21:05.666 --> 00:21:07.366
+Channelized cones, Jensen.
+
+00:21:08.233 --> 00:21:10.100
+Hahaha, we set it up all for you.
+
+00:21:10.100 --> 00:21:11.300
+That's so great.
+
+00:21:11.300 --> 00:21:13.633
+Channelized cones are also amazing with the model,
+
+00:21:13.633 --> 00:21:16.566
+because it's so hard to get it right
+
+00:21:16.566 --> 00:21:18.000
+with the classical stack.
+
+00:21:18.166 --> 00:21:23.166
+You have to kind of generate lanes from cones, right?
+
+00:21:23.166 --> 00:21:25.000
+I would have zero concerns
+
+00:21:25.000 --> 00:21:27.633
+doing my email all the way through San Francisco.
+
+00:21:27.633 --> 00:21:29.700
+You know, how nice is that, right?
+
+00:21:36.033 --> 00:21:37.000
+Nice.
+
+00:21:39.366 --> 00:21:40.500
+Very nice.
+
+00:21:44.266 --> 00:21:45.866
+Wow, what a great drive.
+
+00:21:49.966 --> 00:21:54.766
+The AV stack drives very much like a human,
+
+00:21:54.766 --> 00:21:57.600
+that imitates a human and generalizes incredibly
+
+00:21:57.600 --> 00:21:59.000
+to all these different scenarios.
+
+00:21:59.200 --> 00:22:01.100
+And the classical AV stack
+
+00:22:01.100 --> 00:22:02.900
+gives us the safety guardrails
+
+00:22:02.900 --> 00:22:05.333
+that have been fine-tuned and tested,
+
+00:22:05.500 --> 00:22:07.566
+and with all of the engineering rules
+
+00:22:07.566 --> 00:22:08.500
+that have been put into it,
+
+00:22:08.500 --> 00:22:10.200
+gives us incredible safety.
+
+00:22:10.300 --> 00:22:12.700
+And so now when we were driving,
+
+00:22:12.700 --> 00:22:14.200
+the two of us were just talking,
+
+00:22:14.500 --> 00:22:17.066
+enjoying San Francisco, and it was just incredible.
+
+00:22:17.066 --> 00:22:20.000
+This is the way transportation should be.
+
+00:22:20.000 --> 00:22:21.633
+That's right— a hundred percent comfortable,
+
+00:22:21.633 --> 00:22:22.800
+a hundred percent confident,
+
+00:22:22.800 --> 00:22:26.000
+you know, and completely revolutionary.
+

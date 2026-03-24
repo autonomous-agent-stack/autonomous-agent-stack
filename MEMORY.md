@@ -37,6 +37,19 @@
     - 逻辑漏洞发现: 15% → 78% (+420%)
     - 误报率: 35% → 11% (-69%)
     - 信噪比: 2.3:1 → 8.7:1 (+278%)
+- **OpenClaw Agent Forge v2.0 重大升级**（09:57-10:15）
+  - ✅ 基于 Gemini Deep Research 报告
+  - ✅ 实现安全默认机制（第一阶段）
+  - ✅ 创建静态分析扫描器
+  - ✅ CLI 工具开发（forge create/scan/validate/deploy）
+  - ✅ 已推送到 GitHub（commit: 11ffa86）
+  - **核心功能**:
+    - Docker 沙箱自动配置
+    - API 密钥泄露检测
+    - 危险函数扫描
+    - 四层标准验证
+  - **仓库**: https://github.com/srxly888-creator/openclaw-agent-forge
+  - **文档**: docs/SECURITY_GUIDE.md
 
 ## 昨日完成 (2026-03-23)
 - 收集 58 条推文（17 高优，19 中优）
@@ -80,6 +93,12 @@
 - Codex 版本：0.116.0
 
 ## 学习资源
+- **OpenClaw Agent Forge v2.0**: https://github.com/srxly888-creator/openclaw-agent-forge
+  - 安全默认的智能体锻造工具
+  - 基于 PR #51165（智能体级别策略隔离）
+  - 静态分析扫描器（API 密钥、危险函数检测）
+  - 四层标准验证
+  - 适合：需要安全 Agent 开发的团队
 - **Claude CLI 深度优化版**: https://github.com/srxly888-creator/claude_cli
   - 企业级 i18n 架构
   - 多智能体审查矩阵
