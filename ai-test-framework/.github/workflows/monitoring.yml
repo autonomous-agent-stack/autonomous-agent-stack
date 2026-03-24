@@ -1,0 +1,313 @@
+name: Monitoring & Observability
+
+on:
+  schedule:
+    # Run every hour
+    - cron: '0 * * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  # ============================================
+  # Job 1: Application Health Check
+  # ============================================
+  health-check:
+    name: Application Health Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check Staging
+        run: |
+          response=$(curl -s -o /dev/null -w "%{http_code}" https://staging.example.com/health)
+          if [ $response -ne 200 ]; then
+            echo "Staging health check failed: HTTP $response"
+            exit 1
+          fi
+          echo "✅ Staging is healthy"
+
+      - name: Check Production
+        run: |
+          response=$(curl -s -o /dev/null -w "%{http_code}" https://example.com/health)
+          if [ $response -ne 200 ]; then
+            echo "Production health check failed: HTTP $response"
+            exit 1
+          fi
+          echo "✅ Production is healthy"
+
+      - name: Check API endpoints
+        run: |
+          # Check critical API endpoints
+          endpoints=(
+            "https://api.example.com/v1/users"
+            "https://api.example.com/v1/products"
+            "https://api.example.com/v1/orders"
+          )
+          
+          for endpoint in "${endpoints[@]}"; do
+            response=$(curl -s -o /dev/null -w "%{http_code}" "$endpoint")
+            if [ $response -ne 200 ] && [ $response -ne 401 ]; then
+              echo "⚠️ $endpoint returned HTTP $response"
+            fi
+          done
+
+  # ============================================
+  # Job 2: Performance Monitoring
+  # ============================================
+  performance-monitoring:
+    name: Performance Monitoring
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run Lighthouse CI
+        uses: treosh/lighthouse-ci-action@v10
+        with:
+          urls: |
+            https://example.com
+            https://example.com/products
+            https://example.com/checkout
+          uploadArtifacts: true
+          temporaryPublicStorage: true
+
+      - name: Check performance budgets
+        run: |
+          # Define performance budgets
+          BUDGET_FILE=.github/lighthouse-budgets.json
+          
+          if [ -f "$BUDGET_FILE" ]; then
+            npx lighthouse-budget-cli --json "$BUDGET_FILE" || true
+          fi
+
+      - name: Generate performance report
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-report-${{ github.run_number }}
+          path: .lighthouseci/
+
+  # ============================================
+  # Job 3: Error Tracking & Alerts
+  # ============================================
+  error-tracking:
+    name: Error Tracking
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Query error tracking service
+        run: |
+          # Example: Query Sentry for recent errors
+          curl -s "https://sentry.io/api/0/projects/your-org/your-project/events/" \
+            -H "Authorization: Bearer ${{ secrets.SENTRY_AUTH_TOKEN }}" \
+            | jq '.[0:5] | .[] | {message: .message, count: .count}'
+
+      - name: Check for critical errors
+        run: |
+          # Check if critical errors exceeded threshold
+          ERROR_COUNT=$(curl -s "https://your-error-tracking/api/errors/count" \
+            -H "Authorization: Bearer ${{ secrets.ERROR_TRACKING_TOKEN }}")
+          
+          THRESHOLD=100
+          if [ $ERROR_COUNT -gt $THRESHOLD ]; then
+            echo "⚠️ Critical: $ERROR_COUNT errors in last hour"
+            # Trigger notification
+            curl -X POST ${{ secrets.SLACK_WEBHOOK }} \
+              -d '{"text":"⚠️ High error rate detected: '$ERROR_COUNT' errors"}'
+          fi
+
+  # ============================================
+  # Job 4: Dependency Monitoring
+  # ============================================
+  dependency-monitoring:
+    name: Dependency Monitoring
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Check for outdated dependencies
+        run: |
+          npm outdated || true
+
+      - name: Run Dependabot security updates
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check for vulnerabilities
+        run: |
+          npm audit --audit-level=high
+          continue-on-error: true
+
+      - name: Generate dependency graph
+        run: |
+          npm ls --all > dependency-tree.txt
+          npx madge --image dependency-graph.png .
+
+      - name: Upload dependency reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-reports-${{ github.run_number }}
+          path: |
+            dependency-tree.txt
+            dependency-graph.png
+
+  # ============================================
+  # Job 5: API Performance Monitoring
+  # ============================================
+  api-performance:
+    name: API Performance Monitoring
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run API performance tests
+        run: |
+          # Example using k6
+          docker run --rm -v $PWD:/work -w /work grafana/k6 run \
+            --out json=api-performance-results.json \
+            tests/performance/api-load-test.js
+
+      - name: Parse performance results
+        run: |
+          if [ -f api-performance-results.json ]; then
+            # Extract key metrics
+            cat api-performance-results.json | jq '.metrics | {
+              http_req_duration: .http_req_duration,
+              http_req_failed: .http_req_failed,
+              vus: .vus
+            }'
+          fi
+
+      - name: Check SLA compliance
+        run: |
+          # Define SLA thresholds
+          MAX_RESPONSE_TIME=500  # 500ms
+          MAX_ERROR_RATE=0.01    # 1%
+          
+          # Check if metrics meet SLA
+          RESPONSE_TIME=$(cat api-performance-results.json | jq '.metrics.http_req_duration.values["p(95)"]')
+          ERROR_RATE=$(cat api-performance-results.json | jq '.metrics.http_req_failed.passes / (.metrics.http_req_failed.passes + .metrics.http_req_failed.fails)')
+          
+          if (( $(echo "$RESPONSE_TIME > $MAX_RESPONSE_TIME" | bc -l) )); then
+            echo "⚠️ SLA breached: Response time ${RESPONSE_TIME}ms exceeds ${MAX_RESPONSE_TIME}ms"
+            exit 1
+          fi
+          
+          if (( $(echo "$ERROR_RATE > $MAX_ERROR_RATE" | bc -l) )); then
+            echo "⚠️ SLA breached: Error rate ${ERROR_RATE} exceeds ${MAX_ERROR_RATE}"
+            exit 1
+          fi
+          
+          echo "✅ All SLAs met"
+
+      - name: Upload performance results
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-performance-${{ github.run_number }}
+          path: api-performance-results.json
+
+  # ============================================
+  # Job 6: Log Analysis
+  # ============================================
+  log-analysis:
+    name: Log Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Fetch logs from cloud provider
+        run: |
+          # Example: AWS CloudWatch Logs
+          aws logs start-query \
+            --log-group-name /aws/ecs/myapp-production \
+            --start-time $(date -d '1 hour ago' +%s) \
+            --end-time $(date +%s) \
+            --query-string "fields @timestamp, @message | filter @message like /ERROR/ | sort @timestamp desc" \
+            > logs.json
+
+      - name: Analyze logs for anomalies
+        run: |
+          # Count errors by type
+          cat logs.json | jq -r '.records[].message' | grep ERROR | sort | uniq -c | sort -rn
+
+      - name: Check for suspicious patterns
+        run: |
+          # Look for SQL injection attempts
+          SQL_INJECTION_COUNT=$(cat logs.json | grep -i "union select" | wc -l)
+          if [ $SQL_INJECTION_COUNT -gt 0 ]; then
+            echo "⚠️ Found $SQL_INJECTION_COUNT potential SQL injection attempts"
+          fi
+          
+          # Look for XSS attempts
+          XSS_COUNT=$(cat logs.json | grep -i "<script>" | wc -l)
+          if [ $XSS_COUNT -gt 0 ]; then
+            echo "⚠️ Found $XSS_COUNT potential XSS attempts"
+          fi
+
+      - name: Generate log report
+        uses: actions/upload-artifact@v4
+        with:
+          name: log-analysis-${{ github.run_number }}
+          path: logs.json
+
+  # ============================================
+  # Job 7: Uptime Monitoring
+  # ============================================
+  uptime-monitoring:
+    name: Uptime Monitoring
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check multiple endpoints
+        run: |
+          # Define endpoints to monitor
+          declare -A endpoints=(
+            ["Production"]="https://example.com"
+            ["Staging"]="https://staging.example.com"
+            ["API"]="https://api.example.com/health"
+            ["CDN"]="https://cdn.example.com"
+          )
+          
+          # Check each endpoint
+          for name in "${!endpoints[@]}"; do
+            url="${endpoints[$name]}"
+            response_time=$(curl -o /dev/null -s -w '%{time_total}' "$url")
+            status_code=$(curl -o /dev/null -s -w '%{http_code}' "$url")
+            
+            if [ $status_code -eq 200 ]; then
+              echo "✅ $name: ${status_code} (${response_time}s)"
+            else
+              echo "❌ $name: ${status_code} (${response_time}s)"
+              # Send alert
+              curl -X POST ${{ secrets.SLACK_WEBHOOK }} \
+                -d "{\"text\":\"❌ $name is down: HTTP $status_code\"}"
+            fi
+          done
+
+      - name: Record uptime metrics
+        run: |
+          # Store metrics in a file for trend analysis
+          echo "$(date),$(curl -o /dev/null -s -w '%{http_code}' https://example.com)" >> uptime-history.csv
+
+      - name: Upload uptime data
+        uses: actions/upload-artifact@v4
+        with:
+          name: uptime-metrics-${{ github.run_number }}
+          path: uptime-history.csv

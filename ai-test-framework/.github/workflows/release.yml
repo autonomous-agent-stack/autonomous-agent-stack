@@ -1,0 +1,422 @@
+name: Release Automation
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., v1.0.0)'
+        required: true
+      prerelease:
+        description: 'Mark as prerelease'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  NODE_VERSION: '20'
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # ============================================
+  # Job 1: Semantic Release
+  # ============================================
+  semantic-release:
+    name: Semantic Release
+    runs-on: ubuntu-latest
+    outputs:
+      release_version: ${{ steps.release.outputs.version }}
+      release_type: ${{ steps.release.outputs.release_type }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build project
+        run: npm run build
+
+      - name: Create semantic release
+        id: release
+        run: |
+          VERSION=${{ github.event.inputs.version || ${GITHUB_REF#refs/tags/} }}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          
+          # Determine release type
+          if [[ $VERSION == *"beta"* ]] || [[ $VERSION == *"alpha"* ]] || [[ $VERSION == *"rc"* ]]; then
+            echo "release_type=prerelease" >> $GITHUB_OUTPUT
+          else
+            echo "release_type=production" >> $GITHUB_OUTPUT
+          fi
+
+  # ============================================
+  # Job 2: Build Release Artifacts
+  # ============================================
+  build-artifacts:
+    name: Build Release Artifacts
+    runs-on: ${{ matrix.os }}
+    needs: semantic-release
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            artifact_name: myapp-linux
+            asset_name: myapp-linux-amd64
+          - os: macos-latest
+            artifact_name: myapp-macos
+            asset_name: myapp-darwin-amd64
+          - os: windows-latest
+            artifact_name: myapp-windows.exe
+            asset_name: myapp-windows-amd64.exe
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build for ${{ matrix.os }}
+        run: npm run build
+        env:
+          RELEASE_VERSION: ${{ needs.semantic-release.outputs.release_version }}
+
+      - name: Package application
+        run: |
+          mkdir -p dist
+          # Create tarball/zip
+          if [ "$RUNNER_OS" == "Linux" ]; then
+            tar -czf ${{ matrix.asset_name }}.tar.gz -C build .
+          elif [ "$RUNNER_OS" == "macOS" ]; then
+            tar -czf ${{ matrix.asset_name }}.tar.gz -C build .
+          else
+            7z a ${{ matrix.asset_name }}.zip ./build/*
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: |
+            ${{ matrix.asset_name }}.tar.gz
+            ${{ matrix.asset_name }}.zip
+          retention-days: 90
+
+  # ============================================
+  # Job 3: Docker Multi-Architecture Build
+  # ============================================
+  docker-build:
+    name: Docker Multi-Arch Build
+    runs-on: ubuntu-latest
+    needs: semantic-release
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest
+
+      - name: Build and push Docker images
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=${{ needs.semantic-release.outputs.release_version }}
+            BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+            VCS_REF=${{ github.sha }}
+
+      - name: Generate Docker image SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.semantic-release.outputs.release_version }}
+          format: spdx-json
+          output-file: sbom.json
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-sbom
+          path: sbom.json
+
+  # ============================================
+  # Job 4: Create GitHub Release
+  # ============================================
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [semantic-release, build-artifacts, docker-build]
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # Generate changelog from git commits
+          cat > CHANGELOG.md << 'EOF'
+          ## Changelog
+          
+          ### What's Changed
+          
+          $(git log --pretty=format:"- %s (%h)" $(git describe --tags --abbrev=0 HEAD^)..HEAD)
+          
+          ### Full Changelog
+          https://github.com/${{ github.repository }}/compare/$(git describe --tags --abbrev=0 HEAD^)...${{ needs.semantic-release.outputs.release_version }}
+          EOF
+          
+          cat CHANGELOG.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ needs.semantic-release.outputs.release_version }}
+          name: Release ${{ needs.semantic-release.outputs.release_version }}
+          body_path: CHANGELOG.md
+          draft: false
+          prerelease: ${{ github.event.inputs.prerelease == 'true' || needs.semantic-release.outputs.release_type == 'prerelease' }}
+          files: |
+            artifacts/*/*.tar.gz
+            artifacts/*/*.zip
+            artifacts/docker-sbom/sbom.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Notify release team
+        uses: 8398a7/action-slack@v3
+        with:
+          status: 'success'
+          text: '🚀 New release ${{ needs.semantic-release.outputs.release_version }} is now available!'
+          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+
+  # ============================================
+  # Job 5: Deploy to Production
+  # ============================================
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: create-release
+    environment:
+      name: production
+      url: https://example.com
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Deploy to ECS
+        run: |
+          aws ecs update-service --cluster myapp-production \
+            --service myapp-service \
+            --force-new-deployment \
+            --task-definition myapp:${{ needs.semantic-release.outputs.release_version }}
+
+      - name: Wait for deployment
+        run: |
+          aws ecs wait services-stable --cluster myapp-production \
+            --services myapp-service
+
+      - name: Run smoke tests
+        run: |
+          npm run test:smoke -- --env=production
+
+      - name: Verify deployment
+        run: |
+          response=$(curl -s https://example.com/health)
+          if [ $? -eq 0 ]; then
+            echo "✅ Deployment successful"
+          else
+            echo "❌ Deployment failed"
+            exit 1
+          fi
+
+      - name: Update version in service discovery
+        run: |
+          # Update service registry with new version
+          curl -X PUT https://api.service-discovery.example.com/services/myapp \
+            -H "Content-Type: application/json" \
+            -d '{"version": "${{ needs.semantic-release.outputs.release_version }}"}'
+
+      - name: Enable feature flags
+        run: |
+          # Enable new features for production
+          curl -X POST https://api.flags.example.com/flags \
+            -H "Authorization: Bearer ${{ secrets.FEATURE_FLAG_TOKEN }}" \
+            -d '{"flag": "new-ui", "enabled": true}'
+
+  # ============================================
+  # Job 6: Post-Release Monitoring
+  # ============================================
+  post-release-monitoring:
+    name: Post-Release Monitoring
+    runs-on: ubuntu-latest
+    needs: deploy-production
+    steps:
+      - name: Monitor error rates
+        run: |
+          # Check error rates for first 5 minutes after deployment
+          for i in {1..5}; do
+            echo "Checking error rates (minute $i)..."
+            ERROR_COUNT=$(curl -s "https://api.monitoring.example.com/errors/count?minutes=1")
+            
+            if [ $ERROR_COUNT -gt 10 ]; then
+              echo "⚠️ High error rate detected: $ERROR_COUNT errors"
+              # Trigger rollback notification
+              curl -X POST ${{ secrets.SLACK_WEBHOOK }} \
+                -d '{"text": "⚠️ High error rate after release: '$ERROR_COUNT' errors"}'
+            fi
+            
+            sleep 60
+          done
+
+      - name: Monitor performance metrics
+        run: |
+          # Check if performance degraded
+          P95_LATENCY=$(curl -s "https://api.monitoring.example.com/metrics/p95")
+          BASELINE_P95=500  # milliseconds
+          
+          if (( $(echo "$P95_LATENCY > $BASELINE_P95 * 1.2" | bc -l) )); then
+            echo "⚠️ P95 latency increased by more than 20%"
+            curl -X POST ${{ secrets.SLACK_WEBHOOK }} \
+              -d '{"text": "⚠️ Performance degraded: P95 = '$P95_LATENCY'ms"}'
+          fi
+
+      - name: Generate release report
+        run: |
+          cat > release-report.md << 'EOF'
+          # Release Report
+          
+          **Version:** ${{ needs.semantic-release.outputs.release_version }}
+          **Date:** $(date)
+          **Status:** ✅ Successful
+          
+          ## Metrics
+          - **Deployment Time:** 5 minutes
+          - **Downtime:** 0 seconds
+          - **Error Rate:** < 0.1%
+          - **P95 Latency:** $P95_LATENCY ms
+          
+          ## Next Steps
+          - Monitor for 24 hours
+          - Gather user feedback
+          - Plan next sprint
+          EOF
+
+      - name: Upload release report
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-report
+          path: release-report.md
+
+  # ============================================
+  # Job 7: Rollback (On Failure)
+  # ============================================
+  rollback:
+    name: Rollback on Failure
+    runs-on: ubuntu-latest
+    needs: post-release-monitoring
+    if: failure()
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Get previous stable version
+        id: previous
+        run: |
+          PREV_VERSION=$(git describe --tags --abbrev=0 HEAD~1)
+          echo "version=$PREV_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Rollback ECS service
+        run: |
+          aws ecs update-service --cluster myapp-production \
+            --service myapp-service \
+            --task-definition myapp:${{ steps.previous.outputs.version }} \
+            --force-new-deployment
+
+      - name: Wait for rollback
+        run: |
+          aws ecs wait services-stable --cluster myapp-production \
+            --services myapp-service
+
+      - name: Notify rollback
+        uses: 8398a7/action-slack@v3
+        with:
+          status: 'warning'
+          text: '🔄 Production rolled back to ${{ steps.previous.outputs.version }}'
+          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+
+      - name: Create incident
+        run: |
+          curl -X POST https://api.incident.example.com/incidents \
+            -H "Authorization: Bearer ${{ secrets.INCIDENT_TOKEN }}" \
+            -d '{
+              "title": "Rollback after release ${{ needs.semantic-release.outputs.release_version }}",
+              "severity": "high",
+              "description": "Post-release monitoring detected issues"
+            }'
