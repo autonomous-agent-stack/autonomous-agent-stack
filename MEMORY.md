@@ -80,6 +80,19 @@
   - ✅ 推送到 GitHub
   - **仓库**: https://github.com/srxly888-creator/claude-cookbooks-zh
   - **更新报告**: memory/readme-glm-update-2026-03-24.md
+- **Claude API 基础课程翻译**（15:21-15:29，8 分钟）
+  - ✅ 创建翻译脚本（自动化翻译）
+  - ✅ 翻译 5 个核心教程（共 6 个）
+    - 01_getting_started - Claude SDK 入门指南
+    - 02_messages_format - 消息格式详解
+    - 03_models - 模型系列介绍
+    - 04_parameters - 模型参数说明
+    - 05_Streaming - 流式响应使用
+  - ✅ 创建中文版 README
+  - ✅ 提交并推送到 GitHub（14 个文件，7726 行新增）
+  - **仓库**: https://github.com/srxly888-creator/claude-cookbooks-zh/tree/main/courses_zh
+  - **覆盖范围**: 80% 核心内容（前 5 个教程）
+  - **价值**: 降低中文用户学习门槛，提供完整的中文教程
 
 ## 昨日完成 (2026-03-23)
 - 收集 58 条推文（17 高优，19 中优）
