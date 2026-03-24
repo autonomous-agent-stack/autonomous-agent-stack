@@ -1,0 +1,217 @@
+{
+  "version": "1.0",
+  "description": "LLM API 成本优化配置文件",
+  
+  "budget": {
+    "daily_limit": 10.0,
+    "monthly_limit": 300.0,
+    "alert_threshold": 0.8,
+    "shutdown_threshold": 1.0,
+    "currency": "USD"
+  },
+  
+  "cache": {
+    "memory_cache": {
+      "enabled": true,
+      "max_size": 1000,
+      "default_ttl": 3600,
+      "auto_cleanup": true,
+      "cleanup_interval": 3600
+    },
+    "redis_cache": {
+      "enabled": false,
+      "host": "localhost",
+      "port": 6379,
+      "db": 0,
+      "password": null,
+      "default_ttl": 86400,
+      "max_memory": "256mb"
+    },
+    "semantic_cache": {
+      "enabled": false,
+      "model": "all-MiniLM-L6-v2",
+      "similarity_threshold": 0.85,
+      "max_entries": 10000
+    }
+  },
+  
+  "models": {
+    "gpt-3.5-turbo": {
+      "enabled": true,
+      "price_input": 0.002,
+      "price_output": 0.002,
+      "max_tokens": 4096,
+      "tasks": [
+        "simple_qa",
+        "summarization",
+        "translation",
+        "classification"
+      ]
+    },
+    "gpt-4": {
+      "enabled": true,
+      "price_input": 0.03,
+      "price_output": 0.06,
+      "max_tokens": 8192,
+      "tasks": [
+        "code_gen",
+        "complex_reasoning",
+        "creative_writing"
+      ]
+    },
+    "claude-3-sonnet": {
+      "enabled": false,
+      "price_input": 0.003,
+      "price_output": 0.015,
+      "max_tokens": 200000,
+      "tasks": [
+        "document_analysis",
+        "translation",
+        "moderate_reasoning"
+      ]
+    },
+    "claude-3-opus": {
+      "enabled": false,
+      "price_input": 0.015,
+      "price_output": 0.075,
+      "max_tokens": 200000,
+      "tasks": [
+        "creative_writing",
+        "complex_reasoning"
+      ]
+    }
+  },
+  
+  "routing": {
+    "strategy": "intelligent",
+    "budget_mode": false,
+    "rules": {
+      "simple_qa": {
+        "primary": "gpt-3.5-turbo",
+        "fallback": "gpt-3.5-turbo",
+        "cost_sensitivity": 1.0
+      },
+      "summarization": {
+        "primary": "gpt-3.5-turbo",
+        "fallback": "claude-3-sonnet",
+        "cost_sensitivity": 0.8
+      },
+      "code_gen": {
+        "primary": "gpt-4",
+        "fallback": "claude-3-sonnet",
+        "cost_sensitivity": 0.5
+      },
+      "creative_writing": {
+        "primary": "claude-3-opus",
+        "fallback": "claude-3-sonnet",
+        "cost_sensitivity": 0.3
+      },
+      "translation": {
+        "primary": "gpt-3.5-turbo",
+        "fallback": "claude-3-sonnet",
+        "cost_sensitivity": 0.7
+      }
+    }
+  },
+  
+  "batching": {
+    "enabled": true,
+    "batch_size": 10,
+    "delay_between_batches": 1.0,
+    "timeout": 30.0,
+    "max_concurrent": 5
+  },
+  
+  "monitoring": {
+    "enabled": true,
+    "metrics": {
+      "total_tokens": true,
+      "total_cost": true,
+      "cache_hit_rate": true,
+      "latency": true,
+      "error_rate": true
+    },
+    "alerting": {
+      "enabled": true,
+      "channels": ["email", "slack"],
+      "thresholds": {
+        "budget_usage": 0.8,
+        "error_rate": 0.05,
+        "latency_p99": 10.0
+      }
+    },
+    "export": {
+      "enabled": true,
+      "interval": 3600,
+      "format": "json",
+      "destination": "./metrics/"
+    }
+  },
+  
+  "optimization": {
+    "prompt_compression": {
+      "enabled": true,
+      "target_reduction": 0.5,
+      "preserve_structure": true
+    },
+    "token_management": {
+      "max_output_tokens": {
+        "classification": 10,
+        "summarization": 200,
+        "explanation": 500,
+        "code_generation": 1000,
+        "long_form": 2000,
+        "default": 500
+      },
+      "auto_truncate": true,
+      "chunk_long_inputs": true,
+      "chunk_size": 8000,
+      "chunk_overlap": 100
+    },
+    "quality_control": {
+      "enabled": true,
+      "min_quality_score": 0.7,
+      "auto_retry": true,
+      "max_retries": 2,
+      "fallback_on_low_quality": true
+    }
+  },
+  
+  "experiments": {
+    "ab_testing": {
+      "enabled": false,
+      "traffic_split": {
+        "gpt-3.5-turbo": 0.5,
+        "claude-3-sonnet": 0.5
+      },
+      "metrics": [
+        "quality",
+        "latency",
+        "cost"
+      ]
+    },
+    "predictive_prefetch": {
+      "enabled": false,
+      "confidence_threshold": 0.7,
+      "max_prefetches": 5
+    }
+  },
+  
+  "logging": {
+    "level": "INFO",
+    "file": "./logs/llm_optimization.log",
+    "max_size": "10MB",
+    "backup_count": 5,
+    "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  },
+  
+  "security": {
+    "api_key_rotation": true,
+    "rate_limiting": {
+      "enabled": true,
+      "requests_per_minute": 100,
+      "burst_size": 20
+    },
+    "audit_logging": true
+  }
+}

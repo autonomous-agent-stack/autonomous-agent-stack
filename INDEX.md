@@ -50,6 +50,8 @@
 - [ai-education-and-training.md](knowledge/education/ai-education-and-training.md)
 - [ai-commercialization-strategy.md](knowledge/business/ai-commercialization-strategy.md)
 - [ai-autonomous-agent-framework.md](knowledge/agents/ai-autonomous-agent-framework.md)
+- [AI 模型压缩技术完全指南](docs/ai-model-compression-techniques.md) ⭐ 新增
+- [AI 模型压缩技术 - 快速参考](docs/ai-model-compression-quick-reference.md) ⭐ 新增
 
 ### 测试框架
 - [test-framework-revised-plan.md](memory/test-framework-revised-plan.md)
