@@ -1,0 +1,1704 @@
+1
+00:00:00,240 --> 00:00:03,560
+<font color="white" size=".72c">this video was brought to you by</font>
+
+2
+00:00:01,480 --> 00:00:05,520
+<font color="white" size=".72c">Squarespace there is one Concept in</font>
+
+3
+00:00:03,560 --> 00:00:08,200
+<font color="white" size=".72c">machine learning that nearly every</font>
+
+4
+00:00:05,520 --> 00:00:10,320
+<font color="white" size=".72c">course in textbook starts with finding</font>
+
+5
+00:00:08,200 --> 00:00:12,440
+<font color="white" size=".72c">the equation of a straight line that</font>
+
+6
+00:00:10,320 --> 00:00:14,920
+<font color="white" size=".72c">best fits a scatter of</font>
+
+7
+00:00:12,440 --> 00:00:17,119
+<font color="white" size=".72c">points the typical explanation goes</font>
+
+8
+00:00:14,920 --> 00:00:19,039
+<font color="white" size=".72c">something like this we pick the line's</font>
+
+9
+00:00:17,119 --> 00:00:21,320
+<font color="white" size=".72c">parameters to minimize the average</font>
+
+10
+00:00:19,039 --> 00:00:24,760
+<font color="white" size=".72c">squared vertical distance from each</font>
+
+11
+00:00:21,320 --> 00:00:27,480
+<font color="white" size=".72c">point but why vertical distances why</font>
+
+12
+00:00:24,760 --> 00:00:29,759
+<font color="white" size=".72c">squares and not absolute values or some</font>
+
+13
+00:00:27,480 --> 00:00:30,800
+<font color="white" size=".72c">other power where does that even come</font>
+
+14
+00:00:29,759 --> 00:00:33,040
+<font color="white" size=".72c">from</font>
+
+15
+00:00:30,800 --> 00:00:35,600
+<font color="white" size=".72c">you'll often hear justifications like</font>
+
+16
+00:00:33,040 --> 00:00:38,719
+<font color="white" size=".72c">squares are easier to optimize or the</font>
+
+17
+00:00:35,600 --> 00:00:41,440
+<font color="white" size=".72c">math just works out nicely Fair points</font>
+
+18
+00:00:38,719 --> 00:00:43,920
+<font color="white" size=".72c">but to me that always felt somewhat</font>
+
+19
+00:00:41,440 --> 00:00:45,520
+<font color="white" size=".72c">unsatisfying in this video I want to</font>
+
+20
+00:00:43,920 --> 00:00:48,000
+<font color="white" size=".72c">share with you an alternative</font>
+
+21
+00:00:45,520 --> 00:00:50,600
+<font color="white" size=".72c">perspective a probabilistic take on</font>
+
+22
+00:00:48,000 --> 00:00:53,000
+<font color="white" size=".72c">linear regression that finally made</font>
+
+23
+00:00:50,600 --> 00:00:55,600
+<font color="white" size=".72c">everything click for me it leads to the</font>
+
+24
+00:00:53,000 --> 00:00:58,519
+<font color="white" size=".72c">same solution but offers a conceptual</font>
+
+25
+00:00:55,600 --> 00:01:00,280
+<font color="white" size=".72c">shift that I found invaluable not only</font>
+
+26
+00:00:58,519 --> 00:01:03,000
+<font color="white" size=".72c">does it answer those fundamental</font>
+
+27
+00:01:00,280 --> 00:01:05,799
+<font color="white" size=".72c">questions it also connects the seemingly</font>
+
+28
+00:01:03,000 --> 00:01:08,159
+<font color="white" size=".72c">simple problem to more complex topics</font>
+
+29
+00:01:05,799 --> 00:01:10,039
+<font color="white" size=".72c">like generative modeling and parameter</font>
+
+30
+00:01:08,159 --> 00:01:13,300
+<font color="white" size=".72c">regularizations in ways that might</font>
+
+31
+00:01:10,039 --> 00:01:15,560
+<font color="white" size=".72c">surprise you let's Dive Right</font>
+
+32
+00:01:13,300 --> 00:01:18,400
+<font color="white" size=".72c">[Music]</font>
+
+33
+00:01:15,560 --> 00:01:21,280
+<font color="white" size=".72c">In let's first clarify what regression</font>
+
+34
+00:01:18,400 --> 00:01:23,960
+<font color="white" size=".72c">actually means at its core it's about</font>
+
+35
+00:01:21,280 --> 00:01:27,400
+<font color="white" size=".72c">uncovering a relationship between inputs</font>
+
+36
+00:01:23,960 --> 00:01:30,320
+<font color="white" size=".72c">call them X and outputs y then using</font>
+
+37
+00:01:27,400 --> 00:01:33,560
+<font color="white" size=".72c">that relationship to predict y for new</font>
+
+38
+00:01:30,320 --> 00:01:35,280
+<font color="white" size=".72c">values of X unlike classification where</font>
+
+39
+00:01:33,560 --> 00:01:38,039
+<font color="white" size=".72c">you are choosing between discrete</font>
+
+40
+00:01:35,280 --> 00:01:40,920
+<font color="white" size=".72c">categories like yes and no regression</font>
+
+41
+00:01:38,039 --> 00:01:43,399
+<font color="white" size=".72c">deals with continuous values a classic</font>
+
+42
+00:01:40,920 --> 00:01:46,520
+<font color="white" size=".72c">example is predicting house price from</font>
+
+43
+00:01:43,399 --> 00:01:48,920
+<font color="white" size=".72c">various features perhaps X1 is the</font>
+
+44
+00:01:46,520 --> 00:01:52,680
+<font color="white" size=".72c">number of bedrooms X2 distance to the</font>
+
+45
+00:01:48,920 --> 00:01:55,360
+<font color="white" size=".72c">subway Etc our task is to reconstruct</font>
+
+46
+00:01:52,680 --> 00:01:57,759
+<font color="white" size=".72c">the price from these features at this</font>
+
+47
+00:01:55,360 --> 00:02:00,840
+<font color="white" size=".72c">point most explanations jump directly to</font>
+
+48
+00:01:57,759 --> 00:02:03,520
+<font color="white" size=".72c">minimizing squar errors in the line by</font>
+
+49
+00:02:00,840 --> 00:02:05,960
+<font color="white" size=".72c">reducing those vertical gaps and yes</font>
+
+50
+00:02:03,520 --> 00:02:08,280
+<font color="white" size=".72c">we'll get there but to truly understand</font>
+
+51
+00:02:05,960 --> 00:02:11,319
+<font color="white" size=".72c">why this works let's step back and</font>
+
+52
+00:02:08,280 --> 00:02:11,319
+<font color="white" size=".72c">reframe it through</font>
+
+53
+00:02:11,720 --> 00:02:17,360
+<font color="white" size=".72c">probability let's treat our data as if</font>
+
+54
+00:02:14,480 --> 00:02:19,800
+<font color="white" size=".72c">it emerges from a linear model plus some</font>
+
+55
+00:02:17,360 --> 00:02:22,200
+<font color="white" size=".72c">noise imagine that somewhere in the</font>
+
+56
+00:02:19,800 --> 00:02:24,879
+<font color="white" size=".72c">universe underlying source code the</font>
+
+57
+00:02:22,200 --> 00:02:26,920
+<font color="white" size=".72c">ideal price of each house is given</font>
+
+58
+00:02:24,879 --> 00:02:30,160
+<font color="white" size=".72c">precisely by a linear combination of</font>
+
+59
+00:02:26,920 --> 00:02:32,560
+<font color="white" size=".72c">features weighted by some coefficients</font>
+
+60
+00:02:30,160 --> 00:02:35,000
+<font color="white" size=".72c">for brevity let's Express this as the</font>
+
+61
+00:02:32,560 --> 00:02:36,360
+<font color="white" size=".72c">dot product between weights and features</font>
+
+62
+00:02:35,000 --> 00:02:39,400
+<font color="white" size=".72c">stacked into</font>
+
+63
+00:02:36,360 --> 00:02:41,040
+<font color="white" size=".72c">vectors however real world data is messy</font>
+
+64
+00:02:39,400 --> 00:02:44,400
+<font color="white" size=".72c">and it never perfectly follows the</font>
+
+65
+00:02:41,040 --> 00:02:46,560
+<font color="white" size=".72c">linear patterns actual house prices are</font>
+
+66
+00:02:44,400 --> 00:02:49,239
+<font color="white" size=".72c">influenced not just by those features we</font>
+
+67
+00:02:46,560 --> 00:02:51,519
+<font color="white" size=".72c">collected but also by hidden variables</font>
+
+68
+00:02:49,239 --> 00:02:53,400
+<font color="white" size=".72c">that we can't access Plus Market</font>
+
+69
+00:02:51,519 --> 00:02:56,280
+<font color="white" size=".72c">fluctuations and human</font>
+
+70
+00:02:53,400 --> 00:02:59,440
+<font color="white" size=".72c">behavior in other words our observed</font>
+
+71
+00:02:56,280 --> 00:03:02,360
+<font color="white" size=".72c">values y are corrupted versions of those</font>
+
+72
+00:02:59,440 --> 00:03:05,879
+<font color="white" size=".72c">ideal underlying values with noise term</font>
+
+73
+00:03:02,360 --> 00:03:08,000
+<font color="white" size=".72c">Epsilon being added to them here Epsilon</font>
+
+74
+00:03:05,879 --> 00:03:10,159
+<font color="white" size=".72c">represents everything we can't explain</font>
+
+75
+00:03:08,000 --> 00:03:12,440
+<font color="white" size=".72c">with our features all the unknown</font>
+
+76
+00:03:10,159 --> 00:03:15,440
+<font color="white" size=".72c">contributors to the price beyond our</font>
+
+77
+00:03:12,440 --> 00:03:18,200
+<font color="white" size=".72c">control the critical Insight is that our</font>
+
+78
+00:03:15,440 --> 00:03:21,519
+<font color="white" size=".72c">resulting regression equation depends on</font>
+
+79
+00:03:18,200 --> 00:03:23,760
+<font color="white" size=".72c">our assumptions about this noise namely</font>
+
+80
+00:03:21,519 --> 00:03:26,360
+<font color="white" size=".72c">Epsilon is shaped by countless tiny</font>
+
+81
+00:03:23,760 --> 00:03:28,799
+<font color="white" size=".72c">inferences measurement errors untrack</font>
+
+82
+00:03:26,360 --> 00:03:31,159
+<font color="white" size=".72c">variables random Market fluctuations all</font>
+
+83
+00:03:28,799 --> 00:03:33,079
+<font color="white" size=".72c">added together when many small</font>
+
+84
+00:03:31,159 --> 00:03:36,439
+<font color="white" size=".72c">independent effects accumulate</font>
+
+85
+00:03:33,079 --> 00:03:38,680
+<font color="white" size=".72c">additively something remarkable happens</font>
+
+86
+00:03:36,439 --> 00:03:40,799
+<font color="white" size=".72c">according to the central limit theorem</font>
+
+87
+00:03:38,680 --> 00:03:43,519
+<font color="white" size=".72c">when you sum many independent random</font>
+
+88
+00:03:40,799 --> 00:03:46,400
+<font color="white" size=".72c">variables regardless of their individual</font>
+
+89
+00:03:43,519 --> 00:03:48,799
+<font color="white" size=".72c">distributions their sum approaches a</font>
+
+90
+00:03:46,400 --> 00:03:51,959
+<font color="white" size=".72c">normal or gorion distribution The</font>
+
+91
+00:03:48,799 --> 00:03:54,640
+<font color="white" size=".72c">Familiar B curve suppose we have a</font>
+
+92
+00:03:51,959 --> 00:03:56,959
+<font color="white" size=".72c">candidate set of Weights W our</font>
+
+93
+00:03:54,640 --> 00:04:00,120
+<font color="white" size=".72c">hypothesis about the underlying linear</font>
+
+94
+00:03:56,959 --> 00:04:03,280
+<font color="white" size=".72c">model when we examine a random house</font>
+
+95
+00:04:00,120 --> 00:04:05,680
+<font color="white" size=".72c">with features X and price y we can</font>
+
+96
+00:04:03,280 --> 00:04:08,799
+<font color="white" size=".72c">calculate exactly how much noise was</font>
+
+97
+00:04:05,680 --> 00:04:11,360
+<font color="white" size=".72c">added to our hypothesis by taking the</font>
+
+98
+00:04:08,799 --> 00:04:14,959
+<font color="white" size=".72c">difference between the observed price Y</font>
+
+99
+00:04:11,360 --> 00:04:17,399
+<font color="white" size=".72c">and its ideal non-noise value with our</font>
+
+100
+00:04:14,959 --> 00:04:20,160
+<font color="white" size=".72c">noise model knowing that it follows a</font>
+
+101
+00:04:17,399 --> 00:04:23,000
+<font color="white" size=".72c">caution distribution we can calculate</font>
+
+102
+00:04:20,160 --> 00:04:25,520
+<font color="white" size=".72c">the probability of getting precisely the</font>
+
+103
+00:04:23,000 --> 00:04:27,680
+<font color="white" size=".72c">right amount of noise Epsilon that would</font>
+
+104
+00:04:25,520 --> 00:04:30,520
+<font color="white" size=".72c">push the underlying price to be</font>
+
+105
+00:04:27,680 --> 00:04:32,560
+<font color="white" size=".72c">registered as y this equals the</font>
+
+106
+00:04:30,520 --> 00:04:35,360
+<font color="white" size=".72c">probability of observing that particular</font>
+
+107
+00:04:32,560 --> 00:04:38,320
+<font color="white" size=".72c">data point I want to reiterate that</font>
+
+108
+00:04:35,360 --> 00:04:41,560
+<font color="white" size=".72c">shift of perspective with a working set</font>
+
+109
+00:04:38,320 --> 00:04:43,960
+<font color="white" size=".72c">of Weights w we take the features X and</font>
+
+110
+00:04:41,560 --> 00:04:46,680
+<font color="white" size=".72c">compute their weighted sum given us</font>
+
+111
+00:04:43,960 --> 00:04:49,720
+<font color="white" size=".72c">where the ideal noiseless version of Y</font>
+
+112
+00:04:46,680 --> 00:04:52,400
+<font color="white" size=".72c">should lie around this point exists a</font>
+
+113
+00:04:49,720 --> 00:04:55,960
+<font color="white" size=".72c">cloud of uncertainty a bell curve</font>
+
+114
+00:04:52,400 --> 00:04:58,800
+<font color="white" size=".72c">centered at w transpose X when we</font>
+
+115
+00:04:55,960 --> 00:05:00,720
+<font color="white" size=".72c">observe the actual value of y and</font>
+
+116
+00:04:58,800 --> 00:05:03,600
+<font color="white" size=".72c">calculate how much much noise must have</font>
+
+117
+00:05:00,720 --> 00:05:06,160
+<font color="white" size=".72c">been added we can compute the likelihood</font>
+
+118
+00:05:03,600 --> 00:05:09,440
+<font color="white" size=".72c">of that happening by plugging the noise</font>
+
+119
+00:05:06,160 --> 00:05:11,639
+<font color="white" size=".72c">amplitude into the gor equation this</font>
+
+120
+00:05:09,440 --> 00:05:14,400
+<font color="white" size=".72c">gives us the probability of observing a</font>
+
+121
+00:05:11,639 --> 00:05:16,800
+<font color="white" size=".72c">single data point as the probability of</font>
+
+122
+00:05:14,400 --> 00:05:18,800
+<font color="white" size=".72c">sampling just the right amount of noise</font>
+
+123
+00:05:16,800 --> 00:05:21,240
+<font color="white" size=".72c">from the caution</font>
+
+124
+00:05:18,800 --> 00:05:24,199
+<font color="white" size=".72c">distribution if we assume all data</font>
+
+125
+00:05:21,240 --> 00:05:26,440
+<font color="white" size=".72c">points in our scatter plot were sampled</font>
+
+126
+00:05:24,199 --> 00:05:28,919
+<font color="white" size=".72c">independently then the probability of</font>
+
+127
+00:05:26,440 --> 00:05:30,360
+<font color="white" size=".72c">obtaining our entire data set with a</font>
+
+128
+00:05:28,919 --> 00:05:32,199
+<font color="white" size=".72c">fixed w</font>
+
+129
+00:05:30,360 --> 00:05:34,479
+<font color="white" size=".72c">can be found by multiplying the</font>
+
+130
+00:05:32,199 --> 00:05:37,120
+<font color="white" size=".72c">probabilities of these independent</font>
+
+131
+00:05:34,479 --> 00:05:39,639
+<font color="white" size=".72c">events what we have done is expressed</font>
+
+132
+00:05:37,120 --> 00:05:41,360
+<font color="white" size=".72c">the probability of observing our data</font>
+
+133
+00:05:39,639 --> 00:05:44,560
+<font color="white" size=".72c">given a particular model the</font>
+
+134
+00:05:41,360 --> 00:05:47,240
+<font color="white" size=".72c">coefficients W if presented with two</font>
+
+135
+00:05:44,560 --> 00:05:49,560
+<font color="white" size=".72c">alternative models intuitively the</font>
+
+136
+00:05:47,240 --> 00:05:51,800
+<font color="white" size=".72c">better model would be the one with a</font>
+
+137
+00:05:49,560 --> 00:05:54,720
+<font color="white" size=".72c">higher probability of generating The</font>
+
+138
+00:05:51,800 --> 00:05:56,639
+<font color="white" size=".72c">observed data so when solving the</font>
+
+139
+00:05:54,720 --> 00:05:59,039
+<font color="white" size=".72c">regression problem and choosing the</font>
+
+140
+00:05:56,639 --> 00:06:01,840
+<font color="white" size=".72c">optimal w we just need to select the</font>
+
+141
+00:05:59,039 --> 00:06:04,000
+<font color="white" size=".72c">configuration that maximizes this</font>
+
+142
+00:06:01,840 --> 00:06:06,280
+<font color="white" size=".72c">probability given this optimization</font>
+
+143
+00:06:04,000 --> 00:06:09,560
+<font color="white" size=".72c">objective we can expand the formula for</font>
+
+144
+00:06:06,280 --> 00:06:12,520
+<font color="white" size=".72c">the probability of data now let's take</font>
+
+145
+00:06:09,560 --> 00:06:14,360
+<font color="white" size=".72c">the logarithm of the right hand side</font>
+
+146
+00:06:12,520 --> 00:06:16,680
+<font color="white" size=".72c">because logarithm is a monotonic</font>
+
+147
+00:06:14,360 --> 00:06:19,319
+<font color="white" size=".72c">function whichever weight configuration</font>
+
+148
+00:06:16,680 --> 00:06:21,520
+<font color="white" size=".72c">maximizes the total probability also</font>
+
+149
+00:06:19,319 --> 00:06:23,880
+<font color="white" size=".72c">maximizes its logarithm the two</font>
+
+150
+00:06:21,520 --> 00:06:26,039
+<font color="white" size=".72c">objectives are equivalent but the</font>
+
+151
+00:06:23,880 --> 00:06:28,400
+<font color="white" size=".72c">logarithm transforms our product of</font>
+
+152
+00:06:26,039 --> 00:06:31,240
+<font color="white" size=".72c">probabilities into a sum which is much</font>
+
+153
+00:06:28,400 --> 00:06:33,680
+<font color="white" size=".72c">easier to work with</font>
+
+154
+00:06:31,240 --> 00:06:36,479
+<font color="white" size=".72c">notice that Sigma the amplitude of the</font>
+
+155
+00:06:33,680 --> 00:06:38,280
+<font color="white" size=".72c">underlying noise is a fixed value</font>
+
+156
+00:06:36,479 --> 00:06:40,440
+<font color="white" size=".72c">determined by factors like Market</font>
+
+157
+00:06:38,280 --> 00:06:43,080
+<font color="white" size=".72c">volatility from the perspective of the</font>
+
+158
+00:06:40,440 --> 00:06:45,560
+<font color="white" size=".72c">optimization objective it is a constant</font>
+
+159
+00:06:43,080 --> 00:06:48,520
+<font color="white" size=".72c">factor that doesn't affect which set of</font>
+
+160
+00:06:45,560 --> 00:06:51,520
+<font color="white" size=".72c">Weights is optimal this allows us to</font>
+
+161
+00:06:48,520 --> 00:06:53,560
+<font color="white" size=".72c">simplify the formula finally the</font>
+
+162
+00:06:51,520 --> 00:06:57,440
+<font color="white" size=".72c">logarithm and the exponent cancel each</font>
+
+163
+00:06:53,560 --> 00:06:59,599
+<font color="white" size=".72c">other out leaving us with this this is</font>
+
+164
+00:06:57,440 --> 00:07:02,360
+<font color="white" size=".72c">exactly the well-known least squares of</font>
+
+165
+00:06:59,599 --> 00:07:04,599
+<font color="white" size=".72c">objective which states that the optimal</font>
+
+166
+00:07:02,360 --> 00:07:07,639
+<font color="white" size=".72c">coefficients should maximize the</font>
+
+167
+00:07:04,599 --> 00:07:10,680
+<font color="white" size=".72c">negative or minimize the positive of the</font>
+
+168
+00:07:07,639 --> 00:07:14,039
+<font color="white" size=".72c">sum of squared errors between the linear</font>
+
+169
+00:07:10,680 --> 00:07:15,879
+<font color="white" size=".72c">fit and The observed points importantly</font>
+
+170
+00:07:14,039 --> 00:07:18,440
+<font color="white" size=".72c">though we arrived at this from the</font>
+
+171
+00:07:15,879 --> 00:07:20,520
+<font color="white" size=".72c">perspective of finding the linear model</font>
+
+172
+00:07:18,440 --> 00:07:23,319
+<font color="white" size=".72c">that maximizes the probability of</font>
+
+173
+00:07:20,520 --> 00:07:25,680
+<font color="white" size=".72c">observing our data and the square in the</font>
+
+174
+00:07:23,319 --> 00:07:28,199
+<font color="white" size=".72c">resulting formula is a direct</font>
+
+175
+00:07:25,680 --> 00:07:30,919
+<font color="white" size=".72c">consequence of assuming the Gau</font>
+
+176
+00:07:28,199 --> 00:07:32,840
+<font color="white" size=".72c">noise this problem can be then solved</font>
+
+177
+00:07:30,919 --> 00:07:34,599
+<font color="white" size=".72c">either through gradient descent by</font>
+
+178
+00:07:32,840 --> 00:07:37,039
+<font color="white" size=".72c">making small iterative adjustments to</font>
+
+179
+00:07:34,599 --> 00:07:39,080
+<font color="white" size=".72c">the weights or by directly jumping to</font>
+
+180
+00:07:37,039 --> 00:07:42,080
+<font color="white" size=".72c">this solution using a closed form</font>
+
+181
+00:07:39,080 --> 00:07:44,319
+<font color="white" size=".72c">expression found in any textbook my main</font>
+
+182
+00:07:42,080 --> 00:07:45,960
+<font color="white" size=".72c">goal here was to show where this formula</font>
+
+183
+00:07:44,319 --> 00:07:48,560
+<font color="white" size=".72c">comes from in the first</font>
+
+184
+00:07:45,960 --> 00:07:51,039
+<font color="white" size=".72c">place just like linear regression helps</font>
+
+185
+00:07:48,560 --> 00:07:52,720
+<font color="white" size=".72c">us find the optimal fit for the data</font>
+
+186
+00:07:51,039 --> 00:07:54,879
+<font color="white" size=".72c">finding the right platform for your</font>
+
+187
+00:07:52,720 --> 00:07:57,520
+<font color="white" size=".72c">online presence is all about making</font>
+
+188
+00:07:54,879 --> 00:08:00,520
+<font color="white" size=".72c">smart choices which brings me to our</font>
+
+189
+00:07:57,520 --> 00:08:02,319
+<font color="white" size=".72c">today's sponsor Squarespace Squarespace</font>
+
+190
+00:08:00,520 --> 00:08:04,120
+<font color="white" size=".72c">transforms website creation and</font>
+
+191
+00:08:02,319 --> 00:08:06,520
+<font color="white" size=".72c">management into a straightforward</font>
+
+192
+00:08:04,120 --> 00:08:08,319
+<font color="white" size=".72c">process that anyone can Master while</font>
+
+193
+00:08:06,520 --> 00:08:10,400
+<font color="white" size=".72c">starting a site from scratch might seem</font>
+
+194
+00:08:08,319 --> 00:08:12,720
+<font color="white" size=".72c">challenging Squarespace design</font>
+
+195
+00:08:10,400 --> 00:08:16,120
+<font color="white" size=".72c">intelligence feature makes it remarkably</font>
+
+196
+00:08:12,720 --> 00:08:18,240
+<font color="white" size=".72c">simple this Innovative AI power tool kit</font>
+
+197
+00:08:16,120 --> 00:08:20,720
+<font color="white" size=".72c">generates a website tailored to your</font>
+
+198
+00:08:18,240 --> 00:08:23,240
+<font color="white" size=".72c">specific business in brand Vision filled</font>
+
+199
+00:08:20,720 --> 00:08:25,240
+<font color="white" size=".72c">with relevant content and images from</font>
+
+200
+00:08:23,240 --> 00:08:27,479
+<font color="white" size=".72c">this starting point you can enjoy total</font>
+
+201
+00:08:25,240 --> 00:08:29,680
+<font color="white" size=".72c">creative freedom adjust all the visual</font>
+
+202
+00:08:27,479 --> 00:08:31,599
+<font color="white" size=".72c">elements to match your style organize</font>
+
+203
+00:08:29,680 --> 00:08:33,279
+<font color="white" size=".72c">content with their drag and drop tools</font>
+
+204
+00:08:31,599 --> 00:08:35,320
+<font color="white" size=".72c">and even Implement ey catch in</font>
+
+205
+00:08:33,279 --> 00:08:37,479
+<font color="white" size=".72c">animations to spice things up</font>
+
+206
+00:08:35,320 --> 00:08:39,799
+<font color="white" size=".72c">importantly Squarespace goes beyond just</font>
+
+207
+00:08:37,479 --> 00:08:41,919
+<font color="white" size=".72c">website building it's a comprehensive</font>
+
+208
+00:08:39,799 --> 00:08:44,440
+<font color="white" size=".72c">digital solution where you can develop</font>
+
+209
+00:08:41,919 --> 00:08:46,959
+<font color="white" size=".72c">online courses launch effective email</font>
+
+210
+00:08:44,440 --> 00:08:49,320
+<font color="white" size=".72c">campaigns or set up payment processing</font>
+
+211
+00:08:46,959 --> 00:08:51,720
+<font color="white" size=".72c">through various methods all within one</font>
+
+212
+00:08:49,320 --> 00:08:53,399
+<font color="white" size=".72c">cohesive ecosystem experience it</font>
+
+213
+00:08:51,720 --> 00:08:55,760
+<font color="white" size=".72c">yourself with a free trial at</font>
+
+214
+00:08:53,399 --> 00:08:59,160
+<font color="white" size=".72c">squarespace.com and once you're ready to</font>
+
+215
+00:08:55,760 --> 00:09:01,279
+<font color="white" size=".72c">launch visit squarespace.com AUM to save</font>
+
+216
+00:08:59,160 --> 00:09:03,920
+<font color="white" size=".72c">10 % off your first purchase of a</font>
+
+217
+00:09:01,279 --> 00:09:03,920
+<font color="white" size=".72c">website or</font>
+
+218
+00:09:04,240 --> 00:09:09,440
+<font color="white" size=".72c">domain previously when choosing between</font>
+
+219
+00:09:06,920 --> 00:09:11,640
+<font color="white" size=".72c">different sets of Weights w we always</font>
+
+220
+00:09:09,440 --> 00:09:13,920
+<font color="white" size=".72c">pick the model with a higher probability</font>
+
+221
+00:09:11,640 --> 00:09:16,880
+<font color="white" size=".72c">of generating The observed data the</font>
+
+222
+00:09:13,920 --> 00:09:19,120
+<font color="white" size=".72c">lower means squared error but what if</font>
+
+223
+00:09:16,880 --> 00:09:21,519
+<font color="white" size=".72c">two models have identical values for</font>
+
+224
+00:09:19,120 --> 00:09:24,279
+<font color="white" size=".72c">that probability but differ in their</font>
+
+225
+00:09:21,519 --> 00:09:26,600
+<font color="white" size=".72c">exact values for w would we have a</font>
+
+226
+00:09:24,279 --> 00:09:28,920
+<font color="white" size=".72c">reason to prefer one over the</font>
+
+227
+00:09:26,600 --> 00:09:31,200
+<font color="white" size=".72c">other if we know nothing about the</font>
+
+228
+00:09:28,920 --> 00:09:33,000
+<font color="white" size=".72c">nature of of our features we have no</font>
+
+229
+00:09:31,200 --> 00:09:35,560
+<font color="white" size=".72c">basis of comparing two equally</font>
+
+230
+00:09:33,000 --> 00:09:37,959
+<font color="white" size=".72c">performing models but often we have</font>
+
+231
+00:09:35,560 --> 00:09:40,360
+<font color="white" size=".72c">prior expectations about how features</font>
+
+232
+00:09:37,959 --> 00:09:42,600
+<font color="white" size=".72c">might contribute to the predictions and</font>
+
+233
+00:09:40,360 --> 00:09:45,760
+<font color="white" size=".72c">thus we have reasonable boundaries for</font>
+
+234
+00:09:42,600 --> 00:09:48,519
+<font color="white" size=".72c">their values let's illustrate it with an</font>
+
+235
+00:09:45,760 --> 00:09:51,160
+<font color="white" size=".72c">example suppose we have a coin with an</font>
+
+236
+00:09:48,519 --> 00:09:54,600
+<font color="white" size=".72c">unknown bias where the probability of</font>
+
+237
+00:09:51,160 --> 00:09:56,959
+<font color="white" size=".72c">heads is Theta between 0 and 1 we want</font>
+
+238
+00:09:54,600 --> 00:09:58,640
+<font color="white" size=".72c">to estimate this value of theta by</font>
+
+239
+00:09:56,959 --> 00:10:01,480
+<font color="white" size=".72c">tossing the coin and tracking the</font>
+
+240
+00:09:58,640 --> 00:10:04,640
+<font color="white" size=".72c">results let's say we observe four hats</font>
+
+241
+00:10:01,480 --> 00:10:06,920
+<font color="white" size=".72c">out of five tosses if we ignore any</font>
+
+242
+00:10:04,640 --> 00:10:09,079
+<font color="white" size=".72c">assumptions about Theta and find the</font>
+
+243
+00:10:06,920 --> 00:10:13,040
+<font color="white" size=".72c">value that maximizes the probability of</font>
+
+244
+00:10:09,079 --> 00:10:16,399
+<font color="white" size=".72c">data we will conclude that Theta must be</font>
+
+245
+00:10:13,040 --> 00:10:18,600
+<font color="white" size=".72c">0.8 indeed this type of biased coin</font>
+
+246
+00:10:16,399 --> 00:10:21,519
+<font color="white" size=".72c">maximizes the probability of observing</font>
+
+247
+00:10:18,600 --> 00:10:23,640
+<font color="white" size=".72c">four heads out of five tosses but</font>
+
+248
+00:10:21,519 --> 00:10:25,920
+<font color="white" size=".72c">something doesn't seem right we know</font>
+
+249
+00:10:23,640 --> 00:10:28,920
+<font color="white" size=".72c">from experience that most coins</font>
+
+250
+00:10:25,920 --> 00:10:31,279
+<font color="white" size=".72c">typically land 50/50 maybe with a slight</font>
+
+251
+00:10:28,920 --> 00:10:32,399
+<font color="white" size=".72c">bias due to a symmetry but certainly not</font>
+
+252
+00:10:31,279 --> 00:10:35,760
+<font color="white" size=".72c">80 to</font>
+
+253
+00:10:32,399 --> 00:10:38,000
+<font color="white" size=".72c">20 the problem is that our solution only</font>
+
+254
+00:10:35,760 --> 00:10:41,160
+<font color="white" size=".72c">cared about maximizing the probability</font>
+
+255
+00:10:38,000 --> 00:10:43,920
+<font color="white" size=".72c">of observed beta and completely ignored</font>
+
+256
+00:10:41,160 --> 00:10:46,839
+<font color="white" size=".72c">prior beliefs about Theta which likely</font>
+
+257
+00:10:43,920 --> 00:10:49,440
+<font color="white" size=".72c">is centered around 0.5 and decreases</font>
+
+258
+00:10:46,839 --> 00:10:51,800
+<font color="white" size=".72c">towards the edges but is there a</font>
+
+259
+00:10:49,440 --> 00:10:54,560
+<font color="white" size=".72c">systematic way to incorporate these</font>
+
+260
+00:10:51,800 --> 00:10:57,040
+<font color="white" size=".72c">prior assumptions into our regression</font>
+
+261
+00:10:54,560 --> 00:10:59,720
+<font color="white" size=".72c">objective instead of maximizing the</font>
+
+262
+00:10:57,040 --> 00:11:02,399
+<font color="white" size=".72c">probability of data we can search for a</font>
+
+263
+00:10:59,720 --> 00:11:04,800
+<font color="white" size=".72c">set of Weights W that maximizes the</font>
+
+264
+00:11:02,399 --> 00:11:07,480
+<font color="white" size=".72c">joint probability of data and the</font>
+
+265
+00:11:04,800 --> 00:11:09,880
+<font color="white" size=".72c">weights in other words we look for</font>
+
+266
+00:11:07,480 --> 00:11:12,200
+<font color="white" size=".72c">weights that both explain the data well</font>
+
+267
+00:11:09,880 --> 00:11:15,040
+<font color="white" size=".72c">and align with our prior beliefs about</font>
+
+268
+00:11:12,200 --> 00:11:17,000
+<font color="white" size=".72c">what w should look like following the</font>
+
+269
+00:11:15,040 --> 00:11:19,639
+<font color="white" size=".72c">conditional probability rule we can</font>
+
+270
+00:11:17,000 --> 00:11:22,240
+<font color="white" size=".72c">decompose the total probability into the</font>
+
+271
+00:11:19,639 --> 00:11:24,560
+<font color="white" size=".72c">following product the first factor is</font>
+
+272
+00:11:22,240 --> 00:11:27,600
+<font color="white" size=".72c">the likelihood exactly what we had</font>
+
+273
+00:11:24,560 --> 00:11:30,320
+<font color="white" size=".72c">before How likely a particular W is to</font>
+
+274
+00:11:27,600 --> 00:11:33,120
+<font color="white" size=".72c">have generated our observed dat AA given</font>
+
+275
+00:11:30,320 --> 00:11:35,360
+<font color="white" size=".72c">by the Cent formula for the noise the</font>
+
+276
+00:11:33,120 --> 00:11:37,760
+<font color="white" size=".72c">second factor is the prior where we</font>
+
+277
+00:11:35,360 --> 00:11:41,760
+<font color="white" size=".72c">incorporate assumptions about How likely</font>
+
+278
+00:11:37,760 --> 00:11:44,200
+<font color="white" size=".72c">different values of w are the key idea</font>
+
+279
+00:11:41,760 --> 00:11:46,600
+<font color="white" size=".72c">is that different assumptions on prior</font>
+
+280
+00:11:44,200 --> 00:11:48,760
+<font color="white" size=".72c">distributions of Weights will lead to</font>
+
+281
+00:11:46,600 --> 00:11:51,560
+<font color="white" size=".72c">different criteria how to choose between</font>
+
+282
+00:11:48,760 --> 00:11:53,639
+<font color="white" size=".72c">alternative Solutions this shows up in</font>
+
+283
+00:11:51,560 --> 00:11:56,440
+<font color="white" size=".72c">the overall objective as so called</font>
+
+284
+00:11:53,639 --> 00:11:58,600
+<font color="white" size=".72c">regularization terms for the remainder</font>
+
+285
+00:11:56,440 --> 00:12:01,279
+<font color="white" size=".72c">of the video I'd like to focus on two</font>
+
+286
+00:11:58,600 --> 00:12:05,760
+<font color="white" size=".72c">most common types of regularization and</font>
+
+287
+00:12:01,279 --> 00:12:08,839
+<font color="white" size=".72c">show how they are born from two common</font>
+
+288
+00:12:05,760 --> 00:12:11,720
+<font color="white" size=".72c">priors one of the most popular choices</font>
+
+289
+00:12:08,839 --> 00:12:14,360
+<font color="white" size=".72c">is to assume that weights W themselves</font>
+
+290
+00:12:11,720 --> 00:12:17,120
+<font color="white" size=".72c">follow a zeroc centered caution</font>
+
+291
+00:12:14,360 --> 00:12:20,320
+<font color="white" size=".72c">distribution why is that reasonable well</font>
+
+292
+00:12:17,120 --> 00:12:22,839
+<font color="white" size=".72c">in regression each component of w is a</font>
+
+293
+00:12:20,320 --> 00:12:25,360
+<font color="white" size=".72c">coefficient describing how a particular</font>
+
+294
+00:12:22,839 --> 00:12:27,880
+<font color="white" size=".72c">feature in the X Vector like the size of</font>
+
+295
+00:12:25,360 --> 00:12:31,279
+<font color="white" size=".72c">the house contributes to the prediction</font>
+
+296
+00:12:27,880 --> 00:12:33,399
+<font color="white" size=".72c">y if we randomly select features</font>
+
+297
+00:12:31,279 --> 00:12:36,240
+<font color="white" size=".72c">intuitively most will be probably</font>
+
+298
+00:12:33,399 --> 00:12:38,320
+<font color="white" size=".72c">irrelevant with values near zero while</font>
+
+299
+00:12:36,240 --> 00:12:41,399
+<font color="white" size=".72c">only a small subset will have</font>
+
+300
+00:12:38,320 --> 00:12:43,800
+<font color="white" size=".72c">significant weights additionally since</font>
+
+301
+00:12:41,399 --> 00:12:46,079
+<font color="white" size=".72c">each feature's coefficient in real data</font>
+
+302
+00:12:43,800 --> 00:12:48,800
+<font color="white" size=".72c">is shaped by many underly unobserved</font>
+
+303
+00:12:46,079 --> 00:12:52,360
+<font color="white" size=".72c">causes the central limit theorem applies</font>
+
+304
+00:12:48,800 --> 00:12:55,079
+<font color="white" size=".72c">to the coefficients as well formally we</font>
+
+305
+00:12:52,360 --> 00:12:57,680
+<font color="white" size=".72c">can write that the prior probability of</font>
+
+306
+00:12:55,079 --> 00:12:59,800
+<font color="white" size=".72c">observing a particular set of Weights is</font>
+
+307
+00:12:57,680 --> 00:13:02,399
+<font color="white" size=".72c">given by the product of probab ities of</font>
+
+308
+00:12:59,800 --> 00:13:04,360
+<font color="white" size=".72c">individual components Each of which is</font>
+
+309
+00:13:02,399 --> 00:13:06,000
+<font color="white" size=".72c">given by the Gan formula with some</font>
+
+310
+00:13:04,360 --> 00:13:09,199
+<font color="white" size=".72c">variance</font>
+
+311
+00:13:06,000 --> 00:13:12,480
+<font color="white" size=".72c">tow now going back to our optimization</font>
+
+312
+00:13:09,199 --> 00:13:15,160
+<font color="white" size=".72c">objective we want to maximize The Joint</font>
+
+313
+00:13:12,480 --> 00:13:18,040
+<font color="white" size=".72c">probability let's take the logarithm as</font>
+
+314
+00:13:15,160 --> 00:13:19,800
+<font color="white" size=".72c">before and substitute our formulas for</font>
+
+315
+00:13:18,040 --> 00:13:22,639
+<font color="white" size=".72c">the likelihood and the</font>
+
+316
+00:13:19,800 --> 00:13:25,480
+<font color="white" size=".72c">prior flipping the signs and grouping</font>
+
+317
+00:13:22,639 --> 00:13:28,160
+<font color="white" size=".72c">the two constants together we get the</font>
+
+318
+00:13:25,480 --> 00:13:31,040
+<font color="white" size=".72c">following this is what's known as rid</font>
+
+319
+00:13:28,160 --> 00:13:33,240
+<font color="white" size=".72c">regression or for L2 regularized linear</font>
+
+320
+00:13:31,040 --> 00:13:34,240
+<font color="white" size=".72c">regression due to the square of the</font>
+
+321
+00:13:33,240 --> 00:13:36,399
+<font color="white" size=".72c">weight</font>
+
+322
+00:13:34,240 --> 00:13:38,519
+<font color="white" size=".72c">amplitudes the idea is that we are</font>
+
+323
+00:13:36,399 --> 00:13:41,079
+<font color="white" size=".72c">searching for the model that would both</font>
+
+324
+00:13:38,519 --> 00:13:43,920
+<font color="white" size=".72c">explain the data well but at the same</font>
+
+325
+00:13:41,079 --> 00:13:46,120
+<font color="white" size=".72c">time be not overly complex where</font>
+
+326
+00:13:43,920 --> 00:13:48,320
+<font color="white" size=".72c">complexity is measured as the sum of</font>
+
+327
+00:13:46,120 --> 00:13:50,839
+<font color="white" size=".72c">squares of the weights this</font>
+
+328
+00:13:48,320 --> 00:13:54,040
+<font color="white" size=".72c">regularization term penalizes large</font>
+
+329
+00:13:50,839 --> 00:13:56,120
+<font color="white" size=".72c">weight values pushing them toward zero</font>
+
+330
+00:13:54,040 --> 00:13:59,399
+<font color="white" size=".72c">exactly what we would expect from our</font>
+
+331
+00:13:56,120 --> 00:14:02,120
+<font color="white" size=".72c">gion prior assumption notice how beauti</font>
+
+332
+00:13:59,399 --> 00:14:04,279
+<font color="white" size=".72c">this emerges the parameter Lambda which</font>
+
+333
+00:14:02,120 --> 00:14:07,120
+<font color="white" size=".72c">controls how strong the regularization</font>
+
+334
+00:14:04,279 --> 00:14:09,600
+<font color="white" size=".72c">is is the ratio between the data noise</font>
+
+335
+00:14:07,120 --> 00:14:12,040
+<font color="white" size=".72c">or the variance of the samples and the</font>
+
+336
+00:14:09,600 --> 00:14:14,399
+<font color="white" size=".72c">variance of the prior distribution of</font>
+
+337
+00:14:12,040 --> 00:14:17,560
+<font color="white" size=".72c">coefficients when we are very certain</font>
+
+338
+00:14:14,399 --> 00:14:19,600
+<font color="white" size=".72c">about our prior Lambda becomes larger</font>
+
+339
+00:14:17,560 --> 00:14:22,639
+<font color="white" size=".72c">given more weight to the regularization</font>
+
+340
+00:14:19,600 --> 00:14:25,680
+<font color="white" size=".72c">term conversely when the data is very</font>
+
+341
+00:14:22,639 --> 00:14:28,199
+<font color="white" size=".72c">reliable with small variance Lambda</font>
+
+342
+00:14:25,680 --> 00:14:31,040
+<font color="white" size=".72c">decreases placing more emphasis on</font>
+
+343
+00:14:28,199 --> 00:14:31,040
+<font color="white" size=".72c">fitting the data</font>
+
+344
+00:14:31,720 --> 00:14:36,320
+<font color="white" size=".72c">but what if our intuition about the</font>
+
+345
+00:14:33,560 --> 00:14:38,639
+<font color="white" size=".72c">weights is different instead of just</font>
+
+346
+00:14:36,320 --> 00:14:41,160
+<font color="white" size=".72c">assuming they are generally small what</font>
+
+347
+00:14:38,639 --> 00:14:44,680
+<font color="white" size=".72c">if we believe most should be exactly</font>
+
+348
+00:14:41,160 --> 00:14:46,920
+<font color="white" size=".72c">zero with only a few significant ones</font>
+
+349
+00:14:44,680 --> 00:14:49,800
+<font color="white" size=".72c">this would correspond to a model where</font>
+
+350
+00:14:46,920 --> 00:14:51,600
+<font color="white" size=".72c">only a handful of features truly matter</font>
+
+351
+00:14:49,800 --> 00:14:53,639
+<font color="white" size=".72c">favoring sparse</font>
+
+352
+00:14:51,600 --> 00:14:55,680
+<font color="white" size=".72c">Solutions this assumption is</font>
+
+353
+00:14:53,639 --> 00:14:58,720
+<font color="white" size=".72c">particularly relevant for biological</font>
+
+354
+00:14:55,680 --> 00:15:01,839
+<font color="white" size=".72c">systems in genomics for example out of</font>
+
+355
+00:14:58,720 --> 00:15:04,680
+<font color="white" size=".72c">thousand of genes only a small subset</font>
+
+356
+00:15:01,839 --> 00:15:07,680
+<font color="white" size=".72c">typically influences a particular trait</font>
+
+357
+00:15:04,680 --> 00:15:10,120
+<font color="white" size=".72c">similarly for Neuroscience only a small</font>
+
+358
+00:15:07,680 --> 00:15:12,040
+<font color="white" size=".72c">sparse subset of all neurons are</font>
+
+359
+00:15:10,120 --> 00:15:15,120
+<font color="white" size=".72c">responsible for encoding a particular</font>
+
+360
+00:15:12,040 --> 00:15:17,639
+<font color="white" size=".72c">feature in this case a gan prior is not</font>
+
+361
+00:15:15,120 --> 00:15:20,800
+<font color="white" size=".72c">ideal because it pushes weights towards</font>
+
+362
+00:15:17,639 --> 00:15:23,880
+<font color="white" size=".72c">zero too gently instead we might prefer</font>
+
+363
+00:15:20,800 --> 00:15:26,160
+<font color="white" size=".72c">a distribution with a sharp Peak at zero</font>
+
+364
+00:15:23,880 --> 00:15:29,000
+<font color="white" size=".72c">which looks something like this this is</font>
+
+365
+00:15:26,160 --> 00:15:31,399
+<font color="white" size=".72c">known as the LL distribution and it is</font>
+
+366
+00:15:29,000 --> 00:15:32,759
+<font color="white" size=".72c">parametrized by symmetric exponentially</font>
+
+367
+00:15:31,399 --> 00:15:34,839
+<font color="white" size=".72c">Fallen</font>
+
+368
+00:15:32,759 --> 00:15:37,720
+<font color="white" size=".72c">tails the probability of the</font>
+
+369
+00:15:34,839 --> 00:15:39,680
+<font color="white" size=".72c">configuration of W's as a whole can be</font>
+
+370
+00:15:37,720 --> 00:15:42,399
+<font color="white" size=".72c">found by multiplying the probabilities</font>
+
+371
+00:15:39,680 --> 00:15:44,560
+<font color="white" size=".72c">of each component and following the same</font>
+
+372
+00:15:42,399 --> 00:15:47,519
+<font color="white" size=".72c">derivation as before taking the</font>
+
+373
+00:15:44,560 --> 00:15:49,560
+<font color="white" size=".72c">logarithm to counteract the exponent our</font>
+
+374
+00:15:47,519 --> 00:15:52,000
+<font color="white" size=".72c">optimization objective becomes the</font>
+
+375
+00:15:49,560 --> 00:15:53,880
+<font color="white" size=".72c">following here Lambda is again the</font>
+
+376
+00:15:52,000 --> 00:15:56,240
+<font color="white" size=".72c">combination of constance of noise</font>
+
+377
+00:15:53,880 --> 00:15:59,120
+<font color="white" size=".72c">variance and the falloff of the weights</font>
+
+378
+00:15:56,240 --> 00:16:01,880
+<font color="white" size=".72c">prior this is known as L1 regular</font>
+
+379
+00:15:59,120 --> 00:16:04,480
+<font color="white" size=".72c">ization because the complexity penalizes</font>
+
+380
+00:16:01,880 --> 00:16:07,800
+<font color="white" size=".72c">the absolute values of w rather than</font>
+
+381
+00:16:04,480 --> 00:16:10,600
+<font color="white" size=".72c">their squares L1 regularization</font>
+
+382
+00:16:07,800 --> 00:16:13,319
+<font color="white" size=".72c">typically leads to sparse Solutions</font>
+
+383
+00:16:10,600 --> 00:16:16,240
+<font color="white" size=".72c">where many weights are exactly zero</font>
+
+384
+00:16:13,319 --> 00:16:19,000
+<font color="white" size=".72c">which is preferable in many domains of</font>
+
+385
+00:16:16,240 --> 00:16:21,160
+<font color="white" size=".72c">science all right let's tie everything</font>
+
+386
+00:16:19,000 --> 00:16:23,560
+<font color="white" size=".72c">together today we explored the</font>
+
+387
+00:16:21,160 --> 00:16:25,880
+<font color="white" size=".72c">probabilistic view of linear regression</font>
+
+388
+00:16:23,560 --> 00:16:28,600
+<font color="white" size=".72c">and saw how the familiar least squares</font>
+
+389
+00:16:25,880 --> 00:16:30,920
+<font color="white" size=".72c">equation naturally emerges when we find</font>
+
+390
+00:16:28,600 --> 00:16:33,759
+<font color="white" size=".72c">the linear fit that maximizes the</font>
+
+391
+00:16:30,920 --> 00:16:36,399
+<font color="white" size=".72c">probability of observing our data</font>
+
+392
+00:16:33,759 --> 00:16:39,360
+<font color="white" size=".72c">importantly the squared error term</font>
+
+393
+00:16:36,399 --> 00:16:41,800
+<font color="white" size=".72c">wasn't just an arbitrary Choice it is a</font>
+
+394
+00:16:39,360 --> 00:16:44,759
+<font color="white" size=".72c">direct consequence of assuming caution</font>
+
+395
+00:16:41,800 --> 00:16:47,440
+<font color="white" size=".72c">noise in our model while this assumption</font>
+
+396
+00:16:44,759 --> 00:16:49,839
+<font color="white" size=".72c">is reasonable in most cases it may not</font>
+
+397
+00:16:47,440 --> 00:16:51,560
+<font color="white" size=".72c">be appropriate in specific settings</font>
+
+398
+00:16:49,839 --> 00:16:54,680
+<font color="white" size=".72c">where noise is correlated or</font>
+
+399
+00:16:51,560 --> 00:16:57,240
+<font color="white" size=".72c">multiplicative in nature we've also seen</font>
+
+400
+00:16:54,680 --> 00:16:59,759
+<font color="white" size=".72c">how incorporating prior beliefs about</font>
+
+401
+00:16:57,240 --> 00:17:02,480
+<font color="white" size=".72c">the coefficients lead to different</font>
+
+402
+00:16:59,759 --> 00:17:05,119
+<font color="white" size=".72c">regularization schemes providing a</font>
+
+403
+00:17:02,480 --> 00:17:08,280
+<font color="white" size=".72c">principled approach to balancing models</font>
+
+404
+00:17:05,119 --> 00:17:11,359
+<font color="white" size=".72c">accuracy with complexity the cion prior</font>
+
+405
+00:17:08,280 --> 00:17:14,480
+<font color="white" size=".72c">gave us L2 regularization gently pushing</font>
+
+406
+00:17:11,359 --> 00:17:18,199
+<font color="white" size=".72c">all weights toward zero while the llos</font>
+
+407
+00:17:14,480 --> 00:17:20,559
+<font color="white" size=".72c">prior yielded L1 regularization favoring</font>
+
+408
+00:17:18,199 --> 00:17:23,839
+<font color="white" size=".72c">sparse Solutions where most weights</font>
+
+409
+00:17:20,559 --> 00:17:26,079
+<font color="white" size=".72c">become exactly zero this probabilistic</font>
+
+410
+00:17:23,839 --> 00:17:27,760
+<font color="white" size=".72c">perspective extends far beyond linear</font>
+
+411
+00:17:26,079 --> 00:17:29,400
+<font color="white" size=".72c">regression to nearly all machine</font>
+
+412
+00:17:27,760 --> 00:17:31,679
+<font color="white" size=".72c">learning models</font>
+
+413
+00:17:29,400 --> 00:17:34,000
+<font color="white" size=".72c">whether examining deep neural networks</font>
+
+414
+00:17:31,679 --> 00:17:36,799
+<font color="white" size=".72c">as we saw in the previous video decision</font>
+
+415
+00:17:34,000 --> 00:17:38,880
+<font color="white" size=".72c">trees or clustering algorithms viewing</font>
+
+416
+00:17:36,799 --> 00:17:41,240
+<font color="white" size=".72c">them through the lens of probability</font>
+
+417
+00:17:38,880 --> 00:17:43,559
+<font color="white" size=".72c">provides a much deeper understanding of</font>
+
+418
+00:17:41,240 --> 00:17:45,919
+<font color="white" size=".72c">their underlying assumptions and design</font>
+
+419
+00:17:43,559 --> 00:17:47,480
+<font color="white" size=".72c">choices if you like the video share it</font>
+
+420
+00:17:45,919 --> 00:17:49,360
+<font color="white" size=".72c">with your friends subscribe to the</font>
+
+421
+00:17:47,480 --> 00:17:51,240
+<font color="white" size=".72c">channel if you haven't already and press</font>
+
+422
+00:17:49,360 --> 00:17:53,400
+<font color="white" size=".72c">the like button stay tuned for more</font>
+
+423
+00:17:51,240 --> 00:17:56,720
+<font color="white" size=".72c">neuroscience and machine learning topics</font>
+
+424
+00:17:53,400 --> 00:17:56,720
+<font color="white" size=".72c">coming up</font>
+
+425
+00:17:59,410 --> 00:18:02,489
+<font color="white" size=".72c">[Music]</font>
+
+426
+00:18:07,380 --> 00:18:12,429
+<font color="white" size=".72c">[Music]</font>
+

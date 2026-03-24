@@ -1,0 +1,1200 @@
+1
+00:00:00,160 --> 00:00:05,200
+<font color="white" size=".72c">A fundamental question in neuroscience</font>
+
+2
+00:00:02,320 --> 00:00:06,960
+<font color="white" size=".72c">is why are biological brains so insanely</font>
+
+3
+00:00:05,200 --> 00:00:09,599
+<font color="white" size=".72c">good at learning new things and</font>
+
+4
+00:00:06,960 --> 00:00:11,440
+<font color="white" size=".72c">generalizing to novel conditions? At</font>
+
+5
+00:00:09,599 --> 00:00:13,599
+<font color="white" size=".72c">least part of the answer seems to lie in</font>
+
+6
+00:00:11,440 --> 00:00:15,599
+<font color="white" size=".72c">a theory of compositionality. Here is</font>
+
+7
+00:00:13,599 --> 00:00:17,440
+<font color="white" size=".72c">what it means. Think about when you</font>
+
+8
+00:00:15,599 --> 00:00:19,359
+<font color="white" size=".72c">first learn to ride a bicycle. Your</font>
+
+9
+00:00:17,440 --> 00:00:21,680
+<font color="white" size=".72c">brain built a specific skill for</font>
+
+10
+00:00:19,359 --> 00:00:24,480
+<font color="white" size=".72c">handling two wheels. Let's call it a</font>
+
+11
+00:00:21,680 --> 00:00:26,240
+<font color="white" size=".72c">balancing module. Years later, you got</font>
+
+12
+00:00:24,480 --> 00:00:28,080
+<font color="white" size=".72c">your driver's license and in the</font>
+
+13
+00:00:26,240 --> 00:00:30,080
+<font color="white" size=".72c">process, you built a traffic rules</font>
+
+14
+00:00:28,080 --> 00:00:32,558
+<font color="white" size=".72c">module. Now suppose you want to learn to</font>
+
+15
+00:00:30,080 --> 00:00:34,559
+<font color="white" size=".72c">ride a motorcycle. To your brain, this</font>
+
+16
+00:00:32,558 --> 00:00:36,399
+<font color="white" size=".72c">is a new task because it has never</font>
+
+17
+00:00:34,559 --> 00:00:38,879
+<font color="white" size=".72c">encountered this specific behavior</font>
+
+18
+00:00:36,399 --> 00:00:40,960
+<font color="white" size=".72c">before. But you don't start from</font>
+
+19
+00:00:38,879 --> 00:00:43,200
+<font color="white" size=".72c">scratch. You take the balancing module</font>
+
+20
+00:00:40,960 --> 00:00:44,879
+<font color="white" size=".72c">from the bicycle, snap it together with</font>
+
+21
+00:00:43,200 --> 00:00:47,200
+<font color="white" size=".72c">the traffic rules module from the car,</font>
+
+22
+00:00:44,879 --> 00:00:50,079
+<font color="white" size=".72c">and boom, you're riding the motorcycle.</font>
+
+23
+00:00:47,200 --> 00:00:52,480
+<font color="white" size=".72c">The learning is incredibly quick. The</font>
+
+24
+00:00:50,079 --> 00:00:54,399
+<font color="white" size=".72c">idea of compositionality states that the</font>
+
+25
+00:00:52,480 --> 00:00:56,960
+<font color="white" size=".72c">brain treats skills kind of like Lego</font>
+
+26
+00:00:54,399 --> 00:00:59,760
+<font color="white" size=".72c">bricks, building complex behaviors by</font>
+
+27
+00:00:56,960 --> 00:01:02,000
+<font color="white" size=".72c">snapping together reusable components.</font>
+
+28
+00:00:59,760 --> 00:01:04,080
+<font color="white" size=".72c">While this makes sense intuitively, how</font>
+
+29
+00:01:02,000 --> 00:01:05,840
+<font color="white" size=".72c">can we prove that this kind of mixing</font>
+
+30
+00:01:04,080 --> 00:01:08,240
+<font color="white" size=".72c">and matching happens physically at the</font>
+
+31
+00:01:05,840 --> 00:01:10,479
+<font color="white" size=".72c">level of individual neurons? And where</font>
+
+32
+00:01:08,240 --> 00:01:12,479
+<font color="white" size=".72c">in the brain is it happening? Today we</font>
+
+33
+00:01:10,479 --> 00:01:14,320
+<font color="white" size=".72c">are exploring a paper by Tim Bushman's</font>
+
+34
+00:01:12,479 --> 00:01:16,479
+<font color="white" size=".72c">group at Princeton which recently came</font>
+
+35
+00:01:14,320 --> 00:01:19,479
+<font color="white" size=".72c">out in nature and set out to answer</font>
+
+36
+00:01:16,479 --> 00:01:19,479
+<font color="white" size=".72c">this.</font>
+
+37
+00:01:19,920 --> 00:01:24,640
+<font color="white" size=".72c">Before we dive in, a quick question. Out</font>
+
+38
+00:01:22,479 --> 00:01:26,880
+<font color="white" size=".72c">of the last five papers you've read or</font>
+
+39
+00:01:24,640 --> 00:01:29,200
+<font color="white" size=".72c">videos you watched, how much do you</font>
+
+40
+00:01:26,880 --> 00:01:31,200
+<font color="white" size=".72c">actually remember? If you're like me,</font>
+
+41
+00:01:29,200 --> 00:01:33,920
+<font color="white" size=".72c">you consume a ton of research content,</font>
+
+42
+00:01:31,200 --> 00:01:36,158
+<font color="white" size=".72c">but most of it just evaporates.</font>
+
+43
+00:01:33,920 --> 00:01:38,880
+<font color="white" size=".72c">If so, you're going to love our today's</font>
+
+44
+00:01:36,158 --> 00:01:41,280
+<font color="white" size=".72c">sponsor, Recall. This is the next step</font>
+
+45
+00:01:38,880 --> 00:01:43,920
+<font color="white" size=".72c">in personal knowledge management, an AI</font>
+
+46
+00:01:41,280 --> 00:01:46,000
+<font color="white" size=".72c">supercharged second brain. Save content</font>
+
+47
+00:01:43,920 --> 00:01:47,840
+<font color="white" size=".72c">with a browser extension and it becomes</font>
+
+48
+00:01:46,000 --> 00:01:49,759
+<font color="white" size=".72c">a part of your knowledge base that you</font>
+
+49
+00:01:47,840 --> 00:01:51,920
+<font color="white" size=".72c">can chat with, interconnect ideas</font>
+
+50
+00:01:49,759 --> 00:01:54,640
+<font color="white" size=".72c">together, create new notes with an</font>
+
+51
+00:01:51,920 --> 00:01:57,439
+<font color="white" size=".72c">integrated editor, and actually retain</font>
+
+52
+00:01:54,640 --> 00:01:59,680
+<font color="white" size=".72c">everything through spaced repetition.</font>
+
+53
+00:01:57,439 --> 00:02:02,479
+<font color="white" size=".72c">The newest feature launching is quiz</font>
+
+54
+00:01:59,680 --> 00:02:04,320
+<font color="white" size=".72c">2.0, letting you fully customize the</font>
+
+55
+00:02:02,479 --> 00:02:06,240
+<font color="white" size=".72c">type, complexity, and the number of</font>
+
+56
+00:02:04,320 --> 00:02:07,840
+<font color="white" size=".72c">questions. As someone who believes</font>
+
+57
+00:02:06,240 --> 00:02:10,399
+<font color="white" size=".72c">deeply in space repetition for</font>
+
+58
+00:02:07,840 --> 00:02:12,239
+<font color="white" size=".72c">understanding complex topics, this is a</font>
+
+59
+00:02:10,399 --> 00:02:14,160
+<font color="white" size=".72c">powerful approach to stay ahead of the</font>
+
+60
+00:02:12,239 --> 00:02:16,239
+<font color="white" size=".72c">forgetting curve and build deeper</font>
+
+61
+00:02:14,160 --> 00:02:18,160
+<font color="white" size=".72c">intuition. You can even share the</font>
+
+62
+00:02:16,239 --> 00:02:20,720
+<font color="white" size=".72c">quizzes with others and compete on a</font>
+
+63
+00:02:18,160 --> 00:02:22,480
+<font color="white" size=".72c">leaderboard. This is the rare tool that</font>
+
+64
+00:02:20,720 --> 00:02:25,040
+<font color="white" size=".72c">I wish existed when I started my</font>
+
+65
+00:02:22,480 --> 00:02:26,720
+<font color="white" size=".72c">learning journey. Try it for free at</font>
+
+66
+00:02:25,040 --> 00:02:28,720
+<font color="white" size=".72c">getriall.ai</font>
+
+67
+00:02:26,720 --> 00:02:32,640
+<font color="white" size=".72c">and use the code down in the description</font>
+
+68
+00:02:28,720 --> 00:02:34,160
+<font color="white" size=".72c">for 25% off. Now, back to the video. The</font>
+
+69
+00:02:32,640 --> 00:02:36,079
+<font color="white" size=".72c">authors looked at what happens in the</font>
+
+70
+00:02:34,160 --> 00:02:38,160
+<font color="white" size=".72c">brain of a monkey when it plays a</font>
+
+71
+00:02:36,079 --> 00:02:40,879
+<font color="white" size=".72c">special video game designed to probe</font>
+
+72
+00:02:38,160 --> 00:02:43,440
+<font color="white" size=".72c">exactly this idea. It consisted of three</font>
+
+73
+00:02:40,879 --> 00:02:45,840
+<font color="white" size=".72c">visual discrimination tasks. On every</font>
+
+74
+00:02:43,440 --> 00:02:48,400
+<font color="white" size=".72c">trial, the monkey sees a morphed image</font>
+
+75
+00:02:45,840 --> 00:02:51,120
+<font color="white" size=".72c">that has a certain shape on a spectrum</font>
+
+76
+00:02:48,400 --> 00:02:54,079
+<font color="white" size=".72c">between a bunny and a tea and color</font>
+
+77
+00:02:51,120 --> 00:02:55,519
+<font color="white" size=".72c">somewhere between red and green. In the</font>
+
+78
+00:02:54,079 --> 00:02:57,519
+<font color="white" size=".72c">first [music] task, the monkeys had to</font>
+
+79
+00:02:55,519 --> 00:02:59,360
+<font color="white" size=".72c">distinguish shapes. They had to move</font>
+
+80
+00:02:57,519 --> 00:03:01,360
+<font color="white" size=".72c">their eyes to the upper left corner of</font>
+
+81
+00:02:59,360 --> 00:03:03,440
+<font color="white" size=".72c">the screen if the image looked more like</font>
+
+82
+00:03:01,360 --> 00:03:06,000
+<font color="white" size=".72c">a bunny and to the lower right if it</font>
+
+83
+00:03:03,440 --> 00:03:08,000
+<font color="white" size=".72c">looked more like a T.</font>
+
+84
+00:03:06,000 --> 00:03:10,720
+<font color="white" size=".72c">If the monkey got the answer right, it</font>
+
+85
+00:03:08,000 --> 00:03:13,200
+<font color="white" size=".72c">received some juice as a [music] reward.</font>
+
+86
+00:03:10,720 --> 00:03:16,800
+<font color="white" size=".72c">We'll call this task S1, which stands</font>
+
+87
+00:03:13,200 --> 00:03:19,680
+<font color="white" size=".72c">for shape axis one. In the second task,</font>
+
+88
+00:03:16,800 --> 00:03:21,599
+<font color="white" size=".72c">C2, the overall structure was similar,</font>
+
+89
+00:03:19,680 --> 00:03:24,000
+<font color="white" size=".72c">but the monkey had to report the color</font>
+
+90
+00:03:21,599 --> 00:03:26,720
+<font color="white" size=".72c">instead of shape and move its size along</font>
+
+91
+00:03:24,000 --> 00:03:29,440
+<font color="white" size=".72c">a different axis, too. If the image is</font>
+
+92
+00:03:26,720 --> 00:03:32,799
+<font color="white" size=".72c">more red than green, look top right.</font>
+
+93
+00:03:29,440 --> 00:03:35,920
+<font color="white" size=".72c">Otherwise, look bottom left. Finally, in</font>
+
+94
+00:03:32,799 --> 00:03:38,159
+<font color="white" size=".72c">the third task, C1, they had to report</font>
+
+95
+00:03:35,920 --> 00:03:41,440
+<font color="white" size=".72c">the color, but move their eyes along</font>
+
+96
+00:03:38,159 --> 00:03:44,079
+<font color="white" size=".72c">axis one. Look top left for green and</font>
+
+97
+00:03:41,440 --> 00:03:47,519
+<font color="white" size=".72c">bottom right for red. Do you see the</font>
+
+98
+00:03:44,079 --> 00:03:50,239
+<font color="white" size=".72c">beauty here? Task C1 is a composition.</font>
+
+99
+00:03:47,519 --> 00:03:53,120
+<font color="white" size=".72c">It takes the sensory rule from C2 look</font>
+
+100
+00:03:50,239 --> 00:03:55,760
+<font color="white" size=".72c">at color and the motor axis output from</font>
+
+101
+00:03:53,120 --> 00:03:58,319
+<font color="white" size=".72c">S1 move along the top left bottom right</font>
+
+102
+00:03:55,760 --> 00:04:00,239
+<font color="white" size=".72c">diagonal. If the brain is truly</font>
+
+103
+00:03:58,319 --> 00:04:03,120
+<font color="white" size=".72c">efficient, it should not build a new</font>
+
+104
+00:04:00,239 --> 00:04:05,760
+<font color="white" size=".72c">task C1 circuit completely from scratch.</font>
+
+105
+00:04:03,120 --> 00:04:08,319
+<font color="white" size=".72c">It should say, "Ah, I will just grab the</font>
+
+106
+00:04:05,760 --> 00:04:10,879
+<font color="white" size=".72c">color detector from C2 and wire [music]</font>
+
+107
+00:04:08,319 --> 00:04:12,720
+<font color="white" size=".72c">it to the motor driver from S1." And</font>
+
+108
+00:04:10,879 --> 00:04:14,640
+<font color="white" size=".72c">this is exactly what the author set out</font>
+
+109
+00:04:12,720 --> 00:04:16,478
+<font color="white" size=".72c">to test</font>
+
+110
+00:04:14,640 --> 00:04:18,478
+<font color="white" size=".72c">to get a glimpse of what is happening in</font>
+
+111
+00:04:16,478 --> 00:04:20,478
+<font color="white" size=".72c">the brain. They implanted electrodes in</font>
+
+112
+00:04:18,478 --> 00:04:22,560
+<font color="white" size=".72c">the prefrontal cortex, the area</font>
+
+113
+00:04:20,478 --> 00:04:24,880
+<font color="white" size=".72c">responsible for higher order abstract</font>
+
+114
+00:04:22,560 --> 00:04:26,800
+<font color="white" size=".72c">decisions, and recorded the activity of</font>
+
+115
+00:04:24,880 --> 00:04:28,720
+<font color="white" size=".72c">hundreds of individual neurons as the</font>
+
+116
+00:04:26,800 --> 00:04:30,639
+<font color="white" size=".72c">monkeys played the game. Because the</font>
+
+117
+00:04:28,720 --> 00:04:32,240
+<font color="white" size=".72c">building block modules involve more than</font>
+
+118
+00:04:30,639 --> 00:04:33,759
+<font color="white" size=".72c">one neuron, they couldn't just look at</font>
+
+119
+00:04:32,240 --> 00:04:36,240
+<font color="white" size=".72c">the activity of single cells in</font>
+
+120
+00:04:33,759 --> 00:04:38,240
+<font color="white" size=".72c">isolation. Instead, they needed a way to</font>
+
+121
+00:04:36,240 --> 00:04:41,440
+<font color="white" size=".72c">describe what is happening in the entire</font>
+
+122
+00:04:38,240 --> 00:04:44,080
+<font color="white" size=".72c">population of cells all at once. Imagine</font>
+
+123
+00:04:41,440 --> 00:04:45,600
+<font color="white" size=".72c">a coordinate system where every axis</font>
+
+124
+00:04:44,080 --> 00:04:48,240
+<font color="white" size=".72c">represents [music] the activity level of</font>
+
+125
+00:04:45,600 --> 00:04:50,720
+<font color="white" size=".72c">a single neuron. If you record from a</font>
+
+126
+00:04:48,240 --> 00:04:54,000
+<font color="white" size=".72c">100 neurons, you have a 100dimensional</font>
+
+127
+00:04:50,720 --> 00:04:55,919
+<font color="white" size=".72c">space. At any given millisecond, the</font>
+
+128
+00:04:54,000 --> 00:04:58,880
+<font color="white" size=".72c">state of the monkeykey's brain is a</font>
+
+129
+00:04:55,919 --> 00:05:01,040
+<font color="white" size=".72c">single point in that space.</font>
+
+130
+00:04:58,880 --> 00:05:02,800
+<font color="white" size=".72c">If we take brain activity from all the</font>
+
+131
+00:05:01,040 --> 00:05:05,280
+<font color="white" size=".72c">trials when the monkey saw the red</font>
+
+132
+00:05:02,800 --> 00:05:08,240
+<font color="white" size=".72c">category, we have a specific cloud of</font>
+
+133
+00:05:05,280 --> 00:05:11,039
+<font color="white" size=".72c">points and trials with green images form</font>
+
+134
+00:05:08,240 --> 00:05:12,800
+<font color="white" size=".72c">a different cloud. Now there might be a</font>
+
+135
+00:05:11,039 --> 00:05:15,199
+<font color="white" size=".72c">specific direction in this neural</font>
+
+136
+00:05:12,800 --> 00:05:18,080
+<font color="white" size=".72c">activity space that best separates the</font>
+
+137
+00:05:15,199 --> 00:05:20,560
+<font color="white" size=".72c">two clouds. Mathematically this defines</font>
+
+138
+00:05:18,080 --> 00:05:23,440
+<font color="white" size=".72c">a decision boundary that slices the</font>
+
+139
+00:05:20,560 --> 00:05:25,199
+<font color="white" size=".72c">space into two halves, red and green.</font>
+
+140
+00:05:23,440 --> 00:05:27,360
+<font color="white" size=".72c">We'll call this direction a color</font>
+
+141
+00:05:25,199 --> 00:05:29,440
+<font color="white" size=".72c">subspace.</font>
+
+142
+00:05:27,360 --> 00:05:32,240
+<font color="white" size=".72c">We can use that separating hyper plane</font>
+
+143
+00:05:29,440 --> 00:05:34,400
+<font color="white" size=".72c">to build a classifier. It's a machine</font>
+
+144
+00:05:32,240 --> 00:05:36,800
+<font color="white" size=".72c">that takes a previously unseen data</font>
+
+145
+00:05:34,400 --> 00:05:38,800
+<font color="white" size=".72c">point in the activity space, checks</font>
+
+146
+00:05:36,800 --> 00:05:41,600
+<font color="white" size=".72c">which side of the boundary it falls on</font>
+
+147
+00:05:38,800 --> 00:05:43,919
+<font color="white" size=".72c">and hands you a prediction. It is a way</font>
+
+148
+00:05:41,600 --> 00:05:46,639
+<font color="white" size=".72c">to decode the identity of the color</font>
+
+149
+00:05:43,919 --> 00:05:49,280
+<font color="white" size=".72c">purely from neural activity. The</font>
+
+150
+00:05:46,639 --> 00:05:51,600
+<font color="white" size=".72c">accuracy of this classifier is then used</font>
+
+151
+00:05:49,280 --> 00:05:55,280
+<font color="white" size=".72c">to measure how much information there is</font>
+
+152
+00:05:51,600 --> 00:05:57,039
+<font color="white" size=".72c">in the brain about the color variable.</font>
+
+153
+00:05:55,280 --> 00:05:58,639
+<font color="white" size=".72c">The authors could successfully decode</font>
+
+154
+00:05:57,039 --> 00:06:01,680
+<font color="white" size=".72c">the color identity from cortical</font>
+
+155
+00:05:58,639 --> 00:06:04,319
+<font color="white" size=".72c">activity in both C1 and C2 tasks about</font>
+
+156
+00:06:01,680 --> 00:06:06,080
+<font color="white" size=".72c">half a second after the image was shown.</font>
+
+157
+00:06:04,319 --> 00:06:08,000
+<font color="white" size=".72c">This means that this information was</font>
+
+158
+00:06:06,080 --> 00:06:10,240
+<font color="white" size=".72c">successfully processed and routed into</font>
+
+159
+00:06:08,000 --> 00:06:12,000
+<font color="white" size=".72c">the prefrontal cortex forming the two</font>
+
+160
+00:06:10,240 --> 00:06:15,039
+<font color="white" size=".72c">well-defined clouds in the activity</font>
+
+161
+00:06:12,000 --> 00:06:17,039
+<font color="white" size=".72c">space. Importantly, however, when the</font>
+
+162
+00:06:15,039 --> 00:06:20,479
+<font color="white" size=".72c">monkey was focusing on the shape in the</font>
+
+163
+00:06:17,039 --> 00:06:22,800
+<font color="white" size=".72c">S1 task, the color could not be decoded.</font>
+
+164
+00:06:20,479 --> 00:06:24,479
+<font color="white" size=".72c">This suggests that by the time image</font>
+
+165
+00:06:22,800 --> 00:06:27,440
+<font color="white" size=".72c">processing reaches the prefrontal</font>
+
+166
+00:06:24,479 --> 00:06:30,080
+<font color="white" size=".72c">cortex, this task irrelevant information</font>
+
+167
+00:06:27,440 --> 00:06:32,080
+<font color="white" size=".72c">is actively thrown away. The red and</font>
+
+168
+00:06:30,080 --> 00:06:35,440
+<font color="white" size=".72c">green clouds are all tangled up and</font>
+
+169
+00:06:32,080 --> 00:06:37,520
+<font color="white" size=".72c">squashed together. Similarly, the shape</font>
+
+170
+00:06:35,440 --> 00:06:41,759
+<font color="white" size=".72c">could be easily decoded during the S1</font>
+
+171
+00:06:37,520 --> 00:06:44,479
+<font color="white" size=".72c">task, but not C1 or C2.</font>
+
+172
+00:06:41,759 --> 00:06:46,880
+<font color="white" size=".72c">Now, here is the critical test. If we</font>
+
+173
+00:06:44,479 --> 00:06:49,360
+<font color="white" size=".72c">think that building blocks are reused,</font>
+
+174
+00:06:46,880 --> 00:06:52,240
+<font color="white" size=".72c">it means that the color subspace should</font>
+
+175
+00:06:49,360 --> 00:06:54,960
+<font color="white" size=".72c">be the same in both tasks that rely on</font>
+
+176
+00:06:52,240 --> 00:06:57,919
+<font color="white" size=".72c">color processing. The hyper plane inside</font>
+
+177
+00:06:54,960 --> 00:07:00,160
+<font color="white" size=".72c">the classifier trained on task C2 should</font>
+
+178
+00:06:57,919 --> 00:07:03,440
+<font color="white" size=".72c">be capable of separating red and green</font>
+
+179
+00:07:00,160 --> 00:07:05,840
+<font color="white" size=".72c">clouds observed during task C1 and vice</font>
+
+180
+00:07:03,440 --> 00:07:08,880
+<font color="white" size=".72c">versa. The accuracy of this kind of</font>
+
+181
+00:07:05,840 --> 00:07:11,280
+<font color="white" size=".72c">cross task decoding should be high. And</font>
+
+182
+00:07:08,880 --> 00:07:13,599
+<font color="white" size=".72c">this is exactly what they found. When</font>
+
+183
+00:07:11,280 --> 00:07:15,680
+<font color="white" size=".72c">the researchers swap the decoders, they</font>
+
+184
+00:07:13,599 --> 00:07:18,080
+<font color="white" size=".72c">still worked almost perfectly. In other</font>
+
+185
+00:07:15,680 --> 00:07:20,080
+<font color="white" size=".72c">words, the color module in the brain is</font>
+
+186
+00:07:18,080 --> 00:07:23,039
+<font color="white" size=".72c">physically reused between two different</font>
+
+187
+00:07:20,080 --> 00:07:24,880
+<font color="white" size=".72c">tasks. Similarly, a classifier trained</font>
+
+188
+00:07:23,039 --> 00:07:27,440
+<font color="white" size=".72c">to decode the movement direction</font>
+
+189
+00:07:24,880 --> 00:07:30,240
+<font color="white" size=".72c">generalized well between S1 and C1</font>
+
+190
+00:07:27,440 --> 00:07:32,560
+<font color="white" size=".72c">tasks, suggesting that the motor command</font>
+
+191
+00:07:30,240 --> 00:07:34,639
+<font color="white" size=".72c">module is compositionally reused as</font>
+
+192
+00:07:32,560 --> 00:07:37,120
+<font color="white" size=".72c">well.</font>
+
+193
+00:07:34,639 --> 00:07:39,840
+<font color="white" size=".72c">So we have established that the brain</font>
+
+194
+00:07:37,120 --> 00:07:42,639
+<font color="white" size=".72c">has a color module and a motor module</font>
+
+195
+00:07:39,840 --> 00:07:45,199
+<font color="white" size=".72c">which exist as specific stable subspaces</font>
+
+196
+00:07:42,639 --> 00:07:48,400
+<font color="white" size=".72c">in neural activity. But having the parts</font>
+
+197
+00:07:45,199 --> 00:07:49,840
+<font color="white" size=".72c">isn't enough to actually solve the task.</font>
+
+198
+00:07:48,400 --> 00:07:52,720
+<font color="white" size=".72c">The brain has to connect them</font>
+
+199
+00:07:49,840 --> 00:07:55,039
+<font color="white" size=".72c">dynamically. In task C1, for example,</font>
+
+200
+00:07:52,720 --> 00:07:57,599
+<font color="white" size=".72c">the brain needs to take the red signal</font>
+
+201
+00:07:55,039 --> 00:07:59,599
+<font color="white" size=".72c">from the color subspace and route it to</font>
+
+202
+00:07:57,599 --> 00:08:02,000
+<font color="white" size=".72c">the move bottom right signal in the</font>
+
+203
+00:07:59,599 --> 00:08:04,000
+<font color="white" size=".72c">motor subspace.</font>
+
+204
+00:08:02,000 --> 00:08:05,919
+<font color="white" size=".72c">The researchers visualized this by</font>
+
+205
+00:08:04,000 --> 00:08:08,479
+<font color="white" size=".72c">tracking the neural activity within a</font>
+
+206
+00:08:05,919 --> 00:08:10,319
+<font color="white" size=".72c">single trial. About 100 milliseconds</font>
+
+207
+00:08:08,479 --> 00:08:13,120
+<font color="white" size=".72c">after the image appears, the neural</font>
+
+208
+00:08:10,319 --> 00:08:15,185
+<font color="white" size=".72c">state jumps into the color subspace. But</font>
+
+209
+00:08:13,120 --> 00:08:17,120
+<font color="white" size=".72c">then a few hundred milliseconds later,</font>
+
+210
+00:08:15,185 --> 00:08:19,520
+<font color="white" size=".72c">[music] the state flows out of the color</font>
+
+211
+00:08:17,120 --> 00:08:22,879
+<font color="white" size=".72c">subspace and rotates into the motor</font>
+
+212
+00:08:19,520 --> 00:08:25,039
+<font color="white" size=".72c">subspace to guide the eyes.</font>
+
+213
+00:08:22,879 --> 00:08:28,800
+<font color="white" size=".72c">Crucially, this flow depends on the</font>
+
+214
+00:08:25,039 --> 00:08:32,000
+<font color="white" size=".72c">context. In task C1, the red vector</font>
+
+215
+00:08:28,800 --> 00:08:35,200
+<font color="white" size=".72c">flows into axis one motor direction. In</font>
+
+216
+00:08:32,000 --> 00:08:38,479
+<font color="white" size=".72c">task C2, that same red vector flows into</font>
+
+217
+00:08:35,200 --> 00:08:41,039
+<font color="white" size=".72c">axis 2 motor direction. It acts exactly</font>
+
+218
+00:08:38,479 --> 00:08:44,080
+<font color="white" size=".72c">like a railroad switch. The cargo, the</font>
+
+219
+00:08:41,039 --> 00:08:46,320
+<font color="white" size=".72c">color is the same, but the task context</font>
+
+220
+00:08:44,080 --> 00:08:48,480
+<font color="white" size=".72c">flips a junction that routes the train</font>
+
+221
+00:08:46,320 --> 00:08:50,880
+<font color="white" size=".72c">down a different set of tracks to a</font>
+
+222
+00:08:48,480 --> 00:08:52,320
+<font color="white" size=".72c">different destination. However, this</font>
+
+223
+00:08:50,880 --> 00:08:54,800
+<font color="white" size=".72c">railroad switch only [music] explains</font>
+
+224
+00:08:52,320 --> 00:08:57,279
+<font color="white" size=".72c">how we route the output. The brain also</font>
+
+225
+00:08:54,800 --> 00:09:00,160
+<font color="white" size=".72c">faces a second problem. Selecting the</font>
+
+226
+00:08:57,279 --> 00:09:03,839
+<font color="white" size=".72c">right input. Remember the monkey seen</font>
+
+227
+00:09:00,160 --> 00:09:06,320
+<font color="white" size=".72c">both shape and color. In task C1, it</font>
+
+228
+00:09:03,839 --> 00:09:09,120
+<font color="white" size=".72c">needs to route color and ignore shape.</font>
+
+229
+00:09:06,320 --> 00:09:11,360
+<font color="white" size=".72c">In task S1, it needs to route shape and</font>
+
+230
+00:09:09,120 --> 00:09:13,839
+<font color="white" size=".72c">ignore color. If the [music] brain gets</font>
+
+231
+00:09:11,360 --> 00:09:17,040
+<font color="white" size=".72c">this one wrong, it sends the wrong cargo</font>
+
+232
+00:09:13,839 --> 00:09:20,160
+<font color="white" size=".72c">down the track. So, who decides which</font>
+
+233
+00:09:17,040 --> 00:09:22,160
+<font color="white" size=".72c">input to put on the train? To find out,</font>
+
+234
+00:09:20,160 --> 00:09:24,560
+<font color="white" size=".72c">the researchers exploited a helpful</font>
+
+235
+00:09:22,160 --> 00:09:27,120
+<font color="white" size=".72c">feature of the game, uncertainty. The</font>
+
+236
+00:09:24,560 --> 00:09:29,600
+<font color="white" size=".72c">monkeys performed tasks in blocks. When</font>
+
+237
+00:09:27,120 --> 00:09:31,600
+<font color="white" size=".72c">a new block started, the screen flashed,</font>
+
+238
+00:09:29,600 --> 00:09:33,760
+<font color="white" size=".72c">but the monkey wasn't told which task</font>
+
+239
+00:09:31,600 --> 00:09:36,320
+<font color="white" size=".72c">was next. They only knew along which</font>
+
+240
+00:09:33,760 --> 00:09:38,640
+<font color="white" size=".72c">axis they had to move their eyes. If the</font>
+
+241
+00:09:36,320 --> 00:09:42,320
+<font color="white" size=".72c">motor axis was two, it was simple</font>
+
+242
+00:09:38,640 --> 00:09:44,560
+<font color="white" size=".72c">because only task C2 uses that axis.</font>
+
+243
+00:09:42,320 --> 00:09:46,959
+<font color="white" size=".72c">However, when the break ended and the</font>
+
+244
+00:09:44,560 --> 00:09:49,920
+<font color="white" size=".72c">monkeys had to perform a task along axis</font>
+
+245
+00:09:46,959 --> 00:09:53,440
+<font color="white" size=".72c">one, they faced a mystery. Is the rule</font>
+
+246
+00:09:49,920 --> 00:09:55,680
+<font color="white" size=".72c">color or shape? This created a perfect</font>
+
+247
+00:09:53,440 --> 00:09:58,320
+<font color="white" size=".72c">experimental window. For the first few</font>
+
+248
+00:09:55,680 --> 00:10:00,720
+<font color="white" size=".72c">dozen trials, the monkey had to guess,</font>
+
+249
+00:09:58,320 --> 00:10:02,880
+<font color="white" size=".72c">learn from feedback, and slowly update</font>
+
+250
+00:10:00,720 --> 00:10:05,839
+<font color="white" size=".72c">its internal belief about what the rule</font>
+
+251
+00:10:02,880 --> 00:10:08,560
+<font color="white" size=".72c">was. The researchers trained another</font>
+
+252
+00:10:05,839 --> 00:10:11,040
+<font color="white" size=".72c">decoder to read out this task belief</font>
+
+253
+00:10:08,560 --> 00:10:12,240
+<font color="white" size=".72c">from neural activity. They found that</font>
+
+254
+00:10:11,040 --> 00:10:14,720
+<font color="white" size=".72c">they could watch the monkeyy's</font>
+
+255
+00:10:12,240 --> 00:10:16,640
+<font color="white" size=".72c">realization in real time, watching the</font>
+
+256
+00:10:14,720 --> 00:10:18,959
+<font color="white" size=".72c">signal go from I think it's shape to,</font>
+
+257
+00:10:16,640 --> 00:10:21,440
+<font color="white" size=".72c">oh, it's definitely color. And here's</font>
+
+258
+00:10:18,959 --> 00:10:23,519
+<font color="white" size=".72c">the punch line. This abstract belief</font>
+
+259
+00:10:21,440 --> 00:10:26,399
+<font color="white" size=".72c">signal physically reconfigured the</font>
+
+260
+00:10:23,519 --> 00:10:28,959
+<font color="white" size=".72c">neural geometry. They found that task</font>
+
+261
+00:10:26,399 --> 00:10:32,000
+<font color="white" size=".72c">belief acts as a gain knob on sensory</font>
+
+262
+00:10:28,959 --> 00:10:34,880
+<font color="white" size=".72c">inputs. As the monkey realized he was in</font>
+
+263
+00:10:32,000 --> 00:10:36,959
+<font color="white" size=".72c">the color task, the brain amplified the</font>
+
+264
+00:10:34,880 --> 00:10:39,200
+<font color="white" size=".72c">color subspace, stretching the red and</font>
+
+265
+00:10:36,959 --> 00:10:41,440
+<font color="white" size=".72c">green clouds further apart. and</font>
+
+266
+00:10:39,200 --> 00:10:43,519
+<font color="white" size=".72c">simultaneously it suppressed the shape</font>
+
+267
+00:10:41,440 --> 00:10:46,399
+<font color="white" size=".72c">subspace squashing the bunny and</font>
+
+268
+00:10:43,519 --> 00:10:48,560
+<font color="white" size=".72c">T-clouds flat. This ensured that only</font>
+
+269
+00:10:46,399 --> 00:10:51,360
+<font color="white" size=".72c">the relevant information was loud enough</font>
+
+270
+00:10:48,560 --> 00:10:53,680
+<font color="white" size=".72c">to enter the routing switchboard.</font>
+
+271
+00:10:51,360 --> 00:10:56,320
+<font color="white" size=".72c">So the mechanism of flexibility is</font>
+
+272
+00:10:53,680 --> 00:10:58,399
+<font color="white" size=".72c">twofold. The brain builds reusable</font>
+
+273
+00:10:56,320 --> 00:11:01,040
+<font color="white" size=".72c">orthogonal modules for every feature</font>
+
+274
+00:10:58,399 --> 00:11:03,680
+<font color="white" size=".72c">like color shape and motor command and</font>
+
+275
+00:11:01,040 --> 00:11:06,320
+<font color="white" size=".72c">then uses a central task belief signal</font>
+
+276
+00:11:03,680 --> 00:11:08,959
+<font color="white" size=".72c">to adjust the gain on the inputs and set</font>
+
+277
+00:11:06,320 --> 00:11:10,880
+<font color="white" size=".72c">the switches for the outputs.</font>
+
+278
+00:11:08,959 --> 00:11:12,800
+<font color="white" size=".72c">Putting all together, this paper</font>
+
+279
+00:11:10,880 --> 00:11:14,560
+<font color="white" size=".72c">provides evidence that the brain does</font>
+
+280
+00:11:12,800 --> 00:11:17,120
+<font color="white" size=".72c">not relearn the world for every new</font>
+
+281
+00:11:14,560 --> 00:11:19,760
+<font color="white" size=".72c">problem from scratch. Instead, it acts</font>
+
+282
+00:11:17,120 --> 00:11:22,160
+<font color="white" size=".72c">as an engineer building a library of</font>
+
+283
+00:11:19,760 --> 00:11:24,240
+<font color="white" size=".72c">fixed reusable components. When a new</font>
+
+284
+00:11:22,160 --> 00:11:26,880
+<font color="white" size=".72c">challenge arises, the brain simply has</font>
+
+285
+00:11:24,240 --> 00:11:28,480
+<font color="white" size=".72c">to engage relevant modules, compose them</font>
+
+286
+00:11:26,880 --> 00:11:30,560
+<font color="white" size=".72c">together to route information through</font>
+
+287
+00:11:28,480 --> 00:11:33,200
+<font color="white" size=".72c">the circuitry, and suppress irrelevant</font>
+
+288
+00:11:30,560 --> 00:11:35,360
+<font color="white" size=".72c">ones. This explains why humans can adapt</font>
+
+289
+00:11:33,200 --> 00:11:37,440
+<font color="white" size=".72c">to new environments so quickly. We're</font>
+
+290
+00:11:35,360 --> 00:11:40,079
+<font color="white" size=".72c">not building new neural hardware from</font>
+
+291
+00:11:37,440 --> 00:11:42,800
+<font color="white" size=".72c">scratch every time. Instead, we're just</font>
+
+292
+00:11:40,079 --> 00:11:44,959
+<font color="white" size=".72c">wiring up our old existing Lego bricks</font>
+
+293
+00:11:42,800 --> 00:11:46,720
+<font color="white" size=".72c">into a new configuration. If you enjoyed</font>
+
+294
+00:11:44,959 --> 00:11:48,240
+<font color="white" size=".72c">the video, share it with a friends.</font>
+
+295
+00:11:46,720 --> 00:11:50,480
+<font color="white" size=".72c">Subscribe to the channel if you haven't</font>
+
+296
+00:11:48,240 --> 00:11:51,519
+<font color="white" size=".72c">already, and press the like button. Stay</font>
+
+297
+00:11:50,480 --> 00:11:53,440
+<font color="white" size=".72c">tuned for more computational</font>
+
+298
+00:11:51,519 --> 00:11:56,760
+<font color="white" size=".72c">neuroscience and machine learning topics</font>
+
+299
+00:11:53,440 --> 00:11:56,760
+<font color="white" size=".72c">coming up.</font>
+
+300
+00:11:59,853 --> 00:12:01,873
+<font color="white" size=".72c">>> [music]</font>
+
