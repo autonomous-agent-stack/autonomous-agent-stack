@@ -1,0 +1,17 @@
+{
+  "response_sla": {
+    "priority:critical": 4,
+    "priority:high": 8,
+    "priority:medium": 24,
+    "priority:low": 72
+  },
+  "resolution_sla": {
+    "priority:critical": 24,
+    "priority:high": 72,
+    "priority:medium": 168,
+    "priority:low": 336
+  },
+  "priority_label_prefix": "priority:",
+  "alert_enabled": true,
+  "alert_comment": true
+}

@@ -1,0 +1,24 @@
+# AI 自主 Agent 框架依赖
+
+# 数据处理
+pandas>=2.0.0
+numpy>=1.24.0
+
+# 可视化
+matplotlib>=3.7.0
+
+# LLM 集成
+openai>=1.0.0
+
+# 工具库
+python-dateutil>=2.8.2
+pyyaml>=6.0
+
+# 测试
+pytest>=7.4.0
+pytest-cov>=4.1.0
+
+# 代码质量
+black>=23.0.0
+flake8>=6.0.0
+mypy>=1.5.0

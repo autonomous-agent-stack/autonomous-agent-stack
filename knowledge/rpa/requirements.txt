@@ -1,0 +1,66 @@
+# AI + RPA 深度集成项目依赖
+
+# 基础依赖
+python>=3.8
+
+# HTTP 请求
+requests>=2.28.0
+
+# LLM 集成
+openai>=1.0.0  # OpenAI API
+zhipuai>=1.0.0  # 智谱 AI API
+
+# 数据处理
+pandas>=2.0.0
+numpy>=1.24.0
+openpyxl>=3.1.0  # Excel 处理
+
+# Web 自动化
+selenium>=4.10.0
+playwright>=1.35.0
+
+# 模板引擎
+jinja2>=3.1.0
+
+# 任务调度
+apscheduler>=3.10.0
+
+# 数据库
+sqlalchemy>=2.0.0
+
+# 日志和监控
+python-json-logger>=2.0.0
+
+# 配置管理
+pyyaml>=6.0
+
+# 代码质量
+black>=23.0.0
+pylint>=2.17.0
+
+# 测试
+pytest>=7.4.0
+pytest-cov>=4.1.0
+
+# 工具库
+python-dotenv>=1.0.0
+click>=8.1.0
+tqdm>=4.65.0
+
+# 数据可视化（用于报表生成）
+matplotlib>=3.7.0
+plotly>=5.14.0
+
+# 异步支持
+aiohttp>=3.8.0
+
+# 影刀 SDK（如果官方提供）
+# yingdao-sdk>=1.0.0
+
+# 自然语言处理（可选，用于增强解析能力）
+# spacy>=3.5.0
+# transformers>=4.30.0
+
+# 开发工具
+jupyter>=1.0.0
+ipython>=8.14.0

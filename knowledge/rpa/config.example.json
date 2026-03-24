@@ -1,0 +1,48 @@
+{
+  "llm": {
+    "provider": "zhipuai",
+    "model": "glm-4",
+    "api_key": "YOUR_ZHIPUAI_API_KEY",
+    "base_url": "https://open.bigmodel.cn/api/paas/v4/",
+    "temperature": 0.7,
+    "max_tokens": 2000,
+    "timeout": 30
+  },
+  "yingdao": {
+    "api_endpoint": "https://api.yingdao.com/api/v1",
+    "api_key": "YOUR_YINGDAO_API_KEY",
+    "timeout": 60
+  },
+  "database": {
+    "type": "sqlite",
+    "path": "./data/ai_rpa.db",
+    "backup_enabled": true
+  },
+  "logging": {
+    "level": "INFO",
+    "file": "./logs/ai_rpa.log",
+    "max_size": "10MB",
+    "backup_count": 5,
+    "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  },
+  "scheduler": {
+    "timezone": "Asia/Shanghai",
+    "default_max_workers": 3,
+    "job_store": "sqlite",
+    "job_store_path": "./data/jobs.db"
+  },
+  "optimization": {
+    "auto_optimize": true,
+    "optimization_threshold": 0.8,
+    "min_execution_logs": 5
+  },
+  "security": {
+    "encrypt_sensitive_data": true,
+    "audit_log_enabled": true
+  },
+  "features": {
+    "auto_save": true,
+    "auto_backup": true,
+    "notification_enabled": true
+  }
+}
