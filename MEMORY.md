@@ -170,6 +170,13 @@
   - 适合：Python 开发者
   - 状态：⏸️ 暂停翻译
 
+## 技术方案归档
+- **ClawX 多机器人配置**: `memory/clawx-multi-bot-config.md`
+  - 方案 A：手动配置（推荐优先，2 分钟）
+  - 方案 B：PR 改进 UI（长期计划，3 周）
+  - 方案 C：Fork + 魔改（不推荐）
+  - 适用场景：需要配置多个 Telegram Bot
+
 ## 监控任务
 - PR #51165 (openai/codex) - 等待维护者 review
 ��库
