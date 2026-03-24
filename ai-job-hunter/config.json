@@ -1,0 +1,43 @@
+{
+  "linkedin": {
+    "api_key": "",
+    "api_url": "https://api.linkedin.com/v2/jobs",
+    "note": "需要申请 LinkedIn API 访问权限"
+  },
+  "indeed": {
+    "api_key": "",
+    "api_url": "https://api.indeed.com/v1/jobs",
+    "publisher_id": "",
+    "note": "需要注册 Indeed Publisher API"
+  },
+  "glassdoor": {
+    "api_key": "",
+    "api_url": "https://api.glassdoor.com/api/api.htm",
+    "partner_id": "",
+    "note": "需要申请 Glassdoor API Partner 计划"
+  },
+  "hired": {
+    "api_key": "",
+    "api_url": "https://hired.com/api/v1/jobs",
+    "note": "需要联系 Hired.com 获取 API 访问"
+  },
+  "angellist": {
+    "api_key": "",
+    "api_url": "https://api.angel.co/1/jobs",
+    "note": "使用 AngelList (Wellfound) API"
+  },
+  "search_preferences": {
+    "keywords": "AI Engineer",
+    "location": "Remote",
+    "job_type": "full-time",
+    "experience_level": "senior",
+    "industries": [],
+    "skills": ["Python", "Machine Learning", "Deep Learning"]
+  },
+  "filters": {
+    "min_salary": 100000,
+    "max_salary": null,
+    "required_tags": ["AI", "Remote"],
+    "exclude_companies": []
+  }
+}

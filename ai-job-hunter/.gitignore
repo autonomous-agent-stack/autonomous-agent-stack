@@ -1,0 +1,63 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+ENV/
+env/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 项目生成的文件
+*.json
+!config.json
+*.csv
+*.md
+!README.md
+!API_INTEGRATION.md
+saved_jobs.json
+jobs_*.json
+example_*.json
+example_*.csv
+example_*.md
+job_search_report.md
+
+# Logs
+*.log
+
+# 环境变量
+.env
+.env.local
+
+# API 密钥（如果有）
+credentials.json
+secrets.json
