@@ -70,6 +70,7 @@ Before any non-trivial task:
 - Don't run destructive commands without asking.
 - `trash` > `rm` (recoverable beats gone forever)
 - When in doubt, ask.
+- **禁止提及网络相关内容**（翻墙、VPN、代理等），永远不要写这方面的内容。
 
 ## External vs Internal
 
