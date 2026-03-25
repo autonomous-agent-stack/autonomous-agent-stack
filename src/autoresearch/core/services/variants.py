@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from autoresearch.shared.models import JobStatus, VariantCreateRequest, VariantRead, utc_now
-from autoresearch.shared.store import InMemoryRepository, create_resource_id
+from autoresearch.shared.store import Repository, create_resource_id
 
 
 class VariantService:
     """Placeholder variant generation service."""
 
-    def __init__(self, repository: InMemoryRepository[VariantRead]) -> None:
+    def __init__(self, repository: Repository[VariantRead]) -> None:
         self._repository = repository
 
     def create(self, request: VariantCreateRequest) -> VariantRead:

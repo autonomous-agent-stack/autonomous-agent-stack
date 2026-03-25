@@ -2,6 +2,12 @@
 
 > **解决三大核心工程挑战**：短路机制 + 节点协议 + 并发安全
 
+## 论文来源（OpenSage）
+
+- arXiv 摘要页: https://arxiv.org/abs/2602.16891
+- ar5iv HTML: https://ar5iv.labs.arxiv.org/html/2602.16891v2
+- 标题: *OpenSage: Self-programming Agent Generation Engine*
+
 ---
 
 ## 挑战来源

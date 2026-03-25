@@ -53,12 +53,12 @@ class MinimalKarpathyLoop:
             json=payload
         )
 
-        task_id = response.json()["task_id"]
+        evaluation_id = response.json()["evaluation_id"]
 
         # 等待评估完成
         while True:
             result = requests.get(
-                f"{self.api_base_url}/api/v1/evaluations/{task_id}"
+                f"{self.api_base_url}/api/v1/evaluations/{evaluation_id}"
             )
             status = result.json()["status"]
 
@@ -109,11 +109,12 @@ class MinimalKarpathyLoop:
             )
 
             if result["status"] == "completed":
-                score = result["result"]["score"]
+                score = float(result.get("score") or 0.0)
                 print(f"📊 评分: {score:.2f}")
 
                 # 3. 决定是否保留
-                if self.should_keep(score, best_score, direction):
+                keep_variant = self.should_keep(score, best_score, direction)
+                if keep_variant:
                     best_score = score
                     best_file = variant_file
                     print(f"✅ 保留！新最佳分数: {best_score:.2f}")
@@ -125,7 +126,7 @@ class MinimalKarpathyLoop:
                     "iteration": i + 1,
                     "mutation": mutation,
                     "score": score,
-                    "kept": self.should_keep(score, best_score, direction)
+                    "kept": keep_variant
                 })
             else:
                 print(f"❌ 评估失败: {result.get('error', 'Unknown error')}")

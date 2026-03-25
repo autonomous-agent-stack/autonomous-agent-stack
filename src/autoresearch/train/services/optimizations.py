@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from autoresearch.shared.models import JobStatus, OptimizationCreateRequest, OptimizationRead, utc_now
-from autoresearch.shared.store import InMemoryRepository, create_resource_id
+from autoresearch.shared.store import Repository, create_resource_id
 
 
 class OptimizationService:
     """Placeholder optimizer orchestration service."""
 
-    def __init__(self, repository: InMemoryRepository[OptimizationRead]) -> None:
+    def __init__(self, repository: Repository[OptimizationRead]) -> None:
         self._repository = repository
 
     def create(self, request: OptimizationCreateRequest) -> OptimizationRead:

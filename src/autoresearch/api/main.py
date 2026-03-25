@@ -6,7 +6,20 @@ from typing import Any
 from fastapi import FastAPI
 
 from autoresearch import __version__
-from autoresearch.api.routers import evaluations, experiments, optimizations, reports, variants
+from autoresearch.api.routers import (
+    evaluations,
+    executors,
+    experiments,
+    gateway_telegram,
+    generators,
+    loops,
+    optimizations,
+    openclaw,
+    reports,
+    streaming,
+    synthesis,
+    variants,
+)
 
 
 app = FastAPI(
@@ -19,10 +32,17 @@ app = FastAPI(
 )
 
 app.include_router(evaluations.router)
+app.include_router(gateway_telegram.router)
+app.include_router(generators.router)
+app.include_router(executors.router)
+app.include_router(synthesis.router)
+app.include_router(loops.router)
+app.include_router(openclaw.router)
 app.include_router(reports.router)
 app.include_router(variants.router)
 app.include_router(optimizations.router)
 app.include_router(experiments.router)
+app.include_router(streaming.router)
 
 
 @app.get("/", tags=["meta"])
@@ -37,6 +57,12 @@ def read_root() -> dict[str, Any]:
 
 @app.get("/healthz", tags=["meta"])
 def healthcheck() -> dict[str, str]:
+    return {"status": "ok"}
+
+
+@app.get("/health", tags=["meta"])
+def healthcheck_legacy() -> dict[str, str]:
+    """Legacy alias preserved for old clients and examples."""
     return {"status": "ok"}
 
 
