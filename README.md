@@ -44,6 +44,58 @@ Planner Node → Generator Node → Executor Node → Evaluator Node
 
 ## 🚀 快速开始
 
+如果你是第一次接触这个项目，先记住一句话：
+
+- `API 服务` 负责干活
+- `Dashboard` 负责看状态
+- 先把 `API 服务` 跑起来，再看看板
+
+### 小白版启动顺序
+
+1. 进入项目目录
+
+```bash
+cd /Volumes/PS1008/Github/autonomous-agent-stack
+```
+
+2. 如果还没装依赖，先装依赖
+
+```bash
+pip install -r requirements.txt
+```
+
+3. 如果你要用 OpenClaw 迁移配置，先复制环境文件
+
+```bash
+cp migration/openclaw/templates/openclaw-to-autoresearch.env.example migration/openclaw/.env.local
+```
+
+4. 启动后端 API
+
+```bash
+uvicorn src.autoresearch.api.main:app --host 127.0.0.1 --port 8000
+```
+
+5. 打开健康检查
+
+```bash
+open http://127.0.0.1:8000/healthz
+```
+
+6. 想看网页看板再启动 Dashboard
+
+```bash
+cd /Volumes/PS1008/Github/autonomous-agent-stack/dashboard
+npm install
+npm run dev
+```
+
+7. 打开看板
+
+```bash
+open http://localhost:3000
+```
+
 ### 1. 安装
 
 ```bash
@@ -72,6 +124,26 @@ async def main():
     graph.context.set("goal", "优化代码性能")
     
     # 执行图
+    results = await graph.execute()
+    print(results)
+
+asyncio.run(main())
+```
+
+### 2.5 用 Prompt 直接编排（新）
+
+```python
+from src.orchestrator import create_graph_from_prompt
+import asyncio
+
+async def main():
+    orchestration_prompt = """
+goal: 优化代码性能
+nodes: planner -> generator -> executor -> evaluator
+retry: evaluator -> generator when decision == 'retry'
+max_steps: 16
+"""
+    graph = create_graph_from_prompt(orchestration_prompt)
     results = await graph.execute()
     print(results)
 

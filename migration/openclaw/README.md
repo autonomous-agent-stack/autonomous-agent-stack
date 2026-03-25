@@ -31,19 +31,21 @@
 
 ## 快速使用
 
-1. 复制模板并按需修改：
+如果你是第一次操作，按下面顺序做就行。
+
+### 1. 先准备环境文件
 
 ```bash
 cp migration/openclaw/templates/openclaw-to-autoresearch.env.example migration/openclaw/.env.local
 ```
 
-2. 探测旧数据路径：
+### 2. 再检查旧 OpenClaw 数据在哪
 
 ```bash
 bash migration/openclaw/scripts/discover-openclaw-data.sh
 ```
 
-3. 启动 API（新终端）
+### 3. 启动 API（新终端）
 
 ```bash
 cd /Volumes/PS1008/Github/autonomous-agent-stack
@@ -51,11 +53,27 @@ set -a; source migration/openclaw/.env.local; set +a
 uvicorn src.autoresearch.api.main:app --host 127.0.0.1 --port 8000
 ```
 
-4. 运行一键验证：
+### 4. 用一键验证确认能跑
 
 ```bash
 bash migration/openclaw/scripts/verify-migration.sh
 ```
+
+### 5. 如果你只想接 Claude CLI
+
+把这里的变量改成你自己的命令：
+
+```bash
+export AUTORESEARCH_CLAUDE_COMMAND=claude
+```
+
+如果你的 Claude CLI 在别的项目里，就把它换成那个项目里的可执行文件路径，例如：
+
+```bash
+export AUTORESEARCH_CLAUDE_COMMAND="/path/to/your/project/bin/claude"
+```
+
+这个项目会优先使用这个环境变量来启动 Claude 子任务。
 
 ## 关于 `../openclaw`
 
