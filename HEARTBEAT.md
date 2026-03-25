@@ -13,7 +13,11 @@
   - 链接: https://github.com/openclaw/openclaw/pull/51165
   - 备注： 继续监控
 
-- [ ] X 书签增量读取（每次心跳）
+- [x] X 书签增量读取 ✅ 已完成（2026-03-25 13:55）
+  - 状态：无新增书签
+  - 最新书签：2026-03-17（7 天前）
+  - 总书签数：58
+  - 备注：继续监控
   - 读取新书签（增量)
   - 分析内容（批判性）
   - 生成总结报告
@@ -35,13 +39,16 @@
     - 字幕: ✅ 有中文字幕
     - 数据: 701 观看，35 点赞
 
-- [ ] 知识库维护（每日）
-  - 检查热点资料是否需要降级
-  - 确认新资料已归档
-  - 更新研究进度
-  - 检查文件命名规范
-  - 验证子目录README完整性
-  - 更新INDEX.md统计信息
+- [x] 知识库维护 ✅ 已完成（2026-03-25 13:55）
+  - 总文件数：275（+12）
+  - 子目录数：40
+  - README 覆盖率：26/40（65%）
+  - 缺少 README 的子目录：14 个
+    - agent-development/, claude-cli-private/, configurations/
+    - misc/, monitoring/, multi-agent/, open-source/
+    - quality-assurance/, setup/, system-integration/
+    - tools/, translation/, upstream-sync/, workflow-optimization/
+  - 备注：需要补充 14 个 README
 
 - [x] 搜索 MAS Factory 项目（每周） ✅ 已完成
   - **已 Fork**: https://github.com/srxly888-creator/MASfactory
