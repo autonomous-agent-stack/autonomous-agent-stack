@@ -22,7 +22,9 @@ from autoresearch.api.routers import (
     streaming,
     synthesis,
     variants,
+    webauthn,  # WebAuthn 生物识别认证
 )
+from autoresearch.api.webauthn_interceptor import demo_router  # WebAuthn 演示页面
 
 
 app = FastAPI(
@@ -48,6 +50,8 @@ app.include_router(variants.router)
 app.include_router(optimizations.router)
 app.include_router(experiments.router)
 app.include_router(streaming.router)
+app.include_router(webauthn.router)  # WebAuthn 生物识别认证
+app.include_router(demo_router)  # WebAuthn 演示页面
 
 
 @app.get("/", tags=["meta"])
