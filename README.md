@@ -51,6 +51,9 @@ cd autonomous-agent-stack
 
 # 安装依赖
 pip install -r requirements.txt
+
+# 复制安全模板（填写 Telegram/Tailscale/JWT 参数）
+cp .env.security.example .env.local
 ```
 
 ### 2. 运行最小闭环
@@ -124,6 +127,18 @@ open dashboard.html
 - Webhook 入口：`/api/v1/gateway/telegram/webhook`
 - `chat_id -> session` 自动复用
 - 支持 `x-telegram-bot-api-secret-token` 校验
+- 支持 `/status` 动态魔法链接（短期 JWT + Telegram UID 签名）
+
+### Web 面板零信任安全（新增）
+- 默认仅允许 `127.0.0.1` 或 Tailscale IP 绑定，避免误暴露公网
+- 面板路由：`/api/v1/panel/*`，支持两种鉴权：
+  - 魔法链接 JWT：`Authorization: Bearer <token>` 或 `x-autoresearch-panel-token`
+  - Telegram Mini App：`x-telegram-init-data`（服务端验签 + UID 白名单）
+- 面板手动干预（`cancel/retry`）自动写入 SQLite 审计表 `panel_audit_logs`
+- 审计事件通过 Telegram Bot 实时推送（配置 `AUTORESEARCH_TELEGRAM_BOT_TOKEN`）
+- 适配两套移动访问路径：
+  - 方案一：Tailscale 私网直连
+  - 方案二：Cloudflare Tunnel + Telegram Mini App（解决手机 VPN 冲突）
 
 ### 动态工具执行安全
 - Dynamic Tool Synthesis 默认 `docker` 后端
@@ -141,6 +156,12 @@ open dashboard.html
   - `AUTORESEARCH_MIROFISH_MIN_CONFIDENCE=0.35` 最低置信阈值
   - Badge 建议：`Prediction 89% (MiroFish)`
 
+### P4 自主集成协议（最小骨架）
+- Discover：`POST /api/v1/integrations/discover`
+- Prototype：`POST /api/v1/integrations/prototype`
+- Promote：`POST /api/v1/integrations/promote`
+- 当前语义：生成“可执行计划 + 回滚模板”，用于后续真实沙盒执行与热替换
+
 ### 运行状态（2026-03-25）
 - 分支：`codex/continue-autonomous-agent-stack`
 - 测试：`40 passed`
@@ -153,6 +174,7 @@ open dashboard.html
 - **[关键工程决策](docs/critical-designs.md)**: 短路机制 + 节点协议 + 并发安全 ⭐ **NEW**
 - **[OpenClaw 替代迁移手册](docs/openclaw-replacement-migration-playbook.md)**: 最佳实践 + 分阶段迁移 + 回滚方案 ⭐ **NEW**
 - **[P3 生态融合手册](docs/p3-ecosystem-fusion-playbook.md)**: OpenViking + MiroFish 接入与 API 契约 ⭐ **NEW**
+- **[P4 自主集成协议](docs/p4-self-integration-protocol.md)**: discover/prototype/promote 设计与契约 ⭐ **NEW**
 - **[MASFactory 集成](docs/masfactory-integration.md)**: 集成指南
 - **[集成指南](docs/integration-guide.md)**: 快速集成
 - **[API 参考](docs/api-reference.md)**: API 详细说明
