@@ -1,0 +1,21 @@
+# Core
+masfactory>=0.1.0
+pydantic>=2.0.0
+
+# API & Server
+fastapi>=0.115.0
+uvicorn>=0.32.0
+
+# Sandbox
+docker>=7.0.0
+
+# Monitoring
+sqlite3-stdlib
+websockets>=14.0
+
+# MCP Integration
+mcp>=1.0.0
+
+# Utils
+python-dotenv>=1.0.0
+PyYAML>=6.0
