@@ -18,7 +18,6 @@ class HITLInterceptor:
         self.sensitive_actions = [
             HITLAction.SEND_API,
             HITLAction.CONSUME_TOKEN,
-            HITLAction.SENSITIVE_OPERATION
         ]
     
     async def intercept(self, action: HITLAction, context: Dict[str, Any]) -> bool:

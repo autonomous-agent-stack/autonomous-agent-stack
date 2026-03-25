@@ -15,10 +15,10 @@ class PromptBuilder:
         """构建专业Prompt"""
         # 基础Prompt
         prompt = f"任务: {task}\n\n要求:\n"
-        
+
         # 添加专业要求
         prompt += "1. 使用专业、精准的语气\n"
-        prompt += "2. 避免工厂化、流水线式的表述\n"
+        prompt += "2. 避免模板化、流水线式的表述\n"
         prompt += "3. 突出产品的核心卖点\n\n"
         
         # 添加核心卖点

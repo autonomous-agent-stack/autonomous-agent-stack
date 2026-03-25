@@ -1,5 +1,6 @@
 import os
 import re
+import shutil
 from pathlib import Path
 from typing import List
 
@@ -17,16 +18,23 @@ class SandboxCleaner:
         """清理目录中的污染文件"""
         cleaned = []
         dir_path = Path(directory)
-        
-        for file_path in dir_path.rglob("*"):
-            if file_path.is_file():
-                file_name = file_path.name
-                for pattern in cls.DANGEROUS_PATTERNS:
-                    if re.match(pattern, file_name):
-                        file_path.unlink()
-                        cleaned.append(str(file_path))
-                        break
-        
+
+        # 从深到浅处理，避免先删父目录导致子路径失效。
+        paths = sorted(dir_path.rglob("*"), key=lambda item: len(item.parts), reverse=True)
+        for file_path in paths:
+            if not file_path.exists():
+                continue
+            file_name = file_path.name
+            matched = any(re.match(pattern, file_name) for pattern in cls.DANGEROUS_PATTERNS)
+            if not matched:
+                continue
+
+            if file_path.is_dir():
+                shutil.rmtree(file_path)
+            else:
+                file_path.unlink()
+            cleaned.append(str(file_path))
+
         return cleaned
     
     @classmethod
