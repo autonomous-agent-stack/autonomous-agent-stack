@@ -9,6 +9,7 @@ import base64
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
+import logging
 import os
 from pathlib import Path
 import re
@@ -19,6 +20,9 @@ import sys
 import threading
 from typing import Any
 from uuid import uuid4
+
+# 设置清爽、专业的结构化日志
+logger = logging.getLogger("agent_stack.executor")
 
 
 RUNNER_SNIPPET = """
@@ -423,14 +427,37 @@ class ToolSynthesizer:
             timeout=self.policy.timeout_seconds,
         )
 
-    def _cleanup_appledouble(self, root: Path) -> None:
-        # Keep docker mount inputs clean on macOS external disks.
+    def _cleanup_appledouble(self, root: Path) -> int:
+        """
+        物理切除 Mac 系统产生的 ._ 脏文件并记录拦截日志
+        """
+        count = 0
+        # 查找所有以 ._ 开头的 AppleDouble 文件
+        # 这些文件通常是由于 macOS 在非原生文件系统（如挂载的 Docker 卷）上尝试写入元数据产生的
         for path in root.rglob("._*"):
             if path.is_file():
-                path.unlink(missing_ok=True)
+                try:
+                    path.unlink(missing_ok=True)
+                    count += 1
+                    # 这里的日志会被推送到你的浅色监控看板上
+                    logger.info(f"[环境防御] 已拦截并物理清理宿主机残留文件: {path.name}")
+                except Exception as e:
+                    logger.warning(f"[环境防御] 清理文件 {path.name} 失败: {str(e)}")
+        
+        # 清理 .DS_Store 文件
         for path in root.rglob(".DS_Store"):
             if path.is_file():
-                path.unlink(missing_ok=True)
+                try:
+                    path.unlink(missing_ok=True)
+                    count += 1
+                    logger.info(f"[环境防御] 已拦截并物理清理 .DS_Store 文件: {path.name}")
+                except Exception as e:
+                    logger.warning(f"[环境防御] 清理 .DS_Store 文件 {path.name} 失败: {str(e)}")
+        
+        if count > 0:
+            logger.info(f"[环境防御] 预检完成：共计阻断 {count} 次潜在的环境污染风险，执行环境已恢复纯净。")
+        
+        return count
 
     def _parse_json_output(self, output_text: str) -> dict[str, Any]:
         output = output_text.strip()
