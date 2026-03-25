@@ -162,9 +162,15 @@ open dashboard.html
 - Promote：`POST /api/v1/integrations/promote`
 - 当前语义：生成“可执行计划 + 回滚模板”，用于后续真实沙盒执行与热替换
 
-### 运行状态（2026-03-25）
-- 分支：`codex/continue-autonomous-agent-stack`
-- 测试：`40 passed`
+### P4 认知融合与防遗忘压缩（Share Method）
+- 目标：解决底座演化中的技能碎片化与灾难性遗忘
+- 核心机制：SVD 提取共享权重子空间（Initialize -> Adapt -> Merge）
+- 预期收益：约 `1%` 参数增量实现约 `100x` 存储压缩，并支持向后知识迁移
+
+### 运行状态（2026-03-26）
+- 主分支：`main`
+- 合并分支：`codex/p3-openviking-mirofish-integration`、`feature/opensage-integration`、`feature/omni-assistant-integration`、`codex/continue-autonomous-agent-stack`
+- 测试（`.venv/bin/pytest -q`）：`215 passed, 11 failed`
 
 ---
 
@@ -175,6 +181,7 @@ open dashboard.html
 - **[OpenClaw 替代迁移手册](docs/openclaw-replacement-migration-playbook.md)**: 最佳实践 + 分阶段迁移 + 回滚方案 ⭐ **NEW**
 - **[P3 生态融合手册](docs/p3-ecosystem-fusion-playbook.md)**: OpenViking + MiroFish 接入与 API 契约 ⭐ **NEW**
 - **[P4 自主集成协议](docs/p4-self-integration-protocol.md)**: discover/prototype/promote 设计与契约 ⭐ **NEW**
+- **[P4 认知融合与防遗忘压缩](docs/p4-knowledge-fusion-share-method.md)**: Share 融合机制 + LoRA 孤岛治理 + 向后知识迁移 ⭐ **NEW**
 - **[MASFactory 集成](docs/masfactory-integration.md)**: 集成指南
 - **[集成指南](docs/integration-guide.md)**: 快速集成
 - **[API 参考](docs/api-reference.md)**: API 详细说明
