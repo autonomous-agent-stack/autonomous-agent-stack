@@ -24,15 +24,17 @@
 
 > 人工智能代理系统学习资源
 
+**目录**：`ai-agent/`（5 个文件）
+
 ### 📊 核心文件
 
 | 文件 | 主题 | 日期 | 价值 |
 |------|------|------|------|
-| [ai-agent-business-models-2026-03-25.md](ai-agent-business-models-2026-03-25.md) | AI Agent 商业模式 | 2026-03-25 | ⭐⭐⭐ |
-| [ai-agent-evolution-2026-03-24.md](ai-agent-evolution-2026-03-24.md) | AI Agent 演进历史 | 2026-03-24 | ⭐⭐⭐ |
-| [ai-agent-knowledge-base-architecture.md](ai-agent-knowledge-base-architecture.md) | AI Agent 知识库架构 | - | ⭐⭐⭐ |
-| [ai-agent-learning-path-2026-03-25.md](ai-agent-learning-path-2026-03-25.md) | AI Agent 学习路径 | 2026-03-25 | ⭐⭐⭐⭐ |
-| [ai-agent-use-cases-300.md](ai-agent-use-cases-300.md) | AI Agent 用例 300+ | - | ⭐⭐⭐⭐ |
+| [ai-agent-business-models-2026-03-25.md](ai-agent/ai-agent-business-models-2026-03-25.md) | AI Agent 商业模式 | 2026-03-25 | ⭐⭐⭐ |
+| [ai-agent-evolution-2026-03-24.md](ai-agent/ai-agent-evolution-2026-03-24.md) | AI Agent 演进历史 | 2026-03-24 | ⭐⭐⭐ |
+| [ai-agent-knowledge-base-architecture.md](ai-agent/ai-agent-knowledge-base-architecture.md) | AI Agent 知识库架构 | - | ⭐⭐⭐ |
+| [ai-agent-learning-path-2026-03-25.md](ai-agent/ai-agent-learning-path-2026-03-25.md) | AI Agent 学习路径 | 2026-03-25 | ⭐⭐⭐⭐ |
+| [ai-agent-use-cases-300.md](ai-agent/ai-agent-use-cases-300.md) | AI Agent 用例 300+ | - | ⭐⭐⭐⭐ |
 | [agent-development-roadmap-2026-03-24.md](agent-development-roadmap-2026-03-24.md) | Agent 开发路线图 | 2026-03-24 | ⭐⭐⭐ |
 
 ### 🔗 相关仓库
@@ -46,17 +48,20 @@
 
 > AI 工具深度研究报告（Token 燃烧项目成果）
 
+**目录**：`ai-tools/`（8 个文件）
+
 ### 📊 核心文件
 
 | 文件 | 主题 | 日期 | 价值 |
 |------|------|------|------|
-| [ai-game-development-comparison-2026-03-25.md](ai-game-development-comparison-2026-03-25.md) | AI 游戏开发工具 | 2026-03-25 | ⭐⭐⭐ |
-| [ai-model-compression-complete-2026-03-25.md](ai-model-compression-complete-2026-03-25.md) | AI 模型压缩 | 2026-03-25 | ⭐⭐⭐ |
-| [ai-monitoring-platforms-comparison-2026-03-25.md](ai-monitoring-platforms-comparison-2026-03-25.md) | AI 监控平台 | 2026-03-25 | ⭐⭐⭐ |
-| [ai-pet-care-complete-guide-2026-03-25.md](ai-pet-care-complete-guide-2026-03-25.md) | AI 宠物护理 | 2026-03-25 | ⭐⭐⭐ |
-| [ai-smart-home-comparison-2026-03-25.md](ai-smart-home-comparison-2026-03-25.md) | AI 智能家居 | 2026-03-25 | ⭐⭐⭐ |
-| [ai-technology-trends-2026-03-25.md](ai-technology-trends-2026-03-25.md) | AI 技术趋势 | 2026-03-25 | ⭐⭐⭐⭐ |
-| [ai-work-assistant-deep-dive-2026-03-25.md](ai-work-assistant-deep-dive-2026-03-25.md) | AI 工作助手 | 2026-03-25 | ⭐⭐⭐ |
+| [ai-game-development-comparison-2026-03-25.md](ai-tools/ai-game-development-comparison-2026-03-25.md) | AI 游戏开发工具 | 2026-03-25 | ⭐⭐⭐ |
+| [ai-model-compression-complete-2026-03-25.md](ai-tools/ai-model-compression-complete-2026-03-25.md) | AI 模型压缩 | 2026-03-25 | ⭐⭐⭐ |
+| [ai-monitoring-platforms-comparison-2026-03-25.md](ai-tools/ai-monitoring-platforms-comparison-2026-03-25.md) | AI 监控平台 | 2026-03-25 | ⭐⭐⭐ |
+| [ai-pet-care-complete-guide-2026-03-25.md](ai-tools/ai-pet-care-complete-guide-2026-03-25.md) | AI 宠物护理 | 2026-03-25 | ⭐⭐⭐ |
+| [ai-smart-home-comparison-2026-03-25.md](ai-tools/ai-smart-home-comparison-2026-03-25.md) | AI 智能家居 | 2026-03-25 | ⭐⭐⭐ |
+| [ai-technology-trends-2026-03-25.md](ai-tools/ai-technology-trends-2026-03-25.md) | AI 技术趋势 | 2026-03-25 | ⭐⭐⭐⭐ |
+| [ai-work-assistant-deep-dive-2026-03-25.md](ai-tools/ai-work-assistant-deep-dive-2026-03-25.md) | AI 工作助手 | 2026-03-25 | ⭐⭐⭐ |
+| [ai-resources-index.md](ai-tools/ai-resources-index.md) | AI 资源索引 | - | ⭐⭐⭐ |
 
 ### 🔗 相关仓库
 
@@ -68,15 +73,17 @@
 
 > Claude Code CLI 完整学习资源
 
+**目录**：`claude-code/`（4 个文件）
+
 ### 📊 核心文件
 
 | 文件 | 主题 | 日期 | 价值 |
 |------|------|------|------|
 | [claude-code-repo-audit-report.md](claude-code-repo-audit-report.md) | Claude Code 仓库审计 | - | ⭐⭐⭐ |
-| [claude-code-cursor-comparison-2026-03-24.md](claude-code-cursor-comparison-2026-03-24.md) | Claude Code vs Cursor | 2026-03-24 | ⭐⭐⭐⭐ |
-| [claude-code-deep-dive-2026-03-24.md](claude-code-deep-dive-2026-03-24.md) | Claude Code 深度研究 | 2026-03-24 | ⭐⭐⭐⭐ |
-| [claude-code-ecosystem-analysis-2026-03-24.md](claude-code-ecosystem-analysis-2026-03-24.md) | Claude Code 生态分析 | 2026-03-24 | ⭐⭐⭐ |
-| [claude-code-features-comparison-2026-03-24.md](claude-code-features-comparison-2026-03-24.md) | Claude Code 功能对比 | 2026-03-24 | ⭐⭐⭐ |
+| [claude-code-cursor-comparison-2026-03-24.md](claude-code/claude-code-cursor-comparison-2026-03-24.md) | Claude Code vs Cursor | 2026-03-24 | ⭐⭐⭐⭐ |
+| [claude-code-deep-dive-2026-03-24.md](claude-code/claude-code-deep-dive-2026-03-24.md) | Claude Code 深度研究 | 2026-03-24 | ⭐⭐⭐⭐ |
+| [claude-code-ecosystem-analysis-2026-03-24.md](claude-code/claude-code-ecosystem-analysis-2026-03-24.md) | Claude Code 生态分析 | 2026-03-24 | ⭐⭐⭐ |
+| [claude-code-features-comparison-2026-03-24.md](claude-code/claude-code-features-comparison-2026-03-24.md) | Claude Code 功能对比 | 2026-03-24 | ⭐⭐⭐ |
 | [claude-code-learning-notes-2026-03-24.md](claude-code-learning-notes-2026-03-24.md) | Claude Code 学习笔记 | 2026-03-24 | ⭐⭐⭐ |
 
 ### 🔗 相关仓库
