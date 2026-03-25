@@ -1,0 +1,785 @@
+{
+  "version": "1.0",
+  "created_at": "2026-03-26T00:00:00Z",
+  "description": "20个代表性任务，用于验证自定义编排系统与原生OpenClaw的行为一致性",
+  "tasks": [
+    {
+      "id": "golden_task_001",
+      "name": "简单问答 - 天气查询",
+      "category": "basic_tool_call",
+      "priority": "P0",
+      "input": {
+        "type": "message",
+        "content": "今天北京天气怎么样？",
+        "channel": "webchat",
+        "context": {}
+      },
+      "expected_output": {
+        "type": "text",
+        "contains": ["天气", "北京", "温度"],
+        "format": "text"
+      },
+      "expected_tools": ["weather"],
+      "expected_session_changes": {
+        "messages_increment": 1,
+        "state": "completed"
+      },
+      "expected_events": [
+        "message_received",
+        "tool_call",
+        "tool_response",
+        "message_sent"
+      ],
+      "acceptance_criteria": {
+        "output_format_match": "exact",
+        "tool_sequence_match": "exact",
+        "session_match": "exact"
+      },
+      "notes": "最基础的单工具调用测试"
+    },
+    {
+      "id": "golden_task_002",
+      "name": "文件读取",
+      "category": "basic_tool_call",
+      "priority": "P0",
+      "input": {
+        "type": "message",
+        "content": "帮我读取 README.md 文件的内容",
+        "channel": "webchat",
+        "context": {
+          "workspace": "/Users/test/workspace"
+        }
+      },
+      "expected_output": {
+        "type": "text",
+        "contains": ["README"],
+        "format": "markdown"
+      },
+      "expected_tools": ["read"],
+      "expected_session_changes": {
+        "messages_increment": 1,
+        "state": "completed"
+      },
+      "expected_events": [
+        "message_received",
+        "tool_call",
+        "tool_response",
+        "message_sent"
+      ],
+      "acceptance_criteria": {
+        "output_format_match": "exact",
+        "tool_sequence_match": "exact",
+        "session_match": "exact"
+      },
+      "notes": "文件系统基础操作"
+    },
+    {
+      "id": "golden_task_003",
+      "name": "文件写入",
+      "category": "basic_tool_call",
+      "priority": "P0",
+      "input": {
+        "type": "message",
+        "content": "在 workspace 创建一个文件 test.txt，内容是 'Hello World'",
+        "channel": "webchat",
+        "context": {
+          "workspace": "/Users/test/workspace"
+        }
+      },
+      "expected_output": {
+        "type": "text",
+        "contains": ["创建", "成功"],
+        "format": "text"
+      },
+      "expected_tools": ["write"],
+      "expected_session_changes": {
+        "messages_increment": 1,
+        "state": "completed",
+        "file_created": "test.txt"
+      },
+      "expected_events": [
+        "message_received",
+        "tool_call",
+        "tool_response",
+        "message_sent"
+      ],
+      "acceptance_criteria": {
+        "output_format_match": "exact",
+        "tool_sequence_match": "exact",
+        "session_match": "exact",
+        "file_exists": true
+      },
+      "notes": "文件创建操作"
+    },
+    {
+      "id": "golden_task_004",
+      "name": "Web搜索",
+      "category": "basic_tool_call",
+      "priority": "P0",
+      "input": {
+        "type": "message",
+        "content": "帮我搜索一下 'OpenClaw AI assistant' 相关信息",
+        "channel": "webchat",
+        "context": {}
+      },
+      "expected_output": {
+        "type": "text",
+        "contains": ["搜索", "结果"],
+        "format": "markdown"
+      },
+      "expected_tools": ["web_search"],
+      "expected_session_changes": {
+        "messages_increment": 1,
+        "state": "completed"
+      },
+      "expected_events": [
+        "message_received",
+        "tool_call",
+        "tool_response",
+        "message_sent"
+      ],
+      "acceptance_criteria": {
+        "output_format_match": "semantic",
+        "tool_sequence_match": "exact",
+        "session_match": "exact"
+      },
+      "notes": "网络搜索能力验证"
+    },
+    {
+      "id": "golden_task_005",
+      "name": "日历查询",
+      "category": "basic_tool_call",
+      "priority": "P0",
+      "input": {
+        "type": "message",
+        "content": "查看我明天有什么日程安排",
+        "channel": "webchat",
+        "context": {
+          "timezone": "Asia/Shanghai"
+        }
+      },
+      "expected_output": {
+        "type": "text",
+        "contains": ["日程", "明天"],
+        "format": "text"
+      },
+      "expected_tools": ["calendar"],
+      "expected_session_changes": {
+        "messages_increment": 1,
+        "state": "completed"
+      },
+      "expected_events": [
+        "message_received",
+        "tool_call",
+        "tool_response",
+        "message_sent"
+      ],
+      "acceptance_criteria": {
+        "output_format_match": "semantic",
+        "tool_sequence_match": "exact",
+        "session_match": "exact"
+      },
+      "notes": "日历集成测试"
+    },
+    {
+      "id": "golden_task_006",
+      "name": "消息发送",
+      "category": "basic_tool_call",
+      "priority": "P0",
+      "input": {
+        "type": "message",
+        "content": "给 @user123 发送一条消息：'会议改到下午3点'",
+        "channel": "webchat",
+        "context": {
+          "target_user": "user123"
+        }
+      },
+      "expected_output": {
+        "type": "text",
+        "contains": ["发送", "成功"],
+        "format": "text"
+      },
+      "expected_tools": ["message"],
+      "expected_session_changes": {
+        "messages_increment": 1,
+        "state": "completed"
+      },
+      "expected_events": [
+        "message_received",
+        "tool_call",
+        "tool_response",
+        "message_sent"
+      ],
+      "acceptance_criteria": {
+        "output_format_match": "exact",
+        "tool_sequence_match": "exact",
+        "session_match": "exact"
+      },
+      "notes": "消息发送能力测试"
+    },
+    {
+      "id": "golden_task_007",
+      "name": "多步骤任务 - 文件分析",
+      "category": "complex_workflow",
+      "priority": "P0",
+      "input": {
+        "type": "message",
+        "content": "读取 data.json 文件，统计其中的用户数量，然后把结果写入 report.txt",
+        "channel": "webchat",
+        "context": {
+          "workspace": "/Users/test/workspace"
+        }
+      },
+      "expected_output": {
+        "type": "text",
+        "contains": ["用户数量", "写入"],
+        "format": "text"
+      },
+      "expected_tools": ["read", "write"],
+      "expected_session_changes": {
+        "messages_increment": 1,
+        "state": "completed",
+        "files_created": ["report.txt"]
+      },
+      "expected_events": [
+        "message_received",
+        "tool_call",
+        "tool_response",
+        "tool_call",
+        "tool_response",
+        "message_sent"
+      ],
+      "acceptance_criteria": {
+        "output_format_match": "semantic",
+        "tool_sequence_match": "exact",
+        "session_match": "exact"
+      },
+      "notes": "多工具协作测试"
+    },
+    {
+      "id": "golden_task_008",
+      "name": "条件分支 - 智能回复",
+      "category": "complex_workflow",
+      "priority": "P1",
+      "input": {
+        "type": "message",
+        "content": "检查当前时间，如果是早上（6-12点）说'早上好'，如果是下午（12-18点）说'下午好'，否则说'晚上好'",
+        "channel": "webchat",
+        "context": {}
+      },
+      "expected_output": {
+        "type": "text",
+        "contains": ["好"],
+        "format": "text"
+      },
+      "expected_tools": ["exec"],
+      "expected_session_changes": {
+        "messages_increment": 1,
+        "state": "completed"
+      },
+      "expected_events": [
+        "message_received",
+        "tool_call",
+        "tool_response",
+        "message_sent"
+      ],
+      "acceptance_criteria": {
+        "output_format_match": "semantic",
+        "tool_sequence_match": "exact",
+        "session_match": "exact"
+      },
+      "notes": "条件逻辑测试"
+    },
+    {
+      "id": "golden_task_009",
+      "name": "循环处理 - 批量文件",
+      "category": "complex_workflow",
+      "priority": "P1",
+      "input": {
+        "type": "message",
+        "content": "列出当前目录下所有的 .md 文件，统计总共有多少个",
+        "channel": "webchat",
+        "context": {
+          "workspace": "/Users/test/workspace"
+        }
+      },
+      "expected_output": {
+        "type": "text",
+        "contains": [".md", "文件", "数量"],
+        "format": "text"
+      },
+      "expected_tools": ["exec"],
+      "expected_session_changes": {
+        "messages_increment": 1,
+        "state": "completed"
+      },
+      "expected_events": [
+        "message_received",
+        "tool_call",
+        "tool_response",
+        "message_sent"
+      ],
+      "acceptance_criteria": {
+        "output_format_match": "semantic",
+        "tool_sequence_match": "exact",
+        "session_match": "exact"
+      },
+      "notes": "循环处理测试"
+    },
+    {
+      "id": "golden_task_010",
+      "name": "批量操作 - 多个查询",
+      "category": "complex_workflow",
+      "priority": "P1",
+      "input": {
+        "type": "message",
+        "content": "同时查询北京、上海、广州三个城市的天气",
+        "channel": "webchat",
+        "context": {}
+      },
+      "expected_output": {
+        "type": "text",
+        "contains": ["北京", "上海", "广州", "天气"],
+        "format": "markdown"
+      },
+      "expected_tools": ["weather"],
+      "expected_session_changes": {
+        "messages_increment": 1,
+        "state": "completed"
+      },
+      "expected_events": [
+        "message_received",
+        "tool_call",
+        "tool_call",
+        "tool_call",
+        "tool_response",
+        "tool_response",
+        "tool_response",
+        "message_sent"
+      ],
+      "acceptance_criteria": {
+        "output_format_match": "semantic",
+        "tool_sequence_match": "partial",
+        "session_match": "exact"
+      },
+      "notes": "批量并发测试"
+    },
+    {
+      "id": "golden_task_011",
+      "name": "错误恢复 - 文件不存在",
+      "category": "complex_workflow",
+      "priority": "P1",
+      "input": {
+        "type": "message",
+        "content": "读取不存在.txt，如果文件不存在就创建这个文件并写入'默认内容'",
+        "channel": "webchat",
+        "context": {
+          "workspace": "/Users/test/workspace"
+        }
+      },
+      "expected_output": {
+        "type": "text",
+        "contains": ["创建", "成功"],
+        "format": "text"
+      },
+      "expected_tools": ["read", "write"],
+      "expected_session_changes": {
+        "messages_increment": 1,
+        "state": "completed",
+        "file_created": "不存在.txt"
+      },
+      "expected_events": [
+        "message_received",
+        "tool_call",
+        "tool_response",
+        "tool_call",
+        "tool_response",
+        "message_sent"
+      ],
+      "acceptance_criteria": {
+        "output_format_match": "semantic",
+        "tool_sequence_match": "exact",
+        "session_match": "exact",
+        "error_handling": "graceful"
+      },
+      "notes": "错误处理和恢复测试"
+    },
+    {
+      "id": "golden_task_012",
+      "name": "跨工具协作 - 搜索并保存",
+      "category": "complex_workflow",
+      "priority": "P1",
+      "input": {
+        "type": "message",
+        "content": "搜索'AI发展趋势'，把搜索结果保存到 search_results.md",
+        "channel": "webchat",
+        "context": {
+          "workspace": "/Users/test/workspace"
+        }
+      },
+      "expected_output": {
+        "type": "text",
+        "contains": ["搜索", "保存"],
+        "format": "text"
+      },
+      "expected_tools": ["web_search", "write"],
+      "expected_session_changes": {
+        "messages_increment": 1,
+        "state": "completed",
+        "file_created": "search_results.md"
+      },
+      "expected_events": [
+        "message_received",
+        "tool_call",
+        "tool_response",
+        "tool_call",
+        "tool_response",
+        "message_sent"
+      ],
+      "acceptance_criteria": {
+        "output_format_match": "semantic",
+        "tool_sequence_match": "exact",
+        "session_match": "exact"
+      },
+      "notes": "搜索+文件操作协作"
+    },
+    {
+      "id": "golden_task_013",
+      "name": "数据转换 - JSON处理",
+      "category": "complex_workflow",
+      "priority": "P1",
+      "input": {
+        "type": "message",
+        "content": "读取 users.json，把所有用户的邮箱提取出来，保存到 emails.txt",
+        "channel": "webchat",
+        "context": {
+          "workspace": "/Users/test/workspace"
+        }
+      },
+      "expected_output": {
+        "type": "text",
+        "contains": ["邮箱", "提取", "保存"],
+        "format": "text"
+      },
+      "expected_tools": ["read", "exec", "write"],
+      "expected_session_changes": {
+        "messages_increment": 1,
+        "state": "completed",
+        "file_created": "emails.txt"
+      },
+      "expected_events": [
+        "message_received",
+        "tool_call",
+        "tool_response",
+        "tool_call",
+        "tool_response",
+        "tool_call",
+        "tool_response",
+        "message_sent"
+      ],
+      "acceptance_criteria": {
+        "output_format_match": "semantic",
+        "tool_sequence_match": "exact",
+        "session_match": "exact"
+      },
+      "notes": "数据转换和提取测试"
+    },
+    {
+      "id": "golden_task_014",
+      "name": "状态管理 - 记忆测试",
+      "category": "complex_workflow",
+      "priority": "P1",
+      "input": {
+        "type": "message",
+        "content": "记住我的名字是张三，然后在下一条消息中确认",
+        "channel": "webchat",
+        "context": {}
+      },
+      "expected_output": {
+        "type": "text",
+        "contains": ["记住", "张三"],
+        "format": "text"
+      },
+      "expected_tools": [],
+      "expected_session_changes": {
+        "messages_increment": 1,
+        "state": "completed",
+        "context": {"user_name": "张三"}
+      },
+      "expected_events": [
+        "message_received",
+        "context_update",
+        "message_sent"
+      ],
+      "acceptance_criteria": {
+        "output_format_match": "semantic",
+        "tool_sequence_match": "exact",
+        "session_match": "exact",
+        "context_persistence": true
+      },
+      "notes": "Session上下文记忆测试"
+    },
+    {
+      "id": "golden_task_015",
+      "name": "复杂嵌套调用 - 深度测试",
+      "category": "complex_workflow",
+      "priority": "P1",
+      "input": {
+        "type": "message",
+        "content": "搜索最新的AI新闻，提取前3条新闻的标题，每个标题创建一个txt文件",
+        "channel": "webchat",
+        "context": {
+          "workspace": "/Users/test/workspace"
+        }
+      },
+      "expected_output": {
+        "type": "text",
+        "contains": ["新闻", "创建", "文件"],
+        "format": "text"
+      },
+      "expected_tools": ["web_search", "write"],
+      "expected_session_changes": {
+        "messages_increment": 1,
+        "state": "completed",
+        "files_created": ["news_1.txt", "news_2.txt", "news_3.txt"]
+      },
+      "expected_events": [
+        "message_received",
+        "tool_call",
+        "tool_response",
+        "tool_call",
+        "tool_call",
+        "tool_call",
+        "tool_response",
+        "tool_response",
+        "tool_response",
+        "message_sent"
+      ],
+      "acceptance_criteria": {
+        "output_format_match": "semantic",
+        "tool_sequence_match": "exact",
+        "session_match": "exact"
+      },
+      "notes": "嵌套工具调用测试"
+    },
+    {
+      "id": "golden_task_016",
+      "name": "图片分析",
+      "category": "media_handling",
+      "priority": "P2",
+      "input": {
+        "type": "message",
+        "content": "分析这张图片的内容",
+        "channel": "webchat",
+        "context": {
+          "media": {
+            "type": "image",
+            "path": "/test/image.jpg"
+          }
+        }
+      },
+      "expected_output": {
+        "type": "text",
+        "contains": ["图片", "内容"],
+        "format": "text"
+      },
+      "expected_tools": ["image"],
+      "expected_session_changes": {
+        "messages_increment": 1,
+        "state": "completed"
+      },
+      "expected_events": [
+        "message_received",
+        "tool_call",
+        "tool_response",
+        "message_sent"
+      ],
+      "acceptance_criteria": {
+        "output_format_match": "semantic",
+        "tool_sequence_match": "exact",
+        "session_match": "exact"
+      },
+      "notes": "图片分析能力测试"
+    },
+    {
+      "id": "golden_task_017",
+      "name": "文件上传处理",
+      "category": "media_handling",
+      "priority": "P2",
+      "input": {
+        "type": "message",
+        "content": "处理我上传的PDF文件，提取其中的文本",
+        "channel": "webchat",
+        "context": {
+          "media": {
+            "type": "document",
+            "format": "pdf",
+            "path": "/test/document.pdf"
+          }
+        }
+      },
+      "expected_output": {
+        "type": "text",
+        "contains": ["PDF", "文本"],
+        "format": "text"
+      },
+      "expected_tools": ["pdf"],
+      "expected_session_changes": {
+        "messages_increment": 1,
+        "state": "completed"
+      },
+      "expected_events": [
+        "message_received",
+        "tool_call",
+        "tool_response",
+        "message_sent"
+      ],
+      "acceptance_criteria": {
+        "output_format_match": "semantic",
+        "tool_sequence_match": "exact",
+        "session_match": "exact"
+      },
+      "notes": "PDF处理测试"
+    },
+    {
+      "id": "golden_task_018",
+      "name": "音频处理",
+      "category": "media_handling",
+      "priority": "P2",
+      "input": {
+        "type": "message",
+        "content": "转录这段音频的内容",
+        "channel": "webchat",
+        "context": {
+          "media": {
+            "type": "audio",
+            "format": "mp3",
+            "path": "/test/audio.mp3"
+          }
+        }
+      },
+      "expected_output": {
+        "type": "text",
+        "contains": ["音频", "转录"],
+        "format": "text"
+      },
+      "expected_tools": ["audio"],
+      "expected_session_changes": {
+        "messages_increment": 1,
+        "state": "completed"
+      },
+      "expected_events": [
+        "message_received",
+        "tool_call",
+        "tool_response",
+        "message_sent"
+      ],
+      "acceptance_criteria": {
+        "output_format_match": "semantic",
+        "tool_sequence_match": "exact",
+        "session_match": "exact"
+      },
+      "notes": "音频转录测试"
+    },
+    {
+      "id": "golden_task_019",
+      "name": "工具超时处理",
+      "category": "error_handling",
+      "priority": "P1",
+      "input": {
+        "type": "message",
+        "content": "执行一个需要很长时间的命令（sleep 100）",
+        "channel": "webchat",
+        "context": {
+          "timeout": 5
+        }
+      },
+      "expected_output": {
+        "type": "text",
+        "contains": ["超时", "timeout"],
+        "format": "text"
+      },
+      "expected_tools": ["exec"],
+      "expected_session_changes": {
+        "messages_increment": 1,
+        "state": "failed"
+      },
+      "expected_events": [
+        "message_received",
+        "tool_call",
+        "timeout",
+        "error_handled",
+        "message_sent"
+      ],
+      "acceptance_criteria": {
+        "output_format_match": "semantic",
+        "tool_sequence_match": "exact",
+        "session_match": "exact",
+        "timeout_handled": true
+      },
+      "notes": "超时处理测试"
+    },
+    {
+      "id": "golden_task_020",
+      "name": "权限错误处理",
+      "category": "error_handling",
+      "priority": "P1",
+      "input": {
+        "type": "message",
+        "content": "尝试读取 /etc/shadow 文件（需要特殊权限）",
+        "channel": "webchat",
+        "context": {}
+      },
+      "expected_output": {
+        "type": "text",
+        "contains": ["权限", "错误"],
+        "format": "text"
+      },
+      "expected_tools": ["read"],
+      "expected_session_changes": {
+        "messages_increment": 1,
+        "state": "failed"
+      },
+      "expected_events": [
+        "message_received",
+        "tool_call",
+        "permission_denied",
+        "error_handled",
+        "message_sent"
+      ],
+      "acceptance_criteria": {
+        "output_format_match": "semantic",
+        "tool_sequence_match": "exact",
+        "session_match": "exact",
+        "error_handled_gracefully": true
+      },
+      "notes": "权限错误处理测试"
+    }
+  ],
+  "metadata": {
+    "total_tasks": 20,
+    "categories": {
+      "basic_tool_call": 6,
+      "complex_workflow": 8,
+      "media_handling": 3,
+      "error_handling": 3
+    },
+    "priorities": {
+      "P0": 6,
+      "P1": 11,
+      "P2": 3
+    },
+    "tools_covered": [
+      "weather",
+      "read",
+      "write",
+      "web_search",
+      "calendar",
+      "message",
+      "exec",
+      "image",
+      "pdf",
+      "audio"
+    ]
+  }
+}
