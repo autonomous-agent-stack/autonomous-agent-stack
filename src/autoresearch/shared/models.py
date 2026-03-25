@@ -176,6 +176,42 @@ class TelegramWebhookAck(StrictModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class ClaudeAgentCancelRequest(StrictModel):
+    reason: str = "cancelled by user"
+
+
+class ClaudeAgentRetryRequest(StrictModel):
+    reason: str = "manual retry"
+    prompt_override: str | None = None
+    timeout_seconds_override: int | None = Field(default=None, ge=1, le=7200)
+    metadata_updates: dict[str, Any] = Field(default_factory=dict)
+
+
+class ClaudeAgentTreeEdgeRead(StrictModel):
+    parent_agent_run_id: str
+    child_agent_run_id: str
+
+
+class ClaudeAgentTreeNodeRead(StrictModel):
+    agent_run_id: str
+    parent_agent_id: str | None = None
+    session_id: str | None = None
+    task_name: str
+    status: JobStatus
+    created_at: datetime
+    updated_at: datetime
+    children: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ClaudeAgentTreeRead(StrictModel):
+    session_id: str | None = None
+    root_agent_run_ids: list[str] = Field(default_factory=list)
+    nodes: list[ClaudeAgentTreeNodeRead] = Field(default_factory=list)
+    edges: list[ClaudeAgentTreeEdgeRead] = Field(default_factory=list)
+    mermaid: str = ""
+
+
 class ReportCreateRequest(StrictModel):
     evaluation_id: str | None = None
     experiment_id: str | None = None

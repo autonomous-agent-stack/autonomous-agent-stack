@@ -4,12 +4,18 @@ import os
 from pathlib import Path
 import shlex
 import subprocess
+import threading
 import time
 
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.shared.models import (
+    ClaudeAgentCancelRequest,
     ClaudeAgentCreateRequest,
+    ClaudeAgentRetryRequest,
     ClaudeAgentRunRead,
+    ClaudeAgentTreeEdgeRead,
+    ClaudeAgentTreeNodeRead,
+    ClaudeAgentTreeRead,
     JobStatus,
     OpenClawSessionCreateRequest,
     OpenClawSessionEventAppendRequest,
@@ -22,6 +28,7 @@ class ClaudeAgentService:
     """Claude CLI subagent scheduler with depth/concurrency guardrails."""
 
     ACTIVE_STATUSES = {JobStatus.QUEUED, JobStatus.RUNNING}
+    TERMINAL_STATUSES = {JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.INTERRUPTED}
 
     def __init__(
         self,
@@ -41,6 +48,9 @@ class ClaudeAgentService:
             self._claude_command = list(claude_command)
         else:
             self._claude_command = shlex.split(os.getenv("AUTORESEARCH_CLAUDE_COMMAND", "claude"))
+        self._runtime_lock = threading.Lock()
+        self._running_processes: dict[str, subprocess.Popen[str]] = {}
+        self._cancel_requests: set[str] = set()
 
     def create(self, request: ClaudeAgentCreateRequest) -> ClaudeAgentRunRead:
         if request.generation_depth > self._max_depth:
@@ -122,6 +132,9 @@ class ClaudeAgentService:
         current = self.get(agent_run_id)
         if current is None:
             return
+        if current.status in self.TERMINAL_STATUSES:
+            self._clear_cancel_requested(agent_run_id)
+            return
 
         running = current.model_copy(
             update={
@@ -150,56 +163,95 @@ class ClaudeAgentService:
         env.update(request.env)
         started = time.perf_counter()
         work_dir = self._resolve_work_dir(request.work_dir)
+        command = list(running.command)
+        process: subprocess.Popen[str] | None = None
 
         try:
-            completed = subprocess.run(
-                running.command,
+            process = subprocess.Popen(
+                command,
                 cwd=work_dir,
                 env=env,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=request.timeout_seconds,
             )
+            self._register_process(agent_run_id, process)
+            try:
+                stdout_text, stderr_text = process.communicate(timeout=request.timeout_seconds)
+            except subprocess.TimeoutExpired as exc:
+                process.kill()
+                stdout_text, stderr_text = process.communicate()
+                if exc.stdout:
+                    stdout_text = f"{exc.stdout}{stdout_text}"
+                if exc.stderr:
+                    stderr_text = f"{exc.stderr}{stderr_text}"
+                duration_seconds = time.perf_counter() - started
+                timed_out = running.model_copy(
+                    update={
+                        "status": JobStatus.FAILED,
+                        "returncode": -1,
+                        "stdout_preview": self._preview_output(stdout_text),
+                        "stderr_preview": self._preview_output(stderr_text),
+                        "duration_seconds": duration_seconds,
+                        "updated_at": utc_now(),
+                        "error": f"agent timed out after {request.timeout_seconds}s",
+                        "metadata": {
+                            **running.metadata,
+                            "work_dir": str(work_dir),
+                            "env_overrides": request.env,
+                        },
+                    }
+                )
+                self._repository.save(timed_out.agent_run_id, timed_out)
+                self._finalize_openclaw_session(timed_out)
+                return
+
             duration_seconds = time.perf_counter() - started
-            succeeded = completed.returncode == 0
-            finalized = running.model_copy(
-                update={
-                    "status": JobStatus.COMPLETED if succeeded else JobStatus.FAILED,
-                    "returncode": completed.returncode,
-                    "stdout_preview": self._preview_output(completed.stdout),
-                    "stderr_preview": self._preview_output(completed.stderr),
-                    "duration_seconds": duration_seconds,
-                    "updated_at": utc_now(),
-                    "error": None if succeeded else self._build_error_message(completed),
-                    "metadata": {
-                        **running.metadata,
-                        "work_dir": str(work_dir),
-                        "env_overrides": request.env,
-                    },
+            returncode = int(process.returncode or 0)
+            latest = self.get(agent_run_id)
+            base_metadata = dict(latest.metadata if latest is not None else running.metadata)
+            base_metadata.update(
+                {
+                    "work_dir": str(work_dir),
+                    "env_overrides": request.env,
                 }
             )
+            cancel_reason = str(base_metadata.get("cancel_reason", "")).strip() or "cancelled by user"
+            if self._is_cancel_requested(agent_run_id) or (latest is not None and latest.status is JobStatus.INTERRUPTED):
+                finalized = running.model_copy(
+                    update={
+                        "status": JobStatus.INTERRUPTED,
+                        "returncode": returncode,
+                        "stdout_preview": self._preview_output(stdout_text),
+                        "stderr_preview": self._preview_output(stderr_text),
+                        "duration_seconds": duration_seconds,
+                        "updated_at": utc_now(),
+                        "error": cancel_reason,
+                        "metadata": base_metadata,
+                    }
+                )
+            else:
+                succeeded = returncode == 0
+                completed = subprocess.CompletedProcess(
+                    args=command,
+                    returncode=returncode,
+                    stdout=stdout_text,
+                    stderr=stderr_text,
+                )
+                finalized = running.model_copy(
+                    update={
+                        "status": JobStatus.COMPLETED if succeeded else JobStatus.FAILED,
+                        "returncode": returncode,
+                        "stdout_preview": self._preview_output(stdout_text),
+                        "stderr_preview": self._preview_output(stderr_text),
+                        "duration_seconds": duration_seconds,
+                        "updated_at": utc_now(),
+                        "error": None if succeeded else self._build_error_message(completed),
+                        "metadata": base_metadata,
+                    }
+                )
             self._repository.save(finalized.agent_run_id, finalized)
             self._finalize_openclaw_session(finalized)
-        except subprocess.TimeoutExpired as exc:
-            duration_seconds = time.perf_counter() - started
-            timed_out = running.model_copy(
-                update={
-                    "status": JobStatus.FAILED,
-                    "returncode": -1,
-                    "stdout_preview": self._preview_output(exc.stdout or ""),
-                    "stderr_preview": self._preview_output(exc.stderr or ""),
-                    "duration_seconds": duration_seconds,
-                    "updated_at": utc_now(),
-                    "error": f"agent timed out after {request.timeout_seconds}s",
-                    "metadata": {
-                        **running.metadata,
-                        "work_dir": str(work_dir),
-                        "env_overrides": request.env,
-                    },
-                }
-            )
-            self._repository.save(timed_out.agent_run_id, timed_out)
-            self._finalize_openclaw_session(timed_out)
         except FileNotFoundError as exc:
             duration_seconds = time.perf_counter() - started
             missing = running.model_copy(
@@ -218,11 +270,160 @@ class ClaudeAgentService:
             )
             self._repository.save(missing.agent_run_id, missing)
             self._finalize_openclaw_session(missing)
+        finally:
+            self._clear_cancel_requested(agent_run_id)
+            if process is not None:
+                self._unregister_process(agent_run_id)
+
+    def cancel(
+        self,
+        agent_run_id: str,
+        request: ClaudeAgentCancelRequest | None = None,
+    ) -> ClaudeAgentRunRead:
+        cancel_request = request or ClaudeAgentCancelRequest()
+        current = self.get(agent_run_id)
+        if current is None:
+            raise KeyError(f"agent run not found: {agent_run_id}")
+        if current.status in self.TERMINAL_STATUSES:
+            return current
+
+        reason = cancel_request.reason.strip() or "cancelled by user"
+        metadata = dict(current.metadata)
+        metadata.update(
+            {
+                "cancel_reason": reason,
+                "cancel_requested_at": utc_now().isoformat(),
+            }
+        )
+        interrupted = current.model_copy(
+            update={
+                "status": JobStatus.INTERRUPTED,
+                "updated_at": utc_now(),
+                "error": reason,
+                "metadata": metadata,
+            }
+        )
+        self._repository.save(interrupted.agent_run_id, interrupted)
+        self._set_cancel_requested(agent_run_id)
+
+        process = self._get_process(agent_run_id)
+        if process is not None:
+            try:
+                process.terminate()
+            except ProcessLookupError:
+                pass
+
+        if interrupted.session_id is not None:
+            self._openclaw_service.append_event(
+                session_id=interrupted.session_id,
+                request=OpenClawSessionEventAppendRequest(
+                    role="status",
+                    content=f"agent cancelled: {interrupted.agent_run_id}",
+                    metadata={
+                        "agent_run_id": interrupted.agent_run_id,
+                        "reason": reason,
+                    },
+                ),
+            )
+            self._openclaw_service.set_status(
+                session_id=interrupted.session_id,
+                status=JobStatus.INTERRUPTED,
+                error=reason,
+                metadata_updates={
+                    "latest_agent_run_id": interrupted.agent_run_id,
+                    "latest_status": JobStatus.INTERRUPTED.value,
+                },
+            )
+        return interrupted
+
+    def retry(
+        self,
+        agent_run_id: str,
+        request: ClaudeAgentRetryRequest | None = None,
+    ) -> tuple[ClaudeAgentRunRead, ClaudeAgentCreateRequest]:
+        retry_request = request or ClaudeAgentRetryRequest()
+        current = self.get(agent_run_id)
+        if current is None:
+            raise KeyError(f"agent run not found: {agent_run_id}")
+        if current.status not in {JobStatus.FAILED, JobStatus.INTERRUPTED}:
+            raise ValueError("retry is only allowed for failed or interrupted agent runs")
+
+        replay_request = self._build_retry_request(current, retry_request)
+        replay_run = self.create(replay_request)
+
+        if replay_run.session_id is not None:
+            self._openclaw_service.append_event(
+                session_id=replay_run.session_id,
+                request=OpenClawSessionEventAppendRequest(
+                    role="status",
+                    content=f"agent retried: {current.agent_run_id} -> {replay_run.agent_run_id}",
+                    metadata={
+                        "agent_run_id": replay_run.agent_run_id,
+                        "retry_of": current.agent_run_id,
+                        "reason": retry_request.reason,
+                    },
+                ),
+            )
+        return replay_run, replay_request
+
+    def build_task_tree(self, session_id: str | None = None) -> ClaudeAgentTreeRead:
+        runs = self.list()
+        if session_id is not None:
+            runs = [run for run in runs if run.session_id == session_id]
+        runs.sort(key=lambda run: run.created_at)
+
+        run_by_id = {run.agent_run_id: run for run in runs}
+        children: dict[str, list[str]] = {run.agent_run_id: [] for run in runs}
+        edges: list[ClaudeAgentTreeEdgeRead] = []
+
+        for run in runs:
+            parent_id = run.parent_agent_id
+            if parent_id and parent_id in run_by_id:
+                children[parent_id].append(run.agent_run_id)
+                edges.append(
+                    ClaudeAgentTreeEdgeRead(
+                        parent_agent_run_id=parent_id,
+                        child_agent_run_id=run.agent_run_id,
+                    )
+                )
+
+        roots = [
+            run.agent_run_id
+            for run in runs
+            if run.parent_agent_id is None or run.parent_agent_id not in run_by_id
+        ]
+
+        nodes = [
+            ClaudeAgentTreeNodeRead(
+                agent_run_id=run.agent_run_id,
+                parent_agent_id=run.parent_agent_id,
+                session_id=run.session_id,
+                task_name=run.task_name,
+                status=run.status,
+                created_at=run.created_at,
+                updated_at=run.updated_at,
+                children=children.get(run.agent_run_id, []),
+                metadata=run.metadata,
+            )
+            for run in runs
+        ]
+        return ClaudeAgentTreeRead(
+            session_id=session_id,
+            root_agent_run_ids=roots,
+            nodes=nodes,
+            edges=edges,
+            mermaid=self._render_mermaid_tree(nodes, edges),
+        )
 
     def _finalize_openclaw_session(self, run: ClaudeAgentRunRead) -> None:
         if run.session_id is None:
             return
-        status_text = "completed" if run.status is JobStatus.COMPLETED else "failed"
+        if run.status is JobStatus.COMPLETED:
+            status_text = "completed"
+        elif run.status is JobStatus.INTERRUPTED:
+            status_text = "interrupted"
+        else:
+            status_text = "failed"
         self._openclaw_service.append_event(
             session_id=run.session_id,
             request=OpenClawSessionEventAppendRequest(
@@ -262,6 +463,47 @@ class ClaudeAgentService:
             command.append(request.prompt)
         return command
 
+    def _build_retry_request(
+        self,
+        current: ClaudeAgentRunRead,
+        retry_request: ClaudeAgentRetryRequest,
+    ) -> ClaudeAgentCreateRequest:
+        prompt = retry_request.prompt_override or current.prompt
+        timeout_seconds = retry_request.timeout_seconds_override or current.timeout_seconds
+        metadata = dict(current.metadata)
+        metadata.update(retry_request.metadata_updates)
+        metadata.update(
+            {
+                "retry_of": current.agent_run_id,
+                "retry_reason": retry_request.reason,
+                "retry_depth": int(metadata.get("retry_depth", 0)) + 1,
+            }
+        )
+        env_overrides = current.metadata.get("env_overrides")
+        env: dict[str, str]
+        if isinstance(env_overrides, dict):
+            env = {str(key): str(value) for key, value in env_overrides.items()}
+        else:
+            env = {}
+
+        # Reuse exact previous command by default; when prompt is overridden, rebuild command.
+        use_command_override = retry_request.prompt_override is None and bool(current.command)
+        return ClaudeAgentCreateRequest(
+            task_name=f"{current.task_name}_retry",
+            prompt=prompt,
+            agent_name=current.agent_name,
+            session_id=current.session_id,
+            parent_agent_id=current.agent_run_id,
+            generation_depth=current.generation_depth,
+            timeout_seconds=timeout_seconds,
+            work_dir=current.work_dir,
+            cli_args=[],
+            command_override=list(current.command) if use_command_override else None,
+            append_prompt=False if use_command_override else True,
+            env=env,
+            metadata=metadata,
+        )
+
     def _build_error_message(self, completed: subprocess.CompletedProcess[str]) -> str:
         stderr = self._preview_output(completed.stderr or "")
         if stderr:
@@ -283,3 +525,65 @@ class ClaudeAgentService:
         if len(normalized) <= limit:
             return normalized
         return normalized[: limit - 16] + "\n...[truncated]"
+
+    def _render_mermaid_tree(
+        self,
+        nodes: list[ClaudeAgentTreeNodeRead],
+        edges: list[ClaudeAgentTreeEdgeRead],
+    ) -> str:
+        if not nodes:
+            return "graph TD\n  empty[\"No agent runs\"]"
+
+        lines = [
+            "graph TD",
+            "classDef completed fill:#d1fae5,stroke:#059669,color:#065f46;",
+            "classDef failed fill:#fee2e2,stroke:#dc2626,color:#7f1d1d;",
+            "classDef running fill:#dbeafe,stroke:#2563eb,color:#1e3a8a;",
+            "classDef queued fill:#fef3c7,stroke:#d97706,color:#78350f;",
+            "classDef interrupted fill:#ede9fe,stroke:#7c3aed,color:#4c1d95;",
+            "classDef created fill:#e5e7eb,stroke:#6b7280,color:#111827;",
+        ]
+        for node in nodes:
+            node_id = self._mermaid_node_id(node.agent_run_id)
+            label = self._escape_mermaid_label(f"{node.task_name}\\n{node.status.value}")
+            lines.append(f'  {node_id}["{label}"]')
+            lines.append(f"  class {node_id} {self._status_class_name(node.status)};")
+
+        for edge in edges:
+            parent_id = self._mermaid_node_id(edge.parent_agent_run_id)
+            child_id = self._mermaid_node_id(edge.child_agent_run_id)
+            lines.append(f"  {parent_id} --> {child_id}")
+        return "\n".join(lines)
+
+    def _status_class_name(self, status: JobStatus) -> str:
+        return status.value
+
+    def _mermaid_node_id(self, raw_id: str) -> str:
+        return "n_" + "".join(char if char.isalnum() else "_" for char in raw_id)
+
+    def _escape_mermaid_label(self, text: str) -> str:
+        return text.replace('"', '\\"')
+
+    def _register_process(self, agent_run_id: str, process: subprocess.Popen[str]) -> None:
+        with self._runtime_lock:
+            self._running_processes[agent_run_id] = process
+
+    def _get_process(self, agent_run_id: str) -> subprocess.Popen[str] | None:
+        with self._runtime_lock:
+            return self._running_processes.get(agent_run_id)
+
+    def _unregister_process(self, agent_run_id: str) -> None:
+        with self._runtime_lock:
+            self._running_processes.pop(agent_run_id, None)
+
+    def _set_cancel_requested(self, agent_run_id: str) -> None:
+        with self._runtime_lock:
+            self._cancel_requests.add(agent_run_id)
+
+    def _is_cancel_requested(self, agent_run_id: str) -> bool:
+        with self._runtime_lock:
+            return agent_run_id in self._cancel_requests
+
+    def _clear_cancel_requested(self, agent_run_id: str) -> None:
+        with self._runtime_lock:
+            self._cancel_requests.discard(agent_run_id)

@@ -6,8 +6,11 @@ from autoresearch.api.dependencies import get_claude_agent_service, get_openclaw
 from autoresearch.core.services.claude_agents import ClaudeAgentService
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.shared.models import (
+    ClaudeAgentCancelRequest,
     ClaudeAgentCreateRequest,
+    ClaudeAgentRetryRequest,
     ClaudeAgentRunRead,
+    ClaudeAgentTreeRead,
     OpenClawSessionCreateRequest,
     OpenClawSessionEventAppendRequest,
     OpenClawSessionRead,
@@ -90,6 +93,14 @@ def list_claude_agents(
     return service.list()
 
 
+@router.get("/agents/tree", response_model=ClaudeAgentTreeRead)
+def get_claude_agent_tree(
+    session_id: str | None = None,
+    service: ClaudeAgentService = Depends(get_claude_agent_service),
+) -> ClaudeAgentTreeRead:
+    return service.build_task_tree(session_id=session_id)
+
+
 @router.get("/agents/{agent_run_id}", response_model=ClaudeAgentRunRead)
 def get_claude_agent(
     agent_run_id: str,
@@ -99,3 +110,39 @@ def get_claude_agent(
     if run is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Claude agent run not found")
     return run
+
+
+@router.post("/agents/{agent_run_id}/cancel", response_model=ClaudeAgentRunRead)
+def cancel_claude_agent(
+    agent_run_id: str,
+    payload: ClaudeAgentCancelRequest,
+    service: ClaudeAgentService = Depends(get_claude_agent_service),
+) -> ClaudeAgentRunRead:
+    try:
+        return service.cancel(agent_run_id=agent_run_id, request=payload)
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Claude agent run not found") from exc
+
+
+@router.post(
+    "/agents/{agent_run_id}/retry",
+    response_model=ClaudeAgentRunRead,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def retry_claude_agent(
+    agent_run_id: str,
+    payload: ClaudeAgentRetryRequest,
+    background_tasks: BackgroundTasks,
+    service: ClaudeAgentService = Depends(get_claude_agent_service),
+) -> ClaudeAgentRunRead:
+    try:
+        replay_run, replay_request = service.retry(agent_run_id=agent_run_id, request=payload)
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Claude agent run not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(exc)) from exc
+
+    background_tasks.add_task(service.execute, replay_run.agent_run_id, replay_request)
+    return replay_run
