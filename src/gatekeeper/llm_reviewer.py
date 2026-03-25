@@ -170,8 +170,13 @@ class LLM_Diff_Reviewer:
     
     async def _call_mock(self, prompt: str) -> str:
         """模拟 LLM 响应（测试用）"""
-        # 检测危险代码（更精确的检测）
-        if "os.system" in prompt or "subprocess." in prompt or "eval(" in prompt or "exec(" in prompt:
+        # 提取代码部分（## 代码改动 和 ## 安全检测结果 之间）
+        import re
+        code_match = re.search(r'## 代码改动\n```diff\n(.*?)\n```', prompt, re.DOTALL)
+        code = code_match.group(1) if code_match else ""
+        
+        # 只在代码部分检测危险函数（不检测示例文本）
+        if "os.system" in code or "subprocess." in code or "eval(" in code or "exec(" in code:
             return json.dumps({
                 "purpose": "包含危险代码，建议打回",
                 "performance": "未知",

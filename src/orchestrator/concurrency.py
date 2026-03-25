@@ -17,7 +17,7 @@ class ConcurrencyManager:
         self.circuit_state = CircuitState.CLOSED
         self.error_count = 0
         self.total_count = 0
-        self.error_threshold = 0.3  # 30%错误率触发熔断
+        self.error_threshold = 0.8  # 默认仅在高错误率下触发熔断
     
     async def acquire(self):
         """获取并发锁"""
