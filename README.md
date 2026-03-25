@@ -6,7 +6,7 @@
 
 ## 📋 项目简介
 
-Autonomous Agent Stack 是一个基于 MASFactory 的多智能体编排框架，将 6 个开源项目整合为统一的"超级智能体底座"。
+Autonomous Agent Stack 是一个基于 MASFactory 的多智能体编排框架，用于把若干开源能力整合为统一的"微观执行底座"。
 
 **核心特性**：
 - 🎯 **图编排引擎**：基于 MASFactory 的 Vibe Graphing
@@ -14,6 +14,8 @@ Autonomous Agent Stack 是一个基于 MASFactory 的多智能体编排框架，
 - 🖥️ **M1 优化**：本地沙盒 + AppleDouble 自动清理
 - 📊 **可视化监控**：实时看板 + Mermaid 图
 - 🔄 **自愈能力**：自动重试 + 回滚机制
+
+> 说明：本仓库以“能跑、能接、能审计”为优先，不把文档里的愿景默认当作已上线事实。
 
 ---
 
@@ -116,55 +118,76 @@ open dashboard.html
 
 ---
 
-## ✅ 当前实现进度（可运行）
+## ✅ 实现判定
 
-### OpenClaw 替代核心（MVP）
-- OpenClaw 兼容会话层：`/api/v1/openclaw/sessions`（SQLite 持久化）
-- Claude 子 agent 调度：`/api/v1/openclaw/agents`
-- 运行控制（P1）：`cancel` / `retry` / `task tree`（含 Mermaid 文本）
+下面不是愿景表，而是按仓库代码和路由落点整理的状态判断。
 
-### Telegram 网关（P0 入口）
-- Webhook 入口：`/api/v1/gateway/telegram/webhook`
-- `chat_id -> session` 自动复用
-- 支持 `x-telegram-bot-api-secret-token` 校验
-- 支持 `/status` 动态魔法链接（短期 JWT + Telegram UID 签名）
+### 已实现
 
-### Web 面板零信任安全（新增）
-- 默认仅允许 `127.0.0.1` 或 Tailscale IP 绑定，避免误暴露公网
-- 面板路由：`/api/v1/panel/*`，支持两种鉴权：
-  - 魔法链接 JWT：`Authorization: Bearer <token>` 或 `x-autoresearch-panel-token`
-  - Telegram Mini App：`x-telegram-init-data`（服务端验签 + UID 白名单）
-- 面板手动干预（`cancel/retry`）自动写入 SQLite 审计表 `panel_audit_logs`
-- 审计事件通过 Telegram Bot 实时推送（配置 `AUTORESEARCH_TELEGRAM_BOT_TOKEN`）
-- 适配两套移动访问路径：
-  - 方案一：Tailscale 私网直连
-  - 方案二：Cloudflare Tunnel + Telegram Mini App（解决手机 VPN 冲突）
+- **OpenClaw 兼容会话层**
+  - SQLite 持久化的会话与运行记录已接入
+  - 相关入口已挂到 `/api/v1/openclaw/sessions`
+  - Claude 子 agent 调度已接到 `/api/v1/openclaw/agents`
+- **Telegram 网关**
+  - `/api/v1/gateway/telegram/webhook` 已实现
+  - 支持 `x-telegram-bot-api-secret-token` 校验
+  - 支持 `/status` 魔法链接流程
+- **Web 面板安全**
+  - `/api/v1/panel/*` 已实现
+  - 支持短期 JWT 魔法链接
+  - 支持 Telegram Mini App `initData` 验签
+  - 支持 Telegram UID 白名单
+  - 面板操作审计已写入 SQLite
+  - 绑定主机限制为 localhost / Tailscale IP
+- **动态工具合成与沙盒清理**
+  - `MCPContextBlock` 已支持动态工具合成
+  - 默认沙盒后端是 `docker`
+  - AppleDouble / `.DS_Store` 清理器已实现
+- **MCP 工具注册与上下文桥接**
+  - `MCPContextBlock` 和 `MCPToolRegistry` 已存在
+  - 基础工具发现、缓存、调用路径已实现
+- **静态安全审计**
+  - AST 与正则双通道审计已实现
+  - `os.system`、`eval`、`exec`、鉴权层文件等红线已纳入检测
+- **SQLite 仓储层**
+  - 评估、报告、变体、实验、集成等模型仓储已接入 SQLite
 
-### 动态工具执行安全
-- Dynamic Tool Synthesis 默认 `docker` 后端
-- 执行前自动清理 `._*` / `.DS_Store`（AppleDouble 防污染）
-- 容器限制：CPU / Memory / PIDs / `--network none` / `--read-only`
+### 部分实现
 
-### P3 生态融合（OpenViking + MiroFish）
-- OpenViking 记忆压缩：
-  - `POST /api/v1/openclaw/sessions/{session_id}/compact`
-  - `GET /api/v1/openclaw/sessions/{session_id}/memory-profile`
-  - Badge 建议：`Compression 52% (OpenViking)`
-- MiroFish 预测旁路：
-  - `POST /api/v1/openclaw/predictions`
-  - `AUTORESEARCH_MIROFISH_ENABLED=true` 启用执行前闸门
-  - `AUTORESEARCH_MIROFISH_MIN_CONFIDENCE=0.35` 最低置信阈值
-  - Badge 建议：`Prediction 89% (MiroFish)`
+- **WebAuthn 生物识别闸门**
+  - 已有 `/api/v1/auth/webauthn` 路由
+  - 已有 challenge / assertion 基础流程
+  - 但当前实现是简化版，包含 mock 验证逻辑，不等于完整生产级 WebAuthn 闭环
+- **P3 生态融合（OpenViking + MiroFish）**
+  - 文档、接口契约和配置位已存在
+  - 适合作为插件化接入骨架
+  - 但是否达到“全面上线”需要单独按运行证据确认
+- **P4 自主集成协议**
+  - discover / prototype / promote 的骨架已存在
+  - 目前更偏向“生成计划 + 回滚模板”的半自动流程
+- **群组访问与实时查岗**
+  - 群组 JWT、成员检查、审计流程已有实现
+  - 但部分审计落库路径仍可继续补强
 
-### P4 自主集成协议（最小骨架）
-- Discover：`POST /api/v1/integrations/discover`
-- Prototype：`POST /api/v1/integrations/prototype`
-- Promote：`POST /api/v1/integrations/promote`
-- 当前语义：生成“可执行计划 + 回滚模板”，用于后续真实沙盒执行与热替换
+### 仍待验证
 
-### 运行状态（2026-03-25）
-- 分支：`codex/continue-autonomous-agent-stack`
-- 测试：`40 passed`
+- **“生产维稳阶段”**
+  - 这是目标描述，不应直接等同于生产结论
+- **“WebAuthn 100% 贯通”**
+  - 目前仓库证据只支持“已有简化实现”
+- **“全量测试通过”**
+  - 仓库里有测试文件，但当前环境未能直接复核测试命令
+
+### 参考入口
+
+- OpenClaw 兼容服务：`src/autoresearch/core/services/openclaw_compat.py`
+- 面板鉴权：`src/autoresearch/core/services/panel_access.py`
+- 面板路由：`src/autoresearch/api/routers/panel.py`
+- Telegram 网关：`src/autoresearch/api/routers/gateway_telegram.py`
+- WebAuthn 简化路由：`src/autoresearch/api/routers/webauthn.py`
+- 动态工具合成：`src/orchestrator/mcp_context.py`
+- 沙盒清理：`src/orchestrator/sandbox_cleaner.py`
+- 静态安全审计：`src/gatekeeper/static_analyzer.py`
 
 ---
 

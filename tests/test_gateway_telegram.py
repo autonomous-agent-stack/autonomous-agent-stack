@@ -160,6 +160,8 @@ def test_telegram_status_query_returns_magic_link(
             summary_lines: list[str],
             magic_link_url: str | None,
             expires_at_iso: str | None,
+            is_group_link: bool = False,
+            mini_app_url: str | None = None,
         ) -> bool:
             self.status_events.append(
                 {
@@ -167,6 +169,8 @@ def test_telegram_status_query_returns_magic_link(
                     "magic_link_url": magic_link_url or "",
                     "expires_at": expires_at_iso or "",
                     "summary": "\n".join(summary_lines),
+                    "is_group_link": str(is_group_link),
+                    "mini_app_url": mini_app_url or "",
                 }
             )
             return True
