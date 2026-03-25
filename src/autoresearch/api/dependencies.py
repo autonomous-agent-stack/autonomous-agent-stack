@@ -10,11 +10,15 @@ from autoresearch.core.services.executions import ExecutionService
 from autoresearch.core.services.evaluations import EvaluationService
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.reports import ReportService
+from autoresearch.core.services.self_integration import SelfIntegrationService
 from autoresearch.core.services.variants import VariantService
 from autoresearch.shared.models import (
     ClaudeAgentRunRead,
     ExecutionRead,
     ExperimentRead,
+    IntegrationDiscoveryRead,
+    IntegrationPromotionRead,
+    IntegrationPrototypeRead,
     OpenClawSessionRead,
     OptimizationRead,
     ReportRead,
@@ -125,4 +129,25 @@ def get_claude_agent_service() -> ClaudeAgentService:
         repo_root=_repo_root(),
         max_agents=int(os.getenv("AUTORESEARCH_AGENT_MAX_CONCURRENCY", "20")),
         max_depth=int(os.getenv("AUTORESEARCH_AGENT_MAX_DEPTH", "3")),
+    )
+
+
+@lru_cache(maxsize=1)
+def get_self_integration_service() -> SelfIntegrationService:
+    return SelfIntegrationService(
+        discovery_repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="integration_discoveries",
+            model_cls=IntegrationDiscoveryRead,
+        ),
+        prototype_repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="integration_prototypes",
+            model_cls=IntegrationPrototypeRead,
+        ),
+        promotion_repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="integration_promotions",
+            model_cls=IntegrationPromotionRead,
+        ),
     )

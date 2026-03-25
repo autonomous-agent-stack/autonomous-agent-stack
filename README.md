@@ -141,6 +141,12 @@ open dashboard.html
   - `AUTORESEARCH_MIROFISH_MIN_CONFIDENCE=0.35` 最低置信阈值
   - Badge 建议：`Prediction 89% (MiroFish)`
 
+### P4 自主集成协议（最小骨架）
+- Discover：`POST /api/v1/integrations/discover`
+- Prototype：`POST /api/v1/integrations/prototype`
+- Promote：`POST /api/v1/integrations/promote`
+- 当前语义：生成“可执行计划 + 回滚模板”，用于后续真实沙盒执行与热替换
+
 ### 运行状态（2026-03-25）
 - 分支：`codex/continue-autonomous-agent-stack`
 - 测试：`40 passed`
@@ -153,6 +159,7 @@ open dashboard.html
 - **[关键工程决策](docs/critical-designs.md)**: 短路机制 + 节点协议 + 并发安全 ⭐ **NEW**
 - **[OpenClaw 替代迁移手册](docs/openclaw-replacement-migration-playbook.md)**: 最佳实践 + 分阶段迁移 + 回滚方案 ⭐ **NEW**
 - **[P3 生态融合手册](docs/p3-ecosystem-fusion-playbook.md)**: OpenViking + MiroFish 接入与 API 契约 ⭐ **NEW**
+- **[P4 自主集成协议](docs/p4-self-integration-protocol.md)**: discover/prototype/promote 设计与契约 ⭐ **NEW**
 - **[MASFactory 集成](docs/masfactory-integration.md)**: 集成指南
 - **[集成指南](docs/integration-guide.md)**: 快速集成
 - **[API 参考](docs/api-reference.md)**: API 详细说明

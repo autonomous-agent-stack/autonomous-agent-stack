@@ -128,6 +128,73 @@ class OpenClawSessionRead(StrictModel):
     error: str | None = None
 
 
+class IntegrationDiscoverRequest(StrictModel):
+    source_url: str = Field(..., min_length=1)
+    source_kind: Literal["repository", "api_docs", "mixed"] = "repository"
+    ref: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class IntegrationDiscoveryRead(StrictModel):
+    discovery_id: str
+    source_url: str
+    source_kind: str
+    ref: str | None = None
+    status: JobStatus
+    candidate_adapter_id: str
+    detected_capabilities: list[str] = Field(default_factory=list)
+    summary: str
+    created_at: datetime
+    updated_at: datetime
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    error: str | None = None
+
+
+class IntegrationPrototypeRequest(StrictModel):
+    discovery_id: str = Field(..., min_length=1)
+    adapter_name: str = Field(..., min_length=1)
+    sandbox_backend: Literal["docker", "colima", "mock"] = "docker"
+    dry_run: bool = True
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class IntegrationPrototypeRead(StrictModel):
+    prototype_id: str
+    discovery_id: str
+    adapter_name: str
+    sandbox_backend: str
+    dry_run: bool
+    status: JobStatus
+    planned_files: list[str] = Field(default_factory=list)
+    validation_checks: list[str] = Field(default_factory=list)
+    summary: str
+    created_at: datetime
+    updated_at: datetime
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    error: str | None = None
+
+
+class IntegrationPromoteRequest(StrictModel):
+    prototype_id: str = Field(..., min_length=1)
+    rollout_mode: Literal["shadow", "canary", "full"] = "shadow"
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class IntegrationPromotionRead(StrictModel):
+    promotion_id: str
+    prototype_id: str
+    rollout_mode: str
+    status: JobStatus
+    decision: Literal["pending", "approved", "rejected"] = "pending"
+    topology_patch_preview: dict[str, Any] = Field(default_factory=dict)
+    rollback_plan: list[str] = Field(default_factory=list)
+    summary: str
+    created_at: datetime
+    updated_at: datetime
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    error: str | None = None
+
+
 class ClaudeAgentCreateRequest(StrictModel):
     task_name: str = Field(..., min_length=1)
     prompt: str = Field(..., min_length=1)

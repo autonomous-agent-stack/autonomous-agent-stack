@@ -12,6 +12,7 @@ from autoresearch.api.routers import (
     experiments,
     gateway_telegram,
     generators,
+    integrations,
     loops,
     optimizations,
     openclaw,
@@ -38,6 +39,7 @@ app.include_router(executors.router)
 app.include_router(synthesis.router)
 app.include_router(loops.router)
 app.include_router(openclaw.router)
+app.include_router(integrations.router)
 app.include_router(reports.router)
 app.include_router(variants.router)
 app.include_router(optimizations.router)
