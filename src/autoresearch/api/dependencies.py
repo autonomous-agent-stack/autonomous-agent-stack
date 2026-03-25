@@ -5,10 +5,12 @@ from functools import lru_cache
 from pathlib import Path
 
 from autoresearch.core.repositories import SQLiteEvaluationRepository
+from autoresearch.core.services.admin_config import AdminConfigService
 from autoresearch.core.services.claude_agents import ClaudeAgentService
 from autoresearch.core.services.executions import ExecutionService
 from autoresearch.core.services.evaluations import EvaluationService
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
+from autoresearch.core.services.openclaw_skills import OpenClawSkillService
 from autoresearch.core.services.panel_access import PanelAccessService
 from autoresearch.core.services.panel_audit import PanelAuditService
 from autoresearch.core.services.reports import ReportService
@@ -17,6 +19,9 @@ from autoresearch.core.services.telegram_notify import TelegramNotifierService
 from autoresearch.core.services.variants import VariantService
 from autoresearch.shared.models import (
     ClaudeAgentRunRead,
+    AdminAgentConfigRead,
+    AdminChannelConfigRead,
+    AdminConfigRevisionRead,
     ExecutionRead,
     ExperimentRead,
     IntegrationDiscoveryRead,
@@ -49,6 +54,23 @@ def _env_csv(name: str) -> set[str]:
     if not raw:
         return set()
     return {item.strip() for item in raw.split(",") if item.strip()}
+
+
+def _env_path_list(name: str) -> list[Path]:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return []
+    if os.pathsep in raw:
+        parts = raw.split(os.pathsep)
+    else:
+        parts = raw.split(",")
+    resolved: list[Path] = []
+    for item in parts:
+        value = item.strip()
+        if not value:
+            continue
+        resolved.append(Path(value).expanduser().resolve())
+    return resolved
 
 
 def _env_int(name: str, default: int, *, minimum: int, maximum: int) -> int:
@@ -151,6 +173,26 @@ def get_openclaw_compat_service() -> OpenClawCompatService:
 
 
 @lru_cache(maxsize=1)
+def get_openclaw_skill_service() -> OpenClawSkillService:
+    return OpenClawSkillService(
+        repo_root=_repo_root(),
+        skill_roots=_env_path_list("AUTORESEARCH_OPENCLAW_SKILLS_DIRS") or None,
+        max_skill_file_bytes=_env_int(
+            "AUTORESEARCH_OPENCLAW_SKILL_MAX_BYTES",
+            256_000,
+            minimum=8_192,
+            maximum=2_000_000,
+        ),
+        max_skills_per_root=_env_int(
+            "AUTORESEARCH_OPENCLAW_SKILLS_MAX_PER_ROOT",
+            300,
+            minimum=1,
+            maximum=10_000,
+        ),
+    )
+
+
+@lru_cache(maxsize=1)
 def get_claude_agent_service() -> ClaudeAgentService:
     return ClaudeAgentService(
         repository=SQLiteModelRepository(
@@ -162,6 +204,7 @@ def get_claude_agent_service() -> ClaudeAgentService:
         repo_root=_repo_root(),
         max_agents=int(os.getenv("AUTORESEARCH_AGENT_MAX_CONCURRENCY", "20")),
         max_depth=int(os.getenv("AUTORESEARCH_AGENT_MAX_DEPTH", "3")),
+        openclaw_skill_service=get_openclaw_skill_service(),
     )
 
 
@@ -237,5 +280,26 @@ def get_telegram_notifier_service() -> TelegramNotifierService:
             10.0,
             minimum=1.0,
             maximum=120.0,
+        ),
+    )
+
+
+@lru_cache(maxsize=1)
+def get_admin_config_service() -> AdminConfigService:
+    return AdminConfigService(
+        agent_repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="admin_agent_configs",
+            model_cls=AdminAgentConfigRead,
+        ),
+        channel_repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="admin_channel_configs",
+            model_cls=AdminChannelConfigRead,
+        ),
+        revision_repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="admin_config_revisions",
+            model_cls=AdminConfigRevisionRead,
         ),
     )
