@@ -113,6 +113,29 @@ open dashboard.html
 
 ---
 
+## ✅ 当前实现进度（可运行）
+
+### OpenClaw 替代核心（MVP）
+- OpenClaw 兼容会话层：`/api/v1/openclaw/sessions`（SQLite 持久化）
+- Claude 子 agent 调度：`/api/v1/openclaw/agents`
+- 运行控制（P1）：`cancel` / `retry` / `task tree`（含 Mermaid 文本）
+
+### Telegram 网关（P0 入口）
+- Webhook 入口：`/api/v1/gateway/telegram/webhook`
+- `chat_id -> session` 自动复用
+- 支持 `x-telegram-bot-api-secret-token` 校验
+
+### 动态工具执行安全
+- Dynamic Tool Synthesis 默认 `docker` 后端
+- 执行前自动清理 `._*` / `.DS_Store`（AppleDouble 防污染）
+- 容器限制：CPU / Memory / PIDs / `--network none` / `--read-only`
+
+### 运行状态（2026-03-25）
+- 分支：`codex/continue-autonomous-agent-stack`
+- 测试：`32 passed`
+
+---
+
 ## 📚 文档
 
 - **[架构文档](docs/architecture.md)**: 6 部分完整架构
