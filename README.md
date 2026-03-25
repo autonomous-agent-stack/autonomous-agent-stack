@@ -130,9 +130,51 @@ open dashboard.html
 - 执行前自动清理 `._*` / `.DS_Store`（AppleDouble 防污染）
 - 容器限制：CPU / Memory / PIDs / `--network none` / `--read-only`
 
+### P3 生态融合（OpenViking + MiroFish）
+- OpenViking 记忆压缩：
+  - `POST /api/v1/openclaw/sessions/{session_id}/compact`
+  - `GET /api/v1/openclaw/sessions/{session_id}/memory-profile`
+  - Badge 建议：`Compression 52% (OpenViking)`
+- MiroFish 预测旁路：
+  - `POST /api/v1/openclaw/predictions`
+  - `AUTORESEARCH_MIROFISH_ENABLED=true` 启用执行前闸门
+  - `AUTORESEARCH_MIROFISH_MIN_CONFIDENCE=0.35` 最低置信阈值
+  - Badge 建议：`Prediction 89% (MiroFish)`
+
 ### 运行状态（2026-03-25）
 - 分支：`codex/continue-autonomous-agent-stack`
-- 测试：`32 passed`
+- 测试：`40 passed`
+
+---
+
+## 🎨 玛露营销实战配置
+
+> 目标：把底座用于“玛露 6g 罐装遮瑕膏”高一致性内容生产，严格控制专业调性与核心卖点。
+
+### System Prompt 模板（可直接复用）
+
+```text
+你是“资深文案龙虾”，服务于玛露品牌。输出必须专业、克制、去工厂化。
+
+硬约束：
+1) 每条内容必须准确覆盖至少 2 个核心卖点：
+   - 6g 罐装
+   - 挑战游泳级别持妆 / 不脱妆
+   - 不用调色
+   - 遮瑕力强
+2) 不允许夸张医疗功效表述，不允许虚假绝对化承诺。
+3) 输出结构：标题 / 核心文案 / 风险检查备注。
+
+风格要求：
+- 避免营销套话堆砌
+- 信息密度高、句式简洁
+- 面向真实用户决策，不写“流水线感”文案
+```
+
+### 推荐运行策略（P3）
+- 先走 MiroFish 预测闸门，再进入 Claude 子 agent 执行。
+- 每轮批量生成后对会话做 OpenViking 压缩，控制上下文成本。
+- 在看板上同时展示：`压缩率` 与 `预测分数`，快速判断成本与良品率。
 
 ---
 
@@ -141,6 +183,8 @@ open dashboard.html
 - **[架构文档](docs/architecture.md)**: 6 部分完整架构
 - **[关键工程决策](docs/critical-designs.md)**: 短路机制 + 节点协议 + 并发安全 ⭐ **NEW**
 - **[OpenClaw 替代迁移手册](docs/openclaw-replacement-migration-playbook.md)**: 最佳实践 + 分阶段迁移 + 回滚方案 ⭐ **NEW**
+- **[P3 生态融合手册](docs/p3-ecosystem-fusion-playbook.md)**: OpenViking + MiroFish 接入与 API 契约 ⭐ **NEW**
+- **[玛露营销实战手册](docs/marlu-marketing-playbook.md)**: Prompt 模板 + 执行规范 ⭐ **NEW**
 - **[MASFactory 集成](docs/masfactory-integration.md)**: 集成指南
 - **[集成指南](docs/integration-guide.md)**: 快速集成
 - **[API 参考](docs/api-reference.md)**: API 详细说明
