@@ -17,6 +17,7 @@
 | **Panel API** | POST | `/api/v1/panel/agents/{agent_run_id}/cancel` | ✅ 已实现 | Web 手动取消（审计+通知） |
 | **Panel API** | POST | `/api/v1/panel/agents/{agent_run_id}/retry` | ✅ 已实现 | Web 手动重试（审计+通知） |
 | **Telegram Gateway** | POST | `/api/v1/gateway/telegram/webhook` | ✅ 已实现 | `/status` 返回短效魔法链接 |
+| **Orchestration API** | POST | `/api/v1/orchestration/prompt/execute` | ✅ 已实现 | 通过 prompt 创建图并执行 |
 
 ---
 
@@ -266,6 +267,50 @@ print(experiment.json()["experiment_id"])
   "strategy": "hill_climbing",
   "max_iterations": 100,
   "convergence_threshold": 0.01
+}
+```
+
+---
+
+## 6. Orchestration API
+
+### 6.1 Prompt 直接编排并执行
+
+**端点**: `POST /api/v1/orchestration/prompt/execute`
+
+**请求体**:
+```json
+{
+  "prompt": "goal: 优化代码性能\nnodes: planner -> generator -> executor -> evaluator\nretry: evaluator -> generator when decision == 'retry'\nmax_steps: 16\nmax_concurrency: 3",
+  "goal": "可选兜底目标",
+  "max_steps": 16,
+  "max_concurrency": 3,
+  "context": {"timestamp": "2026-03-26T00:00:00Z"},
+  "include_graph": true
+}
+```
+
+**响应（成功）**:
+```json
+{
+  "graph_id": "graph_xxx",
+  "status": "completed",
+  "goal": "优化代码性能",
+  "max_steps": 16,
+  "max_concurrency": 3,
+  "duration_seconds": 0.12,
+  "results": {
+    "planner": {},
+    "generator": {},
+    "executor": {},
+    "evaluator": {}
+  },
+  "graph": {
+    "graph_id": "graph_xxx",
+    "nodes": [],
+    "edges": []
+  },
+  "error": null
 }
 ```
 

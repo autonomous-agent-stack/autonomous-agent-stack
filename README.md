@@ -150,6 +150,24 @@ max_steps: 16
 asyncio.run(main())
 ```
 
+### 2.6 在 VS Code 里直接编排（新）
+
+1. 打开一个 prompt 文件（例如 `examples/orchestration.prompt.md`），内容示例：
+
+```text
+goal: 优化代码性能
+nodes: planner -> generator -> executor -> evaluator
+retry: evaluator -> generator when decision == 'retry'
+max_steps: 16
+max_concurrency: 3
+```
+
+2. 运行 VS Code 任务：`Orchestration: Run Prompt File`
+
+3. 或先运行 `API: Start Local Server`，再运行 `Orchestration API: Execute Prompt File`
+
+详细说明见：[VS 直连编排指南](docs/vscode-direct-orchestration.md)
+
 ### 3. 启动监控看板
 
 ```bash
@@ -270,6 +288,7 @@ open dashboard.html
 - **[OpenClaw 替代迁移手册](docs/openclaw-replacement-migration-playbook.md)**: 最佳实践 + 分阶段迁移 + 回滚方案 ⭐ **NEW**
 - **[P3 生态融合手册](docs/p3-ecosystem-fusion-playbook.md)**: OpenViking + MiroFish 接入与 API 契约 ⭐ **NEW**
 - **[P4 自主集成协议](docs/p4-self-integration-protocol.md)**: discover/prototype/promote 设计与契约 ⭐ **NEW**
+- **[VS 直连编排指南](docs/vscode-direct-orchestration.md)**: Prompt 在 VS Code 一键执行与 API 直连 ⭐ **NEW**
 - **[MASFactory 集成](docs/masfactory-integration.md)**: 集成指南
 - **[集成指南](docs/integration-guide.md)**: 快速集成
 - **[API 参考](docs/api-reference.md)**: API 详细说明

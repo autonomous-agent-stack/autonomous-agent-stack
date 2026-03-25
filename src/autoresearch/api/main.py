@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from autoresearch import __version__
 from autoresearch.core.services.panel_access import assert_safe_bind_host
 from autoresearch.api.routers import (
+    admin,
     evaluations,
     executors,
     experiments,
@@ -15,6 +16,7 @@ from autoresearch.api.routers import (
     generators,
     integrations,
     loops,
+    orchestration,
     optimizations,
     openclaw,
     panel,
@@ -36,11 +38,13 @@ app = FastAPI(
 )
 
 app.include_router(evaluations.router)
+app.include_router(admin.router)
 app.include_router(gateway_telegram.router)
 app.include_router(generators.router)
 app.include_router(executors.router)
 app.include_router(synthesis.router)
 app.include_router(loops.router)
+app.include_router(orchestration.router)
 app.include_router(openclaw.router)
 app.include_router(panel.router)
 app.include_router(integrations.router)
