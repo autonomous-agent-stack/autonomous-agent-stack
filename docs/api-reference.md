@@ -339,11 +339,13 @@ created → running → completed
 | `AUTORESEARCH_API_ALLOW_UNSAFE_BIND` | `false` | 是否允许绑定公网 IP（不推荐） |
 | `AUTORESEARCH_PANEL_JWT_SECRET` | _空_ | 面板 JWT 签名密钥（启用魔法链接必填） |
 | `AUTORESEARCH_PANEL_BASE_URL` | `http://127.0.0.1:8000/api/v1/panel/view` | Telegram 返回的面板链接前缀 |
+| `AUTORESEARCH_TELEGRAM_MINI_APP_URL` | _空_ | `/status` 消息里附带 Telegram Mini App 按钮时使用的 URL |
 | `AUTORESEARCH_PANEL_MAGIC_LINK_TTL_SECONDS` | `300` | 魔法链接有效期（秒） |
 | `AUTORESEARCH_PANEL_TELEGRAM_INITDATA_MAX_AGE_SECONDS` | `900` | Telegram Mini App initData 最大有效时长（秒） |
 | `AUTORESEARCH_TELEGRAM_ALLOWED_UIDS` | _空_ | 允许访问面板的 Telegram UID 白名单（逗号分隔） |
 | `AUTORESEARCH_TELEGRAM_BOT_TOKEN` | _空_ | Telegram 实时通知 Bot Token |
 | `AUTORESEARCH_TELEGRAM_SECRET_TOKEN` | _空_ | Telegram webhook Header 校验 token |
+| `CLOUDFLARE_TUNNEL_PUBLIC_BASE_URL` | _空_ | Cloudflare Tunnel 对外域名（例如 `https://panel.example.com`） |
 
 ### 示例配置
 

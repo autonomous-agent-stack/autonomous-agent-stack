@@ -65,7 +65,7 @@ for _ in {1..40}; do
   else
     URL="$(sed -n 's/.*\(https:\/\/[a-zA-Z0-9.-]*\.trycloudflare.com\).*/\1/p' "${LOG_FILE}" | tail -n 1)"
   fi
-  if [[ -n "${URL}" && kill -0 "${PID}" >/dev/null 2>&1 ]]; then
+  if [[ -n "${URL}" ]] && kill -0 "${PID}" >/dev/null 2>&1; then
     echo "cloudflared started (pid=${PID})"
     echo "mode=${run_mode}"
     echo "public_url=${URL}"

@@ -79,10 +79,16 @@ bash migration/openclaw/scripts/logs-api-daemon.sh
 bash migration/openclaw/scripts/stop-api-daemon.sh
 
 # 公网隧道（cloudflared）
+# 一次性初始化命名 Tunnel + 私有域名（推荐）
+bash migration/openclaw/scripts/setup-cloudflared-tunnel.sh panel.malu.com
+
+# 启停与状态
 bash migration/openclaw/scripts/start-cloudflared-tunnel.sh
+bash migration/openclaw/scripts/status-cloudflared-tunnel.sh
+bash migration/openclaw/scripts/logs-cloudflared-tunnel.sh
 bash migration/openclaw/scripts/stop-cloudflared-tunnel.sh
 
-# 配置 Telegram webhook（优先使用 WEBHOOK_BASE_URL；否则尝试 cloudflared 日志中的 trycloudflare URL）
+# 配置 Telegram webhook（优先使用 WEBHOOK_BASE_URL / CLOUDFLARE_TUNNEL_PUBLIC_BASE_URL）
 bash migration/openclaw/scripts/configure-telegram-webhook.sh
 
 # Telegram 长轮询桥接（不依赖 webhook 公网域名）
@@ -98,5 +104,6 @@ bash migration/openclaw/scripts/stop-telegram-poller.sh
 2. 机器人会返回摘要 + Web 面板 magic link（需配置以下环境变量）：
    - `AUTORESEARCH_PANEL_JWT_SECRET`
    - `AUTORESEARCH_PANEL_BASE_URL`
+   - `AUTORESEARCH_TELEGRAM_MINI_APP_URL`（可选，配置后 `/status` 会带 Mini App 按钮）
    - `AUTORESEARCH_TELEGRAM_ALLOWED_UIDS`
 3. 默认面板地址为：`http://127.0.0.1:8000/api/v1/panel/view`
