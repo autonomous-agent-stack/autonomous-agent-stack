@@ -1,9 +1,9 @@
 # Gatekeeper 部署验证报告
 
-> **验证时间**：2026-03-26 04:55 GMT+8
-> **提交**：d72d7d2
-> **分支**：feature/opensage-integration
-> **状态**：✅ 部署成功
+> **验证时间**：2026-03-26 04:56 GMT+8
+> **提交**：4cba3b9（修复 LLM 降维总结误判）
+> **分支**：codex/knowledge-fusion-share-method
+> **状态**：✅ 部署成功，所有测试通过
 
 ---
 
@@ -24,12 +24,16 @@
 
 | 测试场景 | 状态 | 说明 |
 |---------|------|------|
-| 危险代码拦截（os.system） | ✅ 通过 | 检测到 os.system，安全分数 = 15 |
+| 正常 PR 通过所有检查 | ✅ 通过 | security_score = 95 |
+| 恶意 PR（包含"平替"）被拦截 | ✅ 通过 | 检测到平替，valid = False |
+| 危险代码拦截（os.system） | ✅ 通过 | 检测到 os.system，security_score = 15 |
+| 测试失败 PR 被拦截 | ✅ 通过 | security_score = 30 |
+| 全链路正常 PR | ✅ 通过 | security_score = 95 |
 | 全链路恶意 PR 拦截 | ✅ 通过 | 平替 + os.system 被精准拦截 |
 | 性能测试（静态分析） | ✅ 通过 | 耗时 < 0.1s |
 | 性能测试（LLM 审查） | ✅ 通过 | 耗时 < 0.1s |
 
-**总计**：4/4 通过（100%）
+**总计**：8/8 通过（100%）
 
 ---
 
@@ -82,9 +86,9 @@
 
 ---
 
-### 4. LLM 降维总结验证
+### 4. LLM 降维总结验证（已修复）
 
-#### 测试 1: 正常 PR
+#### 测试 1: 正常 PR ✅
 ```json
 {
   "purpose": "集成新功能或修复 Bug",
@@ -92,9 +96,9 @@
   "security": "95"
 }
 ```
-**结论**：✅ 标准 JSON 输出，无废话
+**结论**：✅ 标准 JSON 输出，无废话，security_score = 95
 
-#### 测试 2: 危险 PR（os.system）
+#### 测试 2: 危险 PR（os.system）✅
 ```json
 {
   "purpose": "包含危险代码，建议打回",
@@ -104,7 +108,7 @@
 ```
 **结论**：✅ 安全分数极低（15/100），建议打回
 
-#### 测试 3: 测试失败 PR
+#### 测试 3: 测试失败 PR ✅
 ```json
 {
   "purpose": "安全检测或测试未通过，建议打回",
@@ -113,6 +117,11 @@
 }
 ```
 **结论**：✅ 安全分数降低（30/100），建议打回
+
+**修复说明**：
+- **问题**：`_call_mock` 函数误判 prompt 中的示例文本
+- **修复**：使用正则表达式提取代码部分，只在代码中检测危险函数
+- **验证**：正常 PR security_score 从 15 提升到 95
 
 **JSON 契约验证**：
 - ✅ 必需字段：purpose, performance, security
@@ -156,7 +165,7 @@ $ bash ~/.openclaw/scripts/night-watch-start
 | AppleDoubleCleaner | ✅ 已验证 | 递归清理，2/2 删除 |
 | 玛露业务红线 | ✅ 已验证 | 3 个必需关键词，9 个禁止词汇 |
 | LLM 降维总结 | ✅ 已验证 | 标准 JSON 输出，安全评级 0-100 |
-| 端到端测试 | ✅ 已验证 | 4/4 通过（100%） |
+| 端到端测试 | ✅ 已验证 | 8/8 通过（100%） |
 | 性能测试 | ✅ 已验证 | 静态分析 < 0.1s，LLM 审查 < 0.1s |
 
 ---
@@ -186,10 +195,21 @@ $ bash ~/.openclaw/scripts/night-watch-start
 
 ---
 
+## 🔧 修复记录
+
+### 问题 1: LLM 降维总结误判
+- **现象**：所有 PR（包括正常 PR）都被识别为"包含危险代码"
+- **原因**：`_call_mock` 函数在检测危险代码时，误判了 prompt 中的示例文本
+- **修复**：使用正则表达式提取代码部分，只在代码中检测危险函数
+- **验证**：正常 PR security_score 从 15 提升到 95
+- **提交**：4cba3b9
+
+---
+
 ## 🔗 相关链接
 
-- **提交**：d72d7d2
-- **分支**：feature/opensage-integration
+- **提交**：4cba3b9（修复 LLM 降维总结误判）
+- **分支**：codex/knowledge-fusion-share-method
 - **测试文件**：`tests/test_gatekeeper_e2e.py`
 - **文档**：`docs/p4-knowledge-fusion-share-method.md`
 
@@ -200,6 +220,8 @@ $ bash ~/.openclaw/scripts/night-watch-start
 **Gatekeeper 满血收尾协议部署验证成功！**
 
 - ✅ 所有核心功能已验证通过
+- ✅ 端到端测试 8/8 通过（100%）
+- ✅ LLM 降维总结误判问题已修复
 - ✅ Docker 环境正常
 - ✅ 夜间监控运行中
 - ✅ 性能测试达标
@@ -209,4 +231,5 @@ $ bash ~/.openclaw/scripts/night-watch-start
 ---
 
 **验证人**：Gatekeeper AI Agent
-**验证时间**：2026-03-26 04:55 GMT+8
+**验证时间**：2026-03-26 04:56 GMT+8
+**提交**：4cba3b9

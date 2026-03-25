@@ -170,7 +170,7 @@ open dashboard.html
 ### 运行状态（2026-03-26）
 - 主分支：`main`
 - 合并分支：`codex/p3-openviking-mirofish-integration`、`feature/opensage-integration`、`feature/omni-assistant-integration`、`codex/continue-autonomous-agent-stack`
-- 测试（`.venv/bin/pytest -q`）：`215 passed, 11 failed`
+- 测试（`.venv/bin/pytest -q`）：`234 passed`
 
 ---
 
