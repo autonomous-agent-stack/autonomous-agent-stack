@@ -11,6 +11,7 @@ goal: 优化代码性能 50%
 nodes: planner -> generator -> executor -> evaluator
 retry: evaluator -> generator when decision == 'retry'
 max_steps: 12
+max_concurrency: 4
 """
 
     plan = PromptBuilder.build_orchestration_plan(prompt)
@@ -18,6 +19,7 @@ max_steps: 12
     assert plan.goal == "优化代码性能 50%"
     assert [step.node_id for step in plan.steps] == ["planner", "generator", "executor", "evaluator"]
     assert plan.max_steps == 12
+    assert plan.max_concurrency == 4
     assert any(
         edge.source == "evaluator"
         and edge.target == "generator"
@@ -40,6 +42,7 @@ goal: 编写一个最小可运行示例
 nodes: planner -> generator -> executor -> evaluator
 retry: evaluator -> generator when decision == 'retry'
 max_steps: 8
+max_concurrency: 2
 """
     graph = create_graph_from_prompt(prompt, graph_id="test_prompt_graph")
     results = asyncio.run(graph.execute())
@@ -47,3 +50,4 @@ max_steps: 8
     assert set(results.keys()) == {"planner", "generator", "executor", "evaluator"}
     assert graph.context.get("goal") == "编写一个最小可运行示例"
     assert graph.context.get("orchestration_max_steps") == 8
+    assert graph.context.get("orchestration_max_concurrency") == 2
