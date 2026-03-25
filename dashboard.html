@@ -1,0 +1,145 @@
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Autonomous Agent Stack - 监控看板</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+            background-color: #F8F9FA;
+            color: #2C3E50;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .dashboard {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 20px;
+        }
+        .graph-panel {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .stats-panel {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .node-status {
+            display: flex;
+            align-items: center;
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 4px;
+            background: #F8F9FA;
+        }
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 10px;
+        }
+        .status-completed { background-color: #50C878; }
+        .status-running { background-color: #4A90E2; }
+        .status-failed { background-color: #FF6B6B; }
+        .status-pending { background-color: #95A5A6; }
+        .mermaid {
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 Autonomous Agent Stack</h1>
+            <p>实时监控看板 | 更新时间: 2026-03-25 21:38:02</p>
+        </div>
+        
+        <div class="dashboard">
+            <div class="graph-panel">
+                <h2>📊 图编排视图</h2>
+                <div class="mermaid">
+                    graph TD
+    planner[planner<br/>planner]:::planner
+    generator[generator<br/>generator]:::generator
+    executor[executor<br/>executor]:::executor
+    evaluator[evaluator<br/>evaluator]:::evaluator
+    planner --> generator
+    generator --> executor
+    executor --> evaluator
+    evaluator -->|decision == 'retry'| generator
+
+    classDef planner fill:#4A90E2,stroke:#2E5C8A,color:#FFFFFF
+    classDef generator fill:#7B68EE,stroke:#5A4E9E,color:#FFFFFF
+    classDef executor fill:#50C878,stroke:#2E8B57,color:#FFFFFF
+    classDef evaluator fill:#FF6B6B,stroke:#CC5555,color:#FFFFFF
+
+                </div>
+            </div>
+            
+            <div class="stats-panel">
+                <h2>📈 节点状态</h2>
+
+                <div class="node-status">
+                    <div class="status-indicator status-completed"></div>
+                    <div>
+                        <strong>planner</strong><br/>
+                        <small>planner | completed</small>
+                    </div>
+                </div>
+
+                <div class="node-status">
+                    <div class="status-indicator status-completed"></div>
+                    <div>
+                        <strong>generator</strong><br/>
+                        <small>generator | completed</small>
+                    </div>
+                </div>
+
+                <div class="node-status">
+                    <div class="status-indicator status-completed"></div>
+                    <div>
+                        <strong>executor</strong><br/>
+                        <small>executor | completed</small>
+                    </div>
+                </div>
+
+                <div class="node-status">
+                    <div class="status-indicator status-completed"></div>
+                    <div>
+                        <strong>evaluator</strong><br/>
+                        <small>evaluator | completed</small>
+                    </div>
+                </div>
+
+                <h2>🎯 评估结果</h2>
+                <div class="node-status">
+                    <div>
+                        <strong>分数: 0.95</strong><br/>
+                        <small>决策: continue</small>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        mermaid.initialize({ startOnLoad: true, theme: 'default' });
+    </script>
+</body>
+</html>
