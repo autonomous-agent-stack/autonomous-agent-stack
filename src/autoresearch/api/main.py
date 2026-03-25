@@ -14,6 +14,7 @@ from autoresearch.api.routers import (
     gateway_telegram,
     generators,
     integrations,
+    knowledge_graph,
     loops,
     optimizations,
     openclaw,
@@ -48,6 +49,7 @@ app.include_router(variants.router)
 app.include_router(optimizations.router)
 app.include_router(experiments.router)
 app.include_router(streaming.router)
+app.include_router(knowledge_graph.router)
 
 
 @app.get("/", tags=["meta"])
