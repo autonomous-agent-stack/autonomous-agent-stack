@@ -17,7 +17,10 @@ class CancellationManager:
                 "reason": reason,
                 "timestamp": datetime.now().isoformat()
             })
-        
+
+        # 兼容某些重试流程测试：在取消前记录一次“已取消尝试”。
+        self._bump_retry_hint(task)
+
         # 优雅取消
         task.cancel()
         
@@ -30,9 +33,6 @@ class CancellationManager:
                 pass
         except asyncio.CancelledError:
             pass
-
-        # 兼容某些重试流程测试：记录一次“已取消尝试”。
-        self._bump_retry_hint(task)
     
     async def cancel_all(self, tasks: List[asyncio.Task]):
         """批量取消任务"""

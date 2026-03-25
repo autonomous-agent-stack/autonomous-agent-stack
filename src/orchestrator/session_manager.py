@@ -47,12 +47,12 @@ class SessionManager:
         """获取会话"""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute(
-                "SELECT chat_id, state FROM sessions WHERE session_id = ?",
+                "SELECT session_id, chat_id, state FROM sessions WHERE session_id = ?",
                 (session_id,)
             )
             row = cursor.fetchone()
             if row:
-                return {"chat_id": row[0], "state": json.loads(row[1])}
+                return {"session_id": row[0], "chat_id": row[1], "state": json.loads(row[2])}
             return None
     
     async def update_session(self, session_id: str, new_state: Dict[str, Any]):
