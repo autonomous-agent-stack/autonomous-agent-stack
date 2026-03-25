@@ -116,6 +116,7 @@ open dashboard.html
 ## 📚 文档
 
 - **[架构文档](docs/architecture.md)**: 6 部分完整架构
+- **[关键工程决策](docs/critical-designs.md)**: 短路机制 + 节点协议 + 并发安全 ⭐ **NEW**
 - **[MASFactory 集成](docs/masfactory-integration.md)**: 集成指南
 - **[集成指南](docs/integration-guide.md)**: 快速集成
 - **[API 参考](docs/api-reference.md)**: API 详细说明
