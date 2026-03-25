@@ -40,6 +40,9 @@ class OpenClawCompatService:
     def get_session(self, session_id: str) -> OpenClawSessionRead | None:
         return self._repository.get(session_id)
 
+    def save_session(self, session: OpenClawSessionRead) -> OpenClawSessionRead:
+        return self._repository.save(session.session_id, session)
+
     def find_session(self, channel: str, external_id: str) -> OpenClawSessionRead | None:
         normalized_external_id = external_id.strip()
         if not normalized_external_id:

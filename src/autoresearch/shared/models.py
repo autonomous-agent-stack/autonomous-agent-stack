@@ -212,6 +212,38 @@ class ClaudeAgentTreeRead(StrictModel):
     mermaid: str = ""
 
 
+class OpenVikingCompactRequest(StrictModel):
+    keep_recent_events: int = Field(default=12, ge=1, le=200)
+    summary_max_chars: int = Field(default=1200, ge=200, le=20000)
+
+
+class OpenVikingMemoryProfileRead(StrictModel):
+    session_id: str
+    original_event_count: int
+    retained_event_count: int
+    compressed_event_count: int
+    estimated_tokens_before: int
+    estimated_tokens_after: int
+    compression_ratio: float
+    summary: str
+    updated_at: datetime
+
+
+class MiroFishPredictionRequest(StrictModel):
+    task_name: str = Field(..., min_length=1)
+    prompt: str = Field(..., min_length=1)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class MiroFishPredictionRead(StrictModel):
+    engine: str
+    score: float = Field(..., ge=0.0, le=1.0)
+    decision: Literal["allow", "review", "reject"]
+    reasons: list[str] = Field(default_factory=list)
+    created_at: datetime
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class ReportCreateRequest(StrictModel):
     evaluation_id: str | None = None
     experiment_id: str | None = None

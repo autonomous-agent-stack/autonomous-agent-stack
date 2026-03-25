@@ -4,11 +4,15 @@ import os
 from functools import lru_cache
 from pathlib import Path
 
+from fastapi import Depends
+
 from autoresearch.core.repositories import SQLiteEvaluationRepository
 from autoresearch.core.services.claude_agents import ClaudeAgentService
 from autoresearch.core.services.executions import ExecutionService
 from autoresearch.core.services.evaluations import EvaluationService
+from autoresearch.core.services.mirofish_prediction import MiroFishPredictionService
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
+from autoresearch.core.services.openviking_memory import OpenVikingMemoryService
 from autoresearch.core.services.reports import ReportService
 from autoresearch.core.services.variants import VariantService
 from autoresearch.shared.models import (
@@ -125,4 +129,17 @@ def get_claude_agent_service() -> ClaudeAgentService:
         repo_root=_repo_root(),
         max_agents=int(os.getenv("AUTORESEARCH_AGENT_MAX_CONCURRENCY", "20")),
         max_depth=int(os.getenv("AUTORESEARCH_AGENT_MAX_DEPTH", "3")),
+    )
+
+
+def get_openviking_memory_service(
+    openclaw_service: OpenClawCompatService = Depends(get_openclaw_compat_service),
+) -> OpenVikingMemoryService:
+    return OpenVikingMemoryService(openclaw_service=openclaw_service)
+
+
+@lru_cache(maxsize=1)
+def get_mirofish_prediction_service() -> MiroFishPredictionService:
+    return MiroFishPredictionService(
+        engine=os.getenv("AUTORESEARCH_MIROFISH_ENGINE", "mirofish_heuristic_v1")
     )
