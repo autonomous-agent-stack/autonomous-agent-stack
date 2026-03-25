@@ -9,9 +9,12 @@ import ipaddress
 import json
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+import logging
 
 from autoresearch.shared.models import PanelMagicLinkRead
 from autoresearch.shared.store import create_resource_id
+
+logger = logging.getLogger(__name__)
 
 
 _TAILSCALE_IPV4_RANGE = ipaddress.ip_network("100.64.0.0/10")
@@ -315,3 +318,140 @@ class PanelAccessService:
     def _decode_bytes(self, encoded: str) -> bytes:
         padding = "=" * ((4 - len(encoded) % 4) % 4)
         return base64.urlsafe_b64decode(f"{encoded}{padding}")
+
+    def check_panel_access(
+        self,
+        token: str,
+        user_id: int | None = None,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+        bot_token: str | None = None,
+    ) -> MagicLinkClaims:
+        """Check panel access with group membership verification.
+
+        Args:
+            token: JWT token from magic link
+            user_id: Telegram user ID (for group membership check)
+            ip_address: Client IP address (for audit)
+            user_agent: Client user agent (for audit)
+            bot_token: Telegram bot token (for getChatMember API call)
+
+        Returns:
+            MagicLinkClaims if access is granted
+
+        Raises:
+            PermissionError: If access is denied (user not in group or other reason)
+        """
+        # Verify token
+        claims = self.verify_token(token)
+
+        # Import audit logger
+        from autoresearch.core.services.panel_audit import PanelAuditLogger
+        audit_logger = PanelAuditLogger()
+
+        # Check if this is a group-scoped token
+        payload = self._decode_jwt(token)
+        scope = payload.get("scope")
+        chat_id = payload.get("chat_id")
+
+        if scope == "group" and chat_id and user_id:
+            # Real-time membership verification
+            is_member = self._verify_group_membership(
+                chat_id=int(chat_id),
+                user_id=int(user_id),
+                bot_token=bot_token,
+            )
+
+            if not is_member:
+                # Log unauthorized access attempt
+                audit_logger.log_access(
+                    user_id=user_id,
+                    chat_id=int(chat_id),
+                    action="panel_access",
+                    status="unauthorized",
+                    reason="user_not_in_group",
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                )
+
+                logger.warning(
+                    f"🚫 未授权访问尝试: user={user_id}, chat={chat_id}, reason=user_not_in_group"
+                )
+
+                # Raise permission error
+                raise PermissionError("未授权的访问尝试，该操作已记录")
+
+        # Log successful access
+        if user_id:
+            audit_logger.log_access(
+                user_id=user_id,
+                chat_id=int(chat_id) if chat_id else None,
+                action="panel_access",
+                status="success",
+                ip_address=ip_address,
+                user_agent=user_agent,
+            )
+
+        return claims
+
+    def _verify_group_membership(
+        self,
+        chat_id: int,
+        user_id: int,
+        bot_token: str | None = None,
+    ) -> bool:
+        """Verify user is still a member of the group.
+
+        Args:
+            chat_id: Telegram chat ID
+            user_id: Telegram user ID
+            bot_token: Telegram bot token
+
+        Returns:
+            True if user is a member, False otherwise
+        """
+        if not bot_token:
+            logger.warning("Bot token not provided, skipping membership check")
+            return True  # Allow if bot token not configured
+
+        import json
+        from urllib import error, request
+
+        # Call Telegram getChatMember API
+        api_url = f"https://api.telegram.org/bot{bot_token}/getChatMember"
+        payload = {
+            "chat_id": chat_id,
+            "user_id": user_id,
+        }
+
+        try:
+            body = json.dumps(payload).encode("utf-8")
+            req = request.Request(
+                api_url,
+                data=body,
+                headers={"content-type": "application/json"},
+                method="POST",
+            )
+
+            with request.urlopen(req, timeout=10.0) as response:
+                result = json.loads(response.read().decode("utf-8"))
+
+            if not result.get("ok"):
+                logger.warning(f"getChatMember failed: {result.get('description')}")
+                return False
+
+            member = result.get("result", {})
+            status = member.get("status")
+
+            # Allowed statuses
+            if status in ["member", "administrator", "creator"]:
+                return True
+
+            # Denied statuses
+            logger.info(f"User {user_id} status in chat {chat_id}: {status}")
+            return False
+
+        except (error.URLError, error.HTTPError, TimeoutError, json.JSONDecodeError) as e:
+            logger.warning(f"Failed to verify membership: {e}")
+            return False  # Deny on error (fail-safe)
+

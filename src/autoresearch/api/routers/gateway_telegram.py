@@ -14,6 +14,7 @@ from autoresearch.api.dependencies import (
     get_telegram_notifier_service,
 )
 from autoresearch.core.services.claude_agents import ClaudeAgentService
+from autoresearch.core.services.group_access import GroupAccessManager
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.panel_access import PanelAccessService
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
@@ -298,9 +299,33 @@ def _handle_status_query(
         runs.sort(key=lambda item: item.updated_at, reverse=True)
 
     summary_lines = _build_status_summary_lines(chat_id=chat_id, session=session, runs=runs)
+
+    # Initialize GroupAccessManager for whitelist groups
+    group_access_manager = GroupAccessManager()
     magic_link_url: str | None = None
     expires_at_iso: str | None = None
-    if panel_access_service.enabled:
+    is_group_link = False
+
+    # Check if this is an internal group
+    try:
+        chat_id_int = int(chat_id)
+        if group_access_manager.is_internal_group(chat_id_int):
+            # Generate group-scoped magic link
+            user_id = extracted.get("from", {}).get("id") or update.get("message", {}).get("from", {}).get("id")
+            if user_id:
+                group_link = group_access_manager.create_group_magic_link(
+                    chat_id=chat_id_int,
+                    user_id=int(user_id),
+                )
+                if group_link:
+                    magic_link_url = group_link.url
+                    expires_at_iso = group_link.expires_at.isoformat()
+                    is_group_link = True
+    except (ValueError, TypeError):
+        pass
+
+    # Fall back to regular magic link if not in whitelist
+    if not magic_link_url and panel_access_service.enabled:
         try:
             magic_link = panel_access_service.create_magic_link(chat_id)
             magic_link_url = magic_link.url
@@ -316,6 +341,7 @@ def _handle_status_query(
             summary_lines=summary_lines,
             magic_link_url=magic_link_url,
             expires_at_iso=expires_at_iso,
+            is_group_link=is_group_link,
         )
 
     return TelegramWebhookAck(
@@ -329,6 +355,7 @@ def _handle_status_query(
             "magic_link_url": magic_link_url,
             "magic_link_expires_at": expires_at_iso,
             "active_runs": len(runs),
+            "is_group_link": is_group_link,
         },
     )
 
