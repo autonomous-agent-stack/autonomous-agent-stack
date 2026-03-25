@@ -142,9 +142,10 @@ goal: 优化代码性能
 nodes: planner -> generator -> executor -> evaluator
 retry: evaluator -> generator when decision == 'retry'
 max_steps: 16
+max_concurrency: 3
 """
     graph = create_graph_from_prompt(orchestration_prompt)
-    results = await graph.execute()
+    results = await graph.execute(max_concurrency=3)
     print(results)
 
 asyncio.run(main())

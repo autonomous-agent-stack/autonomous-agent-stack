@@ -195,6 +195,133 @@ class IntegrationPromotionRead(StrictModel):
     error: str | None = None
 
 
+class AdminAgentConfigCreateRequest(StrictModel):
+    name: str = Field(..., min_length=1)
+    description: str = ""
+    task_name: str = Field(..., min_length=1)
+    prompt_template: str = Field(..., min_length=1)
+    default_timeout_seconds: int = Field(default=900, ge=1, le=7200)
+    default_generation_depth: int = Field(default=1, ge=1, le=10)
+    default_env: dict[str, str] = Field(default_factory=dict)
+    cli_args: list[str] = Field(default_factory=list)
+    command_override: list[str] | None = None
+    append_prompt: bool = True
+    channel_bindings: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    enabled: bool = True
+    actor: str = "admin_api"
+
+
+class AdminAgentConfigUpdateRequest(StrictModel):
+    name: str | None = None
+    description: str | None = None
+    task_name: str | None = None
+    prompt_template: str | None = None
+    default_timeout_seconds: int | None = Field(default=None, ge=1, le=7200)
+    default_generation_depth: int | None = Field(default=None, ge=1, le=10)
+    default_env: dict[str, str] | None = None
+    cli_args: list[str] | None = None
+    command_override: list[str] | None = None
+    append_prompt: bool | None = None
+    channel_bindings: list[str] | None = None
+    metadata_updates: dict[str, Any] = Field(default_factory=dict)
+    actor: str = "admin_api"
+    reason: str | None = None
+
+
+class AdminAgentConfigRead(StrictModel):
+    agent_id: str
+    version: int = Field(default=1, ge=1)
+    status: Literal["active", "inactive"] = "active"
+    name: str
+    description: str = ""
+    task_name: str
+    prompt_template: str
+    default_timeout_seconds: int
+    default_generation_depth: int
+    default_env: dict[str, str] = Field(default_factory=dict)
+    cli_args: list[str] = Field(default_factory=list)
+    command_override: list[str] | None = None
+    append_prompt: bool = True
+    channel_bindings: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+    updated_at: datetime
+
+
+class AdminChannelConfigCreateRequest(StrictModel):
+    key: str = Field(..., min_length=1)
+    display_name: str = Field(..., min_length=1)
+    provider: Literal["telegram", "webhook", "http", "custom"] = "telegram"
+    endpoint_url: str | None = None
+    secret_ref: str | None = None
+    allowed_chat_ids: list[str] = Field(default_factory=list)
+    allowed_user_ids: list[str] = Field(default_factory=list)
+    routing_policy: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    enabled: bool = True
+    actor: str = "admin_api"
+
+
+class AdminChannelConfigUpdateRequest(StrictModel):
+    display_name: str | None = None
+    provider: Literal["telegram", "webhook", "http", "custom"] | None = None
+    endpoint_url: str | None = None
+    secret_ref: str | None = None
+    allowed_chat_ids: list[str] | None = None
+    allowed_user_ids: list[str] | None = None
+    routing_policy: dict[str, Any] | None = None
+    metadata_updates: dict[str, Any] = Field(default_factory=dict)
+    actor: str = "admin_api"
+    reason: str | None = None
+
+
+class AdminChannelConfigRead(StrictModel):
+    channel_id: str
+    version: int = Field(default=1, ge=1)
+    status: Literal["active", "inactive"] = "active"
+    key: str
+    display_name: str
+    provider: Literal["telegram", "webhook", "http", "custom"] = "telegram"
+    endpoint_url: str | None = None
+    secret_ref: str | None = None
+    allowed_chat_ids: list[str] = Field(default_factory=list)
+    allowed_user_ids: list[str] = Field(default_factory=list)
+    routing_policy: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+    updated_at: datetime
+
+
+class AdminConfigRevisionRead(StrictModel):
+    revision_id: str
+    target_type: Literal["agent", "channel"]
+    target_id: str
+    version: int = Field(..., ge=1)
+    action: Literal["create", "update", "activate", "deactivate", "rollback"]
+    actor: str = "admin_api"
+    reason: str | None = None
+    snapshot: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+
+
+class AdminConfigRollbackRequest(StrictModel):
+    version: int = Field(..., ge=1)
+    reason: str = "manual rollback"
+    actor: str = "admin_api"
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class AdminAgentLaunchRequest(StrictModel):
+    session_id: str | None = None
+    prompt_override: str | None = None
+    timeout_seconds_override: int | None = Field(default=None, ge=1, le=7200)
+    generation_depth_override: int | None = Field(default=None, ge=1, le=10)
+    env_overrides: dict[str, str] = Field(default_factory=dict)
+    metadata_updates: dict[str, Any] = Field(default_factory=dict)
+
+
 class ClaudeAgentCreateRequest(StrictModel):
     task_name: str = Field(..., min_length=1)
     prompt: str = Field(..., min_length=1)

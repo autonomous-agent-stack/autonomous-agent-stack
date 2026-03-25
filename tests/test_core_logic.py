@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import dataclass
 
 from orchestrator.graph_engine import ContextBlock, Edge, Graph, Node, NodeStatus, NodeType
@@ -32,6 +33,21 @@ class _DecisionNode(Node):
         return self.outputs
 
 
+@dataclass
+class _SleepNode(Node):
+    delay: float = 0.2
+
+    async def execute(self, context: ContextBlock) -> dict[str, object]:
+        self.status = NodeStatus.RUNNING
+        starts = dict(context.get("starts", {}))
+        starts[self.node_id] = time.monotonic()
+        context.set("starts", starts)
+        await asyncio.sleep(self.delay)
+        self.status = NodeStatus.COMPLETED
+        self.outputs = {"node_id": self.node_id}
+        return self.outputs
+
+
 def test_edge_condition_expression_evaluation() -> None:
     context = ContextBlock()
     context.set("decision", "retry")
@@ -51,6 +67,24 @@ def test_graph_execute_follows_edge_conditions_and_loops() -> None:
     assert order == ["generator", "generator"]
     assert graph.context.get("decision_count") == 2
     assert graph.context.get("decision") == "continue"
+
+
+def test_graph_execute_runs_same_layer_nodes_concurrently() -> None:
+    graph = Graph("parallel_layer", max_concurrency=2)
+    graph.add_node(_RecorderNode(node_id="planner", node_type=NodeType.PLANNER))
+    graph.add_node(_SleepNode(node_id="generator_a", node_type=NodeType.GENERATOR, delay=0.2))
+    graph.add_node(_SleepNode(node_id="generator_b", node_type=NodeType.GENERATOR, delay=0.2))
+    graph.add_edge("planner", "generator_a")
+    graph.add_edge("planner", "generator_b")
+
+    started_at = time.monotonic()
+    asyncio.run(graph.execute(max_steps=4, max_concurrency=2))
+    elapsed = time.monotonic() - started_at
+
+    starts = graph.context.get("starts", {})
+    assert set(starts.keys()) == {"generator_a", "generator_b"}
+    assert abs(starts["generator_a"] - starts["generator_b"]) < 0.1
+    assert elapsed < 0.35
 
 
 def test_shortcircuit_path_selection() -> None:
