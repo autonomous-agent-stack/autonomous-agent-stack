@@ -13,6 +13,10 @@
 | **Evaluator API** | GET | `/api/v1/evaluations` | ✅ 已实现 | 列出所有评估 |
 | **Report API** | GET | `/api/v1/reports/{report_id}` | ✅ 已实现 | 获取报告 |
 | **Experiment API** | POST | `/api/v1/experiments` | ✅ 已实现 | 创建实验 |
+| **Panel API** | GET | `/api/v1/panel/state` | ✅ 已实现 | Web 面板状态（需 JWT Header） |
+| **Panel API** | POST | `/api/v1/panel/agents/{agent_run_id}/cancel` | ✅ 已实现 | Web 手动取消（审计+通知） |
+| **Panel API** | POST | `/api/v1/panel/agents/{agent_run_id}/retry` | ✅ 已实现 | Web 手动重试（审计+通知） |
+| **Telegram Gateway** | POST | `/api/v1/gateway/telegram/webhook` | ✅ 已实现 | `/status` 返回短效魔法链接 |
 
 ---
 
@@ -330,17 +334,42 @@ created → running → completed
 | 变量 | 默认值 | 描述 |
 |------|--------|------|
 | `AUTORESEARCH_API_DB_PATH` | `artifacts/api/evaluations.sqlite3` | SQLite 数据库路径 |
-| `AUTORESEARCH_API_HOST` | `0.0.0.0` | API 服务主机 |
+| `AUTORESEARCH_API_HOST` | `127.0.0.1` | API 服务主机（建议 localhost / Tailscale IP） |
 | `AUTORESEARCH_API_PORT` | `8000` | API 服务端口 |
+| `AUTORESEARCH_API_ALLOW_UNSAFE_BIND` | `false` | 是否允许绑定公网 IP（不推荐） |
+| `AUTORESEARCH_PANEL_JWT_SECRET` | _空_ | 面板 JWT 签名密钥（启用魔法链接必填） |
+| `AUTORESEARCH_PANEL_BASE_URL` | `http://127.0.0.1:8000/api/v1/panel/view` | Telegram 返回的面板链接前缀 |
+| `AUTORESEARCH_PANEL_MAGIC_LINK_TTL_SECONDS` | `300` | 魔法链接有效期（秒） |
+| `AUTORESEARCH_PANEL_TELEGRAM_INITDATA_MAX_AGE_SECONDS` | `900` | Telegram Mini App initData 最大有效时长（秒） |
+| `AUTORESEARCH_TELEGRAM_ALLOWED_UIDS` | _空_ | 允许访问面板的 Telegram UID 白名单（逗号分隔） |
+| `AUTORESEARCH_TELEGRAM_BOT_TOKEN` | _空_ | Telegram 实时通知 Bot Token |
+| `AUTORESEARCH_TELEGRAM_SECRET_TOKEN` | _空_ | Telegram webhook Header 校验 token |
 
 ### 示例配置
 
 ```bash
 # .env 文件
 AUTORESEARCH_API_DB_PATH=/data/evaluations.sqlite3
-AUTORESEARCH_API_HOST=0.0.0.0
+AUTORESEARCH_API_HOST=127.0.0.1
 AUTORESEARCH_API_PORT=8000
+AUTORESEARCH_PANEL_JWT_SECRET=replace-with-random-secret
+AUTORESEARCH_PANEL_BASE_URL=http://100.88.1.9:8000/api/v1/panel/view
+AUTORESEARCH_PANEL_MAGIC_LINK_TTL_SECONDS=300
+AUTORESEARCH_PANEL_TELEGRAM_INITDATA_MAX_AGE_SECONDS=900
+AUTORESEARCH_TELEGRAM_ALLOWED_UIDS=9527
+AUTORESEARCH_TELEGRAM_BOT_TOKEN=123456:ABCDEF
+AUTORESEARCH_TELEGRAM_SECRET_TOKEN=webhook-secret-token
 ```
+
+### 零信任访问建议（双方案）
+
+1. 方案一（Tailscale）：
+   `AUTORESEARCH_API_HOST` 绑定为 `127.0.0.1` 或 Tailscale IP（`100.64.0.0/10`），通过 `/status` 使用 JWT 魔法链接访问面板。
+2. 方案二（Cloudflare Tunnel + TWA）：
+   API 仍绑定 `127.0.0.1`，Tunnel 仅转发私有域名；Telegram Mini App 请求携带 `x-telegram-init-data`，后端验签并校验 UID 白名单。
+3. 面板后端同时支持两种访问头：
+   `Authorization: Bearer <jwt>` / `x-autoresearch-panel-token` / `x-telegram-init-data`。
+4. 所有面板 `cancel/retry` 自动写入 SQLite 审计并推送 Telegram。
 
 ---
 

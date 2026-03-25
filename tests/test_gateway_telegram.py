@@ -3,14 +3,21 @@ from __future__ import annotations
 import sys
 import time
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from fastapi.testclient import TestClient
 
-from autoresearch.api.dependencies import get_claude_agent_service, get_openclaw_compat_service
+from autoresearch.api.dependencies import (
+    get_claude_agent_service,
+    get_openclaw_compat_service,
+    get_panel_access_service,
+    get_telegram_notifier_service,
+)
 from autoresearch.api.main import app
 from autoresearch.core.services.claude_agents import ClaudeAgentService
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
+from autoresearch.core.services.panel_access import PanelAccessService
 from autoresearch.shared.models import ClaudeAgentRunRead, OpenClawSessionRead
 from autoresearch.shared.store import SQLiteModelRepository
 
@@ -133,3 +140,74 @@ def test_telegram_webhook_secret_token_guard(
     )
     assert ok_response.status_code == 200
     assert ok_response.json()["accepted"] is True
+
+
+def test_telegram_status_query_returns_magic_link(
+    telegram_client: TestClient,
+) -> None:
+    class StubNotifier:
+        def __init__(self) -> None:
+            self.status_events: list[dict[str, str]] = []
+
+        @property
+        def enabled(self) -> bool:
+            return True
+
+        def notify_status_magic_link(
+            self,
+            *,
+            chat_id: str,
+            summary_lines: list[str],
+            magic_link_url: str | None,
+            expires_at_iso: str | None,
+        ) -> bool:
+            self.status_events.append(
+                {
+                    "chat_id": chat_id,
+                    "magic_link_url": magic_link_url or "",
+                    "expires_at": expires_at_iso or "",
+                    "summary": "\n".join(summary_lines),
+                }
+            )
+            return True
+
+        def notify_manual_action(self, *, chat_id: str, entry: object, run_status: str) -> bool:
+            return True
+
+    panel_access = PanelAccessService(
+        secret="tg-panel-secret",
+        base_url="https://panel.example.com/api/v1/panel/view",
+    )
+    notifier = StubNotifier()
+    app.dependency_overrides[get_panel_access_service] = lambda: panel_access
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+
+    try:
+        response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 3001,
+                "message": {
+                    "message_id": 90,
+                    "text": "/status",
+                    "chat": {"id": 9527},
+                    "from": {"username": "alice"},
+                },
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["accepted"] is True
+        assert payload["agent_run_id"] is None
+        link = payload["metadata"]["magic_link_url"]
+        assert link.startswith("https://panel.example.com/api/v1/panel/view?")
+        token = parse_qs(urlparse(link).query)["token"][0]
+        claims = panel_access.verify_token(token)
+        assert claims.telegram_uid == "9527"
+
+        assert len(notifier.status_events) == 1
+        assert notifier.status_events[0]["chat_id"] == "9527"
+        assert notifier.status_events[0]["magic_link_url"] == link
+    finally:
+        app.dependency_overrides.pop(get_panel_access_service, None)
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
