@@ -1,8 +1,51 @@
 # HEARTBEAT.md
 
-> **最后更新**: 2026-03-25 23:36 GMT+8
+> **最后更新**: 2026-03-26 01:05 GMT+8
 > **知识库健康度**: 99% ⭐
 > **子目录数**: 40 个
+
+---
+
+## 🌙 夜间监控系统（Night Watch）
+
+**启动时间**：2026-03-26 01:04  
+**监控频率**：每 5 分钟  
+**监控对象**：`/Volumes/PS1008/Github/autonomous-agent-stack`
+
+### 📋 实时报告
+
+**报告文件**：`~/.openclaw/workspace/AutonomousAgentStack_NightWatch.md`
+
+**查看命令**：
+```bash
+cat ~/.openclaw/workspace/AutonomousAgentStack_NightWatch.md
+# 或
+bash ~/.openclaw/scripts/night-watch-status
+```
+
+### 🔧 管理命令
+
+| 命令 | 功能 |
+|------|------|
+| `bash ~/.openclaw/scripts/night-watch-start` | 启动监控 |
+| `bash ~/.openclaw/scripts/night-watch-stop` | 停止监控 |
+| `bash ~/.openclaw/scripts/night-watch-status` | 查看状态 |
+
+### 📊 监控内容
+
+- ✅ 仓库状态（分支、提交、未提交文件）
+- ✅ Agent 状态（Codex/Python 进程）
+- ✅ 测试状态（失败测试、覆盖率）
+- ✅ 自动建议行动
+
+### 💡 接手指南
+
+1. **查看夜间报告**：`cat ~/.openclaw/workspace/AutonomousAgentStack_NightWatch.md`
+2. **检查未提交文件**：如有，建议提交
+3. **检查 Agent 状态**：确认所有任务完成
+4. **检查测试结果**：修复失败测试
+
+---
 
 ## 寏期检查任务
 
