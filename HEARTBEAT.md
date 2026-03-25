@@ -119,36 +119,21 @@
 
 # Add tasks below when you want the agent to check something periodically.
 
-## 白天决策提醒（2026-03-24）
+## 已完成决策（2026-03-24）
 
-### 🔴 高优先级（08:00-12:00 询问）
-1. **knowledge-vault 公开评估** ⏰
-   - 是否将 https://github.com/srxly888-creator/knowledge-vault 设置为公开？
-   - 需要检查敏感信息
-   - 决策截止: 2026-03-25 12:00
+- [x] **knowledge-vault 公开** ✅ 已完成（2026-03-24 14:11）
+- [x] **GLM-5 适配发布** ✅ 已完成（2026-03-24 14:15）
 
-2. **GLM-5 技术集成路径选择** ⏰
-   - A. 魔改 claude-cookbooks-zh（1-2 天）
-   - B. autoresearch + GLM-5 集成（2-3 天）
-   - C. 不写代码的 Vibe 操作（3-5 天）
-   - 决策截止: 2026-03-25 20:00
+## 待决策事项
 
-### 🟡 中优先级（14:00-18:00 询问）
-4. **Docker 安装决策**
-   - 是否安装 Docker（用于 One-API）？
-   - 或继续使用 LiteLLM Proxy？
+### 🟡 中优先级
+- **Docker 安装决策** - 是否安装 Docker（用于 One-API）？
+- **多 Agent 系统下一步** - LiteLLM / Skill / OpenClaw 集成？
 
-5. **多 Agent 系统下一步**
-   - 是否安装 LiteLLM？
-   - 是否添加真实 Skill？
-   - 是否集成到 OpenClaw？
-
-### 🟢 低优先级（20:00-22:00 询问）
-6. **OpenClaw Agent Forge 推广**
-7. **YouTube 字幕下载**（40 个新视频）
-8. **X 书签深度分析**（58 个书签）
-
-**详细清单**: `memory/decisions-pending-2026-03-24.md`
+### 🟢 低优先级
+- **OpenClaw Agent Forge 推广**
+- **YouTube 字幕下载**（40 个新视频）
+- **X 书签深度分析**（58 个书签）
 
 ---
 
