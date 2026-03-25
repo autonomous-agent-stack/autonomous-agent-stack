@@ -908,6 +908,192 @@ This skill is designed for creating modern, responsive web interfaces...
 
 ---
 
+## 🔧 深度工程实践（19:54-19:55 更新）
+
+### 8. Claude Code 终端集成
+
+#### SSE 流式传输
+
+**核心协议**：Server-Sent Events (SSE)
+
+**通信链路**：
+```
+终端 → POST $DEERFLOW_LANGGRAPH_URL/threads/<thread_id>/runs/stream
+      ↓
+持久化通道建立
+      ↓
+values 事件（状态快照）
+messages-tuple 事件（文本增量 + 工具调用结果）
+```
+
+#### 四个执行模式（Intelligence Levels）
+
+| 模式 | 能力 | 适用场景 | 性能 |
+|------|------|---------|------|
+| **Flash** | 禁用深度思考 + 规划 + 子智能体 | 代码解释、基础问答 | ⭐⭐⭐⭐⭐ |
+| **Standard** | 原生思维链（Thinking） | 代码审查、重构建议 | ⭐⭐⭐⭐ |
+| **Pro** | 思考 + 规划引擎（Plan Mode） | 跨文件业务逻辑改造 | ⭐⭐⭐ |
+| **Ultra** | 思考 + 规划 + 子智能体网络 | 市场预测、大规模源码解析 | ⭐⭐ |
+
+**集成方式**：
+```bash
+# 安装 claude-to-deerflow 技能
+npx skills add claude-to-deerflow
+
+# 默认监听
+# http://localhost:2026
+```
+
+---
+
+### 9. API 网关矩阵
+
+#### 双 API 架构
+
+| API | 端口 | 职责 | 端点示例 |
+|-----|------|------|---------|
+| **LangGraph API** | 2024 | 线程状态机管理 + LLM 流式输出 | `/threads/<id>/runs/stream` |
+| **Gateway API** | 8001 | 外围数据流调度 | `/api/skills/install` |
+
+#### Gateway API 核心端点
+
+**技能管理**：
+```bash
+# 安装技能
+POST /api/skills/install
+{
+  "skill_name": "frontend-design",
+  "source": "https://github.com/nxs9bg24js-tech/deer-flow-skills"
+}
+
+# 重新加载记忆
+POST /api/memory/reload
+```
+
+**Artifacts API（工件分发）**：
+```bash
+# 拉取沙盒生成物
+GET /api/threads/{thread_id}/artifacts/{path}
+
+# 示例：拉取 HTML 报告
+GET /api/threads/thread_123/artifacts/outputs/report.html
+# → 自动配置 MIME 头，浏览器内联预览
+
+# 强制下载
+GET /api/threads/thread_123/artifacts/outputs/report.html?download=true
+# → 二进制流打包下载
+
+# 安全策略：防止路径穿越（Path Traversal）
+```
+
+#### 嵌入式 Python 客户端
+
+**核心模块**：`message_bus.py`
+
+**架构**：异步 Pub/Sub 集线器
+
+```python
+# 同步阻断式提问
+from deer_flow import MessageBus
+
+bus = MessageBus()
+response = bus.chat("研究量子计算趋势", thread_id="thread_123")
+
+# 异步流式迭代器
+async for event in bus.stream(thread_id="thread_123"):
+    if event.type == "values":
+        print(f"状态快照: {event.data}")
+    elif event.type == "messages-tuple":
+        print(f"增量文本: {event.text}")
+```
+
+**优势**：
+- ✅ 绕开 FastAPI 网络层
+- ✅ 极低延迟
+- ✅ 无缝集成到微服务矩阵
+
+---
+
+### 10. InfoQuest 与 MCP 深度耦合
+
+#### 企业级知识获取基础设施
+
+**问题**：预训练模型的局限
+- 数据滞后性
+- 严重幻觉
+- 缺乏实时数据
+
+**传统方案局限**（Jina Reader）：
+- ❌ 单页面无链接递归
+- ❌ 缺乏结构化字段提取
+- ❌ 无强类型 Pydantic 校验
+- ❌ 无原生图网络集成
+
+#### InfoQuest 解决方案
+
+**核心能力**：
+
+| 能力 | 说明 | 价值 |
+|------|------|------|
+| **Web Search** | AI 增强搜索 | 数据纯净度 + 极高时效性 |
+| **Link Reader** | 深度解析器 | 语义级拆解 + 结构化输出 |
+
+**MCP 标准集成**：
+
+```python
+# Python SDK 配置
+from deer_flow import InfoQuest
+
+quest = InfoQuest(
+    gateway="https://mcp.infoquest.bytepluses.com/mcp",
+    authorization="Bearer YOUR_API_KEY",
+    require_approval=True  # 防止数据投毒
+)
+
+# 实时网页检索
+results = await quest.web_search("量子计算最新突破 2026")
+
+# 链接深度解析
+page_data = await quest.link_reader("https://arxiv.org/abs/2603.xxxxx")
+```
+
+**安全策略**：
+- ✅ 精细化审批策略（require_approval）
+- ✅ 防止恶意数据投毒（Tool Poisoning）
+- ✅ 企业内网数据保护
+
+---
+
+### 11. 2026 年多智能体框架生态位对比
+
+#### 横向参数对比
+
+| 框架 | 核心设计哲学 | 竞争优势 | 底层局限 |
+|------|------------|---------|---------|
+| **Microsoft AutoGen** | 对话驱动协作（Conversational workflows） | 30k+ Stars，极致模块化 | 基础设施匮乏，无原生沙盒 |
+| **CrewAI** | 角色扮演协作（Role-playing） | 概念直观，学习曲线平滑 | 缺乏物理执行能力 |
+| **LangGraph** | 图论 + 有限状态机 | 微观级别绝对控制权 | 底层组件包，学习成本高 |
+| **DeerFlow 2.0** | 全栈执行系统（Opinionated） | 开箱即用，生产环境完整 | 架构厚重，定制权受限 |
+
+#### DeerFlow 2.0 定位
+
+**核心优势**：
+- ✅ 具备强烈预设立场的全栈执行系统
+- ✅ LangGraph 驱动 + 坚实工程化外壳
+- ✅ 开箱即用的多维度生产环境：
+  - 物理沙盒（三级隔离）
+  - 长程记忆管线（防抖优化）
+  - 动态中间件降维引擎
+  - 热插拔 Markdown 技能扩展槽
+
+**底层局限**：
+- ⚠️ 对主导智能体指令服从精度要求极高
+- ⚠️ 结构化输出能力要求苛刻
+- ⚠️ 系统架构厚重，必须接受框架规约
+- ⚠️ 丧失部分极客定制权
+
+---
+
 ## 🎉 总结
 
 **deer-flow 是字节跳动开源的顶级 SuperAgent 框架，与 autoresearch、OpenClaw、MetaClaw 都有极高的整合价值。**
