@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from autoresearch.shared.models import ExperimentCreateRequest, ExperimentRead, JobStatus, utc_now
-from autoresearch.shared.store import InMemoryRepository, create_resource_id
+from autoresearch.shared.store import Repository, create_resource_id
 
 
 class ExperimentService:
     """Placeholder experiment management service."""
 
-    def __init__(self, repository: InMemoryRepository[ExperimentRead]) -> None:
+    def __init__(self, repository: Repository[ExperimentRead]) -> None:
         self._repository = repository
 
     def create(self, request: ExperimentCreateRequest) -> ExperimentRead:

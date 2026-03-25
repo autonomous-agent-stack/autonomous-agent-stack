@@ -13,7 +13,7 @@ class EvaluationService:
 
     def __init__(self, repository: EvaluationRepository, repo_root: Path | None = None) -> None:
         self._repository = repository
-        self._repo_root = repo_root or Path(__file__).resolve().parents[3]
+        self._repo_root = repo_root or Path(__file__).resolve().parents[4]
 
     def create(self, request: EvaluationCreateRequest) -> EvaluationRead:
         now = utc_now()

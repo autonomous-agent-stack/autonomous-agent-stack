@@ -17,6 +17,22 @@ from .graph_engine import (
     EvaluatorNode,
     create_minimal_loop
 )
+from .mcp_context import MCPContextBlock, MCPToolRegistry, create_default_mcp_registry
+from .node_protocol import NodeAdapter, NodeOutput, NodeRegistry
+from .shortcircuit import (
+    ComplexityClassifier,
+    ExecutionPath,
+    PathSelector,
+    ShortcircuitExecutor,
+    Task,
+    TaskComplexity,
+)
+from .tool_synthesis import (
+    SynthesizedTool,
+    ToolSynthesisError,
+    ToolSynthesisPolicy,
+    ToolSynthesizer,
+)
 
 __all__ = [
     "Node",
@@ -29,5 +45,21 @@ __all__ = [
     "GeneratorNode",
     "ExecutorNode",
     "EvaluatorNode",
-    "create_minimal_loop"
+    "create_minimal_loop",
+    "NodeOutput",
+    "NodeAdapter",
+    "NodeRegistry",
+    "MCPContextBlock",
+    "MCPToolRegistry",
+    "create_default_mcp_registry",
+    "TaskComplexity",
+    "ExecutionPath",
+    "Task",
+    "ComplexityClassifier",
+    "PathSelector",
+    "ShortcircuitExecutor",
+    "ToolSynthesisError",
+    "ToolSynthesisPolicy",
+    "SynthesizedTool",
+    "ToolSynthesizer",
 ]

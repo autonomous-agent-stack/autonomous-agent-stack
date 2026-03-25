@@ -9,6 +9,7 @@ from typing import Dict, Any, Optional
 from dataclasses import dataclass
 from enum import Enum
 import json
+import re
 
 
 class NodeType(Enum):
@@ -75,10 +76,30 @@ class Edge:
         """评估边条件"""
         if self.condition is None:
             return True
-        
-        # 简化版条件评估
-        # 实际应使用 AST 或 eval（安全模式）
-        return context.get(self.condition, True)
+
+        expression = self.condition.strip()
+        if expression in {"true", "True"}:
+            return True
+        if expression in {"false", "False"}:
+            return False
+
+        equal_match = re.fullmatch(
+            r"([A-Za-z_][A-Za-z0-9_]*)\s*==\s*['\"]([^'\"]+)['\"]",
+            expression,
+        )
+        if equal_match:
+            key, expected = equal_match.groups()
+            return str(context.get(key)) == expected
+
+        not_equal_match = re.fullmatch(
+            r"([A-Za-z_][A-Za-z0-9_]*)\s*!=\s*['\"]([^'\"]+)['\"]",
+            expression,
+        )
+        if not_equal_match:
+            key, expected = not_equal_match.groups()
+            return str(context.get(key)) != expected
+
+        return bool(context.get(expression, False))
 
 
 class ContextBlock:
@@ -241,27 +262,24 @@ find . -name ".DS_Store" -type f -delete
     async def execute(self, context: ContextBlock) -> Dict[str, Any]:
         """执行沙盒逻辑"""
         self.status = NodeStatus.RUNNING
-        
-        # 1. 执行前清理
-        self.pre_execute(context)
-        
-        # 2. 获取生成的代码
+
+        # 1. 获取生成的代码
         code = context.get("generated_code", "")
-        
-        # 3. 模拟沙盒执行
+
+        # 2. 模拟沙盒执行
         # 实际应使用 Docker 或其他沙盒
         result = {
             "status": "success",
             "output": "任务执行成功",
             "code": code
         }
-        
-        # 4. 保存结果
+
+        # 3. 保存结果
         context.set("execution_result", result)
-        
+
         self.status = NodeStatus.COMPLETED
         self.outputs = result
-        
+
         return result
 
 
@@ -304,6 +322,7 @@ class EvaluatorNode(Node):
         
         # 4. 保存评估结果
         context.set("evaluation", evaluation)
+        context.set("decision", decision)
         context.save_memory("last_evaluation", evaluation)
         
         self.status = NodeStatus.COMPLETED
@@ -334,24 +353,52 @@ class Graph:
         edge = Edge(source=source, target=target, condition=condition)
         self.edges.append(edge)
     
-    async def execute(self) -> Dict[str, Any]:
-        """执行图"""
-        # 拓扑排序确定执行顺序
-        # 简化版：按添加顺序执行
-        
-        results = {}
-        
-        for node_id, node in self.nodes.items():
+    async def execute(self, max_steps: int = 32) -> Dict[str, Any]:
+        """按边驱动执行图，支持条件分支和循环保护。"""
+        if not self.nodes:
+            return {}
+
+        incoming_counts = {node_id: 0 for node_id in self.nodes}
+        outgoing_edges: dict[str, list[Edge]] = {node_id: [] for node_id in self.nodes}
+        for edge in self.edges:
+            if edge.source not in self.nodes or edge.target not in self.nodes:
+                continue
+            incoming_counts[edge.target] += 1
+            outgoing_edges[edge.source].append(edge)
+
+        queue = [node_id for node_id, count in incoming_counts.items() if count == 0]
+        if not queue:
+            queue = [next(iter(self.nodes))]
+
+        results: dict[str, Any] = {}
+        steps = 0
+
+        while queue:
+            if steps >= max_steps:
+                raise RuntimeError(f"graph execution exceeded max_steps={max_steps}")
+
+            node_id = queue.pop(0)
+            node = self.nodes[node_id]
             print(f"🔄 执行节点: {node_id}")
-            
+
             try:
+                node.pre_execute(self.context)
                 result = await node.execute(self.context)
+                node.post_execute(self.context)
                 results[node_id] = result
                 print(f"✅ 节点 {node_id} 完成")
             except Exception as e:
+                node.status = NodeStatus.FAILED
                 print(f"❌ 节点 {node_id} 失败: {e}")
                 results[node_id] = {"error": str(e)}
-        
+                break
+
+            for edge in outgoing_edges.get(node_id, []):
+                if edge.evaluate(self.context):
+                    queue.append(edge.target)
+
+            steps += 1
+
         return results
     
     def to_dict(self) -> Dict[str, Any]:

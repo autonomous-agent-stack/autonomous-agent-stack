@@ -113,10 +113,46 @@ open dashboard.html
 
 ---
 
+## ✅ 当前实现进度（可运行）
+
+### OpenClaw 替代核心（MVP）
+- OpenClaw 兼容会话层：`/api/v1/openclaw/sessions`（SQLite 持久化）
+- Claude 子 agent 调度：`/api/v1/openclaw/agents`
+- 运行控制（P1）：`cancel` / `retry` / `task tree`（含 Mermaid 文本）
+
+### Telegram 网关（P0 入口）
+- Webhook 入口：`/api/v1/gateway/telegram/webhook`
+- `chat_id -> session` 自动复用
+- 支持 `x-telegram-bot-api-secret-token` 校验
+
+### 动态工具执行安全
+- Dynamic Tool Synthesis 默认 `docker` 后端
+- 执行前自动清理 `._*` / `.DS_Store`（AppleDouble 防污染）
+- 容器限制：CPU / Memory / PIDs / `--network none` / `--read-only`
+
+### P3 生态融合（OpenViking + MiroFish）
+- OpenViking 记忆压缩：
+  - `POST /api/v1/openclaw/sessions/{session_id}/compact`
+  - `GET /api/v1/openclaw/sessions/{session_id}/memory-profile`
+  - Badge 建议：`Compression 52% (OpenViking)`
+- MiroFish 预测旁路：
+  - `POST /api/v1/openclaw/predictions`
+  - `AUTORESEARCH_MIROFISH_ENABLED=true` 启用执行前闸门
+  - `AUTORESEARCH_MIROFISH_MIN_CONFIDENCE=0.35` 最低置信阈值
+  - Badge 建议：`Prediction 89% (MiroFish)`
+
+### 运行状态（2026-03-25）
+- 分支：`codex/continue-autonomous-agent-stack`
+- 测试：`40 passed`
+
+---
+
 ## 📚 文档
 
 - **[架构文档](docs/architecture.md)**: 6 部分完整架构
 - **[关键工程决策](docs/critical-designs.md)**: 短路机制 + 节点协议 + 并发安全 ⭐ **NEW**
+- **[OpenClaw 替代迁移手册](docs/openclaw-replacement-migration-playbook.md)**: 最佳实践 + 分阶段迁移 + 回滚方案 ⭐ **NEW**
+- **[P3 生态融合手册](docs/p3-ecosystem-fusion-playbook.md)**: OpenViking + MiroFish 接入与 API 契约 ⭐ **NEW**
 - **[MASFactory 集成](docs/masfactory-integration.md)**: 集成指南
 - **[集成指南](docs/integration-guide.md)**: 快速集成
 - **[API 参考](docs/api-reference.md)**: API 详细说明
