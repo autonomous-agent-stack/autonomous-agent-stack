@@ -6,6 +6,7 @@ from typing import Any
 from fastapi import FastAPI
 
 from autoresearch import __version__
+from autoresearch.core.services.panel_access import assert_safe_bind_host
 from autoresearch.api.routers import (
     evaluations,
     executors,
@@ -16,6 +17,7 @@ from autoresearch.api.routers import (
     loops,
     optimizations,
     openclaw,
+    panel,
     reports,
     streaming,
     synthesis,
@@ -39,6 +41,7 @@ app.include_router(executors.router)
 app.include_router(synthesis.router)
 app.include_router(loops.router)
 app.include_router(openclaw.router)
+app.include_router(panel.router)
 app.include_router(integrations.router)
 app.include_router(reports.router)
 app.include_router(variants.router)
@@ -72,8 +75,17 @@ def run() -> None:
     import uvicorn
 
     host = os.getenv("AUTORESEARCH_API_HOST", "127.0.0.1")
+    allow_unsafe_bind = _env_bool("AUTORESEARCH_API_ALLOW_UNSAFE_BIND", default=False)
+    assert_safe_bind_host(host=host, allow_unsafe=allow_unsafe_bind)
     port = int(os.getenv("AUTORESEARCH_API_PORT", "8000"))
     uvicorn.run("autoresearch.api.main:app", host=host, port=port, reload=False)
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 if __name__ == "__main__":

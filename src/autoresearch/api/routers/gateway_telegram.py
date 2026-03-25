@@ -7,11 +7,19 @@ from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 
-from autoresearch.api.dependencies import get_claude_agent_service, get_openclaw_compat_service
+from autoresearch.api.dependencies import (
+    get_claude_agent_service,
+    get_openclaw_compat_service,
+    get_panel_access_service,
+    get_telegram_notifier_service,
+)
 from autoresearch.core.services.claude_agents import ClaudeAgentService
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
+from autoresearch.core.services.panel_access import PanelAccessService
+from autoresearch.core.services.telegram_notify import TelegramNotifierService
 from autoresearch.shared.models import (
     ClaudeAgentCreateRequest,
+    ClaudeAgentRunRead,
     OpenClawSessionCreateRequest,
     OpenClawSessionEventAppendRequest,
     OpenClawSessionRead,
@@ -38,6 +46,8 @@ def telegram_webhook(
     background_tasks: BackgroundTasks,
     openclaw_service: OpenClawCompatService = Depends(get_openclaw_compat_service),
     agent_service: ClaudeAgentService = Depends(get_claude_agent_service),
+    panel_access_service: PanelAccessService = Depends(get_panel_access_service),
+    notifier: TelegramNotifierService = Depends(get_telegram_notifier_service),
 ) -> TelegramWebhookAck:
     _validate_secret_token(raw_request)
 
@@ -63,6 +73,18 @@ def telegram_webhook(
             update_id=_safe_int(update.get("update_id")),
             chat_id=chat_id,
             reason="empty message text",
+        )
+
+    if _is_status_query(text):
+        return _handle_status_query(
+            chat_id=chat_id,
+            update=update,
+            extracted=extracted,
+            background_tasks=background_tasks,
+            openclaw_service=openclaw_service,
+            agent_service=agent_service,
+            panel_access_service=panel_access_service,
+            notifier=notifier,
         )
 
     session = openclaw_service.find_session(channel="telegram", external_id=chat_id)
@@ -127,7 +149,21 @@ def telegram_webhook(
             reason=str(exc),
         )
 
-    background_tasks.add_task(agent_service.execute, agent_run.agent_run_id, request_payload)
+    if notifier.enabled:
+        background_tasks.add_task(
+            notifier.send_message,
+            chat_id=chat_id,
+            text=f"已接收，开始处理：{request_payload.task_name}",
+        )
+
+    background_tasks.add_task(
+        _execute_agent_and_notify,
+        agent_service=agent_service,
+        notifier=notifier,
+        chat_id=chat_id,
+        agent_run_id=agent_run.agent_run_id,
+        request_payload=request_payload,
+    )
     return TelegramWebhookAck(
         accepted=True,
         update_id=_safe_int(update.get("update_id")),
@@ -201,6 +237,147 @@ def _append_user_event(
             },
         ),
     )
+
+
+def _execute_agent_and_notify(
+    *,
+    agent_service: ClaudeAgentService,
+    notifier: TelegramNotifierService,
+    chat_id: str,
+    agent_run_id: str,
+    request_payload: ClaudeAgentCreateRequest,
+) -> None:
+    agent_service.execute(agent_run_id, request_payload)
+    if not notifier.enabled:
+        return
+    run = agent_service.get(agent_run_id)
+    if run is None:
+        return
+    notifier.send_message(chat_id=chat_id, text=_build_agent_result_message(run))
+
+
+def _build_agent_result_message(run: ClaudeAgentRunRead) -> str:
+    status_value = run.status.value
+    lines = [
+        f"[任务结果] {run.task_name}",
+        f"状态: {status_value}",
+        f"run: {run.agent_run_id}",
+    ]
+    if status_value == "completed":
+        output = (run.stdout_preview or "").strip()
+        if output:
+            lines.extend(["", "输出:", output])
+        else:
+            lines.extend(["", "输出为空。"])
+    else:
+        err = (run.error or run.stderr_preview or "unknown error").strip()
+        lines.extend(["", "错误:", err])
+
+    text = "\n".join(lines).strip()
+    # Telegram text message hard limit is 4096 chars.
+    if len(text) > 3900:
+        return text[:3900] + "\n...[truncated]"
+    return text
+
+
+def _handle_status_query(
+    *,
+    chat_id: str,
+    update: dict[str, Any],
+    extracted: dict[str, Any],
+    background_tasks: BackgroundTasks,
+    openclaw_service: OpenClawCompatService,
+    agent_service: ClaudeAgentService,
+    panel_access_service: PanelAccessService,
+    notifier: TelegramNotifierService,
+) -> TelegramWebhookAck:
+    session = openclaw_service.find_session(channel="telegram", external_id=chat_id)
+    runs = []
+    if session is not None:
+        runs = [run for run in agent_service.list() if run.session_id == session.session_id]
+        runs.sort(key=lambda item: item.updated_at, reverse=True)
+
+    summary_lines = _build_status_summary_lines(chat_id=chat_id, session=session, runs=runs)
+    magic_link_url: str | None = None
+    expires_at_iso: str | None = None
+    if panel_access_service.enabled:
+        try:
+            magic_link = panel_access_service.create_magic_link(chat_id)
+            magic_link_url = magic_link.url
+            expires_at_iso = magic_link.expires_at.isoformat()
+        except (RuntimeError, ValueError, PermissionError):
+            magic_link_url = None
+            expires_at_iso = None
+
+    if notifier.enabled:
+        background_tasks.add_task(
+            notifier.notify_status_magic_link,
+            chat_id=chat_id,
+            summary_lines=summary_lines,
+            magic_link_url=magic_link_url,
+            expires_at_iso=expires_at_iso,
+        )
+
+    return TelegramWebhookAck(
+        accepted=True,
+        update_id=_safe_int(update.get("update_id")),
+        chat_id=chat_id,
+        session_id=session.session_id if session is not None else None,
+        metadata={
+            "source": "telegram_status_query",
+            "update_type": extracted.get("raw_type"),
+            "magic_link_url": magic_link_url,
+            "magic_link_expires_at": expires_at_iso,
+            "active_runs": len(runs),
+        },
+    )
+
+
+def _is_status_query(text: str) -> bool:
+    normalized = text.strip().lower()
+    if normalized.startswith("/status"):
+        return True
+    if normalized.startswith("/panel"):
+        return True
+    return normalized in {
+        "status",
+        "task status",
+        "任务状态",
+        "状态",
+        "查询状态",
+        "查看状态",
+        "进度",
+        "面板",
+    }
+
+
+def _build_status_summary_lines(
+    *,
+    chat_id: str,
+    session: OpenClawSessionRead | None,
+    runs: list[Any],
+) -> list[str]:
+    if session is None:
+        return [
+            f"chat_id: {chat_id}",
+            "当前没有历史会话。",
+            "发送任务文本后系统会自动创建会话并执行。",
+        ]
+
+    lines = [
+        f"chat_id: {chat_id}",
+        f"session: {session.session_id}",
+        f"session_status: {session.status.value}",
+        f"active_runs: {sum(1 for run in runs if run.status.value in {'queued', 'running'})}",
+    ]
+    if not runs:
+        lines.append("最近任务: 暂无")
+        return lines
+
+    lines.append("最近任务:")
+    for run in runs[:3]:
+        lines.append(f"- {run.agent_run_id} | {run.status.value} | {run.task_name}")
+    return lines
 
 
 def _build_task_name(chat_id: str, update: dict[str, Any], extracted: dict[str, Any]) -> str:

@@ -233,6 +233,34 @@ class ClaudeAgentRunRead(StrictModel):
     error: str | None = None
 
 
+class PanelMagicLinkRead(StrictModel):
+    url: str
+    telegram_uid: str
+    expires_at: datetime
+
+
+class PanelAuditLogRead(StrictModel):
+    audit_id: str
+    telegram_uid: str
+    action: Literal["cancel", "retry"]
+    target_type: Literal["agent_run"] = "agent_run"
+    target_id: str
+    status: Literal["accepted", "rejected", "failed"] = "accepted"
+    reason: str | None = None
+    request_ip: str | None = None
+    user_agent: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+
+
+class PanelStateRead(StrictModel):
+    telegram_uid: str
+    sessions: list[OpenClawSessionRead] = Field(default_factory=list)
+    agent_runs: list[ClaudeAgentRunRead] = Field(default_factory=list)
+    audit_logs: list[PanelAuditLogRead] = Field(default_factory=list)
+    issued_at: datetime
+
+
 class TelegramWebhookAck(StrictModel):
     accepted: bool
     update_id: int | None = None

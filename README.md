@@ -51,6 +51,9 @@ cd autonomous-agent-stack
 
 # 安装依赖
 pip install -r requirements.txt
+
+# 复制安全模板（填写 Telegram/Tailscale/JWT 参数）
+cp .env.security.example .env.local
 ```
 
 ### 2. 运行最小闭环
@@ -124,6 +127,18 @@ open dashboard.html
 - Webhook 入口：`/api/v1/gateway/telegram/webhook`
 - `chat_id -> session` 自动复用
 - 支持 `x-telegram-bot-api-secret-token` 校验
+- 支持 `/status` 动态魔法链接（短期 JWT + Telegram UID 签名）
+
+### Web 面板零信任安全（新增）
+- 默认仅允许 `127.0.0.1` 或 Tailscale IP 绑定，避免误暴露公网
+- 面板路由：`/api/v1/panel/*`，支持两种鉴权：
+  - 魔法链接 JWT：`Authorization: Bearer <token>` 或 `x-autoresearch-panel-token`
+  - Telegram Mini App：`x-telegram-init-data`（服务端验签 + UID 白名单）
+- 面板手动干预（`cancel/retry`）自动写入 SQLite 审计表 `panel_audit_logs`
+- 审计事件通过 Telegram Bot 实时推送（配置 `AUTORESEARCH_TELEGRAM_BOT_TOKEN`）
+- 适配两套移动访问路径：
+  - 方案一：Tailscale 私网直连
+  - 方案二：Cloudflare Tunnel + Telegram Mini App（解决手机 VPN 冲突）
 
 ### 动态工具执行安全
 - Dynamic Tool Synthesis 默认 `docker` 后端

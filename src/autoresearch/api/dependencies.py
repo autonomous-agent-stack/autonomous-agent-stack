@@ -9,8 +9,11 @@ from autoresearch.core.services.claude_agents import ClaudeAgentService
 from autoresearch.core.services.executions import ExecutionService
 from autoresearch.core.services.evaluations import EvaluationService
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
+from autoresearch.core.services.panel_access import PanelAccessService
+from autoresearch.core.services.panel_audit import PanelAuditService
 from autoresearch.core.services.reports import ReportService
 from autoresearch.core.services.self_integration import SelfIntegrationService
+from autoresearch.core.services.telegram_notify import TelegramNotifierService
 from autoresearch.core.services.variants import VariantService
 from autoresearch.shared.models import (
     ClaudeAgentRunRead,
@@ -21,6 +24,7 @@ from autoresearch.shared.models import (
     IntegrationPrototypeRead,
     OpenClawSessionRead,
     OptimizationRead,
+    PanelAuditLogRead,
     ReportRead,
     VariantRead,
 )
@@ -38,6 +42,35 @@ def _api_db_path() -> Path:
     if configured:
         return Path(configured).expanduser().resolve()
     return (_repo_root() / "artifacts" / "api" / "evaluations.sqlite3").resolve()
+
+
+def _env_csv(name: str) -> set[str]:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return set()
+    return {item.strip() for item in raw.split(",") if item.strip()}
+
+
+def _env_int(name: str, default: int, *, minimum: int, maximum: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        parsed = int(raw)
+    except ValueError:
+        return default
+    return max(minimum, min(maximum, parsed))
+
+
+def _env_float(name: str, default: float, *, minimum: float, maximum: float) -> float:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        parsed = float(raw)
+    except ValueError:
+        return default
+    return max(minimum, min(maximum, parsed))
 
 
 @lru_cache(maxsize=1)
@@ -149,5 +182,60 @@ def get_self_integration_service() -> SelfIntegrationService:
             db_path=_api_db_path(),
             table_name="integration_promotions",
             model_cls=IntegrationPromotionRead,
+        ),
+    )
+
+
+@lru_cache(maxsize=1)
+def get_panel_access_service() -> PanelAccessService:
+    return PanelAccessService(
+        secret=os.getenv("AUTORESEARCH_PANEL_JWT_SECRET"),
+        base_url=os.getenv("AUTORESEARCH_PANEL_BASE_URL", "http://127.0.0.1:8000/api/v1/panel/view"),
+        issuer=os.getenv("AUTORESEARCH_PANEL_JWT_ISSUER", "autoresearch.telegram"),
+        audience=os.getenv("AUTORESEARCH_PANEL_JWT_AUDIENCE", "autoresearch.panel"),
+        default_ttl_seconds=_env_int(
+            "AUTORESEARCH_PANEL_MAGIC_LINK_TTL_SECONDS",
+            300,
+            minimum=30,
+            maximum=3600,
+        ),
+        max_ttl_seconds=_env_int(
+            "AUTORESEARCH_PANEL_MAGIC_LINK_MAX_TTL_SECONDS",
+            3600,
+            minimum=30,
+            maximum=86400,
+        ),
+        telegram_bot_token=os.getenv("AUTORESEARCH_TELEGRAM_BOT_TOKEN"),
+        telegram_init_data_max_age_seconds=_env_int(
+            "AUTORESEARCH_PANEL_TELEGRAM_INITDATA_MAX_AGE_SECONDS",
+            900,
+            minimum=60,
+            maximum=86400,
+        ),
+        allowed_uids=_env_csv("AUTORESEARCH_TELEGRAM_ALLOWED_UIDS"),
+    )
+
+
+@lru_cache(maxsize=1)
+def get_panel_audit_service() -> PanelAuditService:
+    return PanelAuditService(
+        repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="panel_audit_logs",
+            model_cls=PanelAuditLogRead,
+        )
+    )
+
+
+@lru_cache(maxsize=1)
+def get_telegram_notifier_service() -> TelegramNotifierService:
+    return TelegramNotifierService(
+        bot_token=os.getenv("AUTORESEARCH_TELEGRAM_BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN"),
+        api_base=os.getenv("AUTORESEARCH_TELEGRAM_API_BASE", "https://api.telegram.org"),
+        timeout_seconds=_env_float(
+            "AUTORESEARCH_TELEGRAM_NOTIFY_TIMEOUT_SECONDS",
+            10.0,
+            minimum=1.0,
+            maximum=120.0,
         ),
     )
