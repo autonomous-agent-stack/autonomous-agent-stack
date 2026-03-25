@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from autoresearch.shared.models import JobStatus, ReportCreateRequest, ReportRead, utc_now
-from autoresearch.shared.store import InMemoryRepository, create_resource_id
+from autoresearch.shared.store import Repository, create_resource_id
 
 
 class ReportService:
     """Placeholder report generation service."""
 
-    def __init__(self, repository: InMemoryRepository[ReportRead]) -> None:
+    def __init__(self, repository: Repository[ReportRead]) -> None:
         self._repository = repository
 
     def create(self, request: ReportCreateRequest) -> ReportRead:

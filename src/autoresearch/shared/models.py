@@ -76,6 +76,106 @@ class EvaluationRead(StrictModel):
     error: str | None = None
 
 
+class ExecutionCreateRequest(StrictModel):
+    name: str = Field(..., min_length=1)
+    command: list[str] = Field(..., min_length=1)
+    timeout_seconds: int = Field(default=300, ge=1, le=3600)
+    work_dir: str | None = None
+    env: dict[str, str] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ExecutionRead(StrictModel):
+    execution_id: str
+    name: str
+    status: JobStatus
+    command: list[str] = Field(default_factory=list)
+    timeout_seconds: int
+    work_dir: str | None = None
+    returncode: int | None = None
+    stdout_preview: str | None = None
+    stderr_preview: str | None = None
+    duration_seconds: float | None = None
+    created_at: datetime
+    updated_at: datetime
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    error: str | None = None
+
+
+class OpenClawSessionCreateRequest(StrictModel):
+    channel: str = "api"
+    external_id: str | None = None
+    title: str = "openclaw-session"
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class OpenClawSessionEventAppendRequest(StrictModel):
+    role: Literal["system", "user", "assistant", "tool", "status"] = "status"
+    content: str = Field(..., min_length=1)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class OpenClawSessionRead(StrictModel):
+    session_id: str
+    channel: str
+    external_id: str | None = None
+    title: str
+    status: JobStatus
+    created_at: datetime
+    updated_at: datetime
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    events: list[dict[str, Any]] = Field(default_factory=list)
+    error: str | None = None
+
+
+class ClaudeAgentCreateRequest(StrictModel):
+    task_name: str = Field(..., min_length=1)
+    prompt: str = Field(..., min_length=1)
+    agent_name: str | None = None
+    session_id: str | None = None
+    parent_agent_id: str | None = None
+    generation_depth: int = Field(default=1, ge=1, le=10)
+    timeout_seconds: int = Field(default=900, ge=1, le=7200)
+    work_dir: str | None = None
+    cli_args: list[str] = Field(default_factory=list)
+    command_override: list[str] | None = None
+    append_prompt: bool = True
+    env: dict[str, str] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ClaudeAgentRunRead(StrictModel):
+    agent_run_id: str
+    task_name: str
+    prompt: str
+    status: JobStatus
+    agent_name: str | None = None
+    session_id: str | None = None
+    parent_agent_id: str | None = None
+    generation_depth: int
+    command: list[str] = Field(default_factory=list)
+    timeout_seconds: int
+    work_dir: str | None = None
+    returncode: int | None = None
+    stdout_preview: str | None = None
+    stderr_preview: str | None = None
+    duration_seconds: float | None = None
+    created_at: datetime
+    updated_at: datetime
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    error: str | None = None
+
+
+class TelegramWebhookAck(StrictModel):
+    accepted: bool
+    update_id: int | None = None
+    chat_id: str | None = None
+    session_id: str | None = None
+    agent_run_id: str | None = None
+    reason: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class ReportCreateRequest(StrictModel):
     evaluation_id: str | None = None
     experiment_id: str | None = None
