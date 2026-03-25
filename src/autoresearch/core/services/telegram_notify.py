@@ -86,7 +86,32 @@ class TelegramNotifierService:
         summary_lines: list[str],
         magic_link_url: str | None,
         expires_at_iso: str | None,
+        is_group_link: bool = False,
     ) -> bool:
+        """Send status notification with magic link.
+
+        Args:
+            chat_id: Telegram chat ID
+            summary_lines: Status summary lines
+            magic_link_url: Magic link URL
+            expires_at_iso: Link expiration time
+            is_group_link: Whether this is a group-scoped link (use Inline Button)
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.enabled:
+            return False
+
+        # For group links, use Inline Button
+        if is_group_link and magic_link_url:
+            return self._send_group_magic_link(
+                chat_id=chat_id,
+                magic_link_url=magic_link_url,
+                expires_at_iso=expires_at_iso,
+            )
+
+        # For regular links, use text message
         lines = ["[状态查询]", *summary_lines]
         if magic_link_url:
             lines.append("")
@@ -94,3 +119,64 @@ class TelegramNotifierService:
             if expires_at_iso:
                 lines.append(f"链接有效期至(UTC): {expires_at_iso}")
         return self.send_message(chat_id=chat_id, text="\n".join(lines))
+
+    def _send_group_magic_link(
+        self,
+        *,
+        chat_id: str,
+        magic_link_url: str,
+        expires_at_iso: str | None,
+    ) -> bool:
+        """Send magic link with Inline Button for group chats.
+
+        Args:
+            chat_id: Telegram chat ID
+            magic_link_url: Magic link URL
+            expires_at_iso: Link expiration time
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.enabled:
+            return False
+
+        # Build Inline Keyboard
+        inline_keyboard = {
+            "inline_keyboard": [
+                [
+                    {
+                        "text": "📊 查看工作看板",
+                        "url": magic_link_url,
+                    }
+                ]
+            ]
+        }
+
+        # Build message payload
+        text = "✅ 您的专属工作看板已就绪"
+        if expires_at_iso:
+            text += f"\n\n⏰ 链接有效期至: {expires_at_iso}"
+
+        payload = {
+            "chat_id": chat_id,
+            "text": text,
+            "reply_markup": inline_keyboard,
+            "disable_web_page_preview": True,
+        }
+
+        # Send to Telegram API
+        endpoint = f"{self._api_base}/bot{self._bot_token}/sendMessage"
+        body = json.dumps(payload).encode("utf-8")
+        req = request.Request(
+            endpoint,
+            data=body,
+            headers={"content-type": "application/json"},
+            method="POST",
+        )
+
+        try:
+            with request.urlopen(req, timeout=self._timeout_seconds) as response:
+                response_payload = json.loads(response.read().decode("utf-8"))
+            return bool(response_payload.get("ok"))
+        except (error.URLError, error.HTTPError, TimeoutError, json.JSONDecodeError):
+            return False
