@@ -10,6 +10,7 @@
 import re
 from typing import Dict, List
 from dataclasses import dataclass
+from src.gatekeeper.sandbox_runner import Sandbox_Test_Runner, SandboxTestResult
 
 @dataclass
 class ValidationResult:
@@ -23,6 +24,14 @@ class ValidationResult:
 class BusinessTDD_Enforcer:
     """业务护城河验证器"""
     
+    def __init__(self, sandbox_runner: Sandbox_Test_Runner = None):
+        """初始化
+        
+        Args:
+            sandbox_runner: 沙盒测试运行器实例（可选）
+        """
+        self.sandbox_runner = sandbox_runner or Sandbox_Test_Runner()
+    
     def __init__(self):
         # 玛露必需关键词
         self.malu_keywords = [
@@ -33,11 +42,15 @@ class BusinessTDD_Enforcer:
         
         # 禁止术语（工厂化行话）
         self.forbidden_terms = [
-            "工厂化",
+            "平替",
+            "代工厂",
             "流水线",
             "廉价",
             "批量化",
-            "标准化生产"
+            "标准化生产",
+            "批发",
+            "清仓",
+            "甩卖",
         ]
     
     async def validate_malu_copy(self, generated_copy: str) -> ValidationResult:
@@ -67,17 +80,31 @@ class BusinessTDD_Enforcer:
         
         return result
     
-    async def run_sandbox_tests(self, pr_branch: str) -> Dict:
-        """在 Docker 沙盒中运行测试"""
-        # TODO: 实现真实 Docker 沙盒
-        # 目前返回模拟结果
+    async def run_sandbox_tests(self, pr_branch: str, repo_path: str = ".") -> Dict:
+        """在 Docker 沙盒中运行测试
+        
+        Args:
+            pr_branch: PR 分支名
+            repo_path: 仓库路径
+            
+        Returns:
+            测试结果字典
+        """
+        # 使用 Sandbox_Test_Runner
+        result: SandboxTestResult = await self.sandbox_runner.run_tests_in_sandbox(
+            pr_branch=pr_branch,
+            repo_path=repo_path,
+        )
+        
         return {
-            "success": True,
-            "logs": "All tests passed",
+            "success": result.success,
+            "logs": result.logs,
             "test_results": {
-                "passed": 40,
-                "failed": 0
-            }
+                "passed": result.test_passed,
+                "failed": result.test_failed,
+            },
+            "malu_business_check": result.malu_business_check,
+            "violations": result.violations,
         }
     
     async def _semantic_check(self, text: str) -> Dict:
