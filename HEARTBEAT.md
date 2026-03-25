@@ -2,9 +2,10 @@
 
 ## 寏期检查任务
 
-- [x] 检查 PR #51165 状态 ✅ 已完成（2026-03-22 08:40）
+- [x] 检查 PR #51165 状态 ✅ 已完成（2026-03-25 07:55）
   - 状态：OPEN（无变化）
-  - 更新时间： 2026-03-20 19:01:11Z
+  - 更新时间： 2026-03-24 20:15:41Z（约 12 小时前）
+  - 标题：feat(skills): agent-scoped policy parity + reactive snapshot refresh
   - 链接: https://github.com/openclaw/openclaw/pull/51165
   - 备注： 继续监控
 
@@ -21,11 +22,14 @@
   - 整理: 关键内容
   - 配置: `~/.openclaw/workspace/.channel-subscriptions.json`
   - 状态: 5 个活跃频道（2026-03-24 04:52 修复）
-  - **最新视频**（2026-03-24 17:53）:
-    - 标题: 【人工智能】持续自我提升式AI | 斯坦福杨紫童博士答辩
-    - 链接: https://youtu.be/aKG7_3bkrvg
-    - 主题: SBP、实体图、模型自举、算法演化、自动化AI研究员
-    - 字幕: 无可用字幕
+  - **最新视频**（2026-03-25 07:55）:
+    - 标题: 理科大模型 | 陈天桥 | MiroMind | MiroThinker | AI的接入权 | 碳基沙文主义 | 人类的终极意义
+    - 链接: https://youtu.be/6B17RcqwnGE
+    - 时长: 22:46
+    - 上传: 2026-03-24
+    - 主题: 陈天桥、MiroMind、MiroThinker、AI接入权、碳基沙文主义
+    - 字幕: ✅ 有中文字幕
+    - 数据: 701 观看，35 点赞
 
 - [ ] 知识库维护（每日）
   - 检查热点资料是否需要降级
