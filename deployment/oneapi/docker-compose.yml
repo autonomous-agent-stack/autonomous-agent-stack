@@ -1,0 +1,49 @@
+version: "3.8"
+
+services:
+  one-api:
+    image: ${ONE_API_IMAGE:-justsong/one-api:latest}
+    container_name: one-api
+    restart: always
+    command: --log-dir /app/logs
+    depends_on:
+      - mysql
+      - redis
+    ports:
+      - "${ONE_API_PORT:-3000}:3000"
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      SQL_DSN: ${ONE_API_SQL_DSN:-oneapi:${ONE_API_DB_PASSWORD:-change_me}@tcp(mysql:3306)/one-api}
+      REDIS_CONN_STRING: ${ONE_API_REDIS:-redis://redis:6379/0}
+      SESSION_SECRET: ${ONE_API_SESSION_SECRET:-replace_with_long_random_secret}
+    volumes:
+      - ./data/oneapi:/data
+      - ./logs:/app/logs
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:3000/api/status | grep -q '\"success\": true'"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  mysql:
+    image: mysql:8.2.0
+    container_name: one-api-mysql
+    restart: always
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-change_me_root}
+      MYSQL_DATABASE: one-api
+      MYSQL_USER: oneapi
+      MYSQL_PASSWORD: ${ONE_API_DB_PASSWORD:-change_me}
+    command: ["--default-authentication-plugin=mysql_native_password"]
+    volumes:
+      - ./data/mysql:/var/lib/mysql
+
+  redis:
+    image: redis:7-alpine
+    container_name: one-api-redis
+    restart: always
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - ./data/redis:/data
+
