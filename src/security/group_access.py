@@ -12,11 +12,15 @@
 import os
 import jwt
 import asyncio
+import logging
+import sqlite3
 from typing import List, Optional
 from datetime import datetime, timedelta
-from functools import lru_cache
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 class MembershipStatus(Enum):
     """群成员状态"""
@@ -44,6 +48,12 @@ class GroupAccessManager:
         self.secret_key = secret_key
         self.internal_groups = self._load_internal_groups()
         self.audit_logs: List[AccessAuditLog] = []
+        self._membership_cache: dict[tuple[int, int], tuple[MembershipStatus, datetime]] = {}
+        self._cache_ttl = timedelta(minutes=5)
+        db_path = os.getenv("GROUP_ACCESS_AUDIT_DB", "data/group_access_audit.db")
+        self._db_path = Path(db_path)
+        self._db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._ensure_audit_table()
     
     def _load_internal_groups(self) -> List[int]:
         """加载内部群组白名单"""
@@ -63,7 +73,7 @@ class GroupAccessManager:
             
             return groups
         except Exception as e:
-            print(f"⚠️ 加载内部群组失败: {e}")
+            logger.warning("⚠️ 加载内部群组失败: %s", e)
             return []
     
     def is_internal_group(self, chat_id: int) -> bool:
@@ -88,13 +98,21 @@ class GroupAccessManager:
         token = jwt.encode(payload, self.secret_key, algorithm="HS256")
         return f"{base_url}/panel?token={token}"
     
-    @lru_cache(maxsize=1000)
-    def _get_cached_membership(self, chat_id: int, user_id: int, 
-                               cache_key: str) -> Optional[MembershipStatus]:
-        """缓存群成员身份（5分钟TTL）"""
-        # cache_key 用于实现TTL（包含分钟级时间戳）
-        # 实际验证在 verify_group_membership 中完成
-        return None
+    def _get_cached_membership(self, chat_id: int, user_id: int) -> Optional[MembershipStatus]:
+        """读取缓存中的群成员身份（TTL 5 分钟）"""
+        key = (chat_id, user_id)
+        cached = self._membership_cache.get(key)
+        if not cached:
+            return None
+        status, expires_at = cached
+        if datetime.now() >= expires_at:
+            self._membership_cache.pop(key, None)
+            return None
+        return status
+
+    def _set_cached_membership(self, chat_id: int, user_id: int, status: MembershipStatus) -> None:
+        key = (chat_id, user_id)
+        self._membership_cache[key] = (status, datetime.now() + self._cache_ttl)
     
     async def verify_group_membership(self, chat_id: int, user_id: int, 
                                      bot, use_cache: bool = True) -> MembershipStatus:
@@ -102,9 +120,7 @@ class GroupAccessManager:
         
         # 检查缓存
         if use_cache:
-            cache_time = datetime.now().strftime("%Y%m%d%H%M")  # 分钟级缓存
-            cache_key = f"{chat_id}:{user_id}:{cache_time}"
-            cached = self._get_cached_membership(chat_id, user_id, cache_key)
+            cached = self._get_cached_membership(chat_id, user_id)
             if cached:
                 return cached
         
@@ -115,13 +131,11 @@ class GroupAccessManager:
             
             # 更新缓存
             if use_cache:
-                cache_time = datetime.now().strftime("%Y%m%d%H%M")
-                cache_key = f"{chat_id}:{user_id}:{cache_time}"
-                # lru_cache会自动缓存返回值
+                self._set_cached_membership(chat_id, user_id, status)
             
             return status
         except Exception as e:
-            print(f"⚠️ getChatMember调用失败: {e}")
+            logger.warning("⚠️ getChatMember调用失败: %s", e)
             return MembershipStatus.UNKNOWN
     
     def is_access_allowed(self, status: MembershipStatus) -> bool:
@@ -144,9 +158,8 @@ class GroupAccessManager:
             reason=reason
         )
         self.audit_logs.append(log)
-        
-        # TODO: 写入SQLite数据库
-        print(f"📝 审计日志: {log}")
+        await asyncio.to_thread(self._write_audit_log, log)
+        logger.info("📝 审计日志: %s", log)
     
     async def check_panel_access(self, token: str, user_id: int, bot) -> bool:
         """面板访问检查"""
@@ -183,6 +196,47 @@ class GroupAccessManager:
         except Exception as e:
             await self.log_access(0, user_id, "panel_access", "denied", str(e))
             raise ValueError(f"访问验证失败: {e}")
+
+    def _ensure_audit_table(self) -> None:
+        with sqlite3.connect(self._db_path) as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS group_access_audit (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    chat_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    action TEXT NOT NULL,
+                    result TEXT NOT NULL,
+                    reason TEXT
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_group_access_audit_user_time
+                ON group_access_audit(user_id, timestamp)
+                """
+            )
+            conn.commit()
+
+    def _write_audit_log(self, log: AccessAuditLog) -> None:
+        with sqlite3.connect(self._db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO group_access_audit (timestamp, chat_id, user_id, action, result, reason)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    log.timestamp.isoformat(),
+                    log.chat_id,
+                    log.user_id,
+                    log.action,
+                    log.result,
+                    log.reason,
+                ),
+            )
+            conn.commit()
 
 # 测试
 if __name__ == "__main__":
