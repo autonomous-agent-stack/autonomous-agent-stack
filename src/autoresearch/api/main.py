@@ -34,6 +34,12 @@ from autoresearch.api.routers import (
 )
 from autoresearch.api.webauthn_interceptor import demo_router  # WebAuthn 演示页面
 
+# Telegram Webhook 处理器
+try:
+    from gateway.telegram_webhook import router as telegram_blitz_router
+except ImportError:
+    telegram_blitz_router = None
+
 logger = logging.getLogger(__name__)
 
 
