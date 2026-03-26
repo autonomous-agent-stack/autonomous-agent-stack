@@ -9,6 +9,7 @@
 
 - `templates/openclaw-to-autoresearch.env.example`: 环境变量映射模板
 - `requests/openclaw-compat-smoke.sh`: API 样例请求（会话 + agent）
+- `requests/openclaw-skill-smoke.sh`: API 样例请求（skills 列表 + session 装载 + agent 注入校验）
 - `scripts/discover-openclaw-data.sh`: 自动探测旧数据位置（sqlite/json）
 - `scripts/verify-migration.sh`: 一键验证（环境 + API + 兼容接口）
 - `logs/`: 迁移探测与验证日志
@@ -57,6 +58,14 @@ uvicorn src.autoresearch.api.main:app --host 127.0.0.1 --port 8000
 
 ```bash
 bash migration/openclaw/scripts/verify-migration.sh
+```
+
+你也可以单独跑 skills 链路验证：
+
+```bash
+bash migration/openclaw/requests/openclaw-skill-smoke.sh
+# 可选：指定 skill 名称
+# SKILL_NAME=voice-call bash migration/openclaw/requests/openclaw-skill-smoke.sh
 ```
 
 ### 5. 如果你只想接 Claude CLI

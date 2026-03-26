@@ -8,18 +8,22 @@ import pytest
 from fastapi.testclient import TestClient
 
 from autoresearch.api.dependencies import (
+    get_admin_auth_service,
     get_admin_config_service,
     get_claude_agent_service,
     get_openclaw_compat_service,
 )
 from autoresearch.api.main import app
+from autoresearch.core.services.admin_auth import AdminAuthService
 from autoresearch.core.services.admin_config import AdminConfigService
+from autoresearch.core.services.admin_secrets import AdminSecretCipher
 from autoresearch.core.services.claude_agents import ClaudeAgentService
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.shared.models import (
     AdminAgentConfigRead,
     AdminChannelConfigRead,
     AdminConfigRevisionRead,
+    AdminSecretRecordRead,
     ClaudeAgentRunRead,
     OpenClawSessionRead,
 )
@@ -63,13 +67,33 @@ def admin_client(tmp_path: Path) -> TestClient:
             table_name="admin_config_revisions_it",
             model_cls=AdminConfigRevisionRead,
         ),
+        secret_repository=SQLiteModelRepository(
+            db_path=db_path,
+            table_name="admin_secret_records_it",
+            model_cls=AdminSecretRecordRead,
+        ),
+        secret_cipher=AdminSecretCipher(secret_key="test-secret-key"),
+    )
+    auth_service = AdminAuthService(
+        secret="test-admin-jwt-secret",
+        bootstrap_key="bootstrap-test-key",
     )
 
     app.dependency_overrides[get_openclaw_compat_service] = lambda: openclaw_service
     app.dependency_overrides[get_claude_agent_service] = lambda: claude_service
     app.dependency_overrides[get_admin_config_service] = lambda: admin_service
+    app.dependency_overrides[get_admin_auth_service] = lambda: auth_service
 
     with TestClient(app) as client:
+        token_response = client.post(
+            "/api/v1/admin/auth/token",
+            json={"subject": "test-owner", "roles": ["owner"], "ttl_seconds": 3600},
+            headers={"x-admin-bootstrap-key": "bootstrap-test-key"},
+        )
+        assert token_response.status_code == 200
+        token = token_response.json()["token"]
+        client.headers.update({"authorization": f"Bearer {token}"})
+        setattr(client, "_admin_service", admin_service)
         yield client
 
     app.dependency_overrides.clear()
@@ -86,6 +110,14 @@ def _wait_terminal(client: TestClient, agent_run_id: str, attempts: int = 40) ->
         time.sleep(0.05)
     assert finalized is not None
     return finalized
+
+
+def test_admin_requires_bearer_token(admin_client: TestClient) -> None:
+    existing = admin_client.headers.pop("authorization", None)
+    denied = admin_client.get("/api/v1/admin/agents")
+    assert denied.status_code == 401
+    if existing is not None:
+        admin_client.headers["authorization"] = existing
 
 
 def test_admin_agent_crud_history_rollback(admin_client: TestClient) -> None:
@@ -239,3 +271,37 @@ def test_admin_channel_crud_and_duplicate_key_guard(admin_client: TestClient) ->
     assert history.status_code == 200
     versions = sorted(item["version"] for item in history.json())
     assert versions == [1, 2, 3]
+
+
+def test_admin_channel_secret_is_encrypted(admin_client: TestClient) -> None:
+    created = admin_client.post(
+        "/api/v1/admin/channels",
+        json={
+            "key": "telegram-secret",
+            "display_name": "Telegram Secret",
+            "provider": "telegram",
+            "secret_value": "bot-token-plain",
+            "enabled": True,
+            "actor": "test-admin",
+        },
+    )
+    assert created.status_code == 201
+    payload = created.json()
+    channel_id = payload["channel_id"]
+    assert payload["has_secret"] is True
+    assert "secret_value" not in payload
+
+    admin_service: AdminConfigService = getattr(admin_client, "_admin_service")
+    resolved = admin_service.resolve_channel_secret(channel_id)
+    assert resolved == "bot-token-plain"
+
+    cleared = admin_client.put(
+        f"/api/v1/admin/channels/{channel_id}",
+        json={
+            "clear_secret": True,
+            "actor": "test-admin",
+            "reason": "rotate",
+        },
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["has_secret"] is False

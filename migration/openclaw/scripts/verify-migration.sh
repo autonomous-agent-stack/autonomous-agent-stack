@@ -27,6 +27,10 @@ BASE_URL="${BASE_URL:-http://127.0.0.1:8000}"
   echo
   echo "## openclaw compat smoke"
   bash "${ROOT_DIR}/requests/openclaw-compat-smoke.sh"
+
+  echo
+  echo "## openclaw skill smoke"
+  bash "${ROOT_DIR}/requests/openclaw-skill-smoke.sh"
 } | tee "${LOG_FILE}"
 
 echo

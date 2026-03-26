@@ -121,6 +121,7 @@ def telegram_webhook(
         cli_args=_env_cli_args("AUTORESEARCH_TELEGRAM_CLAUDE_ARGS"),
         command_override=_env_command_override("AUTORESEARCH_TELEGRAM_CLAUDE_COMMAND_OVERRIDE"),
         append_prompt=_env_bool("AUTORESEARCH_TELEGRAM_APPEND_PROMPT", default=True),
+        images=extracted.get("images", []),  # 新增图片字段
         env={},
         metadata={
             "source": "telegram_webhook",
@@ -128,6 +129,7 @@ def telegram_webhook(
             "update_id": _safe_int(update.get("update_id")),
             "message_id": extracted.get("message_id"),
             "username": extracted.get("username"),
+            "has_images": len(extracted.get("images", [])) > 0,  # 标记是否有图片
         },
     )
 
@@ -193,6 +195,21 @@ def _extract_telegram_message(update: dict[str, Any]) -> dict[str, Any] | None:
     if isinstance(message, dict):
         chat = message.get("chat", {})
         from_user = message.get("from", {})
+        
+        # 提取图片信息
+        photos = message.get("photo", [])
+        image_urls = []
+        if photos:
+            # 获取最大尺寸的图片（最后一个）
+            largest_photo = photos[-1] if photos else None
+            if largest_photo:
+                file_id = largest_photo.get("file_id")
+                if file_id:
+                    # 构造图片 URL（需要 Bot Token）
+                    bot_token = os.getenv("AUTORESEARCH_TELEGRAM_BOT_TOKEN", "")
+                    if bot_token:
+                        image_urls.append(f"telegram://{file_id}")
+        
         return {
             "chat_id": _safe_str(chat.get("id")),
             "text": (message.get("text") or message.get("caption") or "").strip(),
@@ -200,6 +217,7 @@ def _extract_telegram_message(update: dict[str, Any]) -> dict[str, Any] | None:
             "username": from_user.get("username"),
             "from_user_id": _safe_int(from_user.get("id")),
             "raw_type": "message",
+            "images": image_urls,  # 新增图片字段
         }
 
     callback = update.get("callback_query")
