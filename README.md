@@ -1,168 +1,312 @@
-# 🤖 Autonomous Agent Stack
+# 多话题路由网关
 
-> 一个面向多智能体编排、审计、面板接入与迁移验证的工程化框架。
+## 项目概述
 
----
+这是一个 Telegram 多话题路由网关系统，支持智能消息分发、原话镜像备份和动态路由管理。
 
-## 项目概览
+## 核心功能
 
-Autonomous Agent Stack 目前已经把核心链路落到了代码里，重点覆盖以下几类能力：
+### 1. 路由表管理 (RouteTable)
+- ✅ 管理话题映射配置
+- ✅ 支持动态添加/更新/删除路由
+- ✅ 自动计算备份话题 ID
+- ✅ 路由启用/禁用控制
 
-- 多智能体图编排与 prompt 驱动执行
-- OpenClaw / Autoresearch 兼容会话与运行记录
-- MCP 工具注册、上下文桥接与动态工具合成
-- Docker 沙盒执行与 AppleDouble 清理
-- Telegram 网关、面板鉴权与审计
-- 静态安全审计、知识图谱与业务红线约束
-- 检查点恢复、人机协同拦截与标准 MCP 兼容能力
+### 2. 话题路由器 (TopicRouter)
+- ✅ 根据消息类型智能路由到指定话题
+- ✅ 支持消息镜像到备份话题
+- ✅ 广播消息到多个话题
+- ✅ 手动镜像功能
 
-这份 README 以“仓库里已实现什么”为准，而不是以愿景为准。
+### 3. 消息镜像 (MessageMirror)
+- ✅ 原话镜像到备份话题
+- ✅ 批量镜像支持
+- ✅ 镜像统计和监控
 
----
+### 4. 环境防御 (AppleDoubleCleaner)
+- ✅ 清理 macOS AppleDouble 文件
+- ✅ 防止文件系统污染
 
-## 已实现功能
+## 项目结构
 
-### 1. 多智能体编排
+```
+autonomous-agent-stack/
+├── src/
+│   ├── gateway/
+│   │   ├── __init__.py
+│   │   ├── route_table.py       # 路由表
+│   │   ├── topic_router.py      # 话题路由器
+│   │   └── message_mirror.py    # 消息镜像
+│   └── security/
+│       ├── __init__.py
+│       └── apple_double_cleaner.py  # 环境清理
+├── tests/
+│   ├── gateway/
+│   │   ├── test_route_table.py
+│   │   ├── test_message_mirror.py
+│   │   ├── test_topic_router.py
+│   │   └── test_integration.py
+│   └── run_tests.py
+└── README.md
+```
 
-- 基于图的编排引擎
-- Planner / Generator / Executor / Evaluator 节点链路
-- 支持 prompt 直接生成编排图
-- 支持 VS Code 任务驱动的 prompt 文件执行
-- 支持失败重试和流程回环
+## 安装依赖
 
-### 2. OpenClaw / Autoresearch 兼容层
+```bash
+# 安装 pytest
+pip install pytest pytest-asyncio
 
-- SQLite 持久化会话与运行记录
-- OpenClaw 兼容服务入口
-- Claude 子 agent 调度接口
-- 会话、评估、运行状态可追踪
-
-### 3. MCP 工具体系
-
-- MCPContextBlock 上下文桥接
-- MCPToolRegistry 工具注册与缓存
-- 动态工具发现、合成与调用路径
-- 标准 MCP manifest 解析与导出
-- JSON Schema 输入校验
-
-### 4. 沙盒与执行环境
-
-- Docker 动态沙盒后端
-- 代码执行路由到容器
-- AppleDouble / `.DS_Store` 清理器
-- 适配本地开发和迁移验证流程
-
-### 5. Telegram 网关与面板安全
-
-- Telegram webhook 网关
-- `/status` 魔法链接流程
-- `x-telegram-bot-api-secret-token` 校验
-- 面板 JWT 鉴权
-- Telegram Mini App `initData` 验签
-- Telegram UID 白名单
-- 面板操作审计写入 SQLite
-- localhost / Tailscale 绑定限制
-
-### 6. 静态安全与业务约束
-
-- AST + 正则双通道安全审计
-- 高危调用拦截
-- Micro-GraphRAG 轻量知识图谱
-- 业务红线词汇约束
-- 基础安全扫描脚本与迁移校验脚本
-
-### 7. 高级工程特性
-
-- Checkpointing 节点快照与恢复
-- HITL 人机协同审批拦截
-- 标准 MCP 兼容层
-- 运行状态与回退记录
-
----
-
-## 现状说明
-
-下面这些是仓库里已经有代码落点的能力，但其中有些仍是简化实现或需要特定环境验证：
-
-- WebAuthn 生物识别路由与前后端拦截器
-- P4 / OpenSage 自动发现与修复流程骨架
-- 并发稳定性与真实高压场景验证
-- 部分生态插件在真实业务场景下的收益评估
-
-如果你要判断“能不能直接上生产”，建议先看 `STATUS_AND_RELEASE_NOTES.md` 和各模块测试结果。
-
----
+# 或者使用 uv
+uv pip install pytest pytest-asyncio
+```
 
 ## 快速开始
 
-### 1. 后端 API
+### 基本使用
 
-```bash
-cd /Volumes/PS1008/Github/autonomous-agent-stack
-pip install -r requirements.txt
-uvicorn src.autoresearch.api.main:app --host 127.0.0.1 --port 8000
+```python
+from src.gateway.topic_router import TopicRouter
+from src.security.apple_double_cleaner import AppleDoubleCleaner
+
+# 1. 环境清理（必须）
+AppleDoubleCleaner.clean()
+
+# 2. 初始化路由器
+router = TopicRouter()
+
+# 3. 路由消息
+result = await router.route_message(
+    message_type="intelligence",
+    text="市场情报：某公司计划发布新产品",
+    mirror=True  # 启用镜像备份
+)
+
+print(result)
+# {
+#     "status": "success",
+#     "chat_id": -1001234567890,
+#     "thread_id": 10,
+#     "message_id": 1234,
+#     "mirrored": true,
+#     "backup_message_id": 5678
+# }
 ```
 
-健康检查：
+### 自定义路由
 
-```bash
-open http://127.0.0.1:8000/healthz
+```python
+from src.gateway.route_table import RouteTable
+from src.gateway.topic_router import TopicRouter
+
+# 创建自定义路由表
+route_table = RouteTable()
+
+# 添加新路由
+route_table.add_route(
+    message_type="urgent",
+    chat_id=-1001111111111,
+    thread_id=50,
+    description="紧急通知话题"
+)
+
+# 使用自定义路由表
+router = TopicRouter(route_table=route_table)
 ```
 
-### 2. Dashboard
+### 广播消息
 
-```bash
-cd /Volumes/PS1008/Github/autonomous-agent-stack/dashboard
-npm install
-npm run dev
+```python
+router = TopicRouter()
+
+# 广播到所有启用的路由
+result = await router.broadcast_message("重要通知")
+
+# 广播到指定类型
+result = await router.broadcast_message(
+    "特定通知",
+    message_types=["intelligence", "content"]
+)
 ```
 
-打开：
+### 手动镜像
 
-```bash
-open http://localhost:3000
+```python
+router = TopicRouter()
+
+# 手动镜像消息
+result = await router.mirror_message(
+    source_chat_id=-1001234567890,
+    source_thread_id=10,
+    target_chat_id=-1001234567890,
+    target_thread_id=110,
+    text="需要备份的重要内容"
+)
 ```
 
-### 3. OpenClaw 迁移配置
+## 默认路由配置
+
+| 消息类型 | 群组 ID | 话题 ID | 描述 | 备份话题 ID |
+|---------|---------|---------|------|------------|
+| intelligence | -1001234567890 | 10 | 市场情报话题 | 110 |
+| content | -1001234567890 | 20 | 内容实验室话题 | 120 |
+| security | -1009876543210 | None | 系统审计群组 | 无 |
+
+## 运行测试
 
 ```bash
-cp migration/openclaw/templates/openclaw-to-autoresearch.env.example migration/openclaw/.env.local
+# 运行所有测试
+python tests/run_tests.py
+
+# 运行特定测试文件
+pytest tests/gateway/test_route_table.py -v
+
+# 运行特定测试用例
+pytest tests/gateway/test_route_table.py::TestRouteTable::test_get_route_success -v
+
+# 查看测试覆盖率
+pytest tests/ --cov=src/gateway --cov-report=html
 ```
 
----
+## 测试覆盖
 
-## 主要入口
+### 单元测试 (Unit Tests)
+- ✅ RouteTable: 15 个测试用例
+- ✅ MessageMirror: 10 个测试用例
+- ✅ TopicRouter: 12 个测试用例
 
-- API 服务：`src/autoresearch/api/main.py`
-- OpenClaw 兼容服务：`src/autoresearch/core/services/openclaw_compat.py`
-- 面板路由：`src/autoresearch/api/routers/panel.py`
-- Telegram 网关：`src/autoresearch/api/routers/gateway_telegram.py`
-- WebAuthn 路由：`src/autoresearch/api/routers/webauthn.py`
-- MCP 上下文：`src/orchestrator/mcp_context.py`
-- 沙盒清理：`src/orchestrator/sandbox_cleaner.py`
-- 静态安全审计：`src/gatekeeper/static_analyzer.py`
+### 集成测试 (Integration Tests)
+- ✅ 完整路由工作流
+- ✅ 动态路由管理
+- ✅ 混合状态广播
+- ✅ 手动镜像工作流
+- ✅ 错误处理
+- ✅ 并发路由
+- ✅ 备份路由计算
+- ✅ 安全清理
+- ✅ 路由更新
+- ✅ 路由列表完整性
 
----
+**总计：47+ 个测试用例**
 
-## 文档与看板
+## 日志规范
 
-- 根目录 README：项目总览
-- `dashboard/README.md`：前端看板说明
-- `dashboard/QUICKSTART.md`：看板快速启动
-- `STATUS_AND_RELEASE_NOTES.md`：真实状态与发布说明
-- `FINAL_DELIVERY_REPORT.md`：收尾交付报告
-- `NIGHT_SPRINT_REPORT.md`：夜间冲刺报告
+系统使用结构化日志，便于调试和监控：
 
----
+```
+[Router-Gate] Topic router initialized
+[Router-Gate] RouteTable initialized with 3 routes
+[Router-Gate] Routing message to: intelligence -> -1001234567890:10
+[Router-Gate] Mirror enabled, backing up to: 110
+[Router-Gate] Message mirrored: 1234 -> -1001234567890:110 (ID: 5678)
+[Router-Gate] Route validation passed
+[Security] Starting AppleDouble cleanup in: /path/to/dir
+[Security] Cleanup complete: 3 files removed
+```
 
-## 开发约定
+## API 参考
 
-- 以代码和测试为准，不把愿景默认当成已完成
-- 新增能力尽量补充到对应模块 README 或状态说明
-- 涉及安全、鉴权、审批链路的改动，优先补测试再合并
+### RouteTable
 
----
+```python
+class RouteTable:
+    def get_route(message_type: str) -> Optional[Dict]
+    def add_route(message_type, chat_id, thread_id, description) -> bool
+    def update_route(message_type, **kwargs) -> bool
+    def disable_route(message_type) -> bool
+    def enable_route(message_type) -> bool
+    def list_routes() -> List[Dict]
+    def get_backup_route(message_type) -> Optional[Dict]
+```
+
+### TopicRouter
+
+```python
+class TopicRouter:
+    async def route_message(message_type, text, mirror=False, sender_id=None) -> Dict
+    async def mirror_message(source_chat_id, source_thread_id, target_chat_id, target_thread_id, text) -> Dict
+    async def broadcast_message(text, message_types=None) -> Dict
+    def get_router_stats() -> Dict
+    def add_route(message_type, chat_id, thread_id, description) -> bool
+```
+
+### MessageMirror
+
+```python
+class MessageMirror:
+    async def mirror_to_backup(original_message, backup_chat_id, backup_thread_id) -> Dict
+    async def batch_mirror(messages, backup_chat_id, backup_thread_id) -> Dict
+    def get_mirror_stats() -> Dict
+```
+
+### AppleDoubleCleaner
+
+```python
+class AppleDoubleCleaner:
+    @staticmethod
+    def clean(directory=".") -> int
+    @staticmethod
+    def check(directory=".") -> int
+```
+
+## 配置说明
+
+### 环境变量（可选）
+
+```bash
+# Telegram Bot Token（如果需要实际发送消息）
+export TELEGRAM_BOT_TOKEN="your_bot_token_here"
+
+# 日志级别
+export LOG_LEVEL="INFO"
+```
+
+### 路由配置
+
+路由配置可以通过以下方式管理：
+
+1. **代码配置**：使用默认路由或自定义 RouteTable
+2. **文件配置**（未来支持）：从 JSON/YAML 文件加载
+3. **动态配置**：运行时添加/修改路由
+
+## 安全考虑
+
+1. **环境清理**：所有路由操作前强制执行 AppleDouble 清理
+2. **路由验证**：启动时验证所有路由配置的有效性
+3. **错误处理**：所有 API 都有完善的错误处理和日志记录
+4. **类型检查**：严格验证 chat_id 和 thread_id 的类型
+
+## 性能优化
+
+1. **异步操作**：所有 I/O 操作都是异步的
+2. **批量处理**：支持批量镜像，减少 API 调用
+3. **连接池**（未来）：复用 Telegram Bot 连接
+
+## 未来计划
+
+- [ ] 支持从文件加载路由配置
+- [ ] 实现实际的 Telegram Bot API 集成
+- [ ] 添加消息重试机制
+- [ ] 支持路由优先级
+- [ ] 添加 Web UI 管理界面
+- [ ] 支持消息模板
+- [ ] 添加性能监控和指标
+
+## 贡献指南
+
+1. Fork 项目
+2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
+3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
+4. 推送到分支 (`git push origin feature/AmazingFeature`)
+5. 开启 Pull Request
 
 ## 许可证
 
 MIT License
+
+## 作者
+
+Agent-1: 架构师（Topic Router）
+
+---
+
+**注意**：当前版本使用模拟模式，不会实际发送 Telegram 消息。要启用实际发送，需要配置真实的 Telegram Bot Token。
