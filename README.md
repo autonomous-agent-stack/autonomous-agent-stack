@@ -70,6 +70,7 @@ PORT=8010 make start
 ## 深入文档
 
 - [快速启动文档](./docs/QUICK_START.md)
+- [Admin View 字段填写教程](./docs/admin-view-field-guide.md)
 - [状态与发布说明](./STATUS_AND_RELEASE_NOTES.md)
 - [工作流引擎验证报告](./docs/WORKFLOW_ENGINE_VERIFICATION_REPORT.md)
 - [自集成协议](./docs/p4-self-integration-protocol.md)
