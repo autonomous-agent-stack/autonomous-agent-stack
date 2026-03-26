@@ -9,6 +9,7 @@ import os
 import shutil
 import socket
 import sys
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -158,6 +159,50 @@ def _check_env_files(repo_root: Path) -> CheckResult:
     return _warn("Environment file", "No .env template found")
 
 
+def _read_env_value(repo_root: Path, key: str) -> str:
+    value = os.getenv(key, "")
+    if value:
+        return value.strip()
+    env_path = repo_root / ".env"
+    if not env_path.exists():
+        return ""
+    pattern = re.compile(rf"^\s*{re.escape(key)}\s*=\s*(.*)\s*$")
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        if not line or line.lstrip().startswith("#"):
+            continue
+        match = pattern.match(line)
+        if not match:
+            continue
+        raw = match.group(1).strip()
+        if (raw.startswith('"') and raw.endswith('"')) or (raw.startswith("'") and raw.endswith("'")):
+            raw = raw[1:-1]
+        return raw.strip()
+    return ""
+
+
+def _check_telegram_secret_policy(repo_root: Path) -> CheckResult:
+    env = (
+        _read_env_value(repo_root, "AUTORESEARCH_ENV")
+        or _read_env_value(repo_root, "ENVIRONMENT")
+        or _read_env_value(repo_root, "AUTORESEARCH_ENVIRONMENT")
+    ).strip().lower()
+    secret = _read_env_value(repo_root, "AUTORESEARCH_TELEGRAM_SECRET_TOKEN")
+    is_prod = env in {"production", "prod"}
+    if is_prod and not secret:
+        return _fail(
+            "Telegram secret policy",
+            "AUTORESEARCH_TELEGRAM_SECRET_TOKEN is missing in production mode",
+            "Set AUTORESEARCH_TELEGRAM_SECRET_TOKEN before starting webhook in production.",
+        )
+    if not secret:
+        return _warn(
+            "Telegram secret policy",
+            "AUTORESEARCH_TELEGRAM_SECRET_TOKEN is not set (dev mode allowed)",
+            "Set a token now to match production behavior and avoid misconfiguration.",
+        )
+    return _ok("Telegram secret policy", "Secret token configured")
+
+
 def _check_commands() -> CheckResult:
     missing = [cmd for cmd in OPTIONAL_COMMANDS if shutil.which(cmd) is None]
     if missing:
@@ -193,6 +238,7 @@ def _run_checks(repo_root: Path, port: int) -> list[CheckResult]:
     checks.append(_check_requirements(repo_root))
     checks.append(_check_core_imports(repo_root))
     checks.append(_check_env_files(repo_root))
+    checks.append(_check_telegram_secret_policy(repo_root))
     checks.append(_check_commands())
     checks.append(_check_port(port))
     return checks

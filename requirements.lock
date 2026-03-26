@@ -1,0 +1,16 @@
+# Locked baseline dependency set (pin versions for reproducible installs).
+# Update this file deliberately when validating dependency upgrades.
+masfactory==1.0.1
+pydantic==2.12.5
+fastapi==0.135.2
+uvicorn==0.42.0
+docker==7.0.0
+websockets==14.2
+mcp==1.26.0
+python-dotenv==1.2.1
+PyYAML==6.0.3
+cryptography==46.0.5
+Pillow==12.1.1
+numpy==2.3.3
+pytest==8.4.2
+httpx==0.28.1

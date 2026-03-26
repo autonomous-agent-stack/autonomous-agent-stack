@@ -4,6 +4,8 @@ from datetime import datetime, timezone
 import inspect
 import os
 import shlex
+import threading
+import time
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
@@ -34,6 +36,12 @@ from autoresearch.shared.models import (
 
 
 router = APIRouter(prefix="/api/v1/gateway/telegram", tags=["gateway", "telegram"])
+_UPDATE_REPLAY_TTL_SECONDS = 600
+_RATE_WINDOW_SECONDS = 60
+_RATE_MAX_REQUESTS_PER_CHAT = 30
+_SEEN_UPDATES: dict[str, float] = {}
+_CHAT_RATE_WINDOWS: dict[str, list[float]] = {}
+_GUARD_LOCK = threading.Lock()
 
 
 @router.get("/health", tags=["gateway"])
@@ -57,6 +65,7 @@ def telegram_webhook(
     admin_config_service: AdminConfigService = Depends(get_admin_config_service),
 ) -> TelegramWebhookAck:
     _validate_secret_token(raw_request)
+    _guard_webhook_replay_and_rate(update)
 
     extracted = _extract_telegram_message(update)
     if extracted is None:
@@ -194,11 +203,26 @@ def telegram_webhook(
 
 def _validate_secret_token(raw_request: Request) -> None:
     expected = os.getenv("AUTORESEARCH_TELEGRAM_SECRET_TOKEN", "").strip()
+    if _is_production_env() and not expected:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="telegram secret token is required in production",
+        )
     if not expected:
         return
     provided = raw_request.headers.get("x-telegram-bot-api-secret-token", "").strip()
     if provided != expected:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid telegram secret token")
+
+
+def _is_production_env() -> bool:
+    environment = (
+        os.getenv("AUTORESEARCH_ENV")
+        or os.getenv("ENVIRONMENT")
+        or os.getenv("AUTORESEARCH_ENVIRONMENT")
+        or ""
+    ).strip().lower()
+    return environment in {"prod", "production"}
 
 
 def _extract_telegram_message(update: dict[str, Any]) -> dict[str, Any] | None:
@@ -247,6 +271,53 @@ def _extract_telegram_message(update: dict[str, Any]) -> dict[str, Any] | None:
             "raw_type": "callback_query",
         }
     return None
+
+
+def _guard_webhook_replay_and_rate(update: dict[str, Any]) -> None:
+    update_id = _safe_int(update.get("update_id"))
+    if update_id is None:
+        return
+    message = update.get("message") or update.get("edited_message") or {}
+    chat_id = _safe_str((message.get("chat") or {}).get("id"))
+    now_ts = time.time()
+
+    with _GUARD_LOCK:
+        _gc_guard_state(now_ts)
+        update_key = str(update_id)
+        if update_key in _SEEN_UPDATES:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="duplicate telegram update rejected",
+            )
+        _SEEN_UPDATES[update_key] = now_ts
+
+        if not chat_id:
+            return
+        window = _CHAT_RATE_WINDOWS.setdefault(chat_id, [])
+        window_start = now_ts - _RATE_WINDOW_SECONDS
+        window[:] = [ts for ts in window if ts >= window_start]
+        if len(window) >= _RATE_MAX_REQUESTS_PER_CHAT:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="telegram webhook rate limit exceeded",
+            )
+        window.append(now_ts)
+
+
+def _gc_guard_state(now_ts: float) -> None:
+    replay_cutoff = now_ts - _UPDATE_REPLAY_TTL_SECONDS
+    expired_updates = [key for key, ts in _SEEN_UPDATES.items() if ts < replay_cutoff]
+    for key in expired_updates:
+        _SEEN_UPDATES.pop(key, None)
+
+    empty_chats: list[str] = []
+    rate_cutoff = now_ts - _RATE_WINDOW_SECONDS
+    for chat_id, timestamps in _CHAT_RATE_WINDOWS.items():
+        timestamps[:] = [ts for ts in timestamps if ts >= rate_cutoff]
+        if not timestamps:
+            empty_chats.append(chat_id)
+    for chat_id in empty_chats:
+        _CHAT_RATE_WINDOWS.pop(chat_id, None)
 
 
 def _append_user_event(

@@ -6,6 +6,8 @@ Security Level: Safe (No dangerous OS calls)
 """
 
 import json
+import os
+from urllib.error import HTTPError, URLError
 import urllib.request
 from typing import Dict, Any
 
@@ -15,7 +17,11 @@ class SkillEntry:
 
     def __init__(self):
         self.api_base = "https://api.github.com/repos"
-        self.headers = {'User-Agent': 'Autonomous-Agent-Stack-v2.0'}
+        self.headers = {"User-Agent": "Autonomous-Agent-Stack-v2.0"}
+        token = os.getenv("GITHUB_TOKEN", "").strip()
+        if token:
+            self.headers["Authorization"] = f"Bearer {token}"
+            self.headers["X-GitHub-Api-Version"] = "2022-11-28"
 
     def execute(self, params: Dict[str, Any]) -> str:
         """
@@ -49,8 +55,67 @@ class SkillEntry:
             }
             return json.dumps(result, ensure_ascii=False, indent=2)
 
-        except Exception as e:
-            return json.dumps({"status": "error", "message": str(e)})
+        except HTTPError as exc:
+            return json.dumps(
+                self._build_http_error_result(repo=repo_name, status_code=exc.code, reason=str(exc.reason)),
+                ensure_ascii=False,
+                indent=2,
+            )
+        except URLError as exc:
+            return json.dumps(
+                {
+                    "status": "error",
+                    "error_type": "network_error",
+                    "repo": repo_name,
+                    "message": "GitHub API network error",
+                    "details": str(exc.reason),
+                    "retryable": True,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        except json.JSONDecodeError as exc:
+            return json.dumps(
+                {
+                    "status": "error",
+                    "error_type": "invalid_json",
+                    "repo": repo_name,
+                    "message": "GitHub API returned invalid JSON",
+                    "details": str(exc),
+                    "retryable": True,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        except Exception as exc:
+            return json.dumps(
+                {
+                    "status": "error",
+                    "error_type": "unexpected_error",
+                    "repo": repo_name,
+                    "message": str(exc),
+                    "retryable": False,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+
+    def _build_http_error_result(self, repo: str, status_code: int, reason: str) -> Dict[str, Any]:
+        is_rate_limited = status_code == 403 and "rate limit" in reason.lower()
+        return {
+            "status": "error",
+            "error_type": "rate_limit" if is_rate_limited else "http_error",
+            "repo": repo,
+            "http_status": status_code,
+            "message": "GitHub API rate limit exceeded" if is_rate_limited else "GitHub API request failed",
+            "details": reason,
+            "retryable": is_rate_limited or status_code >= 500,
+            "suggestion": (
+                "Set GITHUB_TOKEN to increase API quota and retry."
+                if is_rate_limited
+                else "Verify repository path and network connectivity."
+            ),
+        }
 
 
 # 供动态挂载器调用的工厂函数

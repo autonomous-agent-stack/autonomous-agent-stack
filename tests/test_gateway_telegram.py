@@ -16,6 +16,7 @@ from autoresearch.api.dependencies import (
     get_telegram_notifier_service,
 )
 from autoresearch.api.main import app
+from autoresearch.api.routers import gateway_telegram
 from autoresearch.core.services.admin_config import AdminConfigService
 from autoresearch.core.services.claude_agents import ClaudeAgentService
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
@@ -77,6 +78,12 @@ def telegram_client(tmp_path: Path) -> TestClient:
         yield client
 
     app.dependency_overrides.clear()
+
+
+@pytest.fixture(autouse=True)
+def clear_gateway_guards() -> None:
+    gateway_telegram._SEEN_UPDATES.clear()
+    gateway_telegram._CHAT_RATE_WINDOWS.clear()
 
 
 def test_telegram_webhook_routes_to_openclaw_and_agents(
@@ -166,6 +173,72 @@ def test_telegram_webhook_secret_token_guard(
     )
     assert ok_response.status_code == 200
     assert ok_response.json()["accepted"] is True
+
+
+def test_telegram_webhook_secret_required_in_production(
+    telegram_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.delenv("AUTORESEARCH_TELEGRAM_SECRET_TOKEN", raising=False)
+    response = telegram_client.post(
+        "/api/v1/gateway/telegram/webhook",
+        json={
+            "update_id": 2101,
+            "message": {
+                "message_id": 91,
+                "text": "prod check",
+                "chat": {"id": 10087},
+            },
+        },
+    )
+    assert response.status_code == 503
+
+
+def test_telegram_webhook_replay_rejected(
+    telegram_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "AUTORESEARCH_TELEGRAM_CLAUDE_COMMAND_OVERRIDE",
+        f"{sys.executable} -c \"print('replay-ok')\"",
+    )
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_APPEND_PROMPT", "false")
+
+    payload = {
+        "update_id": 2201,
+        "message": {"message_id": 92, "text": "hello", "chat": {"id": 10088}},
+    }
+    first = telegram_client.post("/api/v1/gateway/telegram/webhook", json=payload)
+    assert first.status_code == 200
+
+    second = telegram_client.post("/api/v1/gateway/telegram/webhook", json=payload)
+    assert second.status_code == 409
+
+
+def test_telegram_webhook_rate_limit_rejected(
+    telegram_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "AUTORESEARCH_TELEGRAM_CLAUDE_COMMAND_OVERRIDE",
+        f"{sys.executable} -c \"print('rate-ok')\"",
+    )
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_APPEND_PROMPT", "false")
+
+    chat_id = 10089
+    for i in range(1, 32):
+        response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 2300 + i,
+                "message": {"message_id": 100 + i, "text": f"load-{i}", "chat": {"id": chat_id}},
+            },
+        )
+        if i <= 30:
+            assert response.status_code == 200
+        else:
+            assert response.status_code == 429
 
 
 def test_telegram_status_query_returns_magic_link(

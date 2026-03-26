@@ -39,7 +39,11 @@ help:
 setup:
 	$(PYTHON) -m venv $(VENV)
 	$(VENV_PIP) install --upgrade pip
-	$(VENV_PIP) install -r requirements.txt
+	@if [[ -f requirements.lock ]]; then \
+		$(VENV_PIP) install -r requirements.lock; \
+	else \
+		$(VENV_PIP) install -r requirements.txt; \
+	fi
 	@if [[ ! -f .env && -f .env.template ]]; then \
 		cp .env.template .env; \
 		echo "Created .env from .env.template"; \
@@ -57,7 +61,7 @@ start:
 		echo "Missing $(VENV_PYTHON). Run 'make setup' first."; \
 		exit 1; \
 	fi
-	PORT=$(PORT) HOST=$(HOST) scripts/dev-start.sh
+	PORT=$(PORT) HOST=$(HOST) bash scripts/dev-start.sh
 
 test-quick:
 	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \
@@ -83,32 +87,32 @@ ai-lab-setup:
 	@if [[ ! -x ./scripts/setup_ai_lab.sh ]]; then \
 		chmod +x ./scripts/setup_ai_lab.sh; \
 	fi
-	sudo ./scripts/setup_ai_lab.sh
+	sudo bash ./scripts/setup_ai_lab.sh
 
 ai-lab-check:
-	./scripts/check_ai_lab_guardrails.sh
+	bash ./scripts/check_ai_lab_guardrails.sh
 
 ai-lab:
-	./scripts/launch_ai_lab.sh
+	bash ./scripts/launch_ai_lab.sh
 
 ai-lab-up:
-	./scripts/launch_ai_lab.sh up
+	bash ./scripts/launch_ai_lab.sh up
 
 ai-lab-down:
-	./scripts/launch_ai_lab.sh down
+	bash ./scripts/launch_ai_lab.sh down
 
 ai-lab-status:
-	./scripts/launch_ai_lab.sh status
+	bash ./scripts/launch_ai_lab.sh status
 
 ai-lab-shell:
-	./scripts/launch_ai_lab.sh shell
+	bash ./scripts/launch_ai_lab.sh shell
 
 ai-lab-run:
 	@if [[ -z "$(strip $(ARGS))" ]]; then \
 		echo "Usage: make ai-lab-run ARGS='python -V'"; \
 		exit 1; \
 	fi
-	./scripts/launch_ai_lab.sh run -- $(ARGS)
+	bash ./scripts/launch_ai_lab.sh run -- $(ARGS)
 
 masfactory-flight:
 	@if [[ -x "$(VENV_PYTHON)" ]]; then \
