@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  opensage-sandbox:
+    build: .
+    image: opensage-sandbox:latest
+    container_name: opensage-sandbox
+    
+    # 资源限制
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'      # 50% CPU
+          memory: 512M     # 512MB 内存
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    
+    # 安全配置
+    security_opt:
+      - no-new-privileges:true
+    read_only: true  # 只读文件系统
+    
+    # 网络配置
+    network_mode: none  # 禁用网络
+    
+    # 用户配置
+    user: "1000:1000"  # 非 root 用户
+    
+    # 端口映射
+    ports:
+      - "9000:9000"
+    
+    # 重启策略
+    restart: "no"  # 执行完就退出
