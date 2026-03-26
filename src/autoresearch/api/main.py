@@ -1,8 +1,4 @@
 from __future__ import annotations
-import logging
-logger = logging.getLogger(__name__)
-import logging
-logger = logging.getLogger(__name__)
 
 import os
 from typing import Any
@@ -121,8 +117,6 @@ except Exception as e:
 # ========================================================================
 # Bridge API（系统健康状态 + Blitz Router）
 # ========================================================================
-import logging
-logger = logging.getLogger(__name__)
 
 try:
     from bridge import health_router, blitz_router
@@ -135,5 +129,3 @@ except Exception as e:
 # ========================================================================
 # Logging（日志）
 # ========================================================================
-import logging
-logger = logging.getLogger(__name__)
