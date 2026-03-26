@@ -31,6 +31,7 @@ class PromptOrchestrationPlan:
     steps: list[OrchestrationStep]
     edges: list[OrchestrationEdge]
     max_steps: int = 32
+    max_concurrency: int = 3
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -45,6 +46,7 @@ class PromptOrchestrationPlan:
                 for edge in self.edges
             ],
             "max_steps": self.max_steps,
+            "max_concurrency": self.max_concurrency,
             "metadata": self.metadata,
         }
 
@@ -123,6 +125,7 @@ class PromptBuilder:
            - nodes: planner -> generator -> executor -> evaluator
            - retry: evaluator -> generator when decision == 'retry'
            - max_steps: 16
+           - max_concurrency: 3
         2. 自然语言 prompt（自动兜底）：
            - 自动抽取目标、节点链和重试策略。
         """
@@ -130,6 +133,7 @@ class PromptBuilder:
         goal = cls._extract_goal(normalized_prompt) or fallback_goal or normalized_prompt
         node_chain = cls._extract_node_chain(normalized_prompt) or list(cls.DEFAULT_NODE_CHAIN)
         max_steps = cls._extract_max_steps(normalized_prompt) or 32
+        max_concurrency = cls._extract_max_concurrency(normalized_prompt) or 3
 
         steps = [OrchestrationStep(node_id=node, node_type=node) for node in node_chain]
         edges = [
@@ -146,6 +150,7 @@ class PromptBuilder:
             steps=steps,
             edges=edges,
             max_steps=max_steps,
+            max_concurrency=max_concurrency,
             metadata={"source": "prompt_builder", "prompt": normalized_prompt},
         )
 
@@ -194,6 +199,18 @@ class PromptBuilder:
 
         value = int(step_match.group(1))
         return max(1, min(value, 256))
+
+    @classmethod
+    def _extract_max_concurrency(cls, prompt: str) -> int | None:
+        concurrency_match = re.search(
+            r"(?im)^\s*(?:max_concurrency|最大并发)\s*[:：=]\s*(\d+)\s*$",
+            prompt,
+        )
+        if not concurrency_match:
+            return None
+
+        value = int(concurrency_match.group(1))
+        return max(1, min(value, 32))
 
     @classmethod
     def _extract_retry_edge(

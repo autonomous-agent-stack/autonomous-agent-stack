@@ -50,7 +50,7 @@ def test_self_integration_discover_prototype_promote_flow(
         json={
             "source_url": "https://github.com/openclaw/openclaw",
             "source_kind": "repository",
-            "ref": "main",
+            "ref": "0123456789abcdef0123456789abcdef01234567",
             "metadata": {"trigger": "test"},
         },
     )
@@ -90,6 +90,36 @@ def test_self_integration_discover_prototype_promote_flow(
     assert promotion_payload["status"] == "created"
     assert promotion_payload["decision"] == "pending"
     assert promotion_payload["topology_patch_preview"]["rollout_mode"] == "shadow"
+
+
+def test_discover_rejects_untrusted_repository_host(
+    self_integration_client: TestClient,
+) -> None:
+    response = self_integration_client.post(
+        "/api/v1/integrations/discover",
+        json={
+            "source_url": "https://github.com.evil.example/openclaw/openclaw",
+            "source_kind": "repository",
+            "ref": "0123456789abcdef0123456789abcdef01234567",
+        },
+    )
+    assert response.status_code == 400
+    assert "untrusted repository host" in response.json()["detail"]
+
+
+def test_discover_rejects_unpinned_repository_ref(
+    self_integration_client: TestClient,
+) -> None:
+    response = self_integration_client.post(
+        "/api/v1/integrations/discover",
+        json={
+            "source_url": "https://github.com/openclaw/openclaw",
+            "source_kind": "repository",
+            "ref": "main",
+        },
+    )
+    assert response.status_code == 400
+    assert "full commit SHA" in response.json()["detail"]
 
 
 def test_prototype_requires_existing_discovery(self_integration_client: TestClient) -> None:
