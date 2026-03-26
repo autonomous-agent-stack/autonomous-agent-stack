@@ -44,3 +44,7 @@ PYTHONPATH=src .venv/bin/python -m uvicorn autoresearch.api.main:app --host 127.
 - If doctor shows `FAIL` on dependencies, run `make setup` again.
 - If port `8001` is occupied, use `PORT=8010 make start`.
 - If import errors appear, always start with `make start` so `PYTHONPATH=src` is set automatically.
+
+## Admin UI help
+
+- Field-by-field guide: `docs/admin-view-field-guide.md`
