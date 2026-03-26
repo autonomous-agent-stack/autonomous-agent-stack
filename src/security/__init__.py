@@ -6,6 +6,8 @@
 - ASTAuditor: Python 代码静态安全审计
 - WebAuthnTrigger: 物理验证触发
 - SecurityHooks: 统一安全 Hook 接口
+- TokenSanitizer: Token 脱敏处理
+- AuditLogger/AuditRouter: 审计日志与路由策略
 """
 
 from .apple_double_cleaner import AppleDoubleCleaner
@@ -15,46 +17,47 @@ from .ast_auditor import (
     SecurityIssue,
     Severity,
     audit_code,
-    audit_file
+    audit_file,
 )
 from .webauthn_trigger import (
-    WebAuthnTrigger,
     MockWebAuthnTrigger,
-    VerificationStatus,
     VerificationRequest,
-    VerificationResult
+    VerificationResult,
+    VerificationStatus,
+    WebAuthnTrigger,
 )
 from .hooks import (
-    SecurityHooks,
     HookResult,
-    secure_task,
+    SecurityHooks,
+    init_security,
     require_verification,
-    init_security
+    secure_task,
 )
+from .token_sanitizer import TokenSanitizer
+from .audit_logger import AuditLogger
+from .audit_router import AuditRouter, AUDIT_GROUP_CONFIG, SECURE_TOPIC_CARD_WEIGHTS
 
 __all__ = [
-    # AppleDouble 清理
     "AppleDoubleCleaner",
-    
-    # AST 审计
     "ASTAuditor",
     "SecurityException",
     "SecurityIssue",
     "Severity",
     "audit_code",
     "audit_file",
-    
-    # WebAuthn 验证
     "WebAuthnTrigger",
     "MockWebAuthnTrigger",
     "VerificationStatus",
     "VerificationRequest",
     "VerificationResult",
-    
-    # 安全 Hooks
     "SecurityHooks",
     "HookResult",
     "secure_task",
     "require_verification",
     "init_security",
+    "TokenSanitizer",
+    "AuditLogger",
+    "AuditRouter",
+    "AUDIT_GROUP_CONFIG",
+    "SECURE_TOPIC_CARD_WEIGHTS",
 ]

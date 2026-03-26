@@ -32,8 +32,19 @@ class TokenSanitizer:
         "private_key": r"(private[_-]?key[=:]\s*).+",
     }
     
+    # 直接值模式（没有键前缀的情况）
+    DIRECT_PATTERNS = {
+        "sk_live": r"\b(sk_live_[a-zA-Z0-9]+)",
+        "sk_test": r"\b(sk_test_[a-zA-Z0-9]+)",
+        "token": r"\b(token_[a-zA-Z0-9]+)",
+        "bearer": r"\b(bearer_[a-zA-Z0-9]+)",
+        "apikey": r"\b(apikey_[a-zA-Z0-9]+)",
+        "secret": r"\b(secret_[a-zA-Z0-9]+)",
+    }
+    
     # 编译正则表达式以提高性能
     _compiled_patterns = None
+    _compiled_direct_patterns = None
     
     @classmethod
     def _get_compiled_patterns(cls) -> Dict[str, re.Pattern]:
@@ -44,6 +55,16 @@ class TokenSanitizer:
                 for key, pattern in cls.PATTERNS.items()
             }
         return cls._compiled_patterns
+    
+    @classmethod
+    def _get_compiled_direct_patterns(cls) -> Dict[str, re.Pattern]:
+        """获取编译后的直接值模式"""
+        if cls._compiled_direct_patterns is None:
+            cls._compiled_direct_patterns = {
+                key: re.compile(pattern, re.IGNORECASE)
+                for key, pattern in cls.DIRECT_PATTERNS.items()
+            }
+        return cls._compiled_direct_patterns
     
     def sanitize(self, text: str) -> str:
         """脱敏文本
@@ -117,6 +138,26 @@ class TokenSanitizer:
                 r"\1***REDACTED***",
                 sanitized_text
             )
+        
+        # 处理直接值模式（没有键前缀的情况）
+        compiled_direct_patterns = self._get_compiled_direct_patterns()
+        
+        # sk_live / sk_test: 保留前 8 个字符
+        for pattern_name in ["sk_live", "sk_test"]:
+            if compiled_direct_patterns[pattern_name].search(sanitized_text):
+                sanitized_text = compiled_direct_patterns[pattern_name].sub(
+                    lambda m: f"{m.group(1)[:8]}***REDACTED***" if len(m.group(1)) > 8 else f"{m.group(1)}***REDACTED***",
+                    sanitized_text
+                )
+        
+        # token_, bearer_, apikey_, secret_: 保留前 8 个字符
+        # 例如: token_abc123def456 -> token_abc***REDACTED***
+        for prefix, pattern_name in [("token_", "token"), ("bearer_", "bearer"), ("apikey_", "apikey"), ("secret_", "secret")]:
+            if compiled_direct_patterns[pattern_name].search(sanitized_text):
+                sanitized_text = compiled_direct_patterns[pattern_name].sub(
+                    lambda m: f"{m.group(1)[:8]}***REDACTED***" if len(m.group(1)) > 8 else f"{m.group(1)}***REDACTED***",
+                    sanitized_text
+                )
             
         return sanitized_text
     
@@ -134,9 +175,26 @@ class TokenSanitizer:
             
         logger.info("[Router-Gate] Sanitizing dictionary for audit log")
         
+        # 完全隐藏的敏感键名列表（密码类）
+        hidden_keys = {
+            "password", "passwd", "pwd",
+            "secret", "private_key"
+        }
+        
+        # 部分脱敏的敏感键名列表（token 类）
+        partial_hide_keys = {
+            "secret_key", "api_key", "apikey", "access_token", "refresh_token",
+            "token", "auth_token", "bearer_token"
+        }
+        
         sanitized_dict = {}
         
         for key, value in data.items():
+            # 检查键名是否为敏感键
+            key_lower = str(key).lower()
+            is_hidden_key = key_lower in hidden_keys
+            is_partial_hide_key = key_lower in partial_hide_keys
+            
             # 递归处理嵌套字典
             if isinstance(value, dict):
                 sanitized_dict[key] = self.sanitize_dict(value)
@@ -145,7 +203,23 @@ class TokenSanitizer:
                 sanitized_dict[key] = self.sanitize_list(value)
             # 处理字符串
             elif isinstance(value, str):
-                sanitized_dict[key] = self.sanitize(value)
+                # 如果键名是完全隐藏键，完全隐藏值
+                if is_hidden_key:
+                    sanitized_dict[key] = "***HIDDEN***"
+                # 如果键名是部分脱敏键
+                elif is_partial_hide_key:
+                    sanitized_value = self.sanitize(value)
+                    # 如果值没有被脱敏（不匹配任何模式），则默认脱敏
+                    if sanitized_value == value and len(value) > 0:
+                        # 检查键名类型
+                        if "secret" in key_lower or "key" in key_lower:
+                            sanitized_dict[key] = "***REDACTED***"
+                        else:
+                            sanitized_dict[key] = sanitized_value[:min(8, len(value))] + "***REDACTED***" if len(value) > 8 else "***REDACTED***"
+                    else:
+                        sanitized_dict[key] = sanitized_value
+                else:
+                    sanitized_dict[key] = self.sanitize(value)
             # 其他类型保持不变
             else:
                 sanitized_dict[key] = value
