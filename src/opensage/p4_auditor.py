@@ -177,14 +177,18 @@ class P4Auditor:
         
         # 查找标记为 OPTIMIZE_NEEDED 的模块
         for py_file in self.project_root.rglob("*.py"):
-            content = py_file.read_text()
-            
-            if "OPTIMIZE_NEEDED" in content:
-                candidates.append({
-                    "path": str(py_file.relative_to(self.project_root)),
-                    "reason": "标记为 OPTIMIZE_NEEDED",
-                    "priority": "high"
-                })
+            try:
+                content = py_file.read_text(encoding='utf-8', errors='ignore')
+                
+                if "OPTIMIZE_NEEDED" in content:
+                    candidates.append({
+                        "path": str(py_file.relative_to(self.project_root)),
+                        "reason": "标记为 OPTIMIZE_NEEDED",
+                        "priority": "high"
+                    })
+            except Exception as e:
+                logger.warning(f"[P4 Auditor] 跳过文件 {py_file}: {e}")
+                continue
                 
         logger.info(f"[P4 Auditor] 发现 {len(candidates)} 个优化候选")
         
