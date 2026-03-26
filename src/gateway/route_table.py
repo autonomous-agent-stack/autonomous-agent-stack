@@ -49,7 +49,12 @@ class RouteTable:
         Args:
             routes: 自定义路由配置，如果为 None 则使用默认配置
         """
-        self.routes = routes or self.DEFAULT_ROUTES.copy()
+        # 深拷贝默认路由，避免跨实例共享状态
+        import copy
+        if routes is None:
+            self.routes = copy.deepcopy(self.DEFAULT_ROUTES)
+        else:
+            self.routes = routes
         self._validate_routes()
         logger.info("[Router-Gate] RouteTable initialized with %d routes", len(self.routes))
     
