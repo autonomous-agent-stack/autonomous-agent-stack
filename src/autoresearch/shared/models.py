@@ -274,6 +274,7 @@ class AdminChannelConfigCreateRequest(StrictModel):
     provider: Literal["telegram", "webhook", "http", "custom"] = "telegram"
     endpoint_url: str | None = None
     secret_ref: str | None = None
+    secret_value: str | None = None
     allowed_chat_ids: list[str] = Field(default_factory=list)
     allowed_user_ids: list[str] = Field(default_factory=list)
     routing_policy: dict[str, Any] = Field(default_factory=dict)
@@ -287,6 +288,8 @@ class AdminChannelConfigUpdateRequest(StrictModel):
     provider: Literal["telegram", "webhook", "http", "custom"] | None = None
     endpoint_url: str | None = None
     secret_ref: str | None = None
+    secret_value: str | None = None
+    clear_secret: bool = False
     allowed_chat_ids: list[str] | None = None
     allowed_user_ids: list[str] | None = None
     routing_policy: dict[str, Any] | None = None
@@ -307,9 +310,22 @@ class AdminChannelConfigRead(StrictModel):
     allowed_chat_ids: list[str] = Field(default_factory=list)
     allowed_user_ids: list[str] = Field(default_factory=list)
     routing_policy: dict[str, Any] = Field(default_factory=dict)
+    has_secret: bool = False
     metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
+
+
+class AdminSecretRecordRead(StrictModel):
+    secret_id: str
+    scope: Literal["channel"] = "channel"
+    scope_id: str
+    status: Literal["active", "deleted"] = "active"
+    algorithm: Literal["fernet-v1"] = "fernet-v1"
+    ciphertext: str
+    created_at: datetime
+    updated_at: datetime
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class AdminConfigRevisionRead(StrictModel):
@@ -344,6 +360,23 @@ class AdminAgentLaunchRequest(StrictModel):
 class AdminConfigStatusChangeRequest(StrictModel):
     actor: str = "admin_api"
     reason: str | None = None
+
+
+class AdminTokenIssueRequest(StrictModel):
+    subject: str = Field(default="admin-local", min_length=1)
+    roles: list[Literal["viewer", "editor", "admin", "owner"]] = Field(
+        default_factory=lambda: ["admin"]
+    )
+    ttl_seconds: int | None = Field(default=None, ge=60, le=86400)
+
+
+class AdminTokenRead(StrictModel):
+    token: str
+    token_type: Literal["Bearer"] = "Bearer"
+    subject: str
+    roles: list[str] = Field(default_factory=list)
+    issued_at: datetime
+    expires_at: datetime
 
 
 class ClaudeAgentCreateRequest(StrictModel):

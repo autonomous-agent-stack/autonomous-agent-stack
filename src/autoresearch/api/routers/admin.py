@@ -2,10 +2,15 @@ from __future__ import annotations
 
 from typing import Literal
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse
 
-from autoresearch.api.dependencies import get_admin_config_service, get_claude_agent_service
+from autoresearch.api.dependencies import (
+    get_admin_auth_service,
+    get_admin_config_service,
+    get_claude_agent_service,
+)
+from autoresearch.core.services.admin_auth import AdminAccessClaims, AdminAuthService
 from autoresearch.core.services.admin_config import AdminConfigService
 from autoresearch.core.services.claude_agents import ClaudeAgentService
 from autoresearch.shared.models import (
@@ -19,12 +24,61 @@ from autoresearch.shared.models import (
     AdminConfigRevisionRead,
     AdminConfigRollbackRequest,
     AdminConfigStatusChangeRequest,
+    AdminTokenIssueRequest,
+    AdminTokenRead,
     ClaudeAgentCreateRequest,
     ClaudeAgentRunRead,
 )
 
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin-config"])
+
+_ADMIN_READ_ROLES = {"viewer", "editor", "admin", "owner"}
+_ADMIN_WRITE_ROLES = {"editor", "admin", "owner"}
+_ADMIN_HIGH_ROLES = {"admin", "owner"}
+
+
+def _extract_bearer_token(request: Request) -> str:
+    header = request.headers.get("authorization", "").strip()
+    if header.lower().startswith("bearer "):
+        return header.split(" ", 1)[1].strip()
+    return ""
+
+
+def _require_admin_roles(
+    request: Request,
+    *,
+    required_roles: set[str],
+    auth_service: AdminAuthService,
+) -> AdminAccessClaims:
+    token = _extract_bearer_token(request)
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="missing admin bearer token")
+    try:
+        return auth_service.verify_token(token, required_roles=required_roles)
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+
+
+def _require_admin_read(
+    request: Request,
+    auth_service: AdminAuthService = Depends(get_admin_auth_service),
+) -> AdminAccessClaims:
+    return _require_admin_roles(request, required_roles=_ADMIN_READ_ROLES, auth_service=auth_service)
+
+
+def _require_admin_write(
+    request: Request,
+    auth_service: AdminAuthService = Depends(get_admin_auth_service),
+) -> AdminAccessClaims:
+    return _require_admin_roles(request, required_roles=_ADMIN_WRITE_ROLES, auth_service=auth_service)
+
+
+def _require_admin_high_risk(
+    request: Request,
+    auth_service: AdminAuthService = Depends(get_admin_auth_service),
+) -> AdminAccessClaims:
+    return _require_admin_roles(request, required_roles=_ADMIN_HIGH_ROLES, auth_service=auth_service)
 
 
 @router.get("/health")
@@ -37,9 +91,27 @@ def admin_view() -> HTMLResponse:
     return HTMLResponse(_ADMIN_HTML)
 
 
+@router.post("/auth/token", response_model=AdminTokenRead)
+def issue_admin_token(
+    payload: AdminTokenIssueRequest,
+    auth_service: AdminAuthService = Depends(get_admin_auth_service),
+    bootstrap_key: str | None = Header(default=None, alias="x-admin-bootstrap-key"),
+) -> AdminTokenRead:
+    try:
+        return auth_service.issue_token(
+            subject=payload.subject,
+            roles=list(payload.roles),
+            bootstrap_key=bootstrap_key,
+            ttl_seconds=payload.ttl_seconds,
+        )
+    except (PermissionError, ValueError) as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+
+
 @router.post("/agents", response_model=AdminAgentConfigRead, status_code=status.HTTP_201_CREATED)
 def create_agent_config(
     payload: AdminAgentConfigCreateRequest,
+    access: AdminAccessClaims = Depends(_require_admin_write),
     service: AdminConfigService = Depends(get_admin_config_service),
 ) -> AdminAgentConfigRead:
     try:
@@ -50,6 +122,7 @@ def create_agent_config(
 
 @router.get("/agents", response_model=list[AdminAgentConfigRead])
 def list_agent_configs(
+    access: AdminAccessClaims = Depends(_require_admin_read),
     service: AdminConfigService = Depends(get_admin_config_service),
 ) -> list[AdminAgentConfigRead]:
     return service.list_agents()
@@ -58,6 +131,7 @@ def list_agent_configs(
 @router.get("/agents/{agent_id}", response_model=AdminAgentConfigRead)
 def get_agent_config(
     agent_id: str,
+    access: AdminAccessClaims = Depends(_require_admin_read),
     service: AdminConfigService = Depends(get_admin_config_service),
 ) -> AdminAgentConfigRead:
     item = service.get_agent(agent_id)
@@ -70,6 +144,7 @@ def get_agent_config(
 def update_agent_config(
     agent_id: str,
     payload: AdminAgentConfigUpdateRequest,
+    access: AdminAccessClaims = Depends(_require_admin_write),
     service: AdminConfigService = Depends(get_admin_config_service),
 ) -> AdminAgentConfigRead:
     try:
@@ -84,6 +159,7 @@ def update_agent_config(
 def activate_agent_config(
     agent_id: str,
     payload: AdminConfigStatusChangeRequest,
+    access: AdminAccessClaims = Depends(_require_admin_high_risk),
     service: AdminConfigService = Depends(get_admin_config_service),
 ) -> AdminAgentConfigRead:
     try:
@@ -101,6 +177,7 @@ def activate_agent_config(
 def deactivate_agent_config(
     agent_id: str,
     payload: AdminConfigStatusChangeRequest,
+    access: AdminAccessClaims = Depends(_require_admin_high_risk),
     service: AdminConfigService = Depends(get_admin_config_service),
 ) -> AdminAgentConfigRead:
     try:
@@ -118,6 +195,7 @@ def deactivate_agent_config(
 def rollback_agent_config(
     agent_id: str,
     payload: AdminConfigRollbackRequest,
+    access: AdminAccessClaims = Depends(_require_admin_high_risk),
     service: AdminConfigService = Depends(get_admin_config_service),
 ) -> AdminAgentConfigRead:
     try:
@@ -132,6 +210,7 @@ def rollback_agent_config(
 def list_agent_history(
     agent_id: str,
     limit: int = Query(default=100, ge=1, le=1000),
+    access: AdminAccessClaims = Depends(_require_admin_read),
     service: AdminConfigService = Depends(get_admin_config_service),
 ) -> list[AdminConfigRevisionRead]:
     if service.get_agent(agent_id) is None:
@@ -148,6 +227,7 @@ def launch_agent_from_config(
     agent_id: str,
     payload: AdminAgentLaunchRequest,
     background_tasks: BackgroundTasks,
+    access: AdminAccessClaims = Depends(_require_admin_high_risk),
     config_service: AdminConfigService = Depends(get_admin_config_service),
     agent_service: ClaudeAgentService = Depends(get_claude_agent_service),
 ) -> ClaudeAgentRunRead:
@@ -199,6 +279,7 @@ def launch_agent_from_config(
 @router.post("/channels", response_model=AdminChannelConfigRead, status_code=status.HTTP_201_CREATED)
 def create_channel_config(
     payload: AdminChannelConfigCreateRequest,
+    access: AdminAccessClaims = Depends(_require_admin_write),
     service: AdminConfigService = Depends(get_admin_config_service),
 ) -> AdminChannelConfigRead:
     try:
@@ -209,6 +290,7 @@ def create_channel_config(
 
 @router.get("/channels", response_model=list[AdminChannelConfigRead])
 def list_channel_configs(
+    access: AdminAccessClaims = Depends(_require_admin_read),
     service: AdminConfigService = Depends(get_admin_config_service),
 ) -> list[AdminChannelConfigRead]:
     return service.list_channels()
@@ -217,6 +299,7 @@ def list_channel_configs(
 @router.get("/channels/{channel_id}", response_model=AdminChannelConfigRead)
 def get_channel_config(
     channel_id: str,
+    access: AdminAccessClaims = Depends(_require_admin_read),
     service: AdminConfigService = Depends(get_admin_config_service),
 ) -> AdminChannelConfigRead:
     item = service.get_channel(channel_id)
@@ -229,6 +312,7 @@ def get_channel_config(
 def update_channel_config(
     channel_id: str,
     payload: AdminChannelConfigUpdateRequest,
+    access: AdminAccessClaims = Depends(_require_admin_write),
     service: AdminConfigService = Depends(get_admin_config_service),
 ) -> AdminChannelConfigRead:
     try:
@@ -243,6 +327,7 @@ def update_channel_config(
 def activate_channel_config(
     channel_id: str,
     payload: AdminConfigStatusChangeRequest,
+    access: AdminAccessClaims = Depends(_require_admin_high_risk),
     service: AdminConfigService = Depends(get_admin_config_service),
 ) -> AdminChannelConfigRead:
     try:
@@ -260,6 +345,7 @@ def activate_channel_config(
 def deactivate_channel_config(
     channel_id: str,
     payload: AdminConfigStatusChangeRequest,
+    access: AdminAccessClaims = Depends(_require_admin_high_risk),
     service: AdminConfigService = Depends(get_admin_config_service),
 ) -> AdminChannelConfigRead:
     try:
@@ -277,6 +363,7 @@ def deactivate_channel_config(
 def rollback_channel_config(
     channel_id: str,
     payload: AdminConfigRollbackRequest,
+    access: AdminAccessClaims = Depends(_require_admin_high_risk),
     service: AdminConfigService = Depends(get_admin_config_service),
 ) -> AdminChannelConfigRead:
     try:
@@ -291,6 +378,7 @@ def rollback_channel_config(
 def list_channel_history(
     channel_id: str,
     limit: int = Query(default=100, ge=1, le=1000),
+    access: AdminAccessClaims = Depends(_require_admin_read),
     service: AdminConfigService = Depends(get_admin_config_service),
 ) -> list[AdminConfigRevisionRead]:
     if service.get_channel(channel_id) is None:
@@ -303,6 +391,7 @@ def list_revisions(
     target_type: Literal["agent", "channel"] | None = None,
     target_id: str | None = None,
     limit: int = Query(default=100, ge=1, le=1000),
+    access: AdminAccessClaims = Depends(_require_admin_read),
     service: AdminConfigService = Depends(get_admin_config_service),
 ) -> list[AdminConfigRevisionRead]:
     return service.list_revisions(target_type=target_type, target_id=target_id, limit=limit)
@@ -441,6 +530,10 @@ _ADMIN_HTML = """<!doctype html>
 <main>
   <section class="card">
     <h1>Autoresearch 可编辑后台</h1>
+    <div class="row">
+      <button onclick="setAdminToken()">设置 Admin Token</button>
+      <button class="btn-danger" onclick="clearAdminToken()">清除 Token</button>
+    </div>
     <p id="summary" class="muted">加载中...</p>
   </section>
 
@@ -514,11 +607,31 @@ const summary = document.getElementById("summary");
 const agentsBody = document.getElementById("agents-body");
 const channelsBody = document.getElementById("channels-body");
 const revisionsPre = document.getElementById("revisions-pre");
+const tokenFromQuery = new URLSearchParams(window.location.search).get("token") || "";
+let adminToken = localStorage.getItem("autoresearch_admin_token") || tokenFromQuery;
+
+function setAdminToken() {
+  const input = prompt("请输入 Bearer Token（不含 Bearer 前缀）", adminToken || "");
+  if (!input) return;
+  adminToken = input.trim();
+  localStorage.setItem("autoresearch_admin_token", adminToken);
+  refreshAll();
+}
+
+function clearAdminToken() {
+  adminToken = "";
+  localStorage.removeItem("autoresearch_admin_token");
+  summary.textContent = "已清除 token";
+}
 
 async function callApi(path, method = "GET", body = null) {
+  if (!adminToken) {
+    throw new Error("missing admin token; click 设置 Admin Token");
+  }
+  const headers = {"content-type": "application/json", "authorization": `Bearer ${adminToken}`};
   const res = await fetch(path, {
     method,
-    headers: {"content-type": "application/json"},
+    headers,
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) {
