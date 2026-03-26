@@ -48,6 +48,8 @@ artifacts/
 *.db
 .env
 .env.local
+ai_lab.env
+.masfactory_runtime/
 
 # Logs
 *.log
