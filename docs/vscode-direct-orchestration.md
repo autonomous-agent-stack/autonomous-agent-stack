@@ -27,6 +27,33 @@ max_concurrency: 3
 
 支持自然语言兜底，不写结构化字段也能执行默认链路。
 
+## Prompt 最佳实践（推荐）
+
+### 推荐模板
+
+```text
+goal: 优化 API E2E 用例稳定性
+nodes: planner -> generator -> executor -> evaluator
+retry: evaluator -> generator when decision == 'retry'
+max_steps: 12
+max_concurrency: 2
+```
+
+### 字段建议
+
+- `goal`：只描述一个主要目标，避免“又要 A 又要 B 又要 C”
+- `nodes`：建议先用默认闭环，稳定后再改拓扑
+- `retry`：统一使用 `decision == 'retry'`，便于追踪
+- `max_steps`：开发期建议 `8~16`，线上建议 `16~32`
+- `max_concurrency`：先小并发（`1~3`）验证，再逐步放大
+
+### 常见反模式
+
+- 没有 `max_steps`，重试链路可能跑飞
+- `goal` 过长且包含多个子项目标，导致 planner 输出不稳定
+- 并发设太高但节点内部仍共享可变状态，导致偶发失败
+- 把大段原始日志直接塞进 prompt，影响解析和路由稳定性
+
 ## 方式 1：VS Code Task 直接跑 CLI
 
 1. 打开一个包含编排 prompt 的文件
@@ -82,3 +109,4 @@ curl -sS -X POST "http://127.0.0.1:8000/api/v1/orchestration/prompt/execute" \
 
 - 运行 API 任务时建议使用：`PYTHONPATH=src`
 - 若本地未安装依赖，请先执行：`pip install -r requirements.txt`
+- 若需要复盘执行链路，建议在调用 API 时设置 `include_graph=true`
