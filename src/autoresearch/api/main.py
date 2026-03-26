@@ -4,6 +4,7 @@ import logging
 import sys
 from pathlib import Path
 from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 
@@ -12,6 +13,9 @@ from contextlib import asynccontextmanager
 _SRC_ROOT = Path(__file__).resolve().parents[2]
 if str(_SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(_SRC_ROOT))
+
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_PANEL_OUT_DIR = _REPO_ROOT / "panel" / "out"
 
 # ========================================================================
 # 1. 核心日志配置 (前置初始化)
@@ -96,11 +100,51 @@ except Exception as e:
 # ========================================================================
 # 4. 视觉看板挂载 (Dashboard)
 # ========================================================================
-try:
-    app.mount("/panel", StaticFiles(directory="panel/out", html=True), name="panel")
+if _PANEL_OUT_DIR.exists():
+    app.mount("/panel", StaticFiles(directory=str(_PANEL_OUT_DIR), html=True), name="panel")
     logger.info("✅ 视觉看板已成功挂载至 /panel")
-except Exception as e:
-    logger.warning(f"⚠️ 视觉看板挂载跳过 (目录未就绪): {e}")
+else:
+    logger.warning(f"⚠️ 视觉看板挂载跳过 (目录未就绪): {_PANEL_OUT_DIR}")
+
+    _PANEL_NOT_READY_HTML = """
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Panel Not Built</title>
+    <style>
+      body { font-family: -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif; margin: 24px; line-height: 1.5; }
+      code { background: #f3f4f6; padding: 2px 6px; border-radius: 6px; }
+      .box { border: 1px solid #d1d5db; border-radius: 12px; padding: 16px; max-width: 800px; }
+      h1 { margin-top: 0; }
+      ul { padding-left: 20px; }
+      a { color: #2563eb; }
+    </style>
+  </head>
+  <body>
+    <div class="box">
+      <h1>/panel is not built yet</h1>
+      <p>The API is running, but static panel assets were not found.</p>
+      <p>Expected directory: <code>panel/out</code></p>
+      <p>You can use these pages right now:</p>
+      <ul>
+        <li><a href="/api/v1/admin/view">Admin View</a></li>
+        <li><a href="/docs">Swagger API Docs</a></li>
+        <li><a href="/health">Health Check</a></li>
+      </ul>
+      <p>If you plan to serve a static panel, build/export it to <code>panel/out</code> first.</p>
+    </div>
+  </body>
+</html>
+"""
+
+    @app.get("/panel", include_in_schema=False, response_class=HTMLResponse)
+    async def panel_not_ready() -> HTMLResponse:
+        return HTMLResponse(_PANEL_NOT_READY_HTML, status_code=200)
+
+    @app.get("/panel/", include_in_schema=False, response_class=HTMLResponse)
+    async def panel_not_ready_with_slash() -> HTMLResponse:
+        return HTMLResponse(_PANEL_NOT_READY_HTML, status_code=200)
 
 # ========================================================================
 # 5. 健康检查端点

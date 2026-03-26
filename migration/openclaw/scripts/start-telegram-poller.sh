@@ -19,12 +19,6 @@ if [[ -f "${PID_FILE}" ]]; then
   rm -f "${PID_FILE}"
 fi
 
-if ! curl -fsS http://127.0.0.1:8000/healthz >/dev/null 2>&1; then
-  echo "api not healthy on http://127.0.0.1:8000/healthz"
-  echo "run: bash migration/openclaw/scripts/start-api-daemon.sh"
-  exit 1
-fi
-
 if [[ ! -x "${PROJECT_ROOT}/.venv/bin/python" ]]; then
   echo "missing venv python: ${PROJECT_ROOT}/.venv/bin/python"
   exit 1
@@ -34,6 +28,14 @@ if [[ -f "${ENV_FILE}" ]]; then
   set -a
   source "${ENV_FILE}"
   set +a
+fi
+
+API_HOST="${AUTORESEARCH_API_HOST:-127.0.0.1}"
+API_PORT="${AUTORESEARCH_API_PORT:-8001}"
+if ! curl -fsS "http://${API_HOST}:${API_PORT}/health" >/dev/null 2>&1; then
+  echo "api not healthy on http://${API_HOST}:${API_PORT}/health"
+  echo "run: make start  (or start API daemon with the same port)"
+  exit 1
 fi
 
 cd "${PROJECT_ROOT}"
