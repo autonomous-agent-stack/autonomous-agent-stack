@@ -229,55 +229,88 @@ webbrowser.open("dashboard.html")
 
 ## 🎯 最佳实践
 
-### 1. 节点职责单一
+### 1. 先写“可执行 Prompt 契约”，再写业务内容
 
-每个 Node 只负责一件事：
+推荐固定 5 个字段，保证可读、可测、可回放：
+
+```text
+goal: 你的业务目标（单句）
+nodes: planner -> generator -> executor -> evaluator
+retry: evaluator -> generator when decision == 'retry'
+max_steps: 16
+max_concurrency: 3
+```
+
+说明：
+- `goal`：尽量单目标，避免把多个需求塞进一个回合
+- `nodes`：当前内置节点仅支持 `planner/generator/executor/evaluator`
+- `retry`：建议统一 `decision == 'retry'`，减少分支歧义
+- `max_steps`：优先小值（8~24），防止循环失控
+- `max_concurrency`：本地调试建议 1~3，线上按 CPU/IO 压测放大
+
+### 2. 用“分层 Prompt”降低误触发
+
+把 prompt 分三层，减少模型偏航：
+
+```text
+# 业务层（目标）
+goal: 生成支付模块回归测试方案
+
+# 流程层（拓扑）
+nodes: planner -> generator -> executor -> evaluator
+retry: evaluator -> generator when decision == 'retry'
+
+# 约束层（执行边界）
+max_steps: 12
+max_concurrency: 2
+```
+
+### 3. 保持节点职责单一
+
+每个 Node 只做一件事，问题定位会非常快：
 
 ```python
-# ✅ 好的设计
 class PlannerNode(Node):
     async def execute(self, context):
         # 只负责规划
-        plan = generate_plan(context)
-        return plan
-
-# ❌ 不好的设计
-class SuperNode(Node):
-    async def execute(self, context):
-        # 负责太多事情
-        plan = generate_plan(context)
-        code = generate_code(plan)
-        result = execute_code(code)
-        evaluation = evaluate_result(result)
-        return evaluation
+        return {"next_steps": ["analyze", "generate", "execute", "evaluate"]}
 ```
 
-### 2. 使用条件边控制流转
+反例是“超级节点”把规划、生成、执行、评估混在一起，会让失败定位和重试策略失效。
+
+### 4. 明确重试退出条件
+
+重试链路必须配合步数上限，否则风险是无限循环：
 
 ```python
-# 失败时循环回生成
 graph.add_edge("evaluator", "generator", condition="decision == 'retry'")
-
-# 成功时进入下一步
-graph.add_edge("evaluator", "next_step", condition="decision == 'continue'")
+results = await graph.execute(max_steps=16)
 ```
 
-### 3. 利用 ContextBlock 共享数据
+建议策略：
+- 可恢复错误：`retry`
+- 不可恢复错误：`failed` 并停止
+- 达到 `max_steps`：直接失败并返回错误上下文
+
+### 5. 把上下文当“状态总线”，不要当黑盒缓存
+
+推荐只存放结构化字段，避免塞入超长文本：
 
 ```python
-# 在 Planner 中设置数据
-context.set("plan", plan)
-
-# 在 Generator 中读取数据
-plan = context.get("plan")
+context.set("goal", "优化检索召回率")
+context.set("trace_id", "run_20260326_001")
+context.set("plan", {"steps": ["planner", "generator", "executor", "evaluator"]})
 ```
 
-### 4. 定期清理缓存
+### 6. 为每次执行保留可观测证据
 
-```python
-# 清空 MCP 缓存
-mcp.clear_cache()
-```
+至少保留 4 类证据：
+- 输入 prompt（脱敏后）
+- 解析后的 plan（`orchestration_plan`）
+- 节点结果（`results`）
+- 最终 decision 与耗时
+
+这样在出现“为什么走到这个节点”时，可以直接回放而不是猜测。
 
 ---
 
