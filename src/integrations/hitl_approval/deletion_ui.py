@@ -9,6 +9,8 @@
 from __future__ import annotations
 
 import json
+import os
+import sqlite3
 from dataclasses import dataclass
 from typing import List, Dict, Any
 
@@ -253,16 +255,41 @@ deletion_ui = DeletionConfirmationUI()
 # FastAPI 端点
 # ========================================================================
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 router = APIRouter(prefix="/api/v1/deletion", tags=["deletion"])
 
 
 @router.get("/confirm", response_class=HTMLResponse)
-async def show_deletion_confirmation():
+async def show_deletion_confirmation(request: Request):
     """显示删除确认页面"""
-    # TODO: 从查询参数或数据库获取任务列表
-    tasks = [
+    tasks = _load_tasks_from_request(request)
+    
+    return deletion_ui.generate_confirmation_card(tasks)
+
+
+def _load_tasks_from_request(request: Request) -> List[DeletionTask]:
+    """从查询参数或数据库加载删除任务."""
+    tasks_param = request.query_params.get("tasks", "").strip()
+    if tasks_param:
+        try:
+            payload = json.loads(tasks_param)
+            return _normalize_tasks(payload)
+        except json.JSONDecodeError:
+            pass
+
+    task_ids = request.query_params.get("task_ids", "").strip()
+    if task_ids:
+        ids = [item.strip() for item in task_ids.split(",") if item.strip()]
+        tasks_from_db = _load_tasks_from_db(ids)
+        if tasks_from_db:
+            return tasks_from_db
+
+    db_fallback = _load_tasks_from_db([])
+    if db_fallback:
+        return db_fallback
+
+    return [
         DeletionTask(
             task_id="1",
             resource_type="google_event",
@@ -278,5 +305,64 @@ async def show_deletion_confirmation():
             status="pending",
         ),
     ]
-    
-    return deletion_ui.generate_confirmation_card(tasks)
+
+
+def _normalize_tasks(payload: Any) -> List[DeletionTask]:
+    if isinstance(payload, dict):
+        payload = payload.get("tasks", [])
+    if not isinstance(payload, list):
+        return []
+
+    tasks: List[DeletionTask] = []
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        try:
+            tasks.append(
+                DeletionTask(
+                    task_id=str(item.get("task_id", "")),
+                    resource_type=str(item.get("resource_type", "")),
+                    resource_name=str(item.get("resource_name", "")),
+                    resource_id=str(item.get("resource_id", "")),
+                    status=str(item.get("status", "pending")),
+                )
+            )
+        except Exception:
+            continue
+    return tasks
+
+
+def _load_tasks_from_db(task_ids: List[str]) -> List[DeletionTask]:
+    db_path = os.getenv("DELETION_UI_DB_PATH", "data/deletion_tasks.db")
+    if not os.path.exists(db_path):
+        return []
+
+    query = """
+        SELECT task_id, resource_type, resource_name, resource_id, status
+        FROM deletion_tasks
+    """
+    params: List[Any] = []
+    if task_ids:
+        placeholders = ",".join("?" for _ in task_ids)
+        query += f" WHERE task_id IN ({placeholders})"
+        params.extend(task_ids)
+    query += " ORDER BY task_id ASC LIMIT 100"
+
+    tasks: List[DeletionTask] = []
+    try:
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+            for row in cursor.fetchall():
+                tasks.append(
+                    DeletionTask(
+                        task_id=str(row[0]),
+                        resource_type=str(row[1]),
+                        resource_name=str(row[2]),
+                        resource_id=str(row[3]),
+                        status=str(row[4]),
+                    )
+                )
+    except sqlite3.Error:
+        return []
+    return tasks

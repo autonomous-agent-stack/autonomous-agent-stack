@@ -3,8 +3,11 @@
 根据任务复杂度自动生成任务图（Task Graph）
 """
 
+from __future__ import annotations
+
 import logging
-from typing import Dict, List, Optional, Any, Set
+import re
+from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -139,7 +142,7 @@ class TopologyEngine:
         self,
         task: str,
         available_agents: Optional[List[str]] = None
-    ) -> nx.DiGraph:
+    ) -> SimpleGraph:
         """生成任务拓扑
         
         Args:
@@ -150,6 +153,11 @@ class TopologyEngine:
             任务图
         """
         logger.info(f"[Topology Engine] 生成拓扑: {task[:50]}...")
+
+        # 每次生成拓扑都重置状态，避免跨任务污染
+        self.graph = SimpleGraph()
+        self.nodes = {}
+        self.edges = []
         
         # 分析复杂度
         complexity = await self.analyze_complexity(task)
@@ -262,9 +270,67 @@ class TopologyEngine:
         
     async def _generate_hierarchical_topology(self, task: str):
         """生成层级拓扑（递归分解）"""
-        # TODO: 实现递归分解逻辑
-        # 目前简化为复杂拓扑
-        await self._generate_complex_topology(task)
+        planner_id = "task_0"
+        planner_node = TaskNode(
+            node_id=planner_id,
+            node_type=NodeType.PLANNER,
+            description=f"层级规划: {task[:60]}",
+            priority=0,
+        )
+        self._add_node(planner_node)
+
+        blocks = self._split_hierarchical_blocks(task, max_blocks=6)
+        if not blocks:
+            blocks = [task]
+
+        next_index = 1
+        leaf_nodes: list[str] = []
+
+        for block_index, block in enumerate(blocks):
+            block_id = f"task_{next_index}"
+            next_index += 1
+            block_node = TaskNode(
+                node_id=block_id,
+                node_type=NodeType.GENERATOR,
+                description=block[:120],
+                dependencies=[planner_id],
+                priority=1,
+            )
+            self._add_node(block_node)
+            self._add_edge(TaskEdge(source=planner_id, target=block_id))
+
+            substeps = self._split_hierarchical_blocks(block, max_blocks=5)
+            if len(substeps) <= 1:
+                leaf_nodes.append(block_id)
+                continue
+
+            previous = block_id
+            for substep in substeps:
+                sub_id = f"task_{next_index}"
+                next_index += 1
+                sub_node = TaskNode(
+                    node_id=sub_id,
+                    node_type=NodeType.EXECUTOR,
+                    description=substep[:120],
+                    dependencies=[previous],
+                    priority=2 + block_index,
+                )
+                self._add_node(sub_node)
+                self._add_edge(TaskEdge(source=previous, target=sub_id))
+                previous = sub_id
+            leaf_nodes.append(previous)
+
+        evaluator_id = f"task_{next_index}"
+        evaluator_node = TaskNode(
+            node_id=evaluator_id,
+            node_type=NodeType.EVALUATOR,
+            description="汇总并评估层级任务结果",
+            priority=9,
+        )
+        self._add_node(evaluator_node)
+
+        for leaf in leaf_nodes:
+            self._add_edge(TaskEdge(source=leaf, target=evaluator_id))
         
     def _determine_node_type(self, index: int, total: int) -> NodeType:
         """确定节点类型"""
@@ -300,11 +366,10 @@ class TopologyEngine:
                 
     def get_execution_order(self) -> List[str]:
         """获取执行顺序（拓扑排序）"""
-        try:
-            return list(nx.topological_sort(self.graph))
-        except nx.NetworkXUnfeasible:
+        order = self.graph.topological_sort()
+        if not order:
             logger.error("[Topology Engine] 图中存在环，无法排序")
-            return []
+        return order
             
     def visualize(self) -> str:
         """可视化拓扑（Mermaid 格式）"""
@@ -318,6 +383,26 @@ class TopologyEngine:
             lines.append(f"    {edge.source} --> {edge.target}")
             
         return "\n".join(lines)
+
+    def _split_hierarchical_blocks(self, text: str, max_blocks: int) -> List[str]:
+        normalized = text.strip()
+        if not normalized:
+            return []
+
+        # 优先按编号列表拆分
+        numbered_lines = [
+            re.sub(r"^(\d+[\.\)]|[-*])\s+", "", line).strip()
+            for line in normalized.splitlines()
+            if re.match(r"^\s*(\d+[\.\)]|[-*])\s+", line)
+        ]
+        blocks = [line for line in numbered_lines if line]
+        if not blocks:
+            blocks = [
+                segment.strip()
+                for segment in re.split(r"[。！？!?；;\n]+", normalized)
+                if segment.strip()
+            ]
+        return blocks[:max_blocks]
 
 
 # 单例实例

@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import subprocess
 import tempfile
 from dataclasses import dataclass
@@ -86,25 +87,100 @@ class IntegrationAgent:
     async def analyze_protocol(self, repo_path: Path) -> ProtocolSpec:
         """分析协议"""
         logger.info(f"🔍 分析协议: {repo_path}")
-        
-        # TODO: 实现真实的协议分析
-        # 目前返回模拟结果
-        
+
+        py_files = [path for path in repo_path.rglob("*.py") if ".git" not in path.parts]
+        text_files = [path for path in repo_path.rglob("*") if path.is_file()]
+
+        version = "0.1.0"
+        pyproject_file = repo_path / "pyproject.toml"
+        if pyproject_file.exists():
+            text = pyproject_file.read_text(encoding="utf-8", errors="ignore")
+            match = re.search(r'version\s*=\s*["\']([^"\']+)["\']', text)
+            if match:
+                version = match.group(1)
+
+        endpoint_patterns = [
+            re.compile(r'@[\w\.]+\.get\(["\']([^"\']+)["\']'),
+            re.compile(r'@[\w\.]+\.post\(["\']([^"\']+)["\']'),
+            re.compile(r'@[\w\.]+\.put\(["\']([^"\']+)["\']'),
+            re.compile(r'@[\w\.]+\.delete\(["\']([^"\']+)["\']'),
+        ]
+        api_endpoints: list[dict[str, str]] = []
+        seen_endpoints: set[tuple[str, str]] = set()
+        for path in py_files:
+            source = path.read_text(encoding="utf-8", errors="ignore")
+            for method, pattern in zip(["GET", "POST", "PUT", "DELETE"], endpoint_patterns):
+                for match in pattern.finditer(source):
+                    endpoint = match.group(1).strip()
+                    key = (method, endpoint)
+                    if key in seen_endpoints:
+                        continue
+                    seen_endpoints.add(key)
+                    api_endpoints.append({"method": method, "path": endpoint})
+
+        dependency_candidates: set[str] = set()
+        requirements_txt = repo_path / "requirements.txt"
+        if requirements_txt.exists():
+            for line in requirements_txt.read_text(encoding="utf-8", errors="ignore").splitlines():
+                normalized = line.strip()
+                if normalized and not normalized.startswith("#"):
+                    dependency_candidates.add(re.split(r"[<>=~!]", normalized)[0].strip())
+        if pyproject_file.exists():
+            text = pyproject_file.read_text(encoding="utf-8", errors="ignore")
+            for match in re.finditer(r'["\']([a-zA-Z0-9_\-]+(?:\[[a-zA-Z0-9_,\-]+\])?)', text):
+                token = match.group(1)
+                if token and token[0].isalpha():
+                    dependency_candidates.add(token.split("[", 1)[0])
+
+        text_blob = "\n".join(
+            path.read_text(encoding="utf-8", errors="ignore")[:6000]
+            for path in text_files[:30]
+        ).lower()
+        data_formats: list[dict[str, str]] = []
+        if "json" in text_blob:
+            data_formats.append({"type": "json", "schema": "dynamic"})
+        if "yaml" in text_blob or ".yml" in text_blob:
+            data_formats.append({"type": "yaml", "schema": "dynamic"})
+        if "xml" in text_blob:
+            data_formats.append({"type": "xml", "schema": "dynamic"})
+        if not data_formats:
+            data_formats.append({"type": "text", "schema": "unknown"})
+
+        auth_methods: list[str] = []
+        auth_keywords = {
+            "bearer": "bearer",
+            "jwt": "jwt",
+            "oauth": "oauth2",
+            "apikey": "api_key",
+            "api-key": "api_key",
+            "basic auth": "basic",
+        }
+        for keyword, method in auth_keywords.items():
+            if keyword in text_blob and method not in auth_methods:
+                auth_methods.append(method)
+        if not auth_methods:
+            auth_methods.append("none")
+
+        test_cases: list[dict[str, Any]] = []
+        if any(endpoint["path"].endswith("/health") or "health" in endpoint["path"] for endpoint in api_endpoints):
+            test_cases.append({"name": "test_health_endpoint", "expected": "200"})
+        if api_endpoints:
+            test_cases.append({"name": "test_api_schema", "expected": "valid_response"})
+        if auth_methods and auth_methods != ["none"]:
+            test_cases.append({"name": "test_auth_flow", "expected": "authorized"})
+        if not test_cases:
+            test_cases.append({"name": "test_import_module", "expected": "success"})
+
+        protocol_name = repo_path.name.replace("_", "-")
+
         return ProtocolSpec(
-            name="example-protocol",
-            version="1.0.0",
-            api_endpoints=[
-                {"method": "GET", "path": "/api/v1/health"},
-                {"method": "POST", "path": "/api/v1/data"},
-            ],
-            data_formats=[
-                {"type": "json", "schema": "{}"},
-            ],
-            auth_methods=["bearer"],
-            dependencies=["requests", "pydantic"],
-            test_cases=[
-                {"name": "test_health", "expected": "ok"},
-            ],
+            name=protocol_name,
+            version=version,
+            api_endpoints=api_endpoints or [{"method": "GET", "path": "/"}],
+            data_formats=data_formats,
+            auth_methods=auth_methods,
+            dependencies=sorted(item for item in dependency_candidates if item)[:50],
+            test_cases=test_cases,
         )
 
 

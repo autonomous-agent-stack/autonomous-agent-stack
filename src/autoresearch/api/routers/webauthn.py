@@ -38,6 +38,7 @@ try:
     )
     from webauthn.helpers.structs import (
         AuthenticationCredential,
+        RegistrationCredential,
         AuthenticatorSelectionCriteria,
         AuthenticatorAttachment,
         UserVerificationRequirement,
@@ -453,15 +454,83 @@ async def register_credential(request: Request):
     
     生产环境应该实现完整的注册流程
     """
-    # TODO: 实现完整的注册流程
-    # 1. 生成注册选项
-    # 2. 前端调用 navigator.credentials.create()
-    # 3. 验证并存储凭证
-    
-    raise HTTPException(
-        status_code=501,
-        detail="Registration endpoint not implemented yet",
+    payload = await request.json()
+    telegram_uid = str(payload.get("telegram_uid") or payload.get("user_id") or "").strip()
+    if not telegram_uid:
+        raise HTTPException(status_code=400, detail="Missing telegram_uid")
+
+    challenge = str(payload.get("challenge", "")).strip()
+    credential_payload = payload.get("credential") or payload.get("registration_response") or {}
+    if not isinstance(credential_payload, dict):
+        raise HTTPException(status_code=400, detail="Invalid credential payload")
+
+    # 尝试真实 WebAuthn 验证
+    if WEBAUTHN_AVAILABLE and challenge and payload.get("registration_response"):
+        try:
+            registration_credential = RegistrationCredential.parse_raw(
+                json.dumps(payload["registration_response"])
+            )
+            verification = verify_registration_response(
+                credential=registration_credential,
+                expected_challenge=base64.urlsafe_b64decode(challenge + "=="),
+                expected_origin=ORIGIN,
+                expected_rp_id=RP_ID,
+            )
+            credential_id = base64.urlsafe_b64encode(verification.credential_id).decode("utf-8").rstrip("=")
+            public_key = base64.urlsafe_b64encode(verification.credential_public_key).decode("utf-8").rstrip("=")
+            sign_count = int(getattr(verification, "sign_count", 0))
+            db.save_credential(
+                telegram_uid=telegram_uid,
+                credential_id=credential_id,
+                public_key=public_key,
+                sign_count=sign_count,
+            )
+            return {
+                "registered": True,
+                "telegram_uid": telegram_uid,
+                "credential_id": credential_id,
+                "message": "WebAuthn credential registered",
+            }
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Registration verification failed: {exc}") from exc
+
+    # 降级模式：存储结构化凭证占位（用于开发与测试）
+    credential_id = str(
+        credential_payload.get("id")
+        or credential_payload.get("credential_id")
+        or payload.get("credential_id")
+        or ""
+    ).strip()
+    if not credential_id:
+        seed = json.dumps(credential_payload, ensure_ascii=False, sort_keys=True)
+        credential_id = base64.urlsafe_b64encode(hashlib.sha256(seed.encode("utf-8")).digest()).decode("utf-8").rstrip("=")
+
+    public_key = str(
+        credential_payload.get("public_key")
+        or ((credential_payload.get("response") or {}).get("publicKey") if isinstance(credential_payload.get("response"), dict) else "")
+        or ((credential_payload.get("response") or {}).get("attestationObject") if isinstance(credential_payload.get("response"), dict) else "")
+        or payload.get("public_key")
+        or ""
+    ).strip()
+    if not public_key:
+        public_key = base64.urlsafe_b64encode(
+            hashlib.sha256(credential_id.encode("utf-8")).digest()
+        ).decode("utf-8").rstrip("=")
+
+    sign_count = int(payload.get("sign_count", 0) or 0)
+    db.save_credential(
+        telegram_uid=telegram_uid,
+        credential_id=credential_id,
+        public_key=public_key,
+        sign_count=sign_count,
     )
+
+    return {
+        "registered": True,
+        "telegram_uid": telegram_uid,
+        "credential_id": credential_id,
+        "message": "Credential stored (fallback mode)",
+    }
 
 
 # ========================================================================
@@ -487,11 +556,27 @@ async def require_biometric(request: Request):
     
     # 解析断言
     try:
-        assertion = json.loads(base64.b64decode(assertion_header))
-        
-        # 验证断言
-        # TODO: 实现完整的验证逻辑
-        
+        padded = assertion_header + "=" * (-len(assertion_header) % 4)
+        decoded = base64.b64decode(padded)
+        assertion = json.loads(decoded)
+        telegram_uid = str(assertion.get("telegram_uid") or assertion.get("uid") or "").strip()
+        challenge = str(assertion.get("challenge") or "").strip()
+        credential = assertion.get("credential")
+        if not telegram_uid or not challenge or not isinstance(credential, dict):
+            raise ValueError("missing telegram_uid/challenge/credential")
+
+        verification = await verify_assertion(
+            AssertionRequest(
+                telegram_uid=telegram_uid,
+                credential=credential,
+                challenge=challenge,
+            )
+        )
+        if not verification.verified:
+            raise ValueError("assertion not verified")
+
+        request.state.webauthn_verified = True
+        request.state.webauthn_uid = telegram_uid
     except Exception as e:
         raise HTTPException(
             status_code=401,

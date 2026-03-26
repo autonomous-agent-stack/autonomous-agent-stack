@@ -4,6 +4,7 @@
 """
 
 import asyncio
+import json
 import subprocess
 import logging
 from typing import Optional, AsyncIterator, List, Dict, Any
@@ -193,15 +194,109 @@ class ClaudeCLIAdapter:
         Returns:
             包含响应和工具调用的结果
         """
-        # TODO: 实现工具调用逻辑
-        # 目前简化为普通执行
-        response = await self.execute(prompt, context)
-        
+        tool_calls = await self._collect_tool_calls(prompt, tools)
+        augmented_prompt = prompt
+        if tool_calls:
+            tool_result_lines = []
+            for call in tool_calls:
+                tool_result_lines.append(
+                    f"[tool:{call['name']}] args={json.dumps(call['arguments'], ensure_ascii=False)} "
+                    f"result={json.dumps(call.get('result'), ensure_ascii=False)}"
+                )
+            augmented_prompt = f"{prompt}\n\n工具执行结果:\n" + "\n".join(tool_result_lines)
+
+        response = await self.execute(augmented_prompt, context)
+        tokens_used = self._estimate_tokens(augmented_prompt) + self._estimate_tokens(response)
+
         return {
             "response": response,
-            "tool_calls": [],
-            "tokens_used": 0  # TODO: 实现实际 token 计数
+            "tool_calls": tool_calls,
+            "tokens_used": tokens_used,
         }
+
+    async def _collect_tool_calls(
+        self,
+        prompt: str,
+        tools: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """从提示中提取并执行工具调用."""
+        if not tools:
+            return []
+
+        indexed_tools: Dict[str, Dict[str, Any]] = {}
+        for tool in tools:
+            name = str(tool.get("name", "")).strip()
+            if name:
+                indexed_tools[name] = tool
+
+        calls: List[Dict[str, Any]] = []
+        for match in self._iter_tool_invocations(prompt):
+            tool_name = match["name"]
+            tool = indexed_tools.get(tool_name)
+            if tool is None:
+                calls.append(
+                    {
+                        "name": tool_name,
+                        "arguments": match["arguments"],
+                        "error": "tool_not_found",
+                    }
+                )
+                continue
+
+            callable_obj = tool.get("callable") or tool.get("function")
+            if callable_obj is None:
+                calls.append(
+                    {
+                        "name": tool_name,
+                        "arguments": match["arguments"],
+                        "error": "tool_callable_missing",
+                    }
+                )
+                continue
+
+            try:
+                if asyncio.iscoroutinefunction(callable_obj):
+                    result = await callable_obj(**match["arguments"])
+                else:
+                    result = await asyncio.to_thread(callable_obj, **match["arguments"])
+                calls.append(
+                    {
+                        "name": tool_name,
+                        "arguments": match["arguments"],
+                        "result": result,
+                    }
+                )
+            except Exception as exc:
+                calls.append(
+                    {
+                        "name": tool_name,
+                        "arguments": match["arguments"],
+                        "error": str(exc),
+                    }
+                )
+        return calls
+
+    def _iter_tool_invocations(self, prompt: str) -> List[Dict[str, Any]]:
+        """解析提示里的工具调用语法: [[tool:name {"k":"v"}]]."""
+        import re
+
+        pattern = re.compile(r"\[\[tool:(?P<name>[a-zA-Z0-9_\-]+)\s*(?P<args>\{.*?\})?\]\]")
+        invocations: List[Dict[str, Any]] = []
+        for match in pattern.finditer(prompt):
+            name = match.group("name")
+            raw_args = (match.group("args") or "{}").strip()
+            try:
+                arguments = json.loads(raw_args)
+                if not isinstance(arguments, dict):
+                    arguments = {}
+            except json.JSONDecodeError:
+                arguments = {}
+            invocations.append({"name": name, "arguments": arguments})
+        return invocations
+
+    @staticmethod
+    def _estimate_tokens(text: str) -> int:
+        return max(1, len(text) // 4) if text else 0
 
 
 # 单例实例
