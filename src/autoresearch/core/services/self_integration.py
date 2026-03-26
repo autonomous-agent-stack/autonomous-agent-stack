@@ -5,13 +5,19 @@ import re
 from urllib.parse import urlparse
 
 from autoresearch.shared.models import (
+    DependencyRequest,
+    EvaluationGateRead,
     IntegrationDiscoverRequest,
     IntegrationDiscoveryRead,
     IntegrationPromoteRequest,
     IntegrationPromotionRead,
     IntegrationPrototypeRead,
     IntegrationPrototypeRequest,
+    IntegrationSecureFetchRequest,
     JobStatus,
+    OfflineSandboxPolicyRead,
+    SecureDependencyArtifactRead,
+    SecureFetchPlanRead,
     utc_now,
 )
 from autoresearch.shared.store import Repository, create_resource_id
@@ -75,6 +81,31 @@ class SelfIntegrationService:
         if not adapter_name:
             raise ValueError("adapter_name must contain alphanumeric characters")
 
+        trace_id = create_resource_id("trace")
+        secure_fetch_plan = self._build_secure_fetch_plan(
+            dependencies=request.dependency_requests,
+            policy_version=request.policy_version,
+            trace_id=trace_id,
+        )
+        offline_sandbox_policy = OfflineSandboxPolicyRead(
+            readonly_mounts=[secure_fetch_plan.readonly_mount_dir],
+        )
+        evaluation_gate = EvaluationGateRead(
+            required_checks=self._default_evaluation_checks(),
+            status="pending",
+        )
+
+        if secure_fetch_plan.status == "pending":
+            summary = (
+                "Prototype plan generated. Next step: complete secure fetch on host via "
+                "POST /api/v1/integrations/prototype/{prototype_id}/secure-fetch before promotion."
+            )
+        else:
+            summary = (
+                "Prototype plan generated. Next step: run offline sandbox regression and "
+                "submit evaluation evidence before promotion."
+            )
+
         now = utc_now()
         prototype = IntegrationPrototypeRead(
             prototype_id=create_resource_id("proto"),
@@ -83,26 +114,31 @@ class SelfIntegrationService:
             sandbox_backend=request.sandbox_backend,
             dry_run=request.dry_run,
             status=JobStatus.CREATED,
+            dependency_requests=request.dependency_requests,
+            secure_fetch_plan=secure_fetch_plan,
+            offline_sandbox_policy=offline_sandbox_policy,
+            evaluation_gate=evaluation_gate,
+            trace_id=trace_id,
             planned_files=[
                 f"src/autoresearch/adapters/{adapter_name}/__init__.py",
                 f"src/autoresearch/adapters/{adapter_name}/adapter_node.py",
                 f"tests/integration/{adapter_name}_smoke_test.py",
             ],
             validation_checks=[
+                "secure fetch audit completed on host proxy with pip-compile --require-hashes",
+                "offline sandbox policy enforced (NETWORK=none + readonly mounts)",
                 "contract mapping for upstream inputs/outputs",
                 "sandbox smoke test in Docker/Colima",
                 "pre-execution cleanup for ._* and .DS_Store",
             ],
-            summary=(
-                "Prototype plan generated. Next step: implement adapter in sandbox and "
-                "run regression before promotion."
-            ),
+            summary=summary,
             created_at=now,
             updated_at=now,
             metadata={
                 **request.metadata,
                 "source_url": discovery.source_url,
                 "source_kind": discovery.source_kind,
+                "policy_version": request.policy_version,
             },
             error=None,
         )
@@ -111,41 +147,173 @@ class SelfIntegrationService:
     def get_prototype(self, prototype_id: str) -> IntegrationPrototypeRead | None:
         return self._prototype_repository.get(prototype_id)
 
+    def secure_fetch(
+        self,
+        prototype_id: str,
+        request: IntegrationSecureFetchRequest,
+    ) -> IntegrationPrototypeRead:
+        prototype = self.get_prototype(prototype_id)
+        if prototype is None:
+            raise KeyError(f"prototype not found: {prototype_id}")
+
+        expected_packages = {dep.package for dep in prototype.dependency_requests}
+        provided_packages = {artifact.package for artifact in request.audited_artifacts}
+
+        if not expected_packages:
+            if request.audited_artifacts:
+                raise ValueError("prototype has no dependency requests; audited_artifacts must be empty")
+            secure_fetch_status = "skipped"
+        else:
+            if provided_packages != expected_packages:
+                missing = sorted(expected_packages - provided_packages)
+                unexpected = sorted(provided_packages - expected_packages)
+                raise ValueError(
+                    "audited artifacts do not match requested dependencies; "
+                    f"missing={missing}, unexpected={unexpected}"
+                )
+            secure_fetch_status = "audited"
+
+        now = utc_now()
+        mount_dir = (
+            request.mount_dir.strip()
+            if request.mount_dir and request.mount_dir.strip()
+            else prototype.secure_fetch_plan.readonly_mount_dir
+        )
+        hash_manifest = self._merge_hash_manifest(
+            request_manifest=request.hash_manifest,
+            artifacts=request.audited_artifacts,
+        )
+        sbom = request.sbom or self._build_default_sbom(request.audited_artifacts)
+        audit_notes = [
+            *prototype.secure_fetch_plan.audit_notes,
+            *request.notes,
+            (
+                "Security_Auditor completed host-side dependency verification "
+                f"({request.auditor}) at {now.isoformat()}."
+            ),
+        ]
+
+        secure_fetch_plan = prototype.secure_fetch_plan.model_copy(
+            update={
+                "status": secure_fetch_status,
+                "readonly_mount_dir": mount_dir,
+                "artifacts": request.audited_artifacts,
+                "hash_manifest": hash_manifest,
+                "sbom": sbom,
+                "audit_notes": audit_notes,
+                "policy_version": request.policy_version or prototype.secure_fetch_plan.policy_version,
+                "audited_at": now if secure_fetch_status == "audited" else prototype.secure_fetch_plan.audited_at,
+            }
+        )
+        offline_sandbox_policy = prototype.offline_sandbox_policy.model_copy(
+            update={"readonly_mounts": [mount_dir]}
+        )
+
+        updated_prototype = prototype.model_copy(
+            update={
+                "secure_fetch_plan": secure_fetch_plan,
+                "offline_sandbox_policy": offline_sandbox_policy,
+                "updated_at": now,
+                "summary": (
+                    "Secure fetch completed. Next step: run offline integration tests and "
+                    "submit evaluation evidence for promotion."
+                ),
+                "metadata": {
+                    **prototype.metadata,
+                    "last_secure_fetch_auditor": request.auditor,
+                    "secure_fetch_policy_version": request.policy_version,
+                },
+            }
+        )
+        return self._prototype_repository.save(updated_prototype.prototype_id, updated_prototype)
+
     def promote(self, request: IntegrationPromoteRequest) -> IntegrationPromotionRead:
         prototype = self.get_prototype(request.prototype_id)
         if prototype is None:
             raise KeyError(f"prototype not found: {request.prototype_id}")
 
+        if prototype.secure_fetch_plan.status not in {"audited", "skipped"}:
+            raise ValueError(
+                "secure fetch is incomplete; run host-side audit first and mount audited artifacts"
+            )
+
+        gate_status, passed_checks, failed_checks, missing_checks = self._evaluate_gate(
+            required_checks=prototype.evaluation_gate.required_checks,
+            evaluation_results=request.evaluation_results,
+        )
+        if request.rollout_mode == "full" and gate_status != "passed":
+            raise ValueError(
+                "promotion gate failed for full rollout; required checks must be fully passed"
+            )
+        if request.rollout_mode == "canary" and gate_status == "failed":
+            raise ValueError("promotion gate failed; canary rollout blocked by failing checks")
+
         now = utc_now()
+        updated_prototype = prototype.model_copy(
+            update={
+                "evaluation_gate": prototype.evaluation_gate.model_copy(
+                    update={
+                        "status": gate_status,
+                        "passed_checks": passed_checks,
+                        "failed_checks": failed_checks,
+                    }
+                ),
+                "updated_at": now,
+            }
+        )
+        self._prototype_repository.save(updated_prototype.prototype_id, updated_prototype)
+
+        if request.approval_mode == "auto_if_green" and gate_status == "passed":
+            decision = "approved"
+            promotion_status = JobStatus.COMPLETED
+            summary = (
+                "Promotion auto-approved because secure fetch is audited and all evaluation "
+                "checks passed."
+            )
+        else:
+            decision = "pending"
+            promotion_status = JobStatus.CREATED
+            summary = (
+                "Promotion plan created. Execute side-by-side regression and approve manually "
+                "before production cutover."
+            )
+
         promotion = IntegrationPromotionRead(
             promotion_id=create_resource_id("prom"),
             prototype_id=request.prototype_id,
             rollout_mode=request.rollout_mode,
-            status=JobStatus.CREATED,
-            decision="pending",
+            status=promotion_status,
+            decision=decision,
+            gate_status=gate_status,
+            required_checks=prototype.evaluation_gate.required_checks,
+            passed_checks=passed_checks,
+            failed_checks=failed_checks,
+            missing_checks=missing_checks,
+            trace_id=prototype.trace_id,
             topology_patch_preview={
                 "rollout_mode": request.rollout_mode,
                 "graph_changes": [
                     f"register AdapterNode<{prototype.adapter_name}>",
                     "enable shadow comparison with baseline flow",
                     "gate production cutover behind regression score threshold",
+                    "enforce audited dependency mount in offline sandbox",
                 ],
             },
             rollback_plan=[
                 "disable integration feature flag",
                 "restore previous graph binding",
                 "replay latest stable topology snapshot",
+                "revert to previous signed runtime artifact",
             ],
-            summary=(
-                "Promotion plan created. Execute side-by-side regression and approve "
-                "manually before production cutover."
-            ),
+            summary=summary,
             created_at=now,
             updated_at=now,
             metadata={
                 **request.metadata,
                 "adapter_name": prototype.adapter_name,
                 "dry_run": prototype.dry_run,
+                "secure_fetch_status": prototype.secure_fetch_plan.status,
+                "approval_mode": request.approval_mode,
             },
             error=None,
         )
@@ -215,3 +383,109 @@ class SelfIntegrationService:
         if not capabilities:
             capabilities.append("adapter_scaffold_generation")
         return capabilities
+
+    @staticmethod
+    def _default_evaluation_checks() -> list[str]:
+        return [
+            "unit_test_pass_rate",
+            "security_scan_clean",
+            "behavior_regression_ok",
+            "performance_regression_ok",
+            "policy_compliance_ok",
+            "reproducible_build_ok",
+        ]
+
+    @staticmethod
+    def _build_secure_fetch_plan(
+        dependencies: list[DependencyRequest],
+        policy_version: str,
+        trace_id: str,
+    ) -> SecureFetchPlanRead:
+        request_id = create_resource_id("dep")
+        if not dependencies:
+            return SecureFetchPlanRead(
+                request_id=request_id,
+                status="skipped",
+                audit_notes=["No third-party dependencies requested; secure fetch skipped."],
+                trace_id=trace_id,
+                policy_version=policy_version,
+            )
+
+        dependency_preview = [
+            SelfIntegrationService._dependency_spec(dep)
+            for dep in dependencies
+        ]
+        return SecureFetchPlanRead(
+            request_id=request_id,
+            status="pending",
+            audit_commands=[
+                "pip-compile --require-hashes requirements.in",
+                "pip download --require-hashes -r requirements.txt --dest /var/secure-wheelhouse",
+                "sha256sum /var/secure-wheelhouse/*.whl > hash_manifest.txt",
+            ],
+            audit_notes=[
+                "Sandbox must request dependencies via host proxy only.",
+                "Security_Auditor validates hashes before readonly mount into sandbox.",
+                f"Requested dependencies: {', '.join(dependency_preview)}",
+            ],
+            trace_id=trace_id,
+            policy_version=policy_version,
+        )
+
+    @staticmethod
+    def _dependency_spec(dependency: DependencyRequest) -> str:
+        if dependency.version_spec:
+            return f"{dependency.package}{dependency.version_spec}"
+        return dependency.package
+
+    @staticmethod
+    def _merge_hash_manifest(
+        request_manifest: dict[str, str],
+        artifacts: list[SecureDependencyArtifactRead],
+    ) -> dict[str, str]:
+        manifest = {package: digest for package, digest in request_manifest.items()}
+        for artifact in artifacts:
+            manifest.setdefault(artifact.package, artifact.sha256)
+
+        for artifact in artifacts:
+            manifest_digest = manifest.get(artifact.package, "").strip().lower()
+            if manifest_digest != artifact.sha256:
+                raise ValueError(
+                    "hash_manifest does not match artifact digest for package "
+                    f"{artifact.package}"
+                )
+        return manifest
+
+    @staticmethod
+    def _build_default_sbom(artifacts: list[SecureDependencyArtifactRead]) -> dict:
+        return {
+            "format": "cyclonedx-lite",
+            "generated_by": "security_auditor",
+            "components": [
+                {
+                    "type": "library",
+                    "name": artifact.package,
+                    "version_spec": artifact.version_spec,
+                    "artifact": artifact.wheel_filename,
+                    "sha256": artifact.sha256,
+                }
+                for artifact in artifacts
+            ],
+        }
+
+    @staticmethod
+    def _evaluate_gate(
+        required_checks: list[str],
+        evaluation_results: dict[str, bool],
+    ) -> tuple[str, list[str], list[str], list[str]]:
+        passed_checks = [check for check in required_checks if evaluation_results.get(check) is True]
+        failed_checks = [check for check in required_checks if evaluation_results.get(check) is False]
+        missing_checks = [check for check in required_checks if check not in evaluation_results]
+
+        if failed_checks:
+            status = "failed"
+        elif not required_checks or not missing_checks:
+            status = "passed"
+        else:
+            status = "pending"
+        return status, passed_checks, failed_checks, missing_checks
