@@ -2,7 +2,7 @@
 # Production Launch Script for Autonomous Agent Stack
 # Version: v1.2.0-autonomous-genesis
 
-PROJECT_ROOT="/Volumes/PS1008/Github/autonomous-agent-stack"
+PROJECT_ROOT="/Volumes/AI_LAB/Github/autonomous-agent-stack"
 PORT=8001
 
 echo "🌐 (System) 启动通用版自主智能体底座..."

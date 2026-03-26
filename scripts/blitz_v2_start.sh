@@ -4,7 +4,7 @@
 
 set -e
 
-PROJECT_ROOT="/Volumes/PS1008/Github/autonomous-agent-stack"
+PROJECT_ROOT="/Volumes/AI_LAB/Github/autonomous-agent-stack"
 PORT=8001
 LOG_FILE="/tmp/autoresearch_v2.log"
 

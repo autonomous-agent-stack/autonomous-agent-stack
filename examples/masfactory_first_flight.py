@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import asyncio
 import os
 import sys
@@ -38,7 +39,24 @@ def env_flag(name: str, default: str = "0") -> bool:
     return value in {"1", "true", "yes", "on"}
 
 
-async def main() -> int:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run MASFactory first flight.")
+    parser.add_argument("--goal", type=str, help="Goal to execute.")
+    return parser.parse_args(argv)
+
+
+def resolve_goal(cli_goal: str | None) -> str:
+    if cli_goal and cli_goal.strip():
+        return cli_goal.strip()
+    for env_name in ("TASK_GOAL", "MAS_FACTORY_GOAL"):
+        value = os.getenv(env_name, "").strip()
+        if value:
+            return value
+    return "explore and learn"
+
+
+async def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
     watch_enabled = env_flag("WATCH") or env_flag("MAS_FACTORY_WATCH")
     watch_log = Path(
         os.getenv(
@@ -50,7 +68,7 @@ async def main() -> int:
 
     context = MASContext(
         workspace=REPO_ROOT,
-        goal=os.getenv("MAS_FACTORY_GOAL", "检查 M1 原生算力与工作区可写性"),
+        goal=resolve_goal(args.goal),
     )
     planner = PlannerNode()
     generator = GeneratorNode()
@@ -124,8 +142,8 @@ async def main() -> int:
     print("=== MASFactory First Flight ===")
     print(f"goal: {plan['goal']}")
     print(f"decision: {evaluation['decision']}")
-    print(f"cpu_count: {evaluation['resource_hints'].get('cpu_count')}")
-    print(f"memory_limit_bytes: {evaluation['resource_hints'].get('memory_limit_bytes')}")
+    print(f"mode: {evaluation['resource_hints'].get('mode')}")
+    print(f"workspace: {evaluation['resource_hints'].get('workspace')}")
     if evaluation.get("retry_hints"):
         print("retry_hints:")
         for hint in evaluation["retry_hints"]:
@@ -145,4 +163,4 @@ async def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(asyncio.run(main()))
+    raise SystemExit(asyncio.run(main(sys.argv[1:])))

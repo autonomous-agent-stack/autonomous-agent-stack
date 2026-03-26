@@ -210,7 +210,7 @@ stop_stack() {
 usage() {
   cat <<'EOF'
 Usage:
-  scripts/launch_ai_lab.sh [shell|up|down|status|run -- <cmd...>]
+  scripts/launch_ai_lab.sh [shell|up|down|status|run <cmd...>]
 
 Modes:
   shell   Run guardrails, start stack, then open an interactive shell
@@ -222,7 +222,7 @@ Modes:
 Examples:
   ./scripts/launch_ai_lab.sh
   ./scripts/launch_ai_lab.sh up
-  ./scripts/launch_ai_lab.sh run -- python -V
+  ./scripts/launch_ai_lab.sh run python -V
 EOF
 }
 

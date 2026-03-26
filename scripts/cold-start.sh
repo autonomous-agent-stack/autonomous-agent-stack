@@ -11,7 +11,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # 项目根目录
-PROJECT_ROOT="/Volumes/PS1008/Github/autonomous-agent-stack"
+PROJECT_ROOT="/Volumes/AI_LAB/Github/autonomous-agent-stack"
 PORT=8001
 LOG_FILE="/tmp/autoresearch_8001.log"
 

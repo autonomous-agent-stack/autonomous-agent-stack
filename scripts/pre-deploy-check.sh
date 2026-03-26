@@ -8,10 +8,10 @@ echo ""
 
 # 1. 物理路径校验
 echo "📁 检查工作目录..."
-if [[ "$PWD" != "/Volumes/PS1008/Github/autonomous-agent-stack" ]]; then
+if [[ "$PWD" != "/Volumes/AI_LAB/Github/autonomous-agent-stack" ]]; then
     echo "❌ 错误：当前不在正确的工作目录"
     echo "   当前：$PWD"
-    echo "   应该：/Volumes/PS1008/Github/autonomous-agent-stack"
+    echo "   应该：/Volumes/AI_LAB/Github/autonomous-agent-stack"
     exit 1
 fi
 echo "✅ 工作目录正确"

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-COLIMA_BUNDLE_PATH="${COLIMA_BUNDLE_PATH:-/Volumes/PS1008/colima-store.sparsebundle}"
+COLIMA_BUNDLE_PATH="${COLIMA_BUNDLE_PATH:-/Volumes/AI_LAB/colima-store.sparsebundle}"
 COLIMA_MOUNT_POINT="${COLIMA_MOUNT_POINT:-/Volumes/ColimaStore}"
 COLIMA_HOME_PATH="${COLIMA_HOME_PATH:-${COLIMA_MOUNT_POINT}/.colima-home}"
 

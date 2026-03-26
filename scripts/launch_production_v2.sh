@@ -5,7 +5,7 @@
 # 架构：零容器依赖 / SQLite 状态机 / 4x 异步 Workers
 # ========================================================================
 
-PROJECT_ROOT="/Volumes/PS1008/Github/autonomous-agent-stack"
+PROJECT_ROOT="/Volumes/AI_LAB/Github/autonomous-agent-stack"
 PORT=8001
 DB_DIR="$PROJECT_ROOT/data"
 

@@ -1,33 +1,17 @@
 services:
   ai-lab:
-    image: python:3.11-slim-bookworm
+    build: .
     platform: linux/arm64
     container_name: ai-lab
     working_dir: /workspace
-    command: ["python", "-m", "http.server", "8000"]
-
-    cpus: "4.0"
-    mem_limit: 2g
-    memswap_limit: 2g
-
-    read_only: true
-    tmpfs:
-      - /tmp:rw,noexec,nosuid,size=256m
-      - /var/tmp:rw,noexec,nosuid,size=128m
-
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-
-    user: "1000:1000"
-
+    # 强制以 root 运行，确保能抡得动 gh 和 git 这类重型扳手
+    user: "root"
     volumes:
-      - /Users/ai_lab/workspace:/workspace:rw
-
+      - ../..:/workspace:rw
     environment:
-      PYTHONDONTWRITEBYTECODE: "1"
-      PYTHONUNBUFFERED: "1"
-
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
+      - TELEGRAM_BOT_TOKEN
+      - TELEGRAM_CHAT_ID
+      - GITHUB_TOKEN
     restart: "no"
-
