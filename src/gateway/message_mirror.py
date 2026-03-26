@@ -6,7 +6,7 @@
 
 import logging
 from typing import Dict, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +77,7 @@ class MessageMirror:
             result = {
                 "status": "success",
                 "backup_message_id": backup_message_id,
-                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "timestamp": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
                 "mirror_count": self.mirror_count
             }
             
@@ -96,7 +96,7 @@ class MessageMirror:
             return {
                 "status": "error",
                 "error": str(e),
-                "timestamp": datetime.utcnow().isoformat() + "Z"
+                "timestamp": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
             }
     
     def _build_mirror_text(self, original_message: Dict) -> str:
@@ -118,7 +118,7 @@ class MessageMirror:
         header = f"📋 镜像消息 #{msg_id}\n"
         header += f"👤 发送者: {sender_id}\n"
         header += f"💬 来源话题: {source_thread}\n"
-        header += f"⏰ {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}\n"
+        header += f"⏰ {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}\n"
         header += "-" * 40 + "\n\n"
         
         return header + text
