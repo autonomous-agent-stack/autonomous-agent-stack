@@ -12,10 +12,13 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+from ...communication import Message, MessageBus, MessageType
 
 logger = logging.getLogger(__name__)
 
@@ -54,8 +57,17 @@ class ToolRegistry:
 class HotSwapManager:
     """热更新管理器"""
     
-    def __init__(self):
+    def __init__(self, message_bus: MessageBus | None = None):
         self.registry = ToolRegistry()
+        self._bus = message_bus or MessageBus()
+        self._audit_path = Path(
+            os.getenv("TOOL_REGISTRY_AUDIT_PATH", ".autoresearch/audit/tool_registry.jsonl")
+        ).resolve()
+        self._broadcast_path = Path(
+            os.getenv("TOOL_REGISTRY_BROADCAST_PATH", ".autoresearch/audit/tool_broadcast.jsonl")
+        ).resolve()
+        self._audit_path.parent.mkdir(parents=True, exist_ok=True)
+        self._broadcast_path.parent.mkdir(parents=True, exist_ok=True)
     
     async def hot_swap_tool(
         self,
@@ -111,9 +123,25 @@ class HotSwapManager:
     async def _broadcast_to_agents(self, message: str):
         """广播消息到所有 Agent"""
         logger.info(f"📢 广播消息: {message}")
-        
-        # TODO: 实现真实的广播逻辑
-        pass
+        await self._bus.start()
+        event_payload = {
+            "event": "tool_hot_swap",
+            "message": message.strip(),
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+        await self._bus.publish(
+            Message(
+                type=MessageType.CONTROL,
+                sender="hot_swap_manager",
+                receiver="all",
+                payload=event_payload,
+            )
+        )
+        await asyncio.to_thread(
+            self._append_jsonl,
+            self._broadcast_path,
+            event_payload,
+        )
     
     async def _audit_log(
         self,
@@ -122,9 +150,17 @@ class HotSwapManager:
     ):
         """记录审计日志"""
         logger.info(f"📝 审计日志: {event} - {kwargs}")
-        
-        # TODO: 实现真实的审计日志
-        pass
+        payload = {
+            "event": event,
+            "timestamp": datetime.utcnow().isoformat(),
+            **kwargs,
+        }
+        await asyncio.to_thread(self._append_jsonl, self._audit_path, payload)
+
+    @staticmethod
+    def _append_jsonl(path: Path, payload: dict[str, Any]) -> None:
+        with path.open("a", encoding="utf-8") as file:
+            file.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
 
 # 全局实例

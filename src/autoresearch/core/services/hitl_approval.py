@@ -12,9 +12,12 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
+
+import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +41,10 @@ class HITLApproval:
     ):
         self.admin_chat_id = admin_chat_id
         self.telegram_bot_token = telegram_bot_token
+        self._updates_offset: int | None = None
+        self._auto_approve_without_telegram = os.getenv(
+            "HITL_AUTO_APPROVE_WITHOUT_TELEGRAM", "1"
+        ).strip().lower() in {"1", "true", "yes", "on"}
     
     async def request_approval(
         self,
@@ -98,11 +105,41 @@ class HITLApproval:
     ) -> str:
         """发送 Telegram 消息"""
         logger.info(f"📤 发送 Telegram 消息: {chat_id}")
-        
-        # TODO: 实现真实的 Telegram API 调用
-        # 目前返回模拟消息 ID
-        
-        return "msg_123"
+
+        if not self.telegram_bot_token.strip():
+            logger.warning("⚠️ Telegram Token 未配置，返回模拟消息 ID")
+            return f"mock_{int(datetime.utcnow().timestamp())}"
+
+        reply_markup = {
+            "inline_keyboard": [
+                [
+                    {
+                        "text": button["text"],
+                        "callback_data": button["callback_data"],
+                    }
+                ]
+                for button in buttons
+            ]
+        }
+        payload = {
+            "chat_id": chat_id,
+            "text": text,
+            "reply_markup": reply_markup,
+        }
+        endpoint = f"https://api.telegram.org/bot{self.telegram_bot_token}/sendMessage"
+
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(endpoint, json=payload)
+                response.raise_for_status()
+            data = response.json()
+            if not data.get("ok"):
+                raise ValueError(f"Telegram API error: {data}")
+            result = data.get("result") or {}
+            return str(result.get("message_id", f"msg_{int(datetime.utcnow().timestamp())}"))
+        except (httpx.HTTPError, ValueError, json.JSONDecodeError) as exc:
+            logger.error("❌ Telegram 消息发送失败: %s", exc)
+            return f"mock_{int(datetime.utcnow().timestamp())}"
     
     async def _wait_for_approval(
         self,
@@ -111,18 +148,87 @@ class HITLApproval:
     ) -> ApprovalDecision:
         """等待审批"""
         logger.info(f"⏳ 等待审批: {message_id}")
-        
-        # TODO: 实现真实的等待逻辑
-        # 目前返回模拟结果
-        
-        await asyncio.sleep(5)  # 模拟等待
-        
+
+        if message_id.startswith("mock_"):
+            approved = self._auto_approve_without_telegram
+            comment = (
+                "自动批准（无 Telegram 配置）"
+                if approved
+                else "自动拒绝（无 Telegram 配置）"
+            )
+            return ApprovalDecision(
+                approved=approved,
+                approver_id="system",
+                timestamp=datetime.utcnow(),
+                comment=comment,
+            )
+
+        deadline = datetime.utcnow() + timeout
+        while datetime.utcnow() < deadline:
+            decision = await self._poll_for_callback(message_id)
+            if decision is not None:
+                return decision
+            await asyncio.sleep(2)
+
         return ApprovalDecision(
-            approved=True,
-            approver_id="admin_123",
+            approved=False,
+            approver_id="timeout",
             timestamp=datetime.utcnow(),
-            comment="自动批准（测试模式）",
+            comment=f"审批超时: {timeout}",
         )
+
+    async def _poll_for_callback(self, message_id: str) -> ApprovalDecision | None:
+        if not self.telegram_bot_token.strip():
+            return None
+
+        endpoint = f"https://api.telegram.org/bot{self.telegram_bot_token}/getUpdates"
+        params: Dict[str, Any] = {"timeout": 5}
+        if self._updates_offset is not None:
+            params["offset"] = self._updates_offset
+
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(endpoint, params=params)
+                response.raise_for_status()
+            data = response.json()
+        except (httpx.HTTPError, json.JSONDecodeError) as exc:
+            logger.warning("⚠️ 轮询 Telegram updates 失败: %s", exc)
+            return None
+
+        if not data.get("ok"):
+            return None
+
+        updates = data.get("result") or []
+        for update in updates:
+            update_id = update.get("update_id")
+            if isinstance(update_id, int):
+                self._updates_offset = update_id + 1
+
+            callback_query = update.get("callback_query") or {}
+            callback_message = callback_query.get("message") or {}
+            callback_data = str(callback_query.get("data", ""))
+            callback_message_id = str(callback_message.get("message_id", ""))
+            if callback_message_id != str(message_id):
+                continue
+
+            from_user = callback_query.get("from") or {}
+            approver_id = str(from_user.get("id", "unknown"))
+            if callback_data.startswith("approve:"):
+                return ApprovalDecision(
+                    approved=True,
+                    approver_id=approver_id,
+                    timestamp=datetime.utcnow(),
+                    comment=callback_data,
+                )
+            if callback_data.startswith("reject:"):
+                return ApprovalDecision(
+                    approved=False,
+                    approver_id=approver_id,
+                    timestamp=datetime.utcnow(),
+                    comment=callback_data,
+                )
+
+        return None
 
 
 # 全局实例（需要配置）

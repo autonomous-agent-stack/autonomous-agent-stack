@@ -1,140 +1,25 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Autonomous Agent Stack - 控制面板</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
-            color: #333;
-            padding: 20px;
-            line-height: 1.6;
-        }
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            background: white;
-            border-radius: 12px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
-            padding: 40px;
-        }
-        h1 {
-            color: #1a1a1a;
-            margin-bottom: 10px;
-            font-size: 2.5em;
-        }
-        .subtitle {
-            color: #666;
-            font-size: 1.1em;
-            margin-bottom: 30px;
-        }
-        .status {
-            display: inline-block;
-            padding: 6px 12px;
-            background: #10b981;
-            color: white;
-            border-radius: 20px;
-            font-size: 0.9em;
-            font-weight: 600;
-            margin-bottom: 20px;
-        }
-        .links {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
-            margin-top: 30px;
-        }
-        .link-card {
-            background: #f8f9fa;
-            padding: 20px;
-            border-radius: 8px;
-            border: 2px solid #e5e7eb;
-            transition: all 0.3s ease;
-        }
-        .link-card:hover {
-            border-color: #3b82f6;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(59,130,246,0.15);
-        }
-        .link-card h3 {
-            color: #1a1a1a;
-            margin-bottom: 8px;
-            font-size: 1.2em;
-        }
-        .link-card p {
-            color: #666;
-            font-size: 0.95em;
-            margin-bottom: 12px;
-        }
-        .link-card a {
-            color: #3b82f6;
-            text-decoration: none;
-            font-weight: 600;
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-        }
-        .link-card a:hover {
-            color: #2563eb;
-        }
-        .info {
-            background: #eff6ff;
-            border-left: 4px solid #3b82f6;
-            padding: 15px;
-            margin: 20px 0;
-            border-radius: 4px;
-        }
-        .info strong {
-            color: #1e40af;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <span class="status">✅ 运行中</span>
-        <h1>🤖 Autonomous Agent Stack</h1>
-        <p class="subtitle">智能体融合平台 - 控制面板</p>
-        
-        <div class="info">
-            <strong>📌 快速开始：</strong> 访问 <a href="/docs">API 文档</a> 查看所有可用端点
-        </div>
-
-        <div class="links">
-            <div class="link-card">
-                <h3>📚 API 文档</h3>
-                <p>查看完整的 RESTful API 文档和交互式测试界面</p>
-                <a href="/docs">/docs →</a>
-            </div>
-            
-            <div class="link-card">
-                <h3>❤️ 健康检查</h3>
-                <p>检查系统健康状态和服务可用性</p>
-                <a href="/api/v1/system/health">/api/v1/system/health →</a>
-            </div>
-            
-            <div class="link-card">
-                <h3>🔧 Admin 视图</h3>
-                <p>管理员界面和系统配置</p>
-                <a href="/admin">/admin →</a>
-            </div>
-            
-            <div class="link-card">
-                <h3>📊 OpenAPI 规范</h3>
-                <p>查看 OpenAPI JSON 规范文件</p>
-                <a href="/openapi.json">/openapi.json →</a>
-            </div>
-        </div>
-
-        <div style="margin-top: 40px; padding-top: 20px; border-top: 2px solid #e5e7eb;">
-            <p style="color: #666; font-size: 0.9em;">
-                <strong>版本：</strong> v1.2.0-autonomous-genesis | 
-                <strong>端口：</strong> 8001 | 
-                <strong>状态：</strong> 运行中
-            </p>
-        </div>
-    </div>
-</body>
-</html>
+<!DOCTYPE html><html lang="zh-CN" class="dark"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="preload" href="/_next/static/media/83afe278b6a6bb3c-s.p.0q-301v4kxxnr.woff2" as="font" crossorigin="" type="font/woff2"/><link rel="stylesheet" href="/_next/static/chunks/0uqsi_y3xumfx.css" data-precedence="next"/><link rel="preload" as="script" fetchPriority="low" href="/_next/static/chunks/00gq-v0e07i1q.js"/><script src="/_next/static/chunks/0c4f8-cph6v12.js" async=""></script><script src="/_next/static/chunks/16g.ca89g7fib.js" async=""></script><script src="/_next/static/chunks/turbopack-0v0zt_kyx_7ym.js" async=""></script><script src="/_next/static/chunks/01xlw8hd842-c.js" async=""></script><script src="/_next/static/chunks/0w2x~-3f4_5s8.js" async=""></script><script src="/_next/static/chunks/06zr85jdrzis8.js" async=""></script><script src="/_next/static/chunks/0pcb-26z1y5jq.js" async=""></script><meta name="next-size-adjust" content=""/><title>Autonomous Agent Stack Dashboard</title><meta name="description" content="实时监控 autonomous-agent-stack 项目状态、Agent 运行情况和测试结果"/><script src="/_next/static/chunks/03~yq9q893hmn.js" noModule=""></script></head><body class="inter_5972bc34-module__OU16Qa__className"><div hidden=""><!--$--><!--/$--></div><div class="min-h-screen bg-gradient-to-b from-dark-900 to-dark-950"><nav class="sticky top-0 z-50 bg-dark-900/80 backdrop-blur-lg border-b border-dark-700"><div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8"><div class="flex items-center justify-between h-16"><div class="flex items-center space-x-2"><div class="w-8 h-8 bg-gradient-to-br from-accent-blue to-accent-purple rounded-lg flex items-center justify-center"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-activity w-5 h-5 text-white"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg></div><span class="text-lg font-bold text-white">Agent Stack</span></div><div class="flex space-x-1"><a class="
+                    flex items-center space-x-2 px-4 py-2 rounded-lg transition-all
+                    bg-accent-blue text-white shadow-lg shadow-accent-blue/25
+                  " href="/"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-activity w-4 h-4"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg><span class="text-sm font-medium hidden sm:inline">首页</span></a><a class="
+                    flex items-center space-x-2 px-4 py-2 rounded-lg transition-all
+                    text-dark-300 hover:text-white hover:bg-dark-800
+                  " href="/tests"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-test-tube w-4 h-4"><path d="M14.5 2v17.5c0 1.4-1.1 2.5-2.5 2.5h0c-1.4 0-2.5-1.1-2.5-2.5V2"></path><path d="M8.5 2h7"></path><path d="M14.5 16h-5"></path></svg><span class="text-sm font-medium hidden sm:inline">测试</span></a><a class="
+                    flex items-center space-x-2 px-4 py-2 rounded-lg transition-all
+                    text-dark-300 hover:text-white hover:bg-dark-800
+                  " href="/parity"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-git-branch w-4 h-4"><line x1="6" x2="6" y1="3" y2="15"></line><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path></svg><span class="text-sm font-medium hidden sm:inline">对齐</span></a><a class="
+                    flex items-center space-x-2 px-4 py-2 rounded-lg transition-all
+                    text-dark-300 hover:text-white hover:bg-dark-800
+                  " href="/agents"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-users w-4 h-4"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg><span class="text-sm font-medium hidden sm:inline">Agents</span></a></div></div></div></nav><main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8"><div class="mb-8"><h1 class="text-3xl font-bold text-white mb-2">项目概览</h1><p class="text-dark-400">实时监控 Autonomous Agent Stack 项目状态</p></div><div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8"><div class="
+        bg-gradient-to-br from-accent-blue/20 to-accent-blue/5 border-accent-blue/30
+        border rounded-xl p-6 card-hover
+      "><div class="flex items-start justify-between"><div class="flex-1"><p class="text-sm text-dark-400 mb-1">整体完成度</p><p class="text-3xl font-bold text-white mb-1">...</p><p class="text-xs text-dark-500">P0/P1/P2 功能</p></div><div class="text-dark-400"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-trending-up w-6 h-6"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"></polyline><polyline points="16 7 22 7 22 13"></polyline></svg></div></div><div class="flex items-center mt-3 space-x-1"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-trending-up w-4 h-4 text-accent-green"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"></polyline><polyline points="16 7 22 7 22 13"></polyline></svg><span class="text-sm text-accent-green">+<!-- -->8<!-- -->%</span><span class="text-xs text-dark-500">vs last week</span></div></div><div class="
+        bg-gradient-to-br from-accent-green/20 to-accent-green/5 border-accent-green/30
+        border rounded-xl p-6 card-hover
+      "><div class="flex items-start justify-between"><div class="flex-1"><p class="text-sm text-dark-400 mb-1">成功率</p><p class="text-3xl font-bold text-white mb-1">...</p><p class="text-xs text-dark-500">Agent 执行成功率</p></div><div class="text-dark-400"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-circle-check-big w-6 h-6"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><path d="m9 11 3 3L22 4"></path></svg></div></div><div class="flex items-center mt-3 space-x-1"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-trending-up w-4 h-4 text-accent-green"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"></polyline><polyline points="16 7 22 7 22 13"></polyline></svg><span class="text-sm text-accent-green">+<!-- -->3.2<!-- -->%</span><span class="text-xs text-dark-500">vs last week</span></div></div><div class="
+        bg-gradient-to-br from-accent-purple/20 to-accent-purple/5 border-accent-purple/30
+        border rounded-xl p-6 card-hover
+      "><div class="flex items-start justify-between"><div class="flex-1"><p class="text-sm text-dark-400 mb-1">运行时间</p><p class="text-3xl font-bold text-white mb-1">...</p><p class="text-xs text-dark-500">系统持续运行</p></div><div class="text-dark-400"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-clock w-6 h-6"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg></div></div></div><div class="
+        bg-gradient-to-br from-accent-cyan/20 to-accent-cyan/5 border-accent-cyan/30
+        border rounded-xl p-6 card-hover
+      "><div class="flex items-start justify-between"><div class="flex-1"><p class="text-sm text-dark-400 mb-1">活跃 Agents</p><p class="text-3xl font-bold text-white mb-1">...</p><p class="text-xs text-dark-500">当前运行中</p></div><div class="text-dark-400"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-activity w-6 h-6"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg></div></div></div></div><div class="grid grid-cols-1 lg:grid-cols-3 gap-6"><div class="lg:col-span-2"><h2 class="text-xl font-semibold text-white mb-4">Agent 状态</h2><div class="bg-dark-800/50 border border-dark-700 rounded-xl p-8 text-center"><div class="animate-pulse text-dark-400">加载中...</div></div></div><div class="lg:col-span-1"><div class="bg-dark-800/50 border border-dark-700 rounded-xl p-8 text-center"><div class="animate-pulse text-dark-400">加载中...</div></div></div></div><div class="mt-8 text-center text-dark-500 text-sm"><p>最后更新: <!-- -->...</p></div></main><!--$--><!--/$--></div><script src="/_next/static/chunks/00gq-v0e07i1q.js" id="_R_" async=""></script><script>(self.__next_f=self.__next_f||[]).push([0])</script><script>self.__next_f.push([1,"1:\"$Sreact.fragment\"\n2:I[39756,[\"/_next/static/chunks/01xlw8hd842-c.js\",\"/_next/static/chunks/0w2x~-3f4_5s8.js\"],\"default\"]\n3:I[37457,[\"/_next/static/chunks/01xlw8hd842-c.js\",\"/_next/static/chunks/0w2x~-3f4_5s8.js\"],\"default\"]\n4:I[47257,[\"/_next/static/chunks/01xlw8hd842-c.js\",\"/_next/static/chunks/0w2x~-3f4_5s8.js\"],\"ClientPageRoot\"]\n5:I[31713,[\"/_next/static/chunks/01xlw8hd842-c.js\",\"/_next/static/chunks/0w2x~-3f4_5s8.js\",\"/_next/static/chunks/06zr85jdrzis8.js\",\"/_next/static/chunks/0pcb-26z1y5jq.js\"],\"default\"]\n8:I[97367,[\"/_next/static/chunks/01xlw8hd842-c.js\",\"/_next/static/chunks/0w2x~-3f4_5s8.js\"],\"OutletBoundary\"]\n9:\"$Sreact.suspense\"\nb:I[97367,[\"/_next/static/chunks/01xlw8hd842-c.js\",\"/_next/static/chunks/0w2x~-3f4_5s8.js\"],\"ViewportBoundary\"]\nd:I[97367,[\"/_next/static/chunks/01xlw8hd842-c.js\",\"/_next/static/chunks/0w2x~-3f4_5s8.js\"],\"MetadataBoundary\"]\nf:I[68027,[\"/_next/static/chunks/01xlw8hd842-c.js\",\"/_next/static/chunks/0w2x~-3f4_5s8.js\"],\"default\",1]\n:HL[\"/_next/static/chunks/0uqsi_y3xumfx.css\",\"style\"]\n:HL[\"/_next/static/media/83afe278b6a6bb3c-s.p.0q-301v4kxxnr.woff2\",\"font\",{\"crossOrigin\":\"\",\"type\":\"font/woff2\"}]\n"])</script><script>self.__next_f.push([1,"0:{\"P\":null,\"c\":[\"\",\"\"],\"q\":\"\",\"i\":false,\"f\":[[[\"\",{\"children\":[\"__PAGE__\",{}]},\"$undefined\",\"$undefined\",16],[[\"$\",\"$1\",\"c\",{\"children\":[[[\"$\",\"link\",\"0\",{\"rel\":\"stylesheet\",\"href\":\"/_next/static/chunks/0uqsi_y3xumfx.css\",\"precedence\":\"next\",\"crossOrigin\":\"$undefined\",\"nonce\":\"$undefined\"}],[\"$\",\"script\",\"script-0\",{\"src\":\"/_next/static/chunks/01xlw8hd842-c.js\",\"async\":true,\"nonce\":\"$undefined\"}],[\"$\",\"script\",\"script-1\",{\"src\":\"/_next/static/chunks/0w2x~-3f4_5s8.js\",\"async\":true,\"nonce\":\"$undefined\"}]],[\"$\",\"html\",null,{\"lang\":\"zh-CN\",\"className\":\"dark\",\"children\":[\"$\",\"body\",null,{\"className\":\"inter_5972bc34-module__OU16Qa__className\",\"children\":[\"$\",\"div\",null,{\"className\":\"min-h-screen bg-gradient-to-b from-dark-900 to-dark-950\",\"children\":[\"$\",\"$L2\",null,{\"parallelRouterKey\":\"children\",\"error\":\"$undefined\",\"errorStyles\":\"$undefined\",\"errorScripts\":\"$undefined\",\"template\":[\"$\",\"$L3\",null,{}],\"templateStyles\":\"$undefined\",\"templateScripts\":\"$undefined\",\"notFound\":[[[\"$\",\"title\",null,{\"children\":\"404: This page could not be found.\"}],[\"$\",\"div\",null,{\"style\":{\"fontFamily\":\"system-ui,\\\"Segoe UI\\\",Roboto,Helvetica,Arial,sans-serif,\\\"Apple Color Emoji\\\",\\\"Segoe UI Emoji\\\"\",\"height\":\"100vh\",\"textAlign\":\"center\",\"display\":\"flex\",\"flexDirection\":\"column\",\"alignItems\":\"center\",\"justifyContent\":\"center\"},\"children\":[\"$\",\"div\",null,{\"children\":[[\"$\",\"style\",null,{\"dangerouslySetInnerHTML\":{\"__html\":\"body{color:#000;background:#fff;margin:0}.next-error-h1{border-right:1px solid rgba(0,0,0,.3)}@media (prefers-color-scheme:dark){body{color:#fff;background:#000}.next-error-h1{border-right:1px solid rgba(255,255,255,.3)}}\"}}],[\"$\",\"h1\",null,{\"className\":\"next-error-h1\",\"style\":{\"display\":\"inline-block\",\"margin\":\"0 20px 0 0\",\"padding\":\"0 23px 0 0\",\"fontSize\":24,\"fontWeight\":500,\"verticalAlign\":\"top\",\"lineHeight\":\"49px\"},\"children\":404}],[\"$\",\"div\",null,{\"style\":{\"display\":\"inline-block\"},\"children\":[\"$\",\"h2\",null,{\"style\":{\"fontSize\":14,\"fontWeight\":400,\"lineHeight\":\"49px\",\"margin\":0},\"children\":\"This page could not be found.\"}]}]]}]}]],[]],\"forbidden\":\"$undefined\",\"unauthorized\":\"$undefined\"}]}]}]}]]}],{\"children\":[[\"$\",\"$1\",\"c\",{\"children\":[[\"$\",\"$L4\",null,{\"Component\":\"$5\",\"serverProvidedParams\":{\"searchParams\":{},\"params\":{},\"promises\":[\"$@6\",\"$@7\"]}}],[[\"$\",\"script\",\"script-0\",{\"src\":\"/_next/static/chunks/06zr85jdrzis8.js\",\"async\":true,\"nonce\":\"$undefined\"}],[\"$\",\"script\",\"script-1\",{\"src\":\"/_next/static/chunks/0pcb-26z1y5jq.js\",\"async\":true,\"nonce\":\"$undefined\"}]],[\"$\",\"$L8\",null,{\"children\":[\"$\",\"$9\",null,{\"name\":\"Next.MetadataOutlet\",\"children\":\"$@a\"}]}]]}],{},null,false,null]},null,false,null],[\"$\",\"$1\",\"h\",{\"children\":[null,[\"$\",\"$Lb\",null,{\"children\":\"$Lc\"}],[\"$\",\"div\",null,{\"hidden\":true,\"children\":[\"$\",\"$Ld\",null,{\"children\":[\"$\",\"$9\",null,{\"name\":\"Next.Metadata\",\"children\":\"$Le\"}]}]}],[\"$\",\"meta\",null,{\"name\":\"next-size-adjust\",\"content\":\"\"}]]}],false]],\"m\":\"$undefined\",\"G\":[\"$f\",[[\"$\",\"link\",\"0\",{\"rel\":\"stylesheet\",\"href\":\"/_next/static/chunks/0uqsi_y3xumfx.css\",\"precedence\":\"next\",\"crossOrigin\":\"$undefined\",\"nonce\":\"$undefined\"}]]],\"S\":true,\"h\":null,\"s\":\"$undefined\",\"l\":\"$undefined\",\"p\":\"$undefined\",\"d\":\"$undefined\",\"b\":\"wTgH4pCEcqbfatDDWQ4bg\"}\n"])</script><script>self.__next_f.push([1,"6:{}\n7:\"$0:f:0:1:1:children:0:props:children:0:props:serverProvidedParams:params\"\n"])</script><script>self.__next_f.push([1,"c:[[\"$\",\"meta\",\"0\",{\"charSet\":\"utf-8\"}],[\"$\",\"meta\",\"1\",{\"name\":\"viewport\",\"content\":\"width=device-width, initial-scale=1\"}]]\n"])</script><script>self.__next_f.push([1,"a:null\ne:[[\"$\",\"title\",\"0\",{\"children\":\"Autonomous Agent Stack Dashboard\"}],[\"$\",\"meta\",\"1\",{\"name\":\"description\",\"content\":\"实时监控 autonomous-agent-stack 项目状态、Agent 运行情况和测试结果\"}]]\n"])</script></body></html>

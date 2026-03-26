@@ -1,12 +1,11 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  swcMinify: true,
+  output: 'export',
   images: {
-    domains: ['api.github.com', 'avatars.githubusercontent.com'],
+    unoptimized: true,
   },
   experimental: {
-    // Optimize for mobile
     optimizeCss: true,
   },
 }

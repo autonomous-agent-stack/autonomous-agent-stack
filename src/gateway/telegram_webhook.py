@@ -4,8 +4,11 @@ Telegram Webhook Handler - 指令拦截与工作流触发
 
 import asyncio
 import logging
+import os
 import re
 from typing import Dict, Any
+
+import httpx
 from fastapi import APIRouter, Request
 
 from workflow.workflow_engine import run_workflow
@@ -75,33 +78,39 @@ async def execute_and_deliver_workflow(target_repo: str, chat_id: int):
         )
 
         logger.info(f"[Workflow] 工作流执行完成，准备投递...")
-
-        # TODO: 投递到 #市场情报 频道
-        # 这里需要调用 Telegram Bot API 发送消息
-        # 示例代码（需要实际实现）:
-        """
-        import aiohttp
-        
-        async with aiohttp.ClientSession() as session:
-            # 发送到 #市场情报 频道
-            url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-            
-            payload = {
-                "chat_id": chat_id,
-                "text": report_text,
-                "parse_mode": "Markdown",
-                "message_thread_id": 4  # #市场情报 Topic ID
-            }
-            
-            async with session.post(url, json=payload) as resp:
-                result = await resp.json()
-                logger.info(f"[Telegram] 消息已投递: {result}")
-        """
-
-        logger.info(f"[Workflow] ✅ 报告已生成（{len(report_text)} 字符）")
+        delivery_ok = await _deliver_report_to_telegram(chat_id=chat_id, report_text=report_text)
+        if delivery_ok:
+            logger.info("[Workflow] ✅ 报告已投递 Telegram（%s 字符）", len(report_text))
+        else:
+            logger.warning("[Workflow] ⚠️ 报告投递失败或未配置 Telegram（%s 字符）", len(report_text))
 
     except Exception as e:
         logger.error(f"[Workflow] 执行失败: {e}")
+
+
+async def _deliver_report_to_telegram(chat_id: int, report_text: str) -> bool:
+    """投递报告到 Telegram #市场情报话题."""
+    bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+    if not bot_token:
+        return False
+
+    thread_id = int(os.getenv("TG_TOPIC_INTELLIGENCE", "4"))
+    endpoint = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+    payload = {
+        "chat_id": chat_id,
+        "text": report_text[:3900],  # Telegram 文本上限约 4096
+        "message_thread_id": thread_id,
+        "disable_web_page_preview": True,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            response = await client.post(endpoint, json=payload)
+            response.raise_for_status()
+        data = response.json()
+        return bool(data.get("ok"))
+    except (httpx.HTTPError, ValueError):
+        return False
 
 
 # 指令帮助

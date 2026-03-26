@@ -1,10 +1,8 @@
-"""Task Decomposer - OpenSage 架构任务分解核心"""
-
-from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Any, Dict, List, Optional
-from enum import Enum
 import re
+import json
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Any, Dict, List, Optional
 
 
 class TaskComplexity(Enum):
@@ -48,7 +46,7 @@ class TaskDecomposer:
     4. 分配给合适的 Agent
     """
     
-    def __init__(self, llm_backend=None):
+    def __init__(self, llm_backend: Any = None):
         self.llm = llm_backend
         self._decomposition_strategies = {
             TaskComplexity.SIMPLE: self._decompose_simple,
@@ -93,7 +91,7 @@ class TaskDecomposer:
         self,
         task: str,
         max_depth: int = 3
-    ) -> List[SubTask]:
+    ) -> list[SubTask]:
         """分解任务为子任务
         
         Args:
@@ -112,7 +110,7 @@ class TaskDecomposer:
         self,
         task: str,
         max_depth: int
-    ) -> List[SubTask]:
+    ) -> list[SubTask]:
         """简单任务：不需要分解"""
         return [
             SubTask(
@@ -126,16 +124,16 @@ class TaskDecomposer:
         self,
         task: str,
         max_depth: int
-    ) -> List[SubTask]:
+    ) -> list[SubTask]:
         """中等任务：分解为 2-5 个子任务"""
-        # TODO: 使用 LLM 进行分解
-        # 这里使用简单规则分解
-        subtasks = []
-        
-        # 按句号分割
-        sentences = [s.strip() for s in task.split("。") if s.strip()]
-        
-        for i, sentence in enumerate(sentences[:5]):
+        candidates = await self._llm_decompose(task, max_items=5)
+        if not candidates:
+            candidates = self._split_into_steps(task, max_items=5)
+        if not candidates:
+            candidates = [task.strip()]
+
+        subtasks: list[SubTask] = []
+        for i, sentence in enumerate(candidates[:5]):
             subtasks.append(SubTask(
                 task_id=f"task_{i}",
                 description=sentence,
@@ -149,65 +147,75 @@ class TaskDecomposer:
         self,
         task: str,
         max_depth: int
-    ) -> List[SubTask]:
+    ) -> list[SubTask]:
         """复杂任务：分解为 >5 个子任务"""
-        # TODO: 使用 LLM 进行智能分解
-        subtasks = []
-        
-        # 简单分解：按段落和句子
-        paragraphs = task.split("\n\n")
-        
-        task_id = 0
-        for para in paragraphs:
-            sentences = [s.strip() for s in para.split("。") if s.strip()]
-            
-            for i, sentence in enumerate(sentences):
-                subtasks.append(SubTask(
-                    task_id=f"task_{task_id}",
-                    description=sentence,
-                    dependencies=[f"task_{task_id-1}"] if task_id > 0 else [],
-                    priority=task_id
-                ))
-                task_id += 1
-                
+        candidates = await self._llm_decompose(task, max_items=12)
+        if not candidates:
+            candidates = self._split_into_steps(task, max_items=12)
+        if not candidates:
+            candidates = [task.strip()]
+
+        subtasks: list[SubTask] = []
+        for task_id, sentence in enumerate(candidates):
+            subtasks.append(SubTask(
+                task_id=f"task_{task_id}",
+                description=sentence,
+                dependencies=[f"task_{task_id-1}"] if task_id > 0 else [],
+                priority=task_id
+            ))
         return subtasks
         
     async def _decompose_hierarchical(
         self,
         task: str,
         max_depth: int
-    ) -> List[SubTask]:
+    ) -> list[SubTask]:
         """层级任务：递归分解"""
         if max_depth <= 0:
             return await self._decompose_complex(task, max_depth)
-            
-        # TODO: 使用 LLM 识别主要任务块
-        # 然后递归分解每个任务块
-        
-        subtasks = []
-        
-        # 第一层分解
-        primary_tasks = await self._decompose_complex(task, max_depth)
-        
-        for i, primary in enumerate(primary_tasks):
-            # 递归分解
-            if len(primary.description) > 100 and max_depth > 1:
-                secondary_tasks = await self._decompose_hierarchical(
-                    primary.description,
-                    max_depth - 1
-                )
-                
-                # 添加依赖关系
+
+        primary_blocks = await self._llm_decompose(task, max_items=6)
+        if not primary_blocks:
+            primary_blocks = self._split_primary_blocks(task, max_items=6)
+        if not primary_blocks:
+            primary_blocks = [task.strip()]
+
+        subtasks: list[SubTask] = []
+        for i, block in enumerate(primary_blocks):
+            primary_task_id = f"task_{i}"
+            if len(block) > 120 and max_depth > 1:
+                secondary_tasks = await self._decompose_complex(block, max_depth - 1)
+                if not secondary_tasks:
+                    subtasks.append(
+                        SubTask(
+                            task_id=primary_task_id,
+                            description=block,
+                            dependencies=[f"task_{i-1}"] if i > 0 else [],
+                            priority=len(subtasks),
+                        )
+                    )
+                    continue
                 for j, secondary in enumerate(secondary_tasks):
-                    secondary.task_id = f"task_{i}_{j}"
-                    secondary.dependencies = [f"task_{i}_{j-1}"] if j > 0 else [primary.task_id]
+                    secondary.task_id = f"{primary_task_id}_{j}"
+                    if j == 0:
+                        secondary.dependencies = [f"task_{i-1}"] if i > 0 else []
+                    else:
+                        secondary.dependencies = [f"{primary_task_id}_{j-1}"]
+                    secondary.priority = len(subtasks)
                     subtasks.append(secondary)
             else:
-                subtasks.append(primary)
-                
+                subtasks.append(
+                    SubTask(
+                        task_id=primary_task_id,
+                        description=block,
+                        dependencies=[f"task_{i-1}"] if i > 0 else [],
+                        priority=len(subtasks),
+                    )
+                )
+
         return subtasks
         
-    def build_dependency_graph(self, subtasks: List[SubTask]) -> Dict[str, List[str]]:
+    def build_dependency_graph(self, subtasks: list[SubTask]) -> dict[str, list[str]]:
         """构建任务依赖图
         
         Args:
@@ -223,7 +231,7 @@ class TaskDecomposer:
             
         return graph
         
-    def get_execution_order(self, subtasks: List[SubTask]) -> List[str]:
+    def get_execution_order(self, subtasks: list[SubTask]) -> list[str]:
         """获取任务执行顺序（拓扑排序）
         
         Args:
@@ -256,3 +264,56 @@ class TaskDecomposer:
                     queue.append(neighbor)
                     
         return order
+
+    async def _llm_decompose(self, task: str, max_items: int) -> list[str]:
+        if self.llm is None or not hasattr(self.llm, "generate"):
+            return []
+        prompt = (
+            "请将下面的任务分解成可执行步骤，返回 JSON 数组（每项是字符串），"
+            f"最多 {max_items} 项，不要返回解释。\n\n任务：{task}"
+        )
+        try:
+            response = await self.llm.generate(
+                prompt,
+                system="你是任务拆解器，只输出 JSON 数组。",
+                temperature=0.1,
+                max_tokens=800,
+            )
+        except Exception:
+            return []
+
+        json_match = re.search(r"\[[\s\S]*\]", str(response))
+        if not json_match:
+            return []
+        try:
+            data = json.loads(json_match.group(0))
+        except Exception:
+            return []
+        if not isinstance(data, list):
+            return []
+        steps = [str(item).strip() for item in data if str(item).strip()]
+        return steps[:max_items]
+
+    def _split_into_steps(self, task: str, max_items: int) -> list[str]:
+        normalized = re.sub(r"\s+", " ", task.strip())
+        if not normalized:
+            return []
+
+        chunks = re.split(r"[。！？!?；;\n]+", normalized)
+        steps = [chunk.strip(" .,-") for chunk in chunks if chunk.strip(" .,-")]
+        if len(steps) < 2:
+            steps = [part.strip(" .,-") for part in re.split(r"\s+(?:然后|之后|并且|同时|再|finally|then|after)\s+", normalized, flags=re.IGNORECASE) if part.strip(" .,-")]
+        if len(steps) < 2:
+            steps = [normalized]
+        return steps[:max_items]
+
+    def _split_primary_blocks(self, task: str, max_items: int) -> list[str]:
+        lines = [line.strip() for line in task.splitlines() if line.strip()]
+        numbered = [line for line in lines if re.match(r"^(\d+[\.\)]|[-*])\s+", line)]
+        if numbered:
+            blocks = [re.sub(r"^(\d+[\.\)]|[-*])\s+", "", line).strip() for line in numbered]
+            return [block for block in blocks if block][:max_items]
+        paragraphs = [paragraph.strip() for paragraph in re.split(r"\n{2,}", task) if paragraph.strip()]
+        if paragraphs:
+            return paragraphs[:max_items]
+        return self._split_into_steps(task, max_items=max_items)

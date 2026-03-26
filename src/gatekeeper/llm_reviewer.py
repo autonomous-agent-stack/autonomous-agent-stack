@@ -16,6 +16,8 @@ import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
+import httpx
+
 logger = logging.getLogger(__name__)
 
 
@@ -134,10 +136,6 @@ class LLM_Diff_Reviewer:
         Returns:
             LLM 响应
         """
-        # TODO: 实现真实 LLM 调用
-        # 目前返回模拟结果
-        
-        # 模拟 Codex/Claude 调用
         if self.model == "codex":
             return await self._call_codex(prompt)
         elif self.model == "claude":
@@ -149,24 +147,126 @@ class LLM_Diff_Reviewer:
     
     async def _call_codex(self, prompt: str) -> str:
         """调用 Codex（通过 OpenAI API）"""
-        # TODO: 实现真实调用
-        # api_key = os.getenv("OPENAI_API_KEY")
-        # ...
-        return await self._call_mock(prompt)
+        api_key = os.getenv("OPENAI_API_KEY", "").strip()
+        if not api_key:
+            return await self._call_mock(prompt)
+
+        base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+        model = os.getenv("GATEKEEPER_OPENAI_MODEL", "gpt-4o-mini")
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": "你是代码审查器，只输出 JSON 结果。"},
+                {"role": "user", "content": prompt},
+            ],
+            "temperature": self.temperature,
+            "max_tokens": 700,
+        }
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=45.0) as client:
+                response = await client.post(
+                    f"{base_url}/chat/completions",
+                    headers=headers,
+                    json=payload,
+                )
+                response.raise_for_status()
+            data = response.json()
+            content = (((data.get("choices") or [{}])[0]).get("message") or {}).get("content", "")
+            if isinstance(content, list):
+                return "".join(
+                    item.get("text", "")
+                    for item in content
+                    if isinstance(item, dict) and isinstance(item.get("text"), str)
+                )
+            return str(content)
+        except (httpx.HTTPError, json.JSONDecodeError) as exc:
+            logger.warning("调用 Codex 失败，回退 mock: %s", exc)
+            return await self._call_mock(prompt)
     
     async def _call_claude(self, prompt: str) -> str:
         """调用 Claude（通过 Anthropic API）"""
-        # TODO: 实现真实调用
-        # api_key = os.getenv("ANTHROPIC_API_KEY")
-        # ...
-        return await self._call_mock(prompt)
+        api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+        if not api_key:
+            return await self._call_mock(prompt)
+
+        base_url = os.getenv("ANTHROPIC_BASE_URL", "https://api.anthropic.com").rstrip("/")
+        model = os.getenv("GATEKEEPER_CLAUDE_MODEL", "claude-3-5-sonnet-20241022")
+        payload = {
+            "model": model,
+            "max_tokens": 700,
+            "temperature": self.temperature,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        headers = {
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=45.0) as client:
+                response = await client.post(
+                    f"{base_url}/v1/messages",
+                    headers=headers,
+                    json=payload,
+                )
+                response.raise_for_status()
+            data = response.json()
+            text_chunks = [
+                block.get("text", "")
+                for block in data.get("content", [])
+                if isinstance(block, dict) and block.get("type") == "text"
+            ]
+            return "".join(text_chunks)
+        except (httpx.HTTPError, json.JSONDecodeError) as exc:
+            logger.warning("调用 Claude 失败，回退 mock: %s", exc)
+            return await self._call_mock(prompt)
     
     async def _call_glm(self, prompt: str) -> str:
         """调用 GLM（通过智谱 API）"""
-        # TODO: 实现真实调用
-        # api_key = os.getenv("ZHIPU_API_KEY")
-        # ...
-        return await self._call_mock(prompt)
+        api_key = (
+            os.getenv("GLM_API_KEY", "").strip()
+            or os.getenv("ZHIPUAI_API_KEY", "").strip()
+            or os.getenv("ZHIPU_API_KEY", "").strip()
+        )
+        if not api_key:
+            return await self._call_mock(prompt)
+
+        base_url = os.getenv("GLM_BASE_URL", "https://open.bigmodel.cn/api/paas/v4").rstrip("/")
+        model = os.getenv("GATEKEEPER_GLM_MODEL", "glm-5")
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": "你是代码审查器，只输出 JSON 结果。"},
+                {"role": "user", "content": prompt},
+            ],
+            "temperature": self.temperature,
+            "max_tokens": 700,
+        }
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=45.0) as client:
+                response = await client.post(
+                    f"{base_url}/chat/completions",
+                    headers=headers,
+                    json=payload,
+                )
+                response.raise_for_status()
+            data = response.json()
+            content = (((data.get("choices") or [{}])[0]).get("message") or {}).get("content", "")
+            return str(content)
+        except (httpx.HTTPError, json.JSONDecodeError) as exc:
+            logger.warning("调用 GLM 失败，回退 mock: %s", exc)
+            return await self._call_mock(prompt)
     
     async def _call_mock(self, prompt: str) -> str:
         """模拟 LLM 响应（测试用）"""

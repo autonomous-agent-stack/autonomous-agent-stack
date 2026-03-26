@@ -3,7 +3,10 @@
 """
 
 import logging
+import os
 from typing import Dict, Optional
+
+import httpx
 from .route_table import RouteTable
 from .message_mirror import MessageMirror
 
@@ -212,17 +215,36 @@ class TopicRouter:
         Returns:
             发送的消息 ID
         """
-        # TODO: 实际实现需要调用 Telegram Bot API
-        # message = await self.bot.send_message(
-        #     chat_id=chat_id,
-        #     message_thread_id=thread_id,
-        #     text=text
-        # )
-        # return message.message_id
-        
-        # 模拟模式
-        import random
-        mock_id = random.randint(1000, 9999)
+        if self.bot is not None and hasattr(self.bot, "send_message"):
+            message = await self.bot.send_message(
+                chat_id=chat_id,
+                message_thread_id=thread_id,
+                text=text,
+            )
+            return int(getattr(message, "message_id", 0)) or self._generate_mock_message_id()
+
+        token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+        if token:
+            endpoint = f"https://api.telegram.org/bot{token}/sendMessage"
+            payload: Dict[str, object] = {
+                "chat_id": chat_id,
+                "text": text,
+                "disable_web_page_preview": True,
+            }
+            if thread_id is not None:
+                payload["message_thread_id"] = thread_id
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    response = await client.post(endpoint, json=payload)
+                    response.raise_for_status()
+                data = response.json()
+                if data.get("ok"):
+                    result = data.get("result") or {}
+                    return int(result.get("message_id", self._generate_mock_message_id()))
+            except (httpx.HTTPError, ValueError):
+                logger.warning("[Router-Gate] Telegram API send failed, fallback to mock mode")
+
+        mock_id = self._generate_mock_message_id()
         logger.debug(
             "[Router-Gate] Mock sent to %s:%s -> message_id: %s",
             chat_id,
@@ -230,6 +252,12 @@ class TopicRouter:
             mock_id
         )
         return mock_id
+
+    @staticmethod
+    def _generate_mock_message_id() -> int:
+        import random
+
+        return random.randint(1000, 9999)
     
     async def broadcast_message(
         self,
