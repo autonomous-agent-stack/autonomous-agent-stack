@@ -25,6 +25,7 @@ from autoresearch.api.routers import (
     synthesis,
     variants,
     webauthn,  # WebAuthn 生物识别认证
+    cluster,  # Cluster 管理
 )
 
 
@@ -54,6 +55,7 @@ app.include_router(optimizations.router)
 app.include_router(experiments.router)
 app.include_router(streaming.router)
 app.include_router(webauthn.router)  # WebAuthn 生物识别认证
+app.include_router(cluster.router)  # Cluster 管理
 
 
 @app.get("/", tags=["meta"])
