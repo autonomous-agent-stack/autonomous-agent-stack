@@ -35,6 +35,10 @@ make setup
 make doctor
 make start
 make test-quick
+make ai-lab
+make ai-lab-check
+make ai-lab-setup
+make masfactory-flight
 ```
 
 如果端口冲突：
@@ -59,6 +63,8 @@ PORT=8010 make start
 - [自集成服务](./src/autoresearch/core/services/self_integration.py)
 - [自集成路由](./src/autoresearch/api/routers/integrations.py)
 - [技能注册表](./src/opensage/skill_registry.py)
+- [MASFactory 骨架](./src/masfactory/graph.py)
+- [MASFactory 首航示例](./examples/masfactory_first_flight.py)
 
 ## 快速排错
 
