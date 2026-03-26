@@ -1,0 +1,22 @@
+{
+  "id": "github-analyzer",
+  "name": "GitHub 深度审查官",
+  "version": "1.0.0",
+  "description": "通用代码库审查工具，提取语言分布与提交活跃度",
+  "author": "Autonomous Agent Stack Team",
+  "category": "analysis",
+  "tags": ["github", "repo", "analysis", "code-quality"],
+  "dependencies": [],
+  "entry_point": "main.py",
+  "permissions": {
+    "network": true,
+    "file_system": false,
+    "subprocess": false
+  },
+  "config": {
+    "api_base": "https://api.github.com/repos",
+    "timeout": 5
+  },
+  "security_level": "safe",
+  "dangerous_calls": []
+}
