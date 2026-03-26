@@ -7,7 +7,9 @@ from pathlib import Path
 from fastapi import Depends
 
 from autoresearch.core.repositories import SQLiteEvaluationRepository
+from autoresearch.core.services.admin_auth import AdminAuthService
 from autoresearch.core.services.admin_config import AdminConfigService
+from autoresearch.core.services.admin_secrets import AdminSecretCipher
 from autoresearch.core.services.claude_agents import ClaudeAgentService
 from autoresearch.core.services.evaluations import EvaluationService
 from autoresearch.core.services.executions import ExecutionService
@@ -26,6 +28,7 @@ from autoresearch.shared.models import (
     AdminAgentConfigRead,
     AdminChannelConfigRead,
     AdminConfigRevisionRead,
+    AdminSecretRecordRead,
     ExecutionRead,
     ExperimentRead,
     IntegrationDiscoveryRead,
@@ -319,4 +322,39 @@ def get_admin_config_service() -> AdminConfigService:
             table_name="admin_config_revisions",
             model_cls=AdminConfigRevisionRead,
         ),
+        secret_repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="admin_secret_records",
+            model_cls=AdminSecretRecordRead,
+        ),
+        secret_cipher=get_admin_secret_cipher(),
+    )
+
+
+@lru_cache(maxsize=1)
+def get_admin_secret_cipher() -> AdminSecretCipher:
+    return AdminSecretCipher(secret_key=os.getenv("AUTORESEARCH_ADMIN_SECRET_KEY"))
+
+
+@lru_cache(maxsize=1)
+def get_admin_auth_service() -> AdminAuthService:
+    return AdminAuthService(
+        secret=os.getenv("AUTORESEARCH_ADMIN_JWT_SECRET"),
+        bootstrap_key=os.getenv("AUTORESEARCH_ADMIN_BOOTSTRAP_KEY"),
+        issuer=os.getenv("AUTORESEARCH_ADMIN_JWT_ISSUER", "autoresearch.admin"),
+        audience=os.getenv("AUTORESEARCH_ADMIN_JWT_AUDIENCE", "autoresearch.admin.api"),
+        default_ttl_seconds=_env_int(
+            "AUTORESEARCH_ADMIN_TOKEN_TTL_SECONDS",
+            3600,
+            minimum=60,
+            maximum=86400,
+        ),
+        max_ttl_seconds=_env_int(
+            "AUTORESEARCH_ADMIN_TOKEN_MAX_TTL_SECONDS",
+            86400,
+            minimum=300,
+            maximum=604800,
+        ),
+        allowed_roles=_env_csv("AUTORESEARCH_ADMIN_ALLOWED_ROLES")
+        or {"viewer", "editor", "admin", "owner"},
     )

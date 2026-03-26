@@ -12,8 +12,10 @@ from autoresearch.shared.models import (
     AdminChannelConfigUpdateRequest,
     AdminConfigRevisionRead,
     AdminConfigRollbackRequest,
+    AdminSecretRecordRead,
     utc_now,
 )
+from autoresearch.core.services.admin_secrets import AdminSecretCipher
 from autoresearch.shared.store import Repository, create_resource_id
 
 
@@ -25,10 +27,14 @@ class AdminConfigService:
         agent_repository: Repository[AdminAgentConfigRead],
         channel_repository: Repository[AdminChannelConfigRead],
         revision_repository: Repository[AdminConfigRevisionRead],
+        secret_repository: Repository[AdminSecretRecordRead] | None = None,
+        secret_cipher: AdminSecretCipher | None = None,
     ) -> None:
         self._agent_repository = agent_repository
         self._channel_repository = channel_repository
         self._revision_repository = revision_repository
+        self._secret_repository = secret_repository
+        self._secret_cipher = secret_cipher
 
     # ---------------------------------------------------------------------
     # Agent config
@@ -221,6 +227,8 @@ class AdminConfigService:
     # ---------------------------------------------------------------------
 
     def create_channel(self, request: AdminChannelConfigCreateRequest) -> AdminChannelConfigRead:
+        if request.secret_value is not None and not request.secret_value.strip():
+            raise ValueError("secret_value cannot be empty string")
         key = self._normalize_key(request.key)
         self._ensure_unique_channel_key(key=key, exclude_channel_id=None)
         now = utc_now()
@@ -234,6 +242,7 @@ class AdminConfigService:
             provider=request.provider,
             endpoint_url=request.endpoint_url.strip() if request.endpoint_url else None,
             secret_ref=request.secret_ref.strip() if request.secret_ref else None,
+            has_secret=bool(request.secret_value and request.secret_value.strip()),
             allowed_chat_ids=[item.strip() for item in request.allowed_chat_ids if item.strip()],
             allowed_user_ids=[item.strip() for item in request.allowed_user_ids if item.strip()],
             routing_policy=dict(request.routing_policy),
@@ -242,6 +251,15 @@ class AdminConfigService:
             updated_at=now,
         )
         saved = self._channel_repository.save(record.channel_id, record)
+        if request.secret_value is not None and request.secret_value.strip():
+            self._upsert_channel_secret(
+                channel_id=saved.channel_id,
+                secret_value=request.secret_value.strip(),
+                actor=request.actor,
+                reason="channel create",
+            )
+            saved = self._with_channel_secret_state(saved)
+            saved = self._channel_repository.save(saved.channel_id, saved)
         self._save_revision(
             target_type="channel",
             target_id=saved.channel_id,
@@ -256,11 +274,15 @@ class AdminConfigService:
 
     def list_channels(self) -> list[AdminChannelConfigRead]:
         items = self._channel_repository.list()
+        items = [self._with_channel_secret_state(item) for item in items]
         items.sort(key=lambda item: item.updated_at, reverse=True)
         return items
 
     def get_channel(self, channel_id: str) -> AdminChannelConfigRead | None:
-        return self._channel_repository.get(channel_id)
+        item = self._channel_repository.get(channel_id)
+        if item is None:
+            return None
+        return self._with_channel_secret_state(item)
 
     def update_channel(
         self,
@@ -274,6 +296,10 @@ class AdminConfigService:
         key = current.key
         if request.provider is not None and request.provider == "telegram" and not key:
             raise ValueError("channel key cannot be empty")
+        if request.secret_value is not None and request.clear_secret:
+            raise ValueError("secret_value and clear_secret cannot both be set")
+        if request.secret_value is not None and not request.secret_value.strip():
+            raise ValueError("secret_value cannot be empty string")
 
         metadata = dict(current.metadata)
         metadata.update(request.metadata_updates)
@@ -307,10 +333,25 @@ class AdminConfigService:
                 "routing_policy": (
                     request.routing_policy if request.routing_policy is not None else current.routing_policy
                 ),
+                "has_secret": current.has_secret,
                 "metadata": metadata,
                 "updated_at": utc_now(),
             }
         )
+        if request.clear_secret:
+            self._delete_channel_secret(
+                channel_id=updated.channel_id,
+                actor=request.actor,
+                reason=request.reason or "channel secret cleared",
+            )
+        elif request.secret_value is not None and request.secret_value.strip():
+            self._upsert_channel_secret(
+                channel_id=updated.channel_id,
+                secret_value=request.secret_value.strip(),
+                actor=request.actor,
+                reason=request.reason or "channel secret rotated",
+            )
+        updated = self._with_channel_secret_state(updated)
         saved = self._channel_repository.save(updated.channel_id, updated)
         self._save_revision(
             target_type="channel",
@@ -343,6 +384,7 @@ class AdminConfigService:
             update={
                 "version": current.version + 1,
                 "status": next_status,
+                "has_secret": current.has_secret,
                 "updated_at": utc_now(),
             }
         )
@@ -382,6 +424,7 @@ class AdminConfigService:
                 "allowed_chat_ids": snapshot.allowed_chat_ids,
                 "allowed_user_ids": snapshot.allowed_user_ids,
                 "routing_policy": snapshot.routing_policy,
+                "has_secret": self._channel_has_secret(current.channel_id),
                 "metadata": {
                     **snapshot.metadata,
                     "rollback_from_version": request.version,
@@ -406,6 +449,13 @@ class AdminConfigService:
             },
         )
         return saved
+
+    def resolve_channel_secret(self, channel_id: str) -> str | None:
+        record = self._get_channel_secret_record(channel_id)
+        if record is None:
+            return None
+        cipher = self._ensure_secret_cipher()
+        return cipher.decrypt(record.ciphertext)
 
     # ---------------------------------------------------------------------
     # Revisions
@@ -441,6 +491,88 @@ class AdminConfigService:
             if item.version == version:
                 return item
         return None
+
+    def _with_channel_secret_state(self, channel: AdminChannelConfigRead) -> AdminChannelConfigRead:
+        has_secret = self._channel_has_secret(channel.channel_id)
+        if channel.has_secret == has_secret:
+            return channel
+        return channel.model_copy(update={"has_secret": has_secret})
+
+    def _channel_has_secret(self, channel_id: str) -> bool:
+        record = self._get_channel_secret_record(channel_id)
+        return record is not None and record.status == "active"
+
+    def _get_channel_secret_record(self, channel_id: str) -> AdminSecretRecordRead | None:
+        if self._secret_repository is None:
+            return None
+        target_id = self._channel_secret_resource_id(channel_id)
+        return self._secret_repository.get(target_id)
+
+    def _upsert_channel_secret(
+        self,
+        *,
+        channel_id: str,
+        secret_value: str,
+        actor: str,
+        reason: str,
+    ) -> None:
+        if self._secret_repository is None:
+            raise RuntimeError("secret repository is not configured")
+        cipher = self._ensure_secret_cipher()
+        now = utc_now()
+        target_id = self._channel_secret_resource_id(channel_id)
+        existing = self._secret_repository.get(target_id)
+        created_at = existing.created_at if existing is not None else now
+        record = AdminSecretRecordRead(
+            secret_id=target_id,
+            scope="channel",
+            scope_id=channel_id,
+            status="active",
+            algorithm="fernet-v1",
+            ciphertext=cipher.encrypt(secret_value),
+            created_at=created_at,
+            updated_at=now,
+            metadata={
+                "actor": actor,
+                "reason": reason,
+            },
+        )
+        self._secret_repository.save(target_id, record)
+
+    def _delete_channel_secret(
+        self,
+        *,
+        channel_id: str,
+        actor: str,
+        reason: str,
+    ) -> None:
+        if self._secret_repository is None:
+            return
+        target_id = self._channel_secret_resource_id(channel_id)
+        existing = self._secret_repository.get(target_id)
+        if existing is None:
+            return
+        deleted = existing.model_copy(
+            update={
+                "status": "deleted",
+                "updated_at": utc_now(),
+                "metadata": {
+                    **existing.metadata,
+                    "deleted_by": actor,
+                    "delete_reason": reason,
+                },
+            }
+        )
+        self._secret_repository.save(target_id, deleted)
+
+    @staticmethod
+    def _channel_secret_resource_id(channel_id: str) -> str:
+        return f"secret_channel_{channel_id}"
+
+    def _ensure_secret_cipher(self) -> AdminSecretCipher:
+        if self._secret_cipher is None or not self._secret_cipher.enabled:
+            raise RuntimeError("secret cipher is disabled: missing AUTORESEARCH_ADMIN_SECRET_KEY")
+        return self._secret_cipher
 
     def _save_revision(
         self,

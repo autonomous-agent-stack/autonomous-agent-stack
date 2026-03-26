@@ -274,6 +274,7 @@ class AdminChannelConfigCreateRequest(StrictModel):
     provider: Literal["telegram", "webhook", "http", "custom"] = "telegram"
     endpoint_url: str | None = None
     secret_ref: str | None = None
+    secret_value: str | None = None
     allowed_chat_ids: list[str] = Field(default_factory=list)
     allowed_user_ids: list[str] = Field(default_factory=list)
     routing_policy: dict[str, Any] = Field(default_factory=dict)
@@ -287,6 +288,8 @@ class AdminChannelConfigUpdateRequest(StrictModel):
     provider: Literal["telegram", "webhook", "http", "custom"] | None = None
     endpoint_url: str | None = None
     secret_ref: str | None = None
+    secret_value: str | None = None
+    clear_secret: bool = False
     allowed_chat_ids: list[str] | None = None
     allowed_user_ids: list[str] | None = None
     routing_policy: dict[str, Any] | None = None
@@ -307,9 +310,22 @@ class AdminChannelConfigRead(StrictModel):
     allowed_chat_ids: list[str] = Field(default_factory=list)
     allowed_user_ids: list[str] = Field(default_factory=list)
     routing_policy: dict[str, Any] = Field(default_factory=dict)
+    has_secret: bool = False
     metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
+
+
+class AdminSecretRecordRead(StrictModel):
+    secret_id: str
+    scope: Literal["channel"] = "channel"
+    scope_id: str
+    status: Literal["active", "deleted"] = "active"
+    algorithm: Literal["fernet-v1"] = "fernet-v1"
+    ciphertext: str
+    created_at: datetime
+    updated_at: datetime
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class AdminConfigRevisionRead(StrictModel):
@@ -346,6 +362,23 @@ class AdminConfigStatusChangeRequest(StrictModel):
     reason: str | None = None
 
 
+class AdminTokenIssueRequest(StrictModel):
+    subject: str = Field(default="admin-local", min_length=1)
+    roles: list[Literal["viewer", "editor", "admin", "owner"]] = Field(
+        default_factory=lambda: ["admin"]
+    )
+    ttl_seconds: int | None = Field(default=None, ge=60, le=86400)
+
+
+class AdminTokenRead(StrictModel):
+    token: str
+    token_type: Literal["Bearer"] = "Bearer"
+    subject: str
+    roles: list[str] = Field(default_factory=list)
+    issued_at: datetime
+    expires_at: datetime
+
+
 class ClaudeAgentCreateRequest(StrictModel):
     task_name: str = Field(..., min_length=1)
     prompt: str = Field(..., min_length=1)
@@ -359,6 +392,7 @@ class ClaudeAgentCreateRequest(StrictModel):
     command_override: list[str] | None = None
     append_prompt: bool = True
     skill_names: list[str] = Field(default_factory=list)
+    images: list[str] = Field(default_factory=list)  # 新增图片字段（URL 或路径）
     env: dict[str, str] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -367,6 +401,7 @@ class ClaudeAgentRunRead(StrictModel):
     agent_run_id: str
     task_name: str
     prompt: str
+    images: list[str] = Field(default_factory=list)  # 新增图片字段
     status: JobStatus
     agent_name: str | None = None
     session_id: str | None = None

@@ -10,6 +10,11 @@ from typing import Any
 
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.openclaw_skills import OpenClawSkillService
+from autoresearch.core.services.telegram_image_downloader import (
+    TelegramImageDownloader,
+    parse_telegram_image_url,
+)
+from autoresearch.core.services.context_manager import ContextManager
 from autoresearch.shared.models import (
     ClaudeAgentCancelRequest,
     ClaudeAgentCreateRequest,
@@ -42,10 +47,12 @@ class ClaudeAgentService:
         max_depth: int = 3,
         claude_command: list[str] | None = None,
         openclaw_skill_service: OpenClawSkillService | None = None,
+        context_manager: ContextManager | None = None,
     ) -> None:
         self._repository = repository
         self._openclaw_service = openclaw_service
         self._openclaw_skill_service = openclaw_skill_service
+        self._context_manager = context_manager or ContextManager(openclaw_service)
         self._repo_root = repo_root or Path(__file__).resolve().parents[4]
         self._max_agents = max_agents
         self._max_depth = max_depth
@@ -170,22 +177,63 @@ class ClaudeAgentService:
             self._clear_cancel_requested(agent_run_id)
             return
 
+        # 下载图片（如果有）
+        downloaded_images = []
+        if request.images:
+            bot_token = os.getenv("AUTORESEARCH_TELEGRAM_BOT_TOKEN", "")
+            if bot_token:
+                downloader = TelegramImageDownloader(bot_token)
+                
+                for image_url in request.images:
+                    file_id = parse_telegram_image_url(image_url)
+                    if file_id:
+                        local_path = downloader.download_image(file_id)
+                        if local_path:
+                            downloaded_images.append(local_path)
+        
+        # 构建带上下文的 Prompt（如果 session_id 存在）
+        effective_prompt = request.prompt
+        if current.session_id:
+            # 获取历史对话
+            effective_prompt = self._context_manager.build_context_aware_prompt(
+                session_id=current.session_id,
+                current_prompt=request.prompt,
+                max_turns=10,  # 保留最近 10 轮对话
+            )
+        
+        # 如果有图片，追加到 Prompt
+        if downloaded_images:
+            image_paths = "\n".join([f"- {path}" for path in downloaded_images])
+            effective_prompt = f"{effective_prompt}\n\n请分析以下图片：\n{image_paths}"
+
         running = current.model_copy(
             update={
                 "status": JobStatus.RUNNING,
                 "updated_at": utc_now(),
                 "error": None,
+                "images": downloaded_images,  # 保存下载的图片路径
             }
         )
         self._repository.save(running.agent_run_id, running)
 
         if running.session_id is not None:
+            # 追加用户消息到会话历史
+            self._context_manager.append_user_message(
+                session_id=running.session_id,
+                content=request.prompt,
+                metadata={"agent_run_id": running.agent_run_id},
+            )
+            
             self._openclaw_service.append_event(
                 session_id=running.session_id,
                 request=OpenClawSessionEventAppendRequest(
                     role="status",
                     content=f"agent running: {running.agent_run_id}",
-                    metadata={"agent_run_id": running.agent_run_id},
+                    metadata={
+                        "agent_run_id": running.agent_run_id,
+                        "images_downloaded": len(downloaded_images),
+                        "context_aware": True,
+                    },
                 ),
             )
             self._openclaw_service.set_status(
@@ -452,6 +500,19 @@ class ClaudeAgentService:
     def _finalize_openclaw_session(self, run: ClaudeAgentRunRead) -> None:
         if run.session_id is None:
             return
+        
+        # 保存助手响应到会话历史
+        assistant_content = run.stdout_preview or run.error or "（无响应）"
+        self._context_manager.append_assistant_message(
+            session_id=run.session_id,
+            content=assistant_content,
+            metadata={
+                "agent_run_id": run.agent_run_id,
+                "returncode": run.returncode,
+                "duration_seconds": run.duration_seconds,
+            },
+        )
+        
         if run.status is JobStatus.COMPLETED:
             status_text = "completed"
         elif run.status is JobStatus.INTERRUPTED:
@@ -468,6 +529,7 @@ class ClaudeAgentService:
                     "returncode": run.returncode,
                     "duration_seconds": run.duration_seconds,
                     "error": run.error,
+                    "context_aware": True,
                 },
             ),
         )
