@@ -226,6 +226,11 @@ def read_calendar_range(
 # This is a SECURITY requirement to prevent data loss.
 
 
+def macOSHostBridge() -> FastAPI:
+    """Backward-compatible factory for bridge app."""
+    return app
+
+
 def run() -> None:
     """Run the macOS Host Bridge server."""
     import uvicorn

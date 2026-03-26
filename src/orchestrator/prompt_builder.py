@@ -84,7 +84,7 @@ class PromptBuilder:
         """构建专业 Prompt。"""
         prompt = f"任务: {task}\n\n要求:\n"
         prompt += "1. 使用专业、精准的语气\n"
-        prompt += "2. 避免工厂化、流水线式的表述\n"
+        prompt += "2. 避免模板化、流水线式的表述\n"
         prompt += "3. 突出产品的核心卖点\n\n"
 
         for product, points in cls.CORE_SELLING_POINTS.items():
