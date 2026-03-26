@@ -9,17 +9,21 @@ from typing import Any
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 
 from autoresearch.api.dependencies import (
+    get_admin_config_service,
     get_claude_agent_service,
     get_openclaw_compat_service,
     get_panel_access_service,
     get_telegram_notifier_service,
 )
+from autoresearch.core.services.admin_config import AdminConfigService
 from autoresearch.core.services.claude_agents import ClaudeAgentService
 from autoresearch.core.services.group_access import GroupAccessManager
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.panel_access import PanelAccessService
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
 from autoresearch.shared.models import (
+    AdminChannelConfigCreateRequest,
+    AdminChannelConfigUpdateRequest,
     ClaudeAgentCreateRequest,
     ClaudeAgentRunRead,
     OpenClawSessionCreateRequest,
@@ -50,6 +54,7 @@ def telegram_webhook(
     agent_service: ClaudeAgentService = Depends(get_claude_agent_service),
     panel_access_service: PanelAccessService = Depends(get_panel_access_service),
     notifier: TelegramNotifierService = Depends(get_telegram_notifier_service),
+    admin_config_service: AdminConfigService = Depends(get_admin_config_service),
 ) -> TelegramWebhookAck:
     _validate_secret_token(raw_request)
 
@@ -76,6 +81,11 @@ def telegram_webhook(
             chat_id=chat_id,
             reason="empty message text",
         )
+
+    _ensure_admin_channel_visibility(
+        admin_config_service=admin_config_service,
+        chat_id=chat_id,
+    )
 
     if _is_status_query(text):
         return _handle_status_query(
@@ -260,7 +270,78 @@ def _append_user_event(
                 "update_type": extracted.get("raw_type"),
             },
         ),
-    )
+        )
+
+
+def _ensure_admin_channel_visibility(
+    *,
+    admin_config_service: AdminConfigService,
+    chat_id: str,
+) -> None:
+    if not chat_id:
+        return
+
+    key = (os.getenv("AUTORESEARCH_TELEGRAM_CHANNEL_KEY", "telegram-main") or "telegram-main").strip()
+    if not key:
+        key = "telegram-main"
+    display_name = (os.getenv("AUTORESEARCH_TELEGRAM_CHANNEL_DISPLAY_NAME", "Telegram Main") or "Telegram Main").strip()
+    actor = os.getenv("AUTORESEARCH_TELEGRAM_CHANNEL_ACTOR", "telegram-webhook").strip() or "telegram-webhook"
+
+    channels = admin_config_service.list_channels()
+    existing = next((item for item in channels if item.key == key), None)
+    if existing is None:
+        try:
+            admin_config_service.create_channel(
+                AdminChannelConfigCreateRequest(
+                    key=key,
+                    display_name=display_name,
+                    provider="telegram",
+                    endpoint_url=None,
+                    secret_ref=None,
+                    secret_value=None,
+                    allowed_chat_ids=[chat_id],
+                    allowed_user_ids=[],
+                    routing_policy={"auto_synced_by": "telegram_webhook"},
+                    metadata={"auto_synced_by": "telegram_webhook"},
+                    enabled=True,
+                    actor=actor,
+                )
+            )
+        except ValueError:
+            return
+        return
+
+    updated_chat_ids: list[str] = []
+    seen_chat_ids: set[str] = set()
+    for item in [*existing.allowed_chat_ids, chat_id]:
+        value = item.strip()
+        if not value or value in seen_chat_ids:
+            continue
+        seen_chat_ids.add(value)
+        updated_chat_ids.append(value)
+    if updated_chat_ids == existing.allowed_chat_ids and existing.provider == "telegram":
+        return
+
+    try:
+        admin_config_service.update_channel(
+            channel_id=existing.channel_id,
+            request=AdminChannelConfigUpdateRequest(
+                display_name=existing.display_name,
+                provider="telegram",
+                endpoint_url=existing.endpoint_url,
+                secret_ref=existing.secret_ref,
+                secret_value=None,
+                clear_secret=False,
+                allowed_chat_ids=updated_chat_ids,
+                allowed_user_ids=existing.allowed_user_ids,
+                routing_policy=existing.routing_policy,
+                metadata_updates={"auto_synced_by": "telegram_webhook"},
+                actor=actor,
+                reason="sync telegram chat id from webhook",
+            ),
+        )
+    except (KeyError, ValueError):
+        return
 
 
 def _execute_agent_and_notify(

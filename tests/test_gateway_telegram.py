@@ -9,16 +9,24 @@ import pytest
 from fastapi.testclient import TestClient
 
 from autoresearch.api.dependencies import (
+    get_admin_config_service,
     get_claude_agent_service,
     get_openclaw_compat_service,
     get_panel_access_service,
     get_telegram_notifier_service,
 )
 from autoresearch.api.main import app
+from autoresearch.core.services.admin_config import AdminConfigService
 from autoresearch.core.services.claude_agents import ClaudeAgentService
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.panel_access import PanelAccessService
-from autoresearch.shared.models import ClaudeAgentRunRead, OpenClawSessionRead
+from autoresearch.shared.models import (
+    AdminAgentConfigRead,
+    AdminChannelConfigRead,
+    AdminConfigRevisionRead,
+    ClaudeAgentRunRead,
+    OpenClawSessionRead,
+)
 from autoresearch.shared.store import SQLiteModelRepository
 
 
@@ -43,9 +51,27 @@ def telegram_client(tmp_path: Path) -> TestClient:
         max_agents=10,
         max_depth=3,
     )
+    admin_config_service = AdminConfigService(
+        agent_repository=SQLiteModelRepository(
+            db_path=db_path,
+            table_name="admin_agent_configs_gateway_it",
+            model_cls=AdminAgentConfigRead,
+        ),
+        channel_repository=SQLiteModelRepository(
+            db_path=db_path,
+            table_name="admin_channel_configs_gateway_it",
+            model_cls=AdminChannelConfigRead,
+        ),
+        revision_repository=SQLiteModelRepository(
+            db_path=db_path,
+            table_name="admin_config_revisions_gateway_it",
+            model_cls=AdminConfigRevisionRead,
+        ),
+    )
 
     app.dependency_overrides[get_openclaw_compat_service] = lambda: openclaw_service
     app.dependency_overrides[get_claude_agent_service] = lambda: claude_service
+    app.dependency_overrides[get_admin_config_service] = lambda: admin_config_service
 
     with TestClient(app) as client:
         yield client

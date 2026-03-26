@@ -10,7 +10,7 @@ uvicorn>=0.32.0
 docker>=7.0.0
 
 # Monitoring
-sqlite3-stdlib
+# sqlite3 is part of Python stdlib (no pip package required)
 websockets>=14.0
 
 # MCP Integration
