@@ -13,7 +13,8 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-from urllib import error, request
+
+import httpx
 
 from .context import MASContext
 
@@ -62,11 +63,10 @@ class GeneratorNode(MASNode):
     async def execute(self, context: MASContext) -> dict[str, Any]:
         plan = context.get("plan", {})
         goal = self._resolve_goal(context, plan)
-        retry_hints = plan.get("retry_hints", [])
-        keywords = [part for part in goal.replace("，", " ").replace(",", " ").split() if len(part) > 1]
-        memory_hits = context.search_memory(keywords[:8], max_results=6, roots=["memory", "docs"])
+        retry_hints = self._normalize_retry_hints(plan.get("retry_hints", []))
+        memory_hits = self._resolve_memory_hits(context, goal)
 
-        generation = self._generate_code(goal, memory_hits, retry_hints)
+        generation = await self._generate_code(goal, memory_hits, retry_hints)
         code = generation["code"]
 
         payload = {
@@ -96,64 +96,55 @@ class GeneratorNode(MASNode):
         context.goal = goal
         return goal
 
-    def _generate_code(
+    @staticmethod
+    def _normalize_retry_hints(retry_hints: Any) -> list[str]:
+        if isinstance(retry_hints, list):
+            return [str(item).strip() for item in retry_hints if str(item).strip()]
+        if isinstance(retry_hints, str) and retry_hints.strip():
+            return [retry_hints.strip()]
+        return []
+
+    @staticmethod
+    def _resolve_memory_hits(context: MASContext, goal: str) -> list[dict[str, Any]]:
+        cached_hits = context.get("memory_hits")
+        if isinstance(cached_hits, list):
+            return [item for item in cached_hits if isinstance(item, dict)]
+
+        keywords = [part for part in goal.replace("，", " ").replace(",", " ").split() if len(part) > 1]
+        return context.search_memory(keywords[:8], max_results=6, roots=["memory", "docs"])
+
+    async def _generate_code(
         self,
         goal: str,
         memory_hits: list[dict[str, Any]],
         retry_hints: list[str],
     ) -> dict[str, Any]:
-        llm_payload = self._generate_code_via_llm(goal, memory_hits, retry_hints)
+        llm_payload = await self._generate_code_via_llm(goal, memory_hits, retry_hints)
         if llm_payload is not None:
             return llm_payload
+        fallback_reason = "No LLM API credentials available. Used fallback generator."
         return {
             "mode": "fallback_mock",
             "model": None,
-            "error": "No LLM API credentials available. Used deterministic fallback generator.",
-            "code": self._build_fallback_code(goal, memory_hits),
+            "error": fallback_reason,
+            "code": self._build_fallback_code(goal, fallback_reason, memory_hits),
         }
 
-    def _generate_code_via_llm(
+    async def _generate_code_via_llm(
         self,
         goal: str,
         memory_hits: list[dict[str, Any]],
         retry_hints: list[str],
     ) -> dict[str, Any] | None:
-        api_key = (
-            os.getenv("MAS_FACTORY_LLM_API_KEY")
-            or os.getenv("GLM_API_KEY")
-            or os.getenv("ZHIPUAI_API_KEY")
-            or os.getenv("OPENAI_API_KEY")
-        )
-        if not api_key:
+        llm_config = self._resolve_llm_config()
+        if llm_config is None:
             return None
 
-        api_base = os.getenv("MAS_FACTORY_LLM_BASE_URL", "https://open.bigmodel.cn/api/paas/v4")
-        model = os.getenv("MAS_FACTORY_LLM_MODEL", "glm-5")
-        endpoint = f"{api_base.rstrip('/')}/chat/completions"
-
-        memory_brief = [
-            {"path": hit.get("path", ""), "match_preview": hit.get("match_preview", "")[:200]}
-            for hit in memory_hits[:5]
-        ]
-
-        system_prompt = (
-            "You are a code generator for MASFactory. "
-            "Return Python source code only (no markdown) and define solve_task() that returns a JSON-serializable dict."
-        )
-        user_prompt = (
-            f"Goal:\n{goal}\n\n"
-            "Runtime constraints:\n"
-            "- Code runs inside /workspace.\n"
-            "- Prefer Python standard library only.\n"
-            "- Never modify /workspace/src/masfactory.\n"
-            "- For TODO-harvest goals, scan /workspace/src/**/*.py and patch safe TODO placeholders.\n"
-            "- If goal asks for report callback, POST JSON to http://host.docker.internal:18789/chat.\n\n"
-            f"Relevant memory hits:\n{json.dumps(memory_brief, ensure_ascii=False, indent=2)}\n\n"
-            f"Retry hints:\n{json.dumps(retry_hints, ensure_ascii=False)}\n"
-        )
+        endpoint = f"{llm_config['base_url'].rstrip('/')}/chat/completions"
+        system_prompt, user_prompt = self._build_generation_prompt(goal, memory_hits, retry_hints)
 
         request_body = {
-            "model": model,
+            "model": llm_config["model"],
             "temperature": 0.2,
             "messages": [
                 {"role": "system", "content": system_prompt},
@@ -161,179 +152,158 @@ class GeneratorNode(MASNode):
             ],
         }
 
-        timeout = int(os.getenv("MAS_FACTORY_LLM_TIMEOUT", "45"))
-        req = request.Request(
-            endpoint,
-            data=json.dumps(request_body).encode("utf-8"),
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            method="POST",
-        )
         try:
-            with request.urlopen(req, timeout=timeout) as response:
-                raw = response.read().decode("utf-8")
-            data = json.loads(raw)
-            message = (((data.get("choices") or [{}])[0]).get("message") or {}).get("content", "")
-            if isinstance(message, list):
-                parts: list[str] = []
-                for item in message:
-                    if isinstance(item, str):
-                        parts.append(item)
-                    elif isinstance(item, dict) and isinstance(item.get("text"), str):
-                        parts.append(item["text"])
-                message = "\n".join(parts)
+            async with httpx.AsyncClient(timeout=llm_config["timeout"]) as client:
+                response = await client.post(
+                    endpoint,
+                    headers={
+                        "Authorization": f"Bearer {llm_config['api_key']}",
+                        "Content-Type": "application/json",
+                    },
+                    json=request_body,
+                )
+                response.raise_for_status()
+            data = response.json()
+            message = self._extract_message_content(data)
             code = self._extract_python_code(str(message))
-            if "def solve_task" not in code:
+            if not code:
+                raise ValueError("LLM response contained no code")
+            if not re.search(r"^\s*def\s+solve_task\s*\(", code, flags=re.MULTILINE):
                 raise ValueError("LLM response did not define solve_task()")
-            return {"mode": "llm_api", "model": model, "error": None, "code": code}
-        except (error.URLError, TimeoutError, json.JSONDecodeError, ValueError) as exc:
+            return {"mode": "llm_api", "model": llm_config["model"], "error": None, "code": code}
+        except (httpx.HTTPError, json.JSONDecodeError, ValueError) as exc:
+            fallback_reason = f"LLM generation failed: {exc}"
             return {
                 "mode": "fallback_mock",
-                "model": model,
-                "error": f"LLM generation failed: {exc}",
-                "code": self._build_fallback_code(goal, memory_hits),
+                "model": llm_config["model"],
+                "error": fallback_reason,
+                "code": self._build_fallback_code(goal, fallback_reason, memory_hits),
             }
 
     @staticmethod
+    def _resolve_llm_config() -> dict[str, Any] | None:
+        explicit_key = os.getenv("MAS_FACTORY_LLM_API_KEY", "").strip()
+        glm_key = os.getenv("GLM_API_KEY", "").strip() or os.getenv("ZHIPUAI_API_KEY", "").strip()
+        openai_key = os.getenv("OPENAI_API_KEY", "").strip()
+
+        if explicit_key:
+            api_key = explicit_key
+            provider = "glm"
+        elif glm_key:
+            api_key = glm_key
+            provider = "glm"
+        elif openai_key:
+            api_key = openai_key
+            provider = "openai"
+        else:
+            return None
+
+        configured_base = os.getenv("MAS_FACTORY_LLM_BASE_URL", "").strip()
+        if configured_base:
+            base_url = configured_base.rstrip("/")
+        elif provider == "glm":
+            base_url = os.getenv("GLM_BASE_URL", "https://open.bigmodel.cn/api/paas/v4").rstrip("/")
+        else:
+            base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+
+        model_override = os.getenv("MAS_FACTORY_LLM_MODEL", "").strip()
+        if model_override:
+            model = model_override
+        elif provider == "glm":
+            model = "glm-5"
+        else:
+            model = "gpt-4o-mini"
+
+        timeout = float(os.getenv("MAS_FACTORY_LLM_TIMEOUT", "45"))
+        return {
+            "api_key": api_key,
+            "provider": provider,
+            "base_url": base_url,
+            "model": model,
+            "timeout": timeout,
+        }
+
+    @staticmethod
+    def _build_generation_prompt(
+        goal: str,
+        memory_hits: list[dict[str, Any]],
+        retry_hints: list[str],
+    ) -> tuple[str, str]:
+        memory_brief = [
+            {"path": hit.get("path", ""), "match_preview": str(hit.get("match_preview", ""))[:200]}
+            for hit in memory_hits[:6]
+        ]
+        system_prompt = (
+            "You are a MASFactory code generation agent. "
+            "Write a self-contained Python script that can run immediately in /workspace. "
+            "Return Python code only with a top-level solve_task() function. "
+            "solve_task() must return a JSON-serializable dict."
+        )
+        user_prompt = (
+            f"Goal:\n{goal}\n\n"
+            f"Memory hits:\n{json.dumps(memory_brief, ensure_ascii=False, indent=2)}\n\n"
+            f"Retry hints:\n{json.dumps(retry_hints, ensure_ascii=False, indent=2)}\n\n"
+            "Requirements:\n"
+            "- Produce execution-ready Python.\n"
+            "- Prefer standard library.\n"
+            "- Do not modify /workspace/src/masfactory.\n"
+            "- Return code only, no markdown explanations."
+        )
+        return system_prompt, user_prompt
+
+    @staticmethod
+    def _extract_message_content(data: dict[str, Any]) -> str:
+        content = (((data.get("choices") or [{}])[0]).get("message") or {}).get("content", "")
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts: list[str] = []
+            for item in content:
+                if isinstance(item, str):
+                    parts.append(item)
+                    continue
+                if isinstance(item, dict):
+                    if isinstance(item.get("text"), str):
+                        parts.append(item["text"])
+                    elif isinstance(item.get("content"), str):
+                        parts.append(item["content"])
+            return "\n".join(part for part in parts if part).strip()
+        return str(content).strip()
+
+    @staticmethod
     def _extract_python_code(content: str) -> str:
-        fenced = re.search(r"```(?:python)?\s*(.*?)```", content, flags=re.DOTALL | re.IGNORECASE)
-        if fenced:
-            return fenced.group(1).strip()
+        python_fenced = re.search(r"```python\s*(.*?)```", content, flags=re.DOTALL | re.IGNORECASE)
+        if python_fenced:
+            return python_fenced.group(1).strip()
+
+        generic_fenced = re.search(r"```\s*(.*?)```", content, flags=re.DOTALL)
+        if generic_fenced:
+            candidate = generic_fenced.group(1).strip()
+            if "\n" in candidate:
+                first_line, rest = candidate.split("\n", 1)
+                if re.fullmatch(r"[a-zA-Z0-9_+-]+", first_line.strip()):
+                    candidate = rest.strip()
+            return candidate
+
         return content.strip()
 
     @staticmethod
-    def _build_fallback_code(goal: str, memory_hits: list[dict[str, Any]]) -> str:
+    def _build_fallback_code(goal: str, reason: str, memory_hits: list[dict[str, Any]]) -> str:
         goal_literal = json.dumps(goal, ensure_ascii=False)
-        memory_literal = json.dumps(memory_hits[:6], ensure_ascii=False, indent=2)
+        reason_literal = json.dumps(reason, ensure_ascii=False)
+        memory_paths = [str(hit.get("path", "")) for hit in memory_hits[:6]]
+        memory_literal = json.dumps(memory_paths, ensure_ascii=False)
         return (
-            "import json\n"
-            "from pathlib import Path\n"
-            "from urllib import error, request\n"
-            "\n"
             f"GOAL = {goal_literal}\n"
-            f"MEMORY_HITS = {memory_literal}\n"
-            "REPORT_URL = 'http://host.docker.internal:18789/chat'\n"
-            "\n"
-            "def _is_p4_todo_goal(goal: str) -> bool:\n"
-            "    normalized = goal.lower()\n"
-            "    return '/workspace/src' in normalized and ('todo' in normalized or '逻辑收割' in goal)\n"
-            "\n"
-            "def _iter_python_files(root: Path) -> list[Path]:\n"
-            "    if not root.exists():\n"
-            "        return []\n"
-            "    files: list[Path] = []\n"
-            "    for path in root.rglob('*.py'):\n"
-            "        if 'masfactory' in path.parts:\n"
-            "            continue\n"
-            "        files.append(path)\n"
-            "    return files\n"
-            "\n"
-            "def _patch_todo_placeholders(path: Path) -> dict:\n"
-            "    text = path.read_text(encoding='utf-8')\n"
-            "    lines = text.splitlines()\n"
-            "    changed = False\n"
-            "    todos_found = 0\n"
-            "    todos_resolved = 0\n"
-            "\n"
-            "    for idx, line in enumerate(lines):\n"
-            "        stripped = line.strip()\n"
-            "        upper = stripped.upper()\n"
-            "\n"
-            "        if 'TODO' in upper:\n"
-            "            todos_found += 1\n"
-            "\n"
-            "        if stripped.startswith('# TODO') and idx + 1 < len(lines) and lines[idx + 1].strip() == 'pass':\n"
-            "            indent = lines[idx + 1][: len(lines[idx + 1]) - len(lines[idx + 1].lstrip())]\n"
-            "            lines[idx + 1] = f\"{indent}return None  # auto-implemented TODO\"\n"
-            "            changed = True\n"
-            "            todos_resolved += 1\n"
-            "            continue\n"
-            "\n"
-            "        if stripped.startswith('pass') and 'TODO' in upper:\n"
-            "            indent = line[: len(line) - len(line.lstrip())]\n"
-            "            lines[idx] = f\"{indent}return None  # auto-implemented TODO\"\n"
-            "            changed = True\n"
-            "            todos_resolved += 1\n"
-            "            continue\n"
-            "\n"
-            "        if 'raise NotImplementedError' in stripped and 'TODO' in upper:\n"
-            "            indent = line[: len(line) - len(line.lstrip())]\n"
-            "            lines[idx] = f\"{indent}return None  # auto-implemented TODO\"\n"
-            "            changed = True\n"
-            "            todos_resolved += 1\n"
-            "\n"
-            "    if changed:\n"
-            "        path.write_text('\\n'.join(lines) + '\\n', encoding='utf-8')\n"
-            "    return {\n"
-            "        'path': str(path),\n"
-            "        'changed': changed,\n"
-            "        'todos_found': todos_found,\n"
-            "        'todos_resolved': todos_resolved,\n"
-            "    }\n"
-            "\n"
-            "def _post_report(payload: dict) -> dict:\n"
-            "    body = json.dumps(payload, ensure_ascii=False).encode('utf-8')\n"
-            "    req = request.Request(\n"
-            "        REPORT_URL,\n"
-            "        data=body,\n"
-            "        headers={'Content-Type': 'application/json'},\n"
-            "        method='POST',\n"
-            "    )\n"
-            "    try:\n"
-            "        with request.urlopen(req, timeout=10) as response:\n"
-            "            return {'ok': True, 'status': response.status}\n"
-            "    except error.URLError as exc:\n"
-            "        return {'ok': False, 'error': str(exc)}\n"
+            f"REASON = {reason_literal}\n"
+            f"MEMORY_HIT_PATHS = {memory_literal}\n"
             "\n"
             "def solve_task():\n"
-            "    root = Path('/workspace/src')\n"
-            "    files = _iter_python_files(root)\n"
-            "    patch_results = []\n"
-            "\n"
-            "    if _is_p4_todo_goal(GOAL):\n"
-            "        for path in files:\n"
-            "            try:\n"
-            "                patch_results.append(_patch_todo_placeholders(path))\n"
-            "            except Exception as exc:\n"
-            "                patch_results.append({'path': str(path), 'changed': False, 'error': str(exc)})\n"
-            "    else:\n"
-            "        patch_results = [\n"
-            "            {\n"
-            "                'path': str(path),\n"
-            "                'changed': False,\n"
-            "                'todos_found': 0,\n"
-            "                'todos_resolved': 0,\n"
-            "            }\n"
-            "            for path in files[:20]\n"
-            "        ]\n"
-            "\n"
-            "    summary = {\n"
-            "        'goal': GOAL,\n"
-            "        'scanned_files': len(files),\n"
-            "        'modified_files': sum(1 for item in patch_results if item.get('changed')),\n"
-            "        'todo_found': sum(item.get('todos_found', 0) for item in patch_results),\n"
-            "        'todo_resolved': sum(item.get('todos_resolved', 0) for item in patch_results),\n"
-            "        'sample': patch_results[:20],\n"
-            "    }\n"
-            "\n"
-            "    message = (\n"
-            "        f\"[MASFactory] goal executed | scanned={summary['scanned_files']} \"\n"
-            "        f\"modified={summary['modified_files']} resolved={summary['todo_resolved']}\"\n"
-            "    )\n"
-            "    report_payload = {\n"
-            "        'message': message,\n"
-            "        'goal': GOAL,\n"
-            "        'summary': summary,\n"
-            "        'memory_hits': MEMORY_HITS,\n"
-            "    }\n"
-            "    report_result = _post_report(report_payload)\n"
             "    return {\n"
-            "        'status': 'success',\n"
+            "        'status': 'fallback',\n"
             "        'goal': GOAL,\n"
-            "        'summary': summary,\n"
-            "        'report_result': report_result,\n"
+            "        'reason': REASON,\n"
+            "        'memory_hit_paths': MEMORY_HIT_PATHS,\n"
             "    }\n"
         )
 
