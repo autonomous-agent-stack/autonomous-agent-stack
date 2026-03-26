@@ -7,7 +7,7 @@ LOG_DIR="${ROOT_DIR}/logs"
 mkdir -p "${LOG_DIR}"
 LOG_FILE="${LOG_DIR}/verify-$(date +%Y%m%d-%H%M%S).log"
 
-BASE_URL="${BASE_URL:-http://127.0.0.1:8000}"
+BASE_URL="${BASE_URL:-http://127.0.0.1:8001}"
 
 {
   echo "# Migration verify"
@@ -31,6 +31,16 @@ BASE_URL="${BASE_URL:-http://127.0.0.1:8000}"
   echo
   echo "## openclaw skill smoke"
   bash "${ROOT_DIR}/requests/openclaw-skill-smoke.sh"
+
+  echo
+  echo "## openclaw contract fixtures"
+  if [[ -x "${PROJECT_ROOT}/.venv/bin/python" ]]; then
+    PYTHONPATH="${PROJECT_ROOT}/src" "${PROJECT_ROOT}/.venv/bin/python" -m pytest \
+      "${PROJECT_ROOT}/tests/test_openclaw_contract_fixtures.py" -q
+  else
+    PYTHONPATH="${PROJECT_ROOT}/src" python3 -m pytest \
+      "${PROJECT_ROOT}/tests/test_openclaw_contract_fixtures.py" -q
+  fi
 } | tee "${LOG_FILE}"
 
 echo

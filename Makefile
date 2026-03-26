@@ -12,9 +12,10 @@ HYGIENE_ROOT ?= src
 HYGIENE_OUTPUT_DIR ?= logs/audit/prompt_hygiene
 HYGIENE_MIN_REPEAT ?= 3
 FAIL_ON_FINDINGS ?= 0
+HYGIENE_PROFILE ?= dev
 
 .PHONY: help setup doctor start test-quick clean
-.PHONY: ai-lab ai-lab-setup ai-lab-check ai-lab-up ai-lab-down ai-lab-status ai-lab-shell ai-lab-run masfactory-flight hygiene-check
+.PHONY: ai-lab ai-lab-setup ai-lab-check ai-lab-up ai-lab-down ai-lab-status ai-lab-shell ai-lab-run masfactory-flight hygiene-check hygiene-check-dev hygiene-check-ci
 
 help:
 	@echo "Autonomous Agent Stack - common commands"
@@ -30,7 +31,8 @@ help:
 	@echo "  make ai-lab-status Show AI lab status"
 	@echo "  make ai-lab-run ARGS='python -V' Run a one-shot command"
 	@echo "  make masfactory-flight GOAL='...' WATCH=1 Run MASFactory first flight demo"
-	@echo "  make hygiene-check FAIL_ON_FINDINGS=1 Run prompt hygiene audit for src/"
+	@echo "  make hygiene-check HYGIENE_PROFILE=dev Run prompt hygiene audit for src/"
+	@echo "  make hygiene-check-ci Strict prompt hygiene audit (fail on findings)"
 	@echo "  make test-quick  Run quick smoke tests"
 	@echo "  make clean       Remove Python cache folders"
 	@echo ""
@@ -124,10 +126,22 @@ masfactory-flight:
 hygiene-check:
 	@if [[ -x "$(VENV_PYTHON)" ]]; then \
 		STRICT_FLAG=""; \
+		OUTPUT_DIR="$(HYGIENE_OUTPUT_DIR)/$(HYGIENE_PROFILE)"; \
+		MIN_REPEAT="$(HYGIENE_MIN_REPEAT)"; \
+		if [[ "$(HYGIENE_PROFILE)" == "ci" ]]; then STRICT_FLAG="--fail-on-findings"; MIN_REPEAT=2; fi; \
 		if [[ "$(FAIL_ON_FINDINGS)" == "1" ]]; then STRICT_FLAG="--fail-on-findings"; fi; \
-		$(VENV_PYTHON) scripts/check_prompt_hygiene.py --root "$(HYGIENE_ROOT)" --output-dir "$(HYGIENE_OUTPUT_DIR)" --min-repeat "$(HYGIENE_MIN_REPEAT)" $$STRICT_FLAG; \
+		$(VENV_PYTHON) scripts/check_prompt_hygiene.py --root "$(HYGIENE_ROOT)" --output-dir "$$OUTPUT_DIR" --min-repeat "$$MIN_REPEAT" $$STRICT_FLAG; \
 	else \
 		STRICT_FLAG=""; \
+		OUTPUT_DIR="$(HYGIENE_OUTPUT_DIR)/$(HYGIENE_PROFILE)"; \
+		MIN_REPEAT="$(HYGIENE_MIN_REPEAT)"; \
+		if [[ "$(HYGIENE_PROFILE)" == "ci" ]]; then STRICT_FLAG="--fail-on-findings"; MIN_REPEAT=2; fi; \
 		if [[ "$(FAIL_ON_FINDINGS)" == "1" ]]; then STRICT_FLAG="--fail-on-findings"; fi; \
-		$(PYTHON) scripts/check_prompt_hygiene.py --root "$(HYGIENE_ROOT)" --output-dir "$(HYGIENE_OUTPUT_DIR)" --min-repeat "$(HYGIENE_MIN_REPEAT)" $$STRICT_FLAG; \
+		$(PYTHON) scripts/check_prompt_hygiene.py --root "$(HYGIENE_ROOT)" --output-dir "$$OUTPUT_DIR" --min-repeat "$$MIN_REPEAT" $$STRICT_FLAG; \
 	fi
+
+hygiene-check-dev:
+	@$(MAKE) hygiene-check HYGIENE_PROFILE=dev
+
+hygiene-check-ci:
+	@$(MAKE) hygiene-check HYGIENE_PROFILE=ci

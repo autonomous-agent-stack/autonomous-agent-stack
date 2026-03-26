@@ -1,0 +1,8 @@
+{
+  "role": "user",
+  "content": "请给我一份今日运行状态摘要",
+  "metadata": {
+    "source": "contract-fixture",
+    "version": "v1"
+  }
+}

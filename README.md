@@ -2,6 +2,20 @@
 
 一个面向多智能体编排、工作流触发、自集成验证和零信任加固的工程化仓库。
 
+## 核心优势（先看这个）
+
+1. **AI Lab 硬隔离落地**：独立用户 + APFS quota 卷 + guardrails 检查，不只是“建议安全”。
+2. **提示词卫生护栏可执行**：`hygiene-check` 内建禁用词、占位符和重复片段审计，可在 CI fail-fast。
+3. **OpenClaw 兼容可验证**：有兼容服务、迁移脚手架和契约测试，不依赖“口头兼容”。
+
+一键演示路径：
+
+```bash
+make ai-lab-setup
+make ai-lab-check
+make ai-lab
+```
+
 ## 为什么现在更容易上手
 
 参考 ClawX 的使用体验，这个仓库把新手最常见的三个问题做了统一入口。
@@ -15,7 +29,7 @@
 ## 3 分钟上手
 
 ```bash
-cd /Volumes/PS1008/Github/autonomous-agent-stack
+cd /Volumes/AI_LAB/Github/autonomous-agent-stack
 make setup
 make doctor
 make start
@@ -42,9 +56,20 @@ make masfactory-flight
 make masfactory-flight GOAL="探测当前 M1 的 CPU 核心数"
 make masfactory-flight GOAL="探测当前 M1 的 CPU 核心数" WATCH=1
 make hygiene-check
+make hygiene-check-dev
+make hygiene-check-ci
 ```
 
-`make hygiene-check` 会把结果写到 `logs/audit/prompt_hygiene/report.txt` 和 `logs/audit/prompt_hygiene/report.json`。
+`make hygiene-check` 默认走 `dev` profile，结果写到 `logs/audit/prompt_hygiene/dev/`。
+`make hygiene-check-ci` 走严格策略（自动 `--fail-on-findings`），结果写到 `logs/audit/prompt_hygiene/ci/`。
+
+示例输出：
+
+```text
+[hygiene] status=WARN score=52/100 files=188
+[hygiene] report.txt -> .../logs/audit/prompt_hygiene/dev/report.txt
+[hygiene] report.json -> .../logs/audit/prompt_hygiene/dev/report.json
+```
 
 如果端口冲突：
 
@@ -177,3 +202,4 @@ PORT=8010 make start
 - [工作流引擎验证报告](./docs/WORKFLOW_ENGINE_VERIFICATION_REPORT.md)
 - [自集成协议](./docs/p4-self-integration-protocol.md)
 - [零信任实施方案](./docs/zero-trust-implementation-plan-v2.md)
+- [OpenClaw 迁移脚手架](./migration/openclaw/README.md)

@@ -49,9 +49,9 @@ bash migration/openclaw/scripts/discover-openclaw-data.sh
 ### 3. 启动 API（新终端）
 
 ```bash
-cd /Volumes/PS1008/Github/autonomous-agent-stack
+cd /Volumes/AI_LAB/Github/autonomous-agent-stack
 set -a; source migration/openclaw/.env.local; set +a
-uvicorn src.autoresearch.api.main:app --host 127.0.0.1 --port 8000
+uvicorn src.autoresearch.api.main:app --host 127.0.0.1 --port 8001
 ```
 
 ### 4. 用一键验证确认能跑
@@ -87,12 +87,12 @@ export AUTORESEARCH_CLAUDE_COMMAND="/path/to/your/project/bin/claude"
 ## 关于 `../openclaw`
 
 你机器上已经存在同级仓库：
-- `/Volumes/PS1008/Github/openclaw`
+- `/Volumes/AI_LAB/Github/openclaw`
 
 因此不需要重复 clone。若未来要重新拉取，可用：
 
 ```bash
-cd /Volumes/PS1008/Github
+cd /Volumes/AI_LAB/Github
 git clone https://github.com/openclaw/openclaw.git openclaw
 ```
 
@@ -133,4 +133,4 @@ bash migration/openclaw/scripts/stop-telegram-poller.sh
    - `AUTORESEARCH_PANEL_BASE_URL`
    - `AUTORESEARCH_TELEGRAM_MINI_APP_URL`（可选，配置后 `/status` 会带 Mini App 按钮）
    - `AUTORESEARCH_TELEGRAM_ALLOWED_UIDS`
-3. 默认面板地址为：`http://127.0.0.1:8000/api/v1/panel/view`
+3. 默认面板地址为：`http://127.0.0.1:8001/api/v1/panel/view`

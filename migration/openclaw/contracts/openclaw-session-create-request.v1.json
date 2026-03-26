@@ -1,0 +1,9 @@
+{
+  "channel": "telegram",
+  "external_id": "tg-100123",
+  "title": "compat-smoke-session",
+  "metadata": {
+    "source": "contract-fixture",
+    "version": "v1"
+  }
+}

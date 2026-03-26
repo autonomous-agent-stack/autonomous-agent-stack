@@ -1,0 +1,13 @@
+{
+  "name": "weather",
+  "skill_key": "weather",
+  "description": "Weather checks for a city",
+  "source": "workspace",
+  "base_dir": "/tmp/skills/weather",
+  "file_path": "/tmp/skills/weather/SKILL.md",
+  "metadata": {
+    "openclaw": {
+      "skillKey": "weather"
+    }
+  }
+}
