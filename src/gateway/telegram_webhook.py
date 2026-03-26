@@ -1,97 +1,134 @@
-"""Telegram Webhook 处理器 - 无缝透传至 Blitz Router"""
+"""
+Telegram Webhook Handler - 指令拦截与工作流触发
+"""
 
-from __future__ import annotations
-
+import asyncio
 import logging
+import re
 from typing import Dict, Any
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter, Request
+
+from workflow.workflow_engine import run_workflow
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/telegram", tags=["telegram"])
+router = APIRouter()
 
 
-class TelegramUpdate(BaseModel):
-    """Telegram Update 模型"""
-    update_id: int
-    message: Dict[str, Any] = None
-    edited_message: Dict[str, Any] = None
+@router.post("/telegram/webhook")
+async def telegram_webhook(request: Request):
+    """Telegram Webhook 处理器"""
+    try:
+        data = await request.json()
+
+        # 提取消息内容
+        message = data.get("message", {})
+        chat_id = message.get("chat", {}).get("id")
+        text = message.get("text", "")
+        user_id = message.get("from", {}).get("id")
+
+        logger.info(f"[Webhook] 收到消息: {text[:50]}...")
+
+        # 指令拦截：GitHub 深度审查
+        if "执行审查" in text or "#1" in text:
+            logger.info("[Webhook] 拦截到审查指令，启动工作流...")
+
+            # 提取仓库名
+            repo_match = re.search(r'执行审查[:\s]+([^\s]+)', text)
+            if not repo_match:
+                repo_match = re.search(r'#1[:\s]+([^\s]+)', text)
+
+            if repo_match:
+                target_repo = repo_match.group(1).strip()
+
+                # 启动工作流（异步执行）
+                asyncio.create_task(
+                    execute_and_deliver_workflow(target_repo, chat_id)
+                )
+
+                return {"status": "workflow_started", "repo": target_repo}
+            else:
+                return {"status": "error", "message": "未指定仓库"}
+
+        # 其他指令...
+        return {"status": "ok"}
+
+    except Exception as e:
+        logger.error(f"[Webhook] 处理失败: {e}")
+        return {"status": "error", "message": str(e)}
 
 
-class TelegramWebhookResponse(BaseModel):
-    """Telegram Webhook 响应"""
-    status: str
-    message: str
-    blitz_task_id: str = None
+async def execute_and_deliver_workflow(target_repo: str, chat_id: int):
+    """执行工作流并投递结果
 
-
-@router.post("/webhook", response_model=TelegramWebhookResponse)
-async def telegram_webhook(update: TelegramUpdate):
-    """Telegram Webhook 入口 - 透传至 Blitz Router
-    
-    流程：
-    1. 接收 Telegram 消息
-    2. 提取用户输入和会话信息
-    3. 调用 /api/v1/blitz/execute
-    4. 返回结果
+    Args:
+        target_repo: 目标仓库
+        chat_id: Telegram Chat ID
     """
     try:
-        # 提取消息
-        message = update.message or update.edited_message
-        if not message:
-            return TelegramWebhookResponse(
-                status="ignored",
-                message="No message content"
-            )
-        
-        # 提取用户输入
-        text = message.get("text", "")
-        if not text:
-            return TelegramWebhookResponse(
-                status="ignored",
-                message="No text content"
-            )
-        
-        # 提取会话信息
-        chat_id = message.get("chat", {}).get("id", "unknown")
-        user_id = message.get("from", {}).get("id", "unknown")
-        session_id = f"telegram_{chat_id}_{user_id}"
-        
-        logger.info(f"📱 Telegram 消息: {text[:50]}... (session: {session_id})")
-        
-        # 调用 Blitz Router
-        from bridge.unified_router import BlitzTask, run_blitz_task
-        from fastapi import BackgroundTasks
-        
-        # 创建 Blitz 任务
-        task = BlitzTask(
-            session_id=session_id,
-            prompt=text,
-            use_claude_cli=True,  # 使用 Claude CLI
-            enable_opensage=True,  # 启用 OpenSage
-            context_depth=5  # 保留 5 轮对话
+        logger.info(f"[Workflow] 启动审查流水线: {target_repo}")
+
+        # 执行工作流
+        report_text = await run_workflow(
+            "repo_analysis",
+            {"repo": target_repo}
         )
+
+        logger.info(f"[Workflow] 工作流执行完成，准备投递...")
+
+        # TODO: 投递到 #市场情报 频道
+        # 这里需要调用 Telegram Bot API 发送消息
+        # 示例代码（需要实际实现）:
+        """
+        import aiohttp
         
-        # 执行任务（同步）
-        import asyncio
-        result = await run_blitz_task(task, BackgroundTasks())
-        
-        logger.info(f"✅ Blitz 任务完成: {session_id}")
-        
-        # 返回结果
-        return TelegramWebhookResponse(
-            status="success",
-            message="Task executed successfully",
-            blitz_task_id=session_id
-        )
-    
+        async with aiohttp.ClientSession() as session:
+            # 发送到 #市场情报 频道
+            url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+            
+            payload = {
+                "chat_id": chat_id,
+                "text": report_text,
+                "parse_mode": "Markdown",
+                "message_thread_id": 4  # #市场情报 Topic ID
+            }
+            
+            async with session.post(url, json=payload) as resp:
+                result = await resp.json()
+                logger.info(f"[Telegram] 消息已投递: {result}")
+        """
+
+        logger.info(f"[Workflow] ✅ 报告已生成（{len(report_text)} 字符）")
+
     except Exception as e:
-        logger.error(f"❌ Telegram Webhook 失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"[Workflow] 执行失败: {e}")
 
 
-@router.get("/health")
-async def telegram_health():
-    """Telegram API 健康检查"""
-    return {"status": "ok", "service": "telegram"}
+# 指令帮助
+WORKFLOW_COMMANDS = {
+    "执行审查": {
+        "syntax": "执行审查: owner/repo",
+        "example": "执行审查: srxly888-creator/autonomous-agent-stack",
+        "description": "深度审查 GitHub 代码库",
+        "workflow": "repo_analysis"
+    },
+    "#1": {
+        "syntax": "#1 owner/repo",
+        "example": "#1 srxly888-creator/autonomous-agent-stack",
+        "description": "快捷指令 - 代码库审查",
+        "workflow": "repo_analysis"
+    }
+}
+
+
+def get_workflow_help() -> str:
+    """获取工作流帮助文本"""
+    help_text = "🔧 可用工作流指令:\n\n"
+
+    for cmd, info in WORKFLOW_COMMANDS.items():
+        help_text += f"**{cmd}**\n"
+        help_text += f"  语法: `{info['syntax']}`\n"
+        help_text += f"  示例: `{info['example']}`\n"
+        help_text += f"  说明: {info['description']}\n\n"
+
+    return help_text
