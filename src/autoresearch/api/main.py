@@ -1,9 +1,17 @@
 from __future__ import annotations
 
 import logging
+import sys
+from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
+
+# Ensure `src/` is importable no matter whether app is launched as
+# `autoresearch.api.main:app` or `src.autoresearch.api.main:app`.
+_SRC_ROOT = Path(__file__).resolve().parents[2]
+if str(_SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(_SRC_ROOT))
 
 # ========================================================================
 # 1. 核心日志配置 (前置初始化)
@@ -66,14 +74,24 @@ except Exception as e:
     logger.error(f"⚠️ Admin API 集成失败: {e}")
 
 # ========================================================================
-# 4.5. Telegram Webhook 挂载
+# 4.5. Telegram Webhook 挂载（优先新网关，兼容旧路由）
 # ========================================================================
 try:
-    from gateway.telegram_webhook import router as telegram_router
-    app.include_router(telegram_router, tags=["telegram_webhook"])
-    logger.info("✅ Telegram Webhook 已集成 (/telegram/webhook)")
+    from autoresearch.api.routers.gateway_telegram import router as telegram_gateway_router
+
+    app.include_router(telegram_gateway_router)
+    logger.info("✅ Telegram Gateway 已集成 (/api/v1/gateway/telegram/*)")
 except Exception as e:
-    logger.error(f"⚠️ Telegram Webhook 集成失败: {e}")
+    logger.error(f"⚠️ Telegram Gateway 集成失败: {e}")
+
+try:
+    # 兼容历史路径 /telegram/webhook
+    from gateway.telegram_webhook import router as legacy_telegram_router
+
+    app.include_router(legacy_telegram_router, tags=["telegram_webhook_legacy"])
+    logger.info("✅ Legacy Telegram Webhook 已集成 (/telegram/webhook)")
+except Exception as e:
+    logger.warning(f"⚠️ Legacy Telegram Webhook 挂载跳过: {e}")
 
 # ========================================================================
 # 4. 视觉看板挂载 (Dashboard)
