@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .router import router as health_router
+from .router import router as system_router
 from .unified_router import router as blitz_router
 
-__all__ = ["health_router", "blitz_router"]
+__all__ = ["system_router", "blitz_router"]
