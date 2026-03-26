@@ -1,0 +1,222 @@
+"""Dynamic Tool Synthesizer - OpenSage 动态工具合成
+
+将 LLM 生成的代码片段实时转化为可加载的 Python 模块
+"""
+
+import ast
+import importlib.util
+import logging
+import sys
+import tempfile
+from pathlib import Path
+from typing import Dict, Any, Optional, Callable
+from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class SynthesizedTool:
+    """合成的工具"""
+    name: str
+    description: str
+    code: str
+    module: Optional[Any] = None
+    function: Optional[Callable] = None
+    is_valid: bool = False
+    error: Optional[str] = None
+
+
+class ToolSynthesizer:
+    """动态工具合成器"""
+    
+    def __init__(self, sandbox: bool = True):
+        self.sandbox = sandbox
+        self.tools: Dict[str, SynthesizedTool] = {}
+        self._temp_dir = tempfile.mkdtemp(prefix="synth_tools_")
+        
+    async def synthesize(
+        self,
+        task_description: str,
+        code_snippet: str,
+        tool_name: Optional[str] = None
+    ) -> SynthesizedTool:
+        """合成工具
+        
+        Args:
+            task_description: 任务描述
+            code_snippet: 代码片段
+            tool_name: 工具名称（可选）
+            
+        Returns:
+            合成的工具
+        """
+        import hashlib
+        
+        # 生成工具名称
+        if not tool_name:
+            tool_hash = hashlib.md5(task_description.encode()).hexdigest()[:8]
+            tool_name = f"synth_tool_{tool_hash}"
+            
+        logger.info(f"[Tool Synthesizer] 合成工具: {tool_name}")
+        
+        # 创建工具对象
+        tool = SynthesizedTool(
+            name=tool_name,
+            description=task_description,
+            code=code_snippet
+        )
+        
+        # 1. AST 安全审计
+        if not await self._validate_code(code_snippet):
+            tool.error = "代码未通过安全审计"
+            logger.error(f"[Tool Synthesizer] {tool.error}")
+            return tool
+            
+        # 2. 封装为完整模块
+        module_code = self._wrap_as_module(code_snippet, tool_name)
+        
+        # 3. 写入临时文件
+        module_path = Path(self._temp_dir) / f"{tool_name}.py"
+        module_path.write_text(module_code)
+        
+        # 4. 动态加载模块
+        try:
+            spec = importlib.util.spec_from_file_location(
+                tool_name,
+                module_path
+            )
+            
+            if spec and spec.loader:
+                module = importlib.util.module_from_spec(spec)
+                sys.modules[tool_name] = module
+                spec.loader.exec_module(module)
+                
+                # 获取主函数
+                if hasattr(module, 'execute'):
+                    tool.function = module.execute
+                    tool.module = module
+                    tool.is_valid = True
+                    
+                    logger.info(f"[Tool Synthesizer] 工具合成成功: {tool_name}")
+                else:
+                    tool.error = "模块缺少 execute 函数"
+                    logger.error(f"[Tool Synthesizer] {tool.error}")
+                    
+        except Exception as e:
+            tool.error = f"模块加载失败: {str(e)}"
+            logger.error(f"[Tool Synthesizer] {tool.error}")
+            
+        # 注册工具
+        self.tools[tool_name] = tool
+        
+        return tool
+        
+    async def _validate_code(self, code: str) -> bool:
+        """验证代码安全性
+        
+        使用 AST 扫描器检查危险操作
+        """
+        try:
+            tree = ast.parse(code)
+            
+            # 检查危险导入
+            dangerous_modules = {
+                'os', 'subprocess', 'sys', 'shutil',
+                'pickle', 'marshal', 'ctypes'
+            }
+            
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        if alias.name in dangerous_modules:
+                            logger.warning(f"[Tool Synthesizer] 危险导入: {alias.name}")
+                            return False
+                            
+                elif isinstance(node, ast.ImportFrom):
+                    if node.module and node.module.split('.')[0] in dangerous_modules:
+                        logger.warning(f"[Tool Synthesizer] 危险导入: {node.module}")
+                        return False
+                        
+                # 检查危险函数调用
+                elif isinstance(node, ast.Call):
+                    if isinstance(node.func, ast.Name):
+                        if node.func.id in {'eval', 'exec', 'compile'}:
+                            logger.warning(f"[Tool Synthesizer] 危险函数: {node.func.id}")
+                            return False
+                            
+            logger.info("[Tool Synthesizer] 代码安全审计通过")
+            return True
+            
+        except SyntaxError as e:
+            logger.error(f"[Tool Synthesizer] 语法错误: {e}")
+            return False
+            
+    def _wrap_as_module(self, code: str, tool_name: str) -> str:
+        """封装代码为完整模块"""
+        return f'''"""
+Synthesized Tool: {tool_name}
+Generated by OpenSage Tool Synthesizer
+"""
+
+# Original code:
+# {code}
+
+def execute(*args, **kwargs):
+    """Execute the synthesized tool"""
+{self._indent_code(code, 4)}
+    
+'''
+        
+    def _indent_code(self, code: str, spaces: int) -> str:
+        """缩进代码"""
+        indent = " " * spaces
+        return "\n".join(
+            indent + line if line.strip() else line
+            for line in code.split("\n")
+        )
+        
+    def get_tool(self, tool_name: str) -> Optional[SynthesizedTool]:
+        """获取已合成的工具"""
+        return self.tools.get(tool_name)
+        
+    def list_tools(self) -> Dict[str, SynthesizedTool]:
+        """列出所有工具"""
+        return self.tools.copy()
+        
+    async def execute_tool(
+        self,
+        tool_name: str,
+        *args,
+        **kwargs
+    ) -> Any:
+        """执行工具"""
+        tool = self.tools.get(tool_name)
+        
+        if not tool:
+            raise ValueError(f"工具不存在: {tool_name}")
+            
+        if not tool.is_valid or not tool.function:
+            raise ValueError(f"工具无效: {tool_name}")
+            
+        logger.info(f"[Tool Synthesizer] 执行工具: {tool_name}")
+        
+        try:
+            result = tool.function(*args, **kwargs)
+            logger.info(f"[Tool Synthesizer] 工具执行成功: {tool_name}")
+            return result
+        except Exception as e:
+            logger.error(f"[Tool Synthesizer] 工具执行失败: {e}")
+            raise
+
+
+# 单例实例
+_tool_synthesizer: Optional[ToolSynthesizer] = None
+
+
+def get_tool_synthesizer() -> ToolSynthesizer:
+    """获取工具合成器单例"""
+    global _tool_synthesizer
+    if _tool_synthesizer is None:
+        _tool_synthesizer = ToolSynthesizer()
+    return _tool_synthesizer
