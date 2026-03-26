@@ -66,20 +66,19 @@ class TaskDecomposer:
         Returns:
             任务复杂度级别
         """
-        task = task.strip()
-
+        normalized = task.strip()
+        word_count = len(normalized.split())
+        sentence_count = len([s for s in re.split(r"[。！？!?；;\n]+", normalized) if s.strip()])
+        
         # 简单启发式规则
-        word_count = len(task.split())
-        sentence_count = len([
-            part for part in re.split(r"[。！？.!?；;\n]+", task) if part.strip()
-        ])
         
         # 检查关键词
         complex_keywords = ["然后", "之后", "同时", "最后", "先", "再", "and then", "after that", "finally"]
         hierarchical_keywords = ["分解", "拆分", "子任务", "decompose", "break down", "subtask"]
         
-        has_complex = any(kw in task.lower() for kw in complex_keywords)
-        has_hierarchical = any(kw in task.lower() for kw in hierarchical_keywords)
+        lowered = normalized.lower()
+        has_complex = any(kw in lowered for kw in complex_keywords) or sentence_count >= 2
+        has_hierarchical = any(kw in lowered for kw in hierarchical_keywords)
         
         if has_hierarchical or word_count > 200:
             return TaskComplexity.HIERARCHICAL

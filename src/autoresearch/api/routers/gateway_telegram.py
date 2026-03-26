@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import inspect
 import os
 import shlex
 from typing import Any
@@ -216,6 +217,7 @@ def _extract_telegram_message(update: dict[str, Any]) -> dict[str, Any] | None:
             "message_id": message.get("message_id"),
             "username": from_user.get("username"),
             "from_user_id": _safe_int(from_user.get("id")),
+            "from_id": from_user.get("id"),
             "raw_type": "message",
             "images": image_urls,  # 新增图片字段
         }
@@ -231,6 +233,7 @@ def _extract_telegram_message(update: dict[str, Any]) -> dict[str, Any] | None:
             "message_id": callback_message.get("message_id"),
             "username": from_user.get("username"),
             "from_user_id": _safe_int(from_user.get("id")),
+            "from_id": from_user.get("id"),
             "raw_type": "callback_query",
         }
     return None
@@ -331,7 +334,11 @@ def _handle_status_query(
         chat_id_int = int(chat_id)
         if group_access_manager.is_internal_group(chat_id_int):
             # Generate group-scoped magic link
-            user_id = extracted.get("from_user_id")
+            user_id = (
+                extracted.get("from_user_id")
+                or extracted.get("from_id")
+                or update.get("message", {}).get("from", {}).get("id")
+            )
             if user_id:
                 group_link = group_access_manager.create_group_magic_link(
                     chat_id=chat_id_int,
@@ -361,7 +368,8 @@ def _handle_status_query(
 
     if notifier.enabled:
         background_tasks.add_task(
-            notifier.notify_status_magic_link,
+            _notify_status_magic_link_compat,
+            notifier=notifier,
             chat_id=chat_id,
             summary_lines=summary_lines,
             magic_link_url=magic_link_url,
@@ -418,6 +426,41 @@ def _resolve_mini_app_url(
     if magic_link_url and magic_link_url.startswith("https://"):
         return magic_link_url
     return None
+
+
+def _notify_status_magic_link_compat(
+    *,
+    notifier: TelegramNotifierService,
+    chat_id: str,
+    summary_lines: list[str],
+    magic_link_url: str | None,
+    expires_at_iso: str | None,
+    is_group_link: bool,
+    mini_app_url: str | None,
+) -> bool:
+    """Call notifier with backward-compatible kwargs for tests/stubs."""
+    kwargs: dict[str, Any] = {
+        "chat_id": chat_id,
+        "summary_lines": summary_lines,
+        "magic_link_url": magic_link_url,
+        "expires_at_iso": expires_at_iso,
+        "mini_app_url": mini_app_url,
+    }
+
+    try:
+        signature = inspect.signature(notifier.notify_status_magic_link)
+    except (TypeError, ValueError):
+        signature = None
+
+    if signature and "is_group_link" in signature.parameters:
+        kwargs["is_group_link"] = is_group_link
+
+    try:
+        return bool(notifier.notify_status_magic_link(**kwargs))
+    except TypeError:
+        kwargs.pop("is_group_link", None)
+        kwargs.pop("mini_app_url", None)
+        return bool(notifier.notify_status_magic_link(**kwargs))
 
 
 def _build_status_summary_lines(

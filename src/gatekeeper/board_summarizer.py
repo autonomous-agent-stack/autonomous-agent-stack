@@ -9,6 +9,7 @@ UI 汇报简化器 (U1)
 
 from typing import Dict, List
 from dataclasses import dataclass
+from src.gatekeeper.llm_reviewer import LLM_Diff_Reviewer, LLMReview
 
 @dataclass
 class ReviewCard:
@@ -21,6 +22,14 @@ class ReviewCard:
 
 class Board_Summarizer:
     """UI 汇报简化器"""
+    
+    def __init__(self, llm_reviewer: LLM_Diff_Reviewer = None):
+        """初始化
+        
+        Args:
+            llm_reviewer: LLM 审查器实例（可选）
+        """
+        self.llm_reviewer = llm_reviewer or LLM_Diff_Reviewer()
     
     async def generate_review_card(self, pr_info: Dict, 
                                    security_result: Dict,
@@ -75,27 +84,19 @@ class Board_Summarizer:
                                   security: Dict,
                                   tests: Dict) -> Dict:
         """调用大模型总结"""
-        # TODO: 实现真实 LLM 调用
-        # 目前返回模拟结果
+        # 使用 LLM_Diff_Reviewer
+        review: LLMReview = await self.llm_reviewer.review_pr(
+            pr_diff=diff,
+            security_result=security,
+            test_result=tests,
+        )
         
-        if not security.get("safe", True):
-            return {
-                "purpose": "包含危险代码，建议打回",
-                "performance_impact": "未知",
-                "security_rating": "低"
-            }
-        
-        if not tests.get("success", True):
-            return {
-                "purpose": "测试未通过，建议打回",
-                "performance_impact": "未知",
-                "security_rating": "中"
-            }
-        
+        # 转换为 Board_Summarizer 格式
         return {
-            "purpose": "集成新功能或修复 Bug",
-            "performance_impact": "无明显性能影响",
-            "security_rating": security.get("security_level", "高")
+            "purpose": review.purpose,
+            "performance_impact": review.performance,
+            "security_rating": review.security,
+            "security_score": review.security_score,
         }
     
     def _get_security_color(self, rating: str) -> str:

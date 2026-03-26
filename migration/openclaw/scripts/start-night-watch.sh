@@ -7,7 +7,14 @@ SESSION_NAME="${NIGHT_WATCH_SESSION_NAME:-aas_night_watch}"
 LOOP_SCRIPT="${ROOT_DIR}/scripts/night-watch-loop.sh"
 REPORT_MD="${OPENCLAW_WATCH_REPORT_MD:-/Users/iCloud_GZ/.openclaw/workspace/AutonomousAgentStack_NightWatch.md}"
 
-if screen -ls | rg -q "\.${SESSION_NAME}[[:space:]]"; then
+existing_pids="$(pgrep -f "${LOOP_SCRIPT}" | tr '\n' ' ' | xargs || true)"
+if [[ -n "${existing_pids}" ]]; then
+  echo "night watch already running (pids=${existing_pids})"
+  echo "report: ${REPORT_MD}"
+  exit 0
+fi
+
+if screen -ls 2>/dev/null | rg -q "\.${SESSION_NAME}"; then
   echo "night watch already running in screen session: ${SESSION_NAME}"
   echo "report: ${REPORT_MD}"
   exit 0

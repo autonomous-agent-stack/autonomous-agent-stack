@@ -32,10 +32,15 @@ class EventBus:
         # 通知订阅者
         if event_type in self.subscribers:
             for callback in self.subscribers[event_type]:
-                await callback(event)
-    
+                maybe_coro = callback(event)
+                if asyncio.iscoroutine(maybe_coro):
+                    await maybe_coro
+
     def subscribe(self, event_type: str, callback: Callable):
         """订阅事件"""
+        # 允许通过订阅注册扩展事件类型。
+        if event_type not in self.event_types:
+            self.event_types.append(event_type)
         if event_type not in self.subscribers:
             self.subscribers[event_type] = []
         self.subscribers[event_type].append(callback)
