@@ -1,17 +1,23 @@
-"""
-Universal Workflow Engine v2.0
+"""Universal Workflow Engine v2.0.
+
 职责：编排跨技能、跨 Agent 的复杂 DAG（有向无环图）工作流。
 """
 
+import asyncio
 import json
 import logging
-import asyncio
-from typing import Dict, Any, Optional
 from datetime import datetime
+from typing import Any, Dict, Optional
 
-# 导入既有模块 (v2.0 架构)
-from executors.claude_cli_adapter import ClaudeCLIAdapter, get_claude_adapter
-from opensage.skill_registry import SkillRegistry, get_skill_registry
+from executors.claude_cli_adapter import get_claude_adapter
+
+try:
+    from opensage.skill_registry import get_skill_registry
+except ModuleNotFoundError as exc:  # pragma: no cover - environment dependent
+    get_skill_registry = None  # type: ignore[assignment]
+    _skill_registry_import_error = exc
+else:
+    _skill_registry_import_error = None
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +27,11 @@ class WorkflowEngine:
 
     def __init__(self):
         self.claude = get_claude_adapter()
+        if get_skill_registry is None:
+            raise RuntimeError(
+                "SkillRegistry requires optional runtime dependencies (for example aiohttp). "
+                "Install the project dependencies before using WorkflowEngine."
+            ) from _skill_registry_import_error
         self.registry = get_skill_registry()
 
     async def execute_github_analysis_flow(self, target_repo: str) -> Dict[str, Any]:

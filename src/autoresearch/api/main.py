@@ -50,6 +50,16 @@ except Exception as e:
     logger.error(f"⚠️ Self-Integration API 集成失败: {e}")
 
 # ========================================================================
+# 4.5. Telegram Webhook 挂载
+# ========================================================================
+try:
+    from gateway.telegram_webhook import router as telegram_router
+    app.include_router(telegram_router, tags=["telegram_webhook"])
+    logger.info("✅ Telegram Webhook 已集成 (/telegram/webhook)")
+except Exception as e:
+    logger.error(f"⚠️ Telegram Webhook 集成失败: {e}")
+
+# ========================================================================
 # 4. 视觉看板挂载 (Dashboard)
 # ========================================================================
 try:
