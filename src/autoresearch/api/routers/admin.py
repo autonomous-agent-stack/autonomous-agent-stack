@@ -518,6 +518,30 @@ _ADMIN_HTML = """<!doctype html>
     .active { color: var(--ok); border-color: #a7f3d0; background: #ecfdf3; }
     .inactive { color: var(--warn); border-color: #fcd9bd; background: #fff7ed; }
     .toolbar { display: flex; flex-wrap: wrap; gap: 6px; }
+    .subcard {
+      background: #fbfdff;
+      border: 1px dashed var(--line);
+      border-radius: 10px;
+      padding: 10px;
+      margin-bottom: 10px;
+    }
+    h3 {
+      margin: 0 0 8px;
+      font-size: 15px;
+    }
+    .inline-check {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--muted);
+      padding: 4px 0;
+    }
+    .inline-check input {
+      width: 14px;
+      height: 14px;
+      margin: 0;
+    }
     pre {
       margin: 0;
       padding: 10px;
@@ -546,7 +570,30 @@ _ADMIN_HTML = """<!doctype html>
       <h2>Agent 配置</h2>
       <div class="row">
         <button class="btn-primary" onclick="refreshAll()">刷新</button>
-        <button onclick="createAgent()">新建 Agent</button>
+        <button onclick="createAgent()">新建 Agent（表单）</button>
+        <button onclick="createAgentAdvancedJson()">高级 JSON</button>
+      </div>
+      <div class="subcard" id="agent-form-card">
+        <h3 id="agent-form-title">Agent 表单（新建）</h3>
+        <p class="muted">默认走表单，复杂参数再点“高级 JSON”。</p>
+        <div class="row">
+          <input id="agent-form-name" placeholder="name" value="assistant-main" />
+          <input id="agent-form-task" placeholder="task_name" value="general-task" />
+          <input id="agent-form-timeout" type="number" min="1" max="7200" value="900" />
+          <input id="agent-form-depth" type="number" min="1" max="10" value="1" />
+        </div>
+        <textarea id="agent-form-description" placeholder="description">default admin agent</textarea>
+        <textarea id="agent-form-prompt" placeholder="prompt_template">You are my primary autonomous agent.</textarea>
+        <div class="row">
+          <input id="agent-form-channels" placeholder="channel_bindings, comma separated" value="telegram-main" />
+          <input id="agent-form-actor" placeholder="actor" value="admin-ui" />
+          <label class="inline-check"><input id="agent-form-append" type="checkbox" checked />append_prompt</label>
+          <label class="inline-check"><input id="agent-form-enabled" type="checkbox" checked />enabled</label>
+        </div>
+        <div class="row">
+          <button class="btn-primary" onclick="submitAgentForm()">保存 Agent</button>
+          <button onclick="resetAgentForm()">清空</button>
+        </div>
       </div>
       <div class="table-wrap">
         <table>
@@ -570,7 +617,50 @@ _ADMIN_HTML = """<!doctype html>
       <h2>Channel 配置</h2>
       <div class="row">
         <button class="btn-primary" onclick="refreshAll()">刷新</button>
-        <button onclick="createChannel()">新建 Channel</button>
+        <button onclick="createChannel()">新建 Channel（表单）</button>
+        <button onclick="createChannelAdvancedJson()">高级 JSON</button>
+      </div>
+      <div class="subcard">
+        <h3>Telegram 快速配置（ClawX 风格）</h3>
+        <p class="muted">只填 key、bot token、allowed ids，一键保存。</p>
+        <div class="row">
+          <input id="tg-quick-key" placeholder="key" value="telegram-main" />
+          <input id="tg-quick-token" type="password" placeholder="bot token (@BotFather)" value="" />
+          <input id="tg-quick-ids" placeholder="allowed ids, comma separated" value="" />
+          <input id="tg-quick-actor" placeholder="actor" value="admin-ui" />
+        </div>
+        <div class="row">
+          <button class="btn-primary" onclick="quickCreateTelegramChannel()">一键保存 Telegram Channel</button>
+        </div>
+      </div>
+      <div class="subcard" id="channel-form-card">
+        <h3 id="channel-form-title">Channel 表单（新建）</h3>
+        <p class="muted">默认走表单，secret 可选。编辑时可覆盖字段并自动保存版本。</p>
+        <div class="row">
+          <input id="channel-form-key" placeholder="key" value="telegram-main" />
+          <input id="channel-form-display" placeholder="display_name" value="Telegram Main" />
+          <select id="channel-form-provider">
+            <option value="telegram">telegram</option>
+            <option value="webhook">webhook</option>
+            <option value="http">http</option>
+            <option value="custom">custom</option>
+          </select>
+          <input id="channel-form-endpoint" placeholder="endpoint_url (optional)" value="" />
+        </div>
+        <div class="row">
+          <input id="channel-form-secret-ref" placeholder="secret_ref (optional)" value="" />
+          <input id="channel-form-secret-value" type="password" placeholder="secret_value (optional)" value="" />
+        </div>
+        <div class="row">
+          <input id="channel-form-allowed-chat-ids" placeholder="allowed_chat_ids, comma separated" value="" />
+          <input id="channel-form-allowed-user-ids" placeholder="allowed_user_ids, comma separated" value="" />
+          <input id="channel-form-actor" placeholder="actor" value="admin-ui" />
+          <label class="inline-check"><input id="channel-form-enabled" type="checkbox" checked />enabled</label>
+        </div>
+        <div class="row">
+          <button class="btn-primary" onclick="submitChannelForm()">保存 Channel</button>
+          <button onclick="resetChannelForm()">清空</button>
+        </div>
       </div>
       <div class="table-wrap">
         <table>
@@ -614,6 +704,12 @@ const channelsBody = document.getElementById("channels-body");
 const revisionsPre = document.getElementById("revisions-pre");
 const tokenFromQuery = new URLSearchParams(window.location.search).get("token") || "";
 let adminToken = localStorage.getItem("autoresearch_admin_token") || tokenFromQuery;
+let agentFormMode = "create";
+let editingAgentId = null;
+let editingAgentStatus = "active";
+let channelFormMode = "create";
+let editingChannelId = null;
+let editingChannelStatus = "active";
 
 function setAdminToken() {
   const input = prompt("请输入 Bearer Token（不含 Bearer 前缀）", adminToken || "");
@@ -653,6 +749,126 @@ function asJSON(value) {
 function fmtDate(value) {
   if (!value) return "-";
   return new Date(value).toLocaleString("zh-CN");
+}
+
+function csvToList(raw) {
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function toInt(raw, fallback, minValue, maxValue) {
+  const value = Number(raw);
+  if (!Number.isFinite(value)) return fallback;
+  return Math.min(maxValue, Math.max(minValue, Math.round(value)));
+}
+
+function resetAgentForm() {
+  agentFormMode = "create";
+  editingAgentId = null;
+  editingAgentStatus = "active";
+  document.getElementById("agent-form-title").textContent = "Agent 表单（新建）";
+  document.getElementById("agent-form-name").value = "assistant-main";
+  document.getElementById("agent-form-task").value = "general-task";
+  document.getElementById("agent-form-timeout").value = "900";
+  document.getElementById("agent-form-depth").value = "1";
+  document.getElementById("agent-form-description").value = "default admin agent";
+  document.getElementById("agent-form-prompt").value = "You are my primary autonomous agent.";
+  document.getElementById("agent-form-channels").value = "telegram-main";
+  document.getElementById("agent-form-actor").value = "admin-ui";
+  document.getElementById("agent-form-append").checked = true;
+  document.getElementById("agent-form-enabled").checked = true;
+}
+
+async function submitAgentForm() {
+  const name = document.getElementById("agent-form-name").value.trim();
+  const taskName = document.getElementById("agent-form-task").value.trim();
+  const promptTemplate = document.getElementById("agent-form-prompt").value;
+  if (!name || !taskName || !promptTemplate.trim()) {
+    alert("name / task_name / prompt_template 为必填");
+    return;
+  }
+
+  const actor = document.getElementById("agent-form-actor").value.trim() || "admin-ui";
+  const channels = csvToList(document.getElementById("agent-form-channels").value);
+  const timeout = toInt(document.getElementById("agent-form-timeout").value, 900, 1, 7200);
+  const depth = toInt(document.getElementById("agent-form-depth").value, 1, 1, 10);
+  const appendPrompt = document.getElementById("agent-form-append").checked;
+  const enabled = document.getElementById("agent-form-enabled").checked;
+  const description = document.getElementById("agent-form-description").value.trim();
+
+  if (agentFormMode === "edit" && editingAgentId) {
+    await callApi(`/api/v1/admin/agents/${editingAgentId}`, "PUT", {
+      name,
+      description,
+      task_name: taskName,
+      prompt_template: promptTemplate,
+      default_timeout_seconds: timeout,
+      default_generation_depth: depth,
+      append_prompt: appendPrompt,
+      channel_bindings: channels,
+      metadata_updates: {},
+      actor,
+      reason: "manual edit from form",
+    });
+    const currentlyEnabled = editingAgentStatus === "active";
+    if (enabled !== currentlyEnabled) {
+      const op = enabled ? "activate" : "deactivate";
+      await callApi(`/api/v1/admin/agents/${editingAgentId}/${op}`, "POST", {
+        actor,
+        reason: "toggle from form",
+      });
+    }
+  } else {
+    await callApi("/api/v1/admin/agents", "POST", {
+      name,
+      description,
+      task_name: taskName,
+      prompt_template: promptTemplate,
+      default_timeout_seconds: timeout,
+      default_generation_depth: depth,
+      default_env: {},
+      cli_args: [],
+      command_override: null,
+      append_prompt: appendPrompt,
+      channel_bindings: channels,
+      metadata: {},
+      enabled,
+      actor,
+    });
+  }
+
+  await refreshAll();
+  resetAgentForm();
+}
+
+function createAgent() {
+  resetAgentForm();
+  document.getElementById("agent-form-card").scrollIntoView({behavior: "smooth", block: "center"});
+}
+
+async function createAgentAdvancedJson() {
+  const raw = prompt("输入 Agent JSON（create payload）", asJSON({
+    name: "assistant-main",
+    description: "default admin agent",
+    task_name: "general-task",
+    prompt_template: "You are my primary autonomous agent.",
+    default_timeout_seconds: 900,
+    default_generation_depth: 1,
+    default_env: {},
+    cli_args: [],
+    command_override: null,
+    append_prompt: true,
+    channel_bindings: ["telegram-main"],
+    metadata: {},
+    enabled: true,
+    actor: "admin-ui"
+  }));
+  if (!raw) return;
+  await callApi("/api/v1/admin/agents", "POST", JSON.parse(raw));
+  await refreshAll();
 }
 
 function agentRow(item) {
@@ -731,49 +947,23 @@ async function loadRevisions() {
   }
 }
 
-async function createAgent() {
-  const raw = prompt("输入 Agent JSON（create payload）", asJSON({
-    name: "assistant-main",
-    description: "default admin agent",
-    task_name: "general-task",
-    prompt_template: "You are my primary autonomous agent.",
-    default_timeout_seconds: 900,
-    default_generation_depth: 1,
-    default_env: {},
-    cli_args: [],
-    command_override: null,
-    append_prompt: true,
-    channel_bindings: ["telegram-main"],
-    metadata: {},
-    enabled: true,
-    actor: "admin-ui"
-  }));
-  if (!raw) return;
-  await callApi("/api/v1/admin/agents", "POST", JSON.parse(raw));
-  await refreshAll();
-}
-
-async function editAgent(encodedItem) {
+function editAgent(encodedItem) {
   const item = JSON.parse(decodeURIComponent(encodedItem));
-  const raw = prompt("输入 Agent 更新 JSON（update payload）", asJSON({
-    name: item.name,
-    description: item.description,
-    task_name: item.task_name,
-    prompt_template: item.prompt_template,
-    default_timeout_seconds: item.default_timeout_seconds,
-    default_generation_depth: item.default_generation_depth,
-    default_env: item.default_env,
-    cli_args: item.cli_args,
-    command_override: item.command_override,
-    append_prompt: item.append_prompt,
-    channel_bindings: item.channel_bindings,
-    metadata_updates: {},
-    actor: "admin-ui",
-    reason: "manual edit"
-  }));
-  if (!raw) return;
-  await callApi(`/api/v1/admin/agents/${item.agent_id}`, "PUT", JSON.parse(raw));
-  await refreshAll();
+  agentFormMode = "edit";
+  editingAgentId = item.agent_id;
+  editingAgentStatus = item.status;
+  document.getElementById("agent-form-title").textContent = `Agent 表单（编辑: ${item.agent_id}）`;
+  document.getElementById("agent-form-name").value = item.name || "";
+  document.getElementById("agent-form-task").value = item.task_name || "";
+  document.getElementById("agent-form-timeout").value = String(item.default_timeout_seconds || 900);
+  document.getElementById("agent-form-depth").value = String(item.default_generation_depth || 1);
+  document.getElementById("agent-form-description").value = item.description || "";
+  document.getElementById("agent-form-prompt").value = item.prompt_template || "";
+  document.getElementById("agent-form-channels").value = (item.channel_bindings || []).join(", ");
+  document.getElementById("agent-form-actor").value = "admin-ui";
+  document.getElementById("agent-form-append").checked = Boolean(item.append_prompt);
+  document.getElementById("agent-form-enabled").checked = item.status === "active";
+  document.getElementById("agent-form-card").scrollIntoView({behavior: "smooth", block: "center"});
 }
 
 async function toggleAgent(agentId, op) {
@@ -793,20 +983,29 @@ async function rollbackAgent(agentId) {
 }
 
 async function launchAgent(agentId) {
-  const raw = prompt("输入 Launch JSON", asJSON({
-    session_id: null,
-    prompt_override: null,
-    timeout_seconds_override: null,
-    generation_depth_override: null,
+  const sessionInput = prompt("session_id（可空）", "");
+  if (sessionInput === null) return;
+  const promptInput = prompt("prompt_override（可空）", "");
+  if (promptInput === null) return;
+  const timeoutInput = prompt("timeout_seconds_override（可空）", "");
+  if (timeoutInput === null) return;
+  const depthInput = prompt("generation_depth_override（可空）", "");
+  if (depthInput === null) return;
+
+  const timeoutValue = timeoutInput.trim() ? toInt(timeoutInput.trim(), 900, 1, 7200) : null;
+  const depthValue = depthInput.trim() ? toInt(depthInput.trim(), 1, 1, 10) : null;
+  const run = await callApi(`/api/v1/admin/agents/${agentId}/launch`, "POST", {
+    session_id: sessionInput.trim() || null,
+    prompt_override: promptInput.trim() || null,
+    timeout_seconds_override: timeoutValue,
+    generation_depth_override: depthValue,
     env_overrides: {},
-    metadata_updates: {trigger: "admin-ui"}
-  }));
-  if (!raw) return;
-  const run = await callApi(`/api/v1/admin/agents/${agentId}/launch`, "POST", JSON.parse(raw));
+    metadata_updates: {trigger: "admin-ui"},
+  });
   alert(`已启动 agent_run_id: ${run.agent_run_id}`);
 }
 
-async function createChannel() {
+async function createChannelAdvancedJson() {
   const raw = prompt("输入 Channel JSON（create payload）", asJSON({
     key: "telegram-main",
     display_name: "Telegram Main",
@@ -826,25 +1025,167 @@ async function createChannel() {
   await refreshAll();
 }
 
-async function editChannel(encodedItem) {
-  const item = JSON.parse(decodeURIComponent(encodedItem));
-  const raw = prompt("输入 Channel 更新 JSON（update payload）", asJSON({
-    display_name: item.display_name,
-    provider: item.provider,
-    endpoint_url: item.endpoint_url,
-    secret_ref: item.secret_ref,
-    secret_value: null,
-    clear_secret: false,
-    allowed_chat_ids: item.allowed_chat_ids,
-    allowed_user_ids: item.allowed_user_ids,
-    routing_policy: item.routing_policy,
-    metadata_updates: {},
-    actor: "admin-ui",
-    reason: "manual edit"
-  }));
-  if (!raw) return;
-  await callApi(`/api/v1/admin/channels/${item.channel_id}`, "PUT", JSON.parse(raw));
+async function quickCreateTelegramChannel() {
+  const key = document.getElementById("tg-quick-key").value.trim() || "telegram-main";
+  const token = document.getElementById("tg-quick-token").value.trim();
+  const ids = csvToList(document.getElementById("tg-quick-ids").value);
+  const actor = document.getElementById("tg-quick-actor").value.trim() || "admin-ui";
+
+  if (!token) {
+    alert("bot token 不能为空");
+    return;
+  }
+  if (ids.length === 0) {
+    alert("allowed ids 至少填一个");
+    return;
+  }
+
+  const channels = await callApi("/api/v1/admin/channels");
+  const existing = channels.find((item) => item.key === key);
+
+  if (existing) {
+    await callApi(`/api/v1/admin/channels/${existing.channel_id}`, "PUT", {
+      display_name: existing.display_name || "Telegram Main",
+      provider: "telegram",
+      endpoint_url: existing.endpoint_url || null,
+      secret_ref: existing.secret_ref || null,
+      secret_value: token,
+      clear_secret: false,
+      allowed_chat_ids: ids,
+      allowed_user_ids: ids,
+      routing_policy: existing.routing_policy || {},
+      metadata_updates: {quick_mode: "telegram"},
+      actor,
+      reason: "quick telegram update",
+    });
+    if (existing.status !== "active") {
+      await callApi(`/api/v1/admin/channels/${existing.channel_id}/activate`, "POST", {
+        actor,
+        reason: "activate quick telegram channel",
+      });
+    }
+  } else {
+    await callApi("/api/v1/admin/channels", "POST", {
+      key,
+      display_name: "Telegram Main",
+      provider: "telegram",
+      endpoint_url: null,
+      secret_ref: null,
+      secret_value: token,
+      allowed_chat_ids: ids,
+      allowed_user_ids: ids,
+      routing_policy: {quick_mode: "telegram"},
+      metadata: {quick_mode: "telegram"},
+      enabled: true,
+      actor,
+    });
+  }
+
   await refreshAll();
+  document.getElementById("tg-quick-token").value = "";
+}
+
+function resetChannelForm() {
+  channelFormMode = "create";
+  editingChannelId = null;
+  editingChannelStatus = "active";
+  document.getElementById("channel-form-title").textContent = "Channel 表单（新建）";
+  document.getElementById("channel-form-key").value = "telegram-main";
+  document.getElementById("channel-form-display").value = "Telegram Main";
+  document.getElementById("channel-form-provider").value = "telegram";
+  document.getElementById("channel-form-endpoint").value = "";
+  document.getElementById("channel-form-secret-ref").value = "";
+  document.getElementById("channel-form-secret-value").value = "";
+  document.getElementById("channel-form-allowed-chat-ids").value = "";
+  document.getElementById("channel-form-allowed-user-ids").value = "";
+  document.getElementById("channel-form-actor").value = "admin-ui";
+  document.getElementById("channel-form-enabled").checked = true;
+}
+
+async function submitChannelForm() {
+  const key = document.getElementById("channel-form-key").value.trim();
+  const displayName = document.getElementById("channel-form-display").value.trim();
+  if (!key || !displayName) {
+    alert("key / display_name 为必填");
+    return;
+  }
+
+  const actor = document.getElementById("channel-form-actor").value.trim() || "admin-ui";
+  const provider = document.getElementById("channel-form-provider").value || "telegram";
+  const endpointUrl = document.getElementById("channel-form-endpoint").value.trim() || null;
+  const secretRef = document.getElementById("channel-form-secret-ref").value.trim() || null;
+  const secretValueRaw = document.getElementById("channel-form-secret-value").value;
+  const secretValue = secretValueRaw && secretValueRaw.trim() ? secretValueRaw.trim() : null;
+  const allowedChatIds = csvToList(document.getElementById("channel-form-allowed-chat-ids").value);
+  const allowedUserIds = csvToList(document.getElementById("channel-form-allowed-user-ids").value);
+  const enabled = document.getElementById("channel-form-enabled").checked;
+
+  if (channelFormMode === "edit" && editingChannelId) {
+    await callApi(`/api/v1/admin/channels/${editingChannelId}`, "PUT", {
+      display_name: displayName,
+      provider,
+      endpoint_url: endpointUrl,
+      secret_ref: secretRef,
+      secret_value: secretValue,
+      clear_secret: false,
+      allowed_chat_ids: allowedChatIds,
+      allowed_user_ids: allowedUserIds,
+      routing_policy: {},
+      metadata_updates: {},
+      actor,
+      reason: "manual edit from form",
+    });
+    const currentlyEnabled = editingChannelStatus === "active";
+    if (enabled !== currentlyEnabled) {
+      const op = enabled ? "activate" : "deactivate";
+      await callApi(`/api/v1/admin/channels/${editingChannelId}/${op}`, "POST", {
+        actor,
+        reason: "toggle from form",
+      });
+    }
+  } else {
+    await callApi("/api/v1/admin/channels", "POST", {
+      key,
+      display_name: displayName,
+      provider,
+      endpoint_url: endpointUrl,
+      secret_ref: secretRef,
+      secret_value: secretValue,
+      allowed_chat_ids: allowedChatIds,
+      allowed_user_ids: allowedUserIds,
+      routing_policy: {},
+      metadata: {},
+      enabled,
+      actor,
+    });
+  }
+
+  await refreshAll();
+  resetChannelForm();
+}
+
+function createChannel() {
+  resetChannelForm();
+  document.getElementById("channel-form-card").scrollIntoView({behavior: "smooth", block: "center"});
+}
+
+function editChannel(encodedItem) {
+  const item = JSON.parse(decodeURIComponent(encodedItem));
+  channelFormMode = "edit";
+  editingChannelId = item.channel_id;
+  editingChannelStatus = item.status;
+  document.getElementById("channel-form-title").textContent = `Channel 表单（编辑: ${item.channel_id}）`;
+  document.getElementById("channel-form-key").value = item.key || "";
+  document.getElementById("channel-form-display").value = item.display_name || "";
+  document.getElementById("channel-form-provider").value = item.provider || "telegram";
+  document.getElementById("channel-form-endpoint").value = item.endpoint_url || "";
+  document.getElementById("channel-form-secret-ref").value = item.secret_ref || "";
+  document.getElementById("channel-form-secret-value").value = "";
+  document.getElementById("channel-form-allowed-chat-ids").value = (item.allowed_chat_ids || []).join(", ");
+  document.getElementById("channel-form-allowed-user-ids").value = (item.allowed_user_ids || []).join(", ");
+  document.getElementById("channel-form-actor").value = "admin-ui";
+  document.getElementById("channel-form-enabled").checked = item.status === "active";
+  document.getElementById("channel-form-card").scrollIntoView({behavior: "smooth", block: "center"});
 }
 
 async function toggleChannel(channelId, op) {
@@ -863,6 +1204,8 @@ async function rollbackChannel(channelId) {
   await refreshAll();
 }
 
+resetAgentForm();
+resetChannelForm();
 refreshAll();
 </script>
 </body>
