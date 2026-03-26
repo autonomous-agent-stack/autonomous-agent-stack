@@ -101,3 +101,25 @@ def _env_bool(name: str, default: bool) -> bool:
 
 if __name__ == "__main__":
     run()
+
+# ========================================================================
+# Bridge API 集成（系统健康状态）
+# ========================================================================
+try:
+    from bridge.api import router as bridge_router
+    app.include_router(bridge_router, prefix="/api/v1", tags=["bridge"])
+    print("✅ Bridge API 已集成")
+except ImportError as e:
+    print(f"⚠️ Bridge API 导入失败: {e}")
+except Exception as e:
+    print(f"⚠️ Bridge API 集成失败: {e}")
+
+# ========================================================================
+# Bridge API（系统健康状态）
+# ========================================================================
+try:
+    from bridge.router import router as bridge_router
+    app.include_router(bridge_router, prefix="/api/v1", tags=["bridge"])
+    logger.info("✅ Bridge API 已集成（/api/v1/system/health）")
+except Exception as e:
+    logger.warning(f"⚠️ Bridge API 集成失败: {e}")
