@@ -115,11 +115,21 @@ except Exception as e:
     print(f"⚠️ Bridge API 集成失败: {e}")
 
 # ========================================================================
-# Bridge API（系统健康状态）
+# Bridge API（系统健康状态 + Blitz Router）
 # ========================================================================
+import logging
+logger = logging.getLogger(__name__)
+
 try:
-    from bridge.router import router as bridge_router
-    app.include_router(bridge_router, prefix="/api/v1", tags=["bridge"])
-    logger.info("✅ Bridge API 已集成（/api/v1/system/health）")
+    from bridge import health_router, blitz_router
+    app.include_router(health_router, prefix="/api/v1", tags=["bridge"])
+    app.include_router(blitz_router, tags=["blitz"])
+    logger.info("✅ Bridge API 已集成（/api/v1/system/health, /api/v1/blitz）")
 except Exception as e:
     logger.warning(f"⚠️ Bridge API 集成失败: {e}")
+
+# ========================================================================
+# Logging（日志）
+# ========================================================================
+import logging
+logger = logging.getLogger(__name__)
