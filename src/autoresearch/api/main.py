@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any
+
+import logging
+logger = logging.getLogger(__name__)
 
 from fastapi import FastAPI
 
@@ -29,6 +33,8 @@ from autoresearch.api.routers import (
     cluster,  # Cluster 管理
 )
 from autoresearch.api.webauthn_interceptor import demo_router  # WebAuthn 演示页面
+
+logger = logging.getLogger(__name__)
 
 
 app = FastAPI(
@@ -59,6 +65,16 @@ app.include_router(streaming.router)
 app.include_router(webauthn.router)  # WebAuthn 生物识别认证
 app.include_router(demo_router)  # WebAuthn 演示页面
 app.include_router(cluster.router)  # Cluster 管理
+
+# Bridge API（系统健康状态 + Blitz Router）
+try:
+    from bridge import blitz_router, health_router
+
+    app.include_router(health_router, tags=["bridge"])
+    app.include_router(blitz_router, tags=["blitz"])
+    logger.info("Bridge API integrated (/api/v1/system/health, /api/v1/blitz)")
+except Exception as exc:
+    logger.warning("Bridge API integration skipped: %s", exc)
 
 
 @app.get("/", tags=["meta"])
@@ -91,41 +107,13 @@ def run() -> None:
     port = int(os.getenv("AUTORESEARCH_API_PORT", "8000"))
     uvicorn.run("autoresearch.api.main:app", host=host, port=port, reload=False)
 
-
-def _env_bool(name: str, default: bool) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
-
-
-if __name__ == "__main__":
-    run()
-
-# ========================================================================
-# Bridge API 集成（系统健康状态）
-# ========================================================================
-try:
-    from bridge.api import router as bridge_router
-    app.include_router(bridge_router, prefix="/api/v1", tags=["bridge"])
-    print("✅ Bridge API 已集成")
-except ImportError as e:
-    print(f"⚠️ Bridge API 导入失败: {e}")
-except Exception as e:
-    print(f"⚠️ Bridge API 集成失败: {e}")
-
 # ========================================================================
 # Bridge API（系统健康状态 + Blitz Router）
 # ========================================================================
-
 try:
-    from bridge import health_router, blitz_router
-    app.include_router(health_router, prefix="/api/v1", tags=["bridge"])
+    from bridge import system_router, blitz_router
+    app.include_router(system_router, tags=["bridge"])
     app.include_router(blitz_router, tags=["blitz"])
     logger.info("✅ Bridge API 已集成（/api/v1/system/health, /api/v1/blitz）")
 except Exception as e:
     logger.warning(f"⚠️ Bridge API 集成失败: {e}")
-
-# ========================================================================
-# Logging（日志）
-# ========================================================================
