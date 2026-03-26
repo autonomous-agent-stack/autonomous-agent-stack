@@ -49,6 +49,22 @@ try:
 except Exception as e:
     logger.error(f"⚠️ Self-Integration API 集成失败: {e}")
 
+try:
+    from autoresearch.api.routers.openclaw import router as openclaw_router
+
+    app.include_router(openclaw_router)
+    logger.info("✅ OpenClaw API 已集成 (/api/v1/openclaw/*)")
+except Exception as e:
+    logger.error(f"⚠️ OpenClaw API 集成失败: {e}")
+
+try:
+    from autoresearch.api.routers.admin import router as admin_router
+
+    app.include_router(admin_router)
+    logger.info("✅ Admin API 已集成 (/api/v1/admin/*)")
+except Exception as e:
+    logger.error(f"⚠️ Admin API 集成失败: {e}")
+
 # ========================================================================
 # 4.5. Telegram Webhook 挂载
 # ========================================================================
