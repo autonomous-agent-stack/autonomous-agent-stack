@@ -7,6 +7,7 @@
 - type: security -> chat_id: -100yyy (独立审计群)
 """
 
+import os
 import logging
 from typing import Dict, Optional, List
 
@@ -20,24 +21,39 @@ class RouteTable:
     支持动态路由、备份配置和路由验证
     """
     
+    # 从环境变量读取群组 ID
+    CHAT_ID = os.getenv("AUTORESEARCH_TG_CHAT_ID", "<YOUR_TELEGRAM_CHAT_ID>")
+    
+    # 话题物理 ID 定义（从环境变量读取，使用默认值）
+    TOPIC_GENERAL = int(os.getenv("TG_TOPIC_GENERAL", "1"))
+    TOPIC_CONTENT = int(os.getenv("TG_TOPIC_CONTENT", "2"))
+    TOPIC_SECURITY = int(os.getenv("TG_TOPIC_SECURITY", "3"))
+    TOPIC_INTELLIGENCE = int(os.getenv("TG_TOPIC_INTELLIGENCE", "4"))
+    
     # 默认路由配置
     DEFAULT_ROUTES = {
         "intelligence": {
-            "chat_id": -1001234567890,
-            "thread_id": 10,
+            "chat_id": CHAT_ID,
+            "thread_id": TOPIC_INTELLIGENCE,  # 4 - 市场情报
             "description": "市场情报话题",
             "enabled": True
         },
         "content": {
-            "chat_id": -1001234567890,
-            "thread_id": 20,
+            "chat_id": CHAT_ID,
+            "thread_id": TOPIC_CONTENT,  # 2 - 内容实验室
             "description": "内容实验室话题",
             "enabled": True
         },
         "security": {
-            "chat_id": -1009876543210,
-            "thread_id": None,
+            "chat_id": CHAT_ID,
+            "thread_id": TOPIC_SECURITY,  # 3 - 系统审计
             "description": "系统审计群组",
+            "enabled": True
+        },
+        "user_input": {
+            "chat_id": CHAT_ID,
+            "thread_id": TOPIC_GENERAL,  # 1 - General
+            "description": "原话存档",
             "enabled": True
         }
     }
