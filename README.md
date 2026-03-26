@@ -1,88 +1,115 @@
 # 🤖 Autonomous Agent Stack
 
-> **现代化多智能体编排框架** - 基于 MASFactory 的图编排引擎
+> 一个面向多智能体编排、审计、面板接入与迁移验证的工程化框架。
 
 ---
 
-## 📋 项目简介
+## 项目概览
 
-Autonomous Agent Stack 是一个基于 MASFactory 的多智能体编排框架，用于把若干开源能力整合为统一的"微观执行底座"。
+Autonomous Agent Stack 目前已经把核心链路落到了代码里，重点覆盖以下几类能力：
 
-**核心特性**：
-- 🎯 **图编排引擎**：基于 MASFactory 的 Vibe Graphing
-- 🔧 **MCP 集成**：通过 ContextBlock 统一管理工具链
-- 🖥️ **M1 优化**：本地沙盒 + AppleDouble 自动清理
-- 📊 **可视化监控**：实时看板 + Mermaid 图
-- 🔄 **自愈能力**：自动重试 + 回滚机制
+- 多智能体图编排与 prompt 驱动执行
+- OpenClaw / Autoresearch 兼容会话与运行记录
+- MCP 工具注册、上下文桥接与动态工具合成
+- Docker 沙盒执行与 AppleDouble 清理
+- Telegram 网关、面板鉴权与审计
+- 静态安全审计、知识图谱与业务红线约束
+- 检查点恢复、人机协同拦截与标准 MCP 兼容能力
 
-> 说明：本仓库以“能跑、能接、能审计”为优先，不把文档里的愿景默认当作已上线事实。
-
----
-
-## 🏗️ 架构设计
-
-### 核心流程
-
-```
-Planner Node → Generator Node → Executor Node → Evaluator Node
-      ↑                                                    ↓
-      └────────────── Retry Loop ──────────────────────────┘
-```
-
-### 6 部分架构
-
-| 部分 | 核心技术 | 价值 |
-|------|---------|------|
-| **Part 1** | MetaClaw 自演化 | 准确率 +89.7% |
-| **Part 2** | Autoresearch API-first | 最小闭环 ✅ |
-| **Part 3** | Deer-flow 并发隔离 | 会话零污染 |
-| **Part 4** | InfoQuest/MCP 深度耦合 | Token 优化 |
-| **Part 5** | Claude Code 终端集成 | 自动重连 |
-| **Part 6** | OpenClaw 持久化架构 | 污染防治 ✅ |
+这份 README 以“仓库里已实现什么”为准，而不是以愿景为准。
 
 ---
 
-## 🚀 快速开始
+## 已实现功能
 
-如果你是第一次接触这个项目，先记住一句话：
+### 1. 多智能体编排
 
-- `API 服务` 负责干活
-- `Dashboard` 负责看状态
-- 先把 `API 服务` 跑起来，再看看板
+- 基于图的编排引擎
+- Planner / Generator / Executor / Evaluator 节点链路
+- 支持 prompt 直接生成编排图
+- 支持 VS Code 任务驱动的 prompt 文件执行
+- 支持失败重试和流程回环
 
-### 小白版启动顺序
+### 2. OpenClaw / Autoresearch 兼容层
 
-1. 进入项目目录
+- SQLite 持久化会话与运行记录
+- OpenClaw 兼容服务入口
+- Claude 子 agent 调度接口
+- 会话、评估、运行状态可追踪
+
+### 3. MCP 工具体系
+
+- MCPContextBlock 上下文桥接
+- MCPToolRegistry 工具注册与缓存
+- 动态工具发现、合成与调用路径
+- 标准 MCP manifest 解析与导出
+- JSON Schema 输入校验
+
+### 4. 沙盒与执行环境
+
+- Docker 动态沙盒后端
+- 代码执行路由到容器
+- AppleDouble / `.DS_Store` 清理器
+- 适配本地开发和迁移验证流程
+
+### 5. Telegram 网关与面板安全
+
+- Telegram webhook 网关
+- `/status` 魔法链接流程
+- `x-telegram-bot-api-secret-token` 校验
+- 面板 JWT 鉴权
+- Telegram Mini App `initData` 验签
+- Telegram UID 白名单
+- 面板操作审计写入 SQLite
+- localhost / Tailscale 绑定限制
+
+### 6. 静态安全与业务约束
+
+- AST + 正则双通道安全审计
+- 高危调用拦截
+- Micro-GraphRAG 轻量知识图谱
+- 业务红线词汇约束
+- 基础安全扫描脚本与迁移校验脚本
+
+### 7. 高级工程特性
+
+- Checkpointing 节点快照与恢复
+- HITL 人机协同审批拦截
+- 标准 MCP 兼容层
+- 运行状态与回退记录
+
+---
+
+## 现状说明
+
+下面这些是仓库里已经有代码落点的能力，但其中有些仍是简化实现或需要特定环境验证：
+
+- WebAuthn 生物识别路由与前后端拦截器
+- P4 / OpenSage 自动发现与修复流程骨架
+- 并发稳定性与真实高压场景验证
+- 部分生态插件在真实业务场景下的收益评估
+
+如果你要判断“能不能直接上生产”，建议先看 `STATUS_AND_RELEASE_NOTES.md` 和各模块测试结果。
+
+---
+
+## 快速开始
+
+### 1. 后端 API
 
 ```bash
 cd /Volumes/PS1008/Github/autonomous-agent-stack
-```
-
-2. 如果还没装依赖，先装依赖
-
-```bash
 pip install -r requirements.txt
-```
-
-3. 如果你要用 OpenClaw 迁移配置，先复制环境文件
-
-```bash
-cp migration/openclaw/templates/openclaw-to-autoresearch.env.example migration/openclaw/.env.local
-```
-
-4. 启动后端 API
-
-```bash
 uvicorn src.autoresearch.api.main:app --host 127.0.0.1 --port 8000
 ```
 
-5. 打开健康检查
+健康检查：
 
 ```bash
 open http://127.0.0.1:8000/healthz
 ```
 
-6. 想看网页看板再启动 Dashboard
+### 2. Dashboard
 
 ```bash
 cd /Volumes/PS1008/Github/autonomous-agent-stack/dashboard
@@ -90,261 +117,52 @@ npm install
 npm run dev
 ```
 
-7. 打开看板
+打开：
 
 ```bash
 open http://localhost:3000
 ```
 
-### 1. 安装
+### 3. OpenClaw 迁移配置
 
 ```bash
-# 克隆仓库
-git clone https://github.com/srxly888-creator/autonomous-agent-stack.git
-cd autonomous-agent-stack
-
-# 安装依赖
-pip install -r requirements.txt
-
-# 复制安全模板（填写 Telegram/Tailscale/JWT 参数）
-cp .env.security.example .env.local
-```
-
-### 2. 运行最小闭环
-
-```python
-from src.orchestrator import create_minimal_loop
-import asyncio
-
-async def main():
-    # 创建最小闭环
-    graph = create_minimal_loop()
-    
-    # 设置初始输入
-    graph.context.set("goal", "优化代码性能")
-    
-    # 执行图
-    results = await graph.execute()
-    print(results)
-
-asyncio.run(main())
-```
-
-### 2.5 用 Prompt 直接编排（新）
-
-```python
-from src.orchestrator import create_graph_from_prompt
-import asyncio
-
-async def main():
-    orchestration_prompt = """
-goal: 优化代码性能
-nodes: planner -> generator -> executor -> evaluator
-retry: evaluator -> generator when decision == 'retry'
-max_steps: 16
-"""
-    graph = create_graph_from_prompt(orchestration_prompt)
-    results = await graph.execute()
-    print(results)
-
-asyncio.run(main())
-```
-
-### 2.6 在 VS Code 里直接编排（新）
-
-1. 打开一个 prompt 文件（例如 `examples/orchestration.prompt.md`），内容示例：
-
-```text
-goal: 优化代码性能
-nodes: planner -> generator -> executor -> evaluator
-retry: evaluator -> generator when decision == 'retry'
-max_steps: 16
-max_concurrency: 3
-```
-
-2. 运行 VS Code 任务：`Orchestration: Run Prompt File`
-
-3. 或先运行 `API: Start Local Server`，再运行 `Orchestration API: Execute Prompt File`
-
-详细说明见：[VS 直连编排指南](docs/vscode-direct-orchestration.md)
-
-### 3. 启动监控看板
-
-```bash
-# 生成 HTML 看板
-python src/orchestrator/visualizer.py
-
-# 在浏览器中打开
-open dashboard.html
+cp migration/openclaw/templates/openclaw-to-autoresearch.env.example migration/openclaw/.env.local
 ```
 
 ---
 
-## 🎯 核心组件
+## 主要入口
 
-### 1. 图编排引擎 (`src/orchestrator/graph_engine.py`)
-
-**4 个核心节点**：
-- **PlannerNode**: 规划节点，对接 OpenClaw
-- **GeneratorNode**: 生成节点，写代码或调用工具
-- **ExecutorNode**: 执行节点，沙盒环境
-- **EvaluatorNode**: 评估节点，承载 MetaClaw 逻辑
-
-### 2. MCP 上下文块 (`src/orchestrator/mcp_context.py`)
-
-**统一工具管理**：
-- Web Search
-- Link Reader
-- File Reader
-- Code Analyzer
-
-### 3. 可视化工具 (`src/orchestrator/visualizer.py`)
-
-**监控看板功能**：
-- 实时节点状态
-- 评估分数展示
-- Mermaid 图渲染
-- 浅色主题
-
----
-
-## ✅ 实现判定
-
-下面不是愿景表，而是按仓库代码和路由落点整理的状态判断。
-
-### 已实现
-
-- **OpenClaw 兼容会话层**
-  - SQLite 持久化的会话与运行记录已接入
-  - 相关入口已挂到 `/api/v1/openclaw/sessions`
-  - Claude 子 agent 调度已接到 `/api/v1/openclaw/agents`
-- **Telegram 网关**
-  - `/api/v1/gateway/telegram/webhook` 已实现
-  - 支持 `x-telegram-bot-api-secret-token` 校验
-  - 支持 `/status` 魔法链接流程
-- **Web 面板安全**
-  - `/api/v1/panel/*` 已实现
-  - 支持短期 JWT 魔法链接
-  - 支持 Telegram Mini App `initData` 验签
-  - 支持 Telegram UID 白名单
-  - 面板操作审计已写入 SQLite
-  - 绑定主机限制为 localhost / Tailscale IP
-- **动态工具合成与沙盒清理**
-  - `MCPContextBlock` 已支持动态工具合成
-  - 默认沙盒后端是 `docker`
-  - AppleDouble / `.DS_Store` 清理器已实现
-- **MCP 工具注册与上下文桥接**
-  - `MCPContextBlock` 和 `MCPToolRegistry` 已存在
-  - 基础工具发现、缓存、调用路径已实现
-- **静态安全审计**
-  - AST 与正则双通道审计已实现
-  - `os.system`、`eval`、`exec`、鉴权层文件等红线已纳入检测
-- **SQLite 仓储层**
-  - 评估、报告、变体、实验、集成等模型仓储已接入 SQLite
-
-### 部分实现
-
-- **WebAuthn 生物识别闸门**
-  - 已有 `/api/v1/auth/webauthn` 路由
-  - 已有 challenge / assertion 基础流程
-  - 但当前实现是简化版，包含 mock 验证逻辑，不等于完整生产级 WebAuthn 闭环
-- **P3 生态融合（OpenViking + MiroFish）**
-  - 文档、接口契约和配置位已存在
-  - 适合作为插件化接入骨架
-  - 但是否达到“全面上线”需要单独按运行证据确认
-- **P4 自主集成协议**
-  - discover / prototype / promote 的骨架已存在
-  - 目前更偏向“生成计划 + 回滚模板”的半自动流程
-- **群组访问与实时查岗**
-  - 群组 JWT、成员检查、审计流程已有实现
-  - 但部分审计落库路径仍可继续补强
-
-### 仍待验证
-
-- **“生产维稳阶段”**
-  - 这是目标描述，不应直接等同于生产结论
-- **“WebAuthn 100% 贯通”**
-  - 目前仓库证据只支持“已有简化实现”
-- **“全量测试通过”**
-  - 仓库里有测试文件，但当前环境未能直接复核测试命令
-
-### 参考入口
-
+- API 服务：`src/autoresearch/api/main.py`
 - OpenClaw 兼容服务：`src/autoresearch/core/services/openclaw_compat.py`
-- 面板鉴权：`src/autoresearch/core/services/panel_access.py`
 - 面板路由：`src/autoresearch/api/routers/panel.py`
 - Telegram 网关：`src/autoresearch/api/routers/gateway_telegram.py`
-- WebAuthn 简化路由：`src/autoresearch/api/routers/webauthn.py`
-- 动态工具合成：`src/orchestrator/mcp_context.py`
+- WebAuthn 路由：`src/autoresearch/api/routers/webauthn.py`
+- MCP 上下文：`src/orchestrator/mcp_context.py`
 - 沙盒清理：`src/orchestrator/sandbox_cleaner.py`
 - 静态安全审计：`src/gatekeeper/static_analyzer.py`
 
 ---
 
-## 📚 文档
+## 文档与看板
 
-- **[架构文档](docs/architecture.md)**: 6 部分完整架构
-- **[关键工程决策](docs/critical-designs.md)**: 短路机制 + 节点协议 + 并发安全 ⭐ **NEW**
-- **[OpenClaw 替代迁移手册](docs/openclaw-replacement-migration-playbook.md)**: 最佳实践 + 分阶段迁移 + 回滚方案 ⭐ **NEW**
-- **[P3 生态融合手册](docs/p3-ecosystem-fusion-playbook.md)**: OpenViking + MiroFish 接入与 API 契约 ⭐ **NEW**
-- **[P4 自主集成协议](docs/p4-self-integration-protocol.md)**: discover/prototype/promote 设计与契约 ⭐ **NEW**
-- **[VS 直连编排指南](docs/vscode-direct-orchestration.md)**: Prompt 在 VS Code 一键执行与 API 直连 ⭐ **NEW**
-- **[MASFactory 集成](docs/masfactory-integration.md)**: 集成指南
-- **[集成指南](docs/integration-guide.md)**: 快速集成
-- **[API 参考](docs/api-reference.md)**: API 详细说明
-- **[路线图](docs/roadmap.md)**: 未来演进方向
-- **[贡献指南](CONTRIBUTING.md)**: 如何贡献
+- 根目录 README：项目总览
+- `dashboard/README.md`：前端看板说明
+- `dashboard/QUICKSTART.md`：看板快速启动
+- `STATUS_AND_RELEASE_NOTES.md`：真实状态与发布说明
+- `FINAL_DELIVERY_REPORT.md`：收尾交付报告
+- `NIGHT_SPRINT_REPORT.md`：夜间冲刺报告
 
 ---
 
-## 🎯 使用场景
+## 开发约定
 
-### 1. 软件工程
-- 自动化代码优化
-- 架构演进
-- Bug 修复
-
-### 2. 科学研究
-- 自动化实验
-- 参数优化
-- 论文生成
-
-### 3. 数据分析
-- 自动化分析
-- 可视化生成
-- 报告生成
+- 以代码和测试为准，不把愿景默认当成已完成
+- 新增能力尽量补充到对应模块 README 或状态说明
+- 涉及安全、鉴权、审批链路的改动，优先补测试再合并
 
 ---
 
-## 📊 项目统计
+## 许可证
 
-| 指标 | 数值 |
-|------|------|
-| **文件数量** | 58 个 |
-| **代码行数** | 4,000+ 行 |
-| **文档字数** | 30,000+ 字 |
-| **测试覆盖率** | 60%+ |
-
----
-
-## 🤝 贡献
-
-欢迎贡献！请查看 [CONTRIBUTING.md](CONTRIBUTING.md) 了解详情。
-
----
-
-## 📄 许可证
-
-MIT License - 详见 [LICENSE](LICENSE)
-
----
-
-## 🔗 相关链接
-
-- **GitHub**: https://github.com/srxly888-creator/autonomous-agent-stack
-- **MASFactory**: https://github.com/BUPT-GAMMA/MASFactory
-- **OpenClaw**: https://github.com/openclaw/openclaw
-
----
-
-**一起构建未来！** 🚀
+MIT License
