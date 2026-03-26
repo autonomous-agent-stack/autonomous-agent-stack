@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """工作流引擎快速验证（无外部依赖）"""
 
-import asyncio
-import json
 import sys
 from pathlib import Path
 
@@ -151,6 +149,6 @@ print("   4. ✅ 语言分布格式化")
 print("   5. ✅ 报告生成")
 print()
 print("📍 下一步:")
-print("   1. 安装依赖: pip install aiohttp")
+print("   1. 安装依赖: make setup")
 print("   2. 完整测试: pytest tests/test_workflow_engine.py")
 print("   3. Telegram 点火: 执行审查: owner/repo")

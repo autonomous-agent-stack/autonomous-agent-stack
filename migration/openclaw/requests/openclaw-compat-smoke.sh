@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BASE_URL="${BASE_URL:-http://127.0.0.1:8000}"
+BASE_URL="${BASE_URL:-http://127.0.0.1:8001}"
 
 echo "[1/3] Create OpenClaw-compatible session"
 SESSION_JSON="$(curl -sS -X POST "${BASE_URL}/api/v1/openclaw/sessions" \

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BASE_URL="${BASE_URL:-http://127.0.0.1:8000}"
+BASE_URL="${BASE_URL:-http://127.0.0.1:8001}"
 SKILL_NAME="${SKILL_NAME:-weather}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 

@@ -57,8 +57,10 @@ while true; do
   ts="$(date '+%Y-%m-%d %H:%M:%S %z')"
   next_ts="$(date -v+${INTERVAL_SECONDS}S '+%Y-%m-%d %H:%M:%S %z' 2>/dev/null || date -r $(( $(date +%s) + INTERVAL_SECONDS )) '+%Y-%m-%d %H:%M:%S %z')"
 
+  api_host="${AUTORESEARCH_API_HOST:-127.0.0.1}"
+  api_port="${AUTORESEARCH_API_PORT:-8001}"
   api_status="down"
-  if curl -fsS "http://127.0.0.1:8000/healthz" >/dev/null 2>&1; then
+  if curl -fsS "http://${api_host}:${api_port}/healthz" >/dev/null 2>&1; then
     api_status="ok"
   fi
 
@@ -102,6 +104,7 @@ while true; do
 
   {
     echo "## ${ts}"
+    echo "- api_endpoint: http://${api_host}:${api_port}/healthz"
     echo "- api_health: ${api_status}"
     echo "- api_pid: ${api_pid_state}"
     echo "- poller_pid: ${poller_pid_state}"

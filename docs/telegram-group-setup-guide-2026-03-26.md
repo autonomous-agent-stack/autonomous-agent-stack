@@ -2,6 +2,7 @@
 
 > **配置时间**：2026-03-26 09:30 GMT+8
 > **适用场景**：将 Autonomous Agent Stack 接入 Telegram 群组
+> **提醒**：本地环境变量建议放在 `.env.local`，不要提交该文件。
 
 ---
 

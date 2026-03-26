@@ -20,6 +20,7 @@ REQUIRED_MODULES = {
     "pydantic": "pydantic",
     "httpx": "httpx",
     "pytest": "pytest",
+    "aiohttp": "aiohttp",
     "PyYAML": "yaml",
     "python-dotenv": "dotenv",
     "Pillow": "PIL",
@@ -174,7 +175,9 @@ def _read_env_value(repo_root: Path, key: str) -> str:
         if not match:
             continue
         raw = match.group(1).strip()
-        if (raw.startswith('"') and raw.endswith('"')) or (raw.startswith("'") and raw.endswith("'")):
+        if (raw.startswith('"') and raw.endswith('"')) or (
+            raw.startswith("'") and raw.endswith("'")
+        ):
             raw = raw[1:-1]
         return raw.strip()
     return ""
@@ -182,10 +185,14 @@ def _read_env_value(repo_root: Path, key: str) -> str:
 
 def _check_telegram_secret_policy(repo_root: Path) -> CheckResult:
     env = (
-        _read_env_value(repo_root, "AUTORESEARCH_ENV")
-        or _read_env_value(repo_root, "ENVIRONMENT")
-        or _read_env_value(repo_root, "AUTORESEARCH_ENVIRONMENT")
-    ).strip().lower()
+        (
+            _read_env_value(repo_root, "AUTORESEARCH_ENV")
+            or _read_env_value(repo_root, "ENVIRONMENT")
+            or _read_env_value(repo_root, "AUTORESEARCH_ENVIRONMENT")
+        )
+        .strip()
+        .lower()
+    )
     secret = _read_env_value(repo_root, "AUTORESEARCH_TELEGRAM_SECRET_TOKEN")
     is_prod = env in {"production", "prod"}
     if is_prod and not secret:
@@ -226,7 +233,7 @@ def _check_port(port: int) -> CheckResult:
         return _warn(
             "API port",
             f"{host}:{port} is currently in use",
-            f"Use `PORT=<new_port> make start` if startup fails.",
+            "Use `PORT=<new_port> make start` if startup fails.",
         )
     return _ok("API port", f"{host}:{port} is available")
 
@@ -257,7 +264,9 @@ def _print_report(results: list[CheckResult]) -> int:
             print(f"       -> {item.hint}")
 
     print("-" * 72)
-    print(f"Summary: {len(results) - len(failures) - len(warnings)} pass, {len(warnings)} warn, {len(failures)} fail")
+    print(
+        f"Summary: {len(results) - len(failures) - len(warnings)} pass, {len(warnings)} warn, {len(failures)} fail"
+    )
 
     if failures:
         print("Result: NOT READY")

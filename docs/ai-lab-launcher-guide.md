@@ -22,11 +22,17 @@
 
 # 跑一次性命令
 ./scripts/launch_ai_lab.sh run -- python -V
+./scripts/launch_ai_lab.sh run python -V
 ```
+
+## 注意
+
+- `run` 模式是在宿主机上发起的，不是在容器里再套一层 `make`
+- `--` 只是兼容写法，可写可不写
+- 容器镜像很轻，不自带 `make`
 
 ## 设计取舍
 
 - **默认 shell 模式**：适合 Agent 持续探索，降低进场摩擦
 - **run 模式**：适合单次验证和 CI 风格动作
 - **先守卫后启动**：避免在环境异常时把问题传播到容器里
-

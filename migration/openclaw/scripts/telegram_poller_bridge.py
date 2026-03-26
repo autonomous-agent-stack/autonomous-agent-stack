@@ -136,9 +136,12 @@ def main() -> int:
         log("[poller] missing TELEGRAM_BOT_TOKEN and cannot read ~/.openclaw/openclaw.json")
         return 2
 
+    api_host = os.getenv("AUTORESEARCH_API_HOST", "127.0.0.1").strip() or "127.0.0.1"
+    api_port = os.getenv("AUTORESEARCH_API_PORT", "8001").strip() or "8001"
+    default_webhook_url = f"http://{api_host}:{api_port}/api/v1/gateway/telegram/webhook"
     webhook_url = os.getenv(
         "TELEGRAM_BRIDGE_LOCAL_WEBHOOK_URL",
-        "http://127.0.0.1:8000/api/v1/gateway/telegram/webhook",
+        default_webhook_url,
     )
     secret_token = os.getenv("AUTORESEARCH_TELEGRAM_SECRET_TOKEN", "").strip() or None
 

@@ -18,7 +18,7 @@ Usage:
   sudo LAB_PASSWORD='...' APFS_PARENT_DISK='disk3s1' ./scripts/setup_ai_lab.sh
 
 Required:
-  APFS_PARENT_DISK   Parent APFS container identifier, e.g. disk3s1
+  APFS_PARENT_DISK   Parent APFS container identifier, e.g. disk5
 
 Optional:
   LAB_USER           Default: ai_lab
@@ -68,6 +68,7 @@ prepare_home_dirs() {
   install -d -o "${LAB_USER}" -g staff -m 0755 "${LOG_DIR}"
   install -d -o "${LAB_USER}" -g staff -m 0755 "${CACHE_DIR}"
   install -d -o "${LAB_USER}" -g staff -m 0755 "$(dirname "${WORKSPACE_DIR}")"
+  install -d -o "${LAB_USER}" -g staff -m 0755 "${APFS_MOUNTPOINT}"
 }
 
 create_quota_volume() {
@@ -76,17 +77,39 @@ create_quota_volume() {
     return
   fi
 
-  if [[ -z "${APFS_PARENT_DISK:-}" ]]; then
-    echo "APFS_PARENT_DISK is required."
-    usage
-    exit 1
-  fi
+  detect_parent_disk
 
   echo "[info] Creating APFS volume ${APFS_VOLUME_NAME} at ${APFS_MOUNTPOINT}"
   diskutil apfs addVolume "${APFS_PARENT_DISK}" APFS "${APFS_VOLUME_NAME}" \
     -mountpoint "${APFS_MOUNTPOINT}" \
     -quota "${APFS_QUOTA}" \
     -reserve "${APFS_RESERVE}"
+}
+
+detect_parent_disk() {
+  if [[ -n "${APFS_PARENT_DISK:-}" ]]; then
+    echo "[info] Using APFS_PARENT_DISK=${APFS_PARENT_DISK}"
+    return
+  fi
+
+  local probe_path="/Volumes/${APFS_VOLUME_NAME}"
+  if [[ ! -e "${probe_path}" ]]; then
+    probe_path="${APFS_MOUNTPOINT}"
+  fi
+
+  if [[ -e "${probe_path}" ]]; then
+    APFS_PARENT_DISK="$(
+      diskutil info "${probe_path}" 2>/dev/null | awk -F': *' '/^   APFS Container:/{print $2; exit}'
+    )"
+  fi
+
+  if [[ -z "${APFS_PARENT_DISK:-}" ]]; then
+    echo "APFS_PARENT_DISK is required but could not be auto-detected."
+    usage
+    exit 1
+  fi
+
+  echo "[info] Auto-detected APFS_PARENT_DISK=${APFS_PARENT_DISK}"
 }
 
 restrict_permissions() {
@@ -117,4 +140,3 @@ EOF
 }
 
 main "$@"
-

@@ -14,6 +14,7 @@
 make ai-lab-setup
 make ai-lab-check
 make ai-lab
+make ai-lab-run ARGS='python -V'
 ```
 
 ## 为什么现在更容易上手
@@ -62,6 +63,8 @@ make hygiene-check-ci
 
 `make hygiene-check` 默认走 `dev` profile，结果写到 `logs/audit/prompt_hygiene/dev/`。
 `make hygiene-check-ci` 走严格策略（自动 `--fail-on-findings`），结果写到 `logs/audit/prompt_hygiene/ci/`。
+
+`make ai-lab-run` 是宿主机入口，会把命令转发到容器里。不要在 ai-lab 容器 shell 里再跑 `make`，这个镜像是故意做得很轻的。
 
 示例输出：
 

@@ -7,13 +7,19 @@ All credentials are loaded from environment variables.
 from __future__ import annotations
 
 import os
-import json
 from pathlib import Path
-from typing import Any
 
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from google.auth.transport.requests import Request
+try:
+    from google.oauth2.credentials import Credentials
+    from google_auth_oauthlib.flow import InstalledAppFlow
+    from google.auth.transport.requests import Request
+except ModuleNotFoundError as exc:  # pragma: no cover - optional dependency guard
+    Credentials = None
+    InstalledAppFlow = None
+    Request = None
+    _GOOGLE_AUTH_IMPORT_ERROR = exc
+else:
+    _GOOGLE_AUTH_IMPORT_ERROR = None
 
 
 class OAuthManager:
@@ -56,13 +62,17 @@ class OAuthManager:
         Raises:
             ValueError: If credentials are invalid or missing.
         """
+        if Credentials is None or InstalledAppFlow is None or Request is None:
+            raise RuntimeError(
+                "Google OAuth dependencies are missing. Install with: "
+                "`pip install google-auth google-auth-oauthlib`"
+            ) from _GOOGLE_AUTH_IMPORT_ERROR
+
         creds = None
 
         # Load existing token if available
         if self.token_path.exists():
-            creds = Credentials.from_authorized_user_file(
-                str(self.token_path), self.SCOPES
-            )
+            creds = Credentials.from_authorized_user_file(str(self.token_path), self.SCOPES)
 
         # Refresh or create new credentials
         if not creds or not creds.valid:

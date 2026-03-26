@@ -36,6 +36,16 @@ CACHE_DIR="${OVERRIDE_CACHE_DIR:-${CACHE_DIR:-/Users/ai_lab/.cache}}"
 LAB_USER="${OVERRIDE_LAB_USER:-${LAB_USER:-ai_lab}}"
 AUTO_OPEN_DOCKER="${OVERRIDE_AUTO_OPEN_DOCKER:-${AUTO_OPEN_DOCKER:-1}}"
 
+if [[ ! -f "${COMPOSE_FILE}" ]]; then
+  warn "compose file not found: ${COMPOSE_FILE}"
+  COMPOSE_DIR="${REPO_ROOT}/sandbox/ai-lab"
+  COMPOSE_FILE="${COMPOSE_DIR}/docker-compose.yml"
+  if [[ ! -f "${COMPOSE_FILE}" ]]; then
+    die "compose file not found: ${COMPOSE_FILE}"
+  fi
+  warn "falling back to repo default: ${COMPOSE_FILE}"
+fi
+
 if [[ "${LAB_USER}" != "ai_lab" ]]; then
   WORKSPACE_DIR="${WORKSPACE_DIR:-/Users/${LAB_USER}/workspace}"
   LOG_DIR="${LOG_DIR:-/Users/${LAB_USER}/logs}"
@@ -176,6 +186,9 @@ enter_shell() {
 
 run_command() {
   shift
+  if [[ "${1:-}" == "--" ]]; then
+    shift
+  fi
   if [[ "$#" -eq 0 ]]; then
     die "no command provided for run mode"
   fi
@@ -219,10 +232,16 @@ Modes:
   status  Show compose status
   run     Run a one-shot command inside the container
 
+Notes:
+  - `--` is optional here; if present, it will be ignored.
+  - This command is meant to be run on the host, not inside the ai-lab shell.
+  - Use `make` on the host. The container is intentionally minimal and does not ship with make.
+
 Examples:
   ./scripts/launch_ai_lab.sh
   ./scripts/launch_ai_lab.sh up
   ./scripts/launch_ai_lab.sh run -- python -V
+  ./scripts/launch_ai_lab.sh run python -V
 EOF
 }
 

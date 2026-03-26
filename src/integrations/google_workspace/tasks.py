@@ -7,8 +7,18 @@ from __future__ import annotations
 
 from typing import Any
 
-from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
+try:
+    from googleapiclient.discovery import build
+    from googleapiclient.errors import HttpError
+except ModuleNotFoundError as exc:  # pragma: no cover - optional dependency guard
+    build = None
+    _GOOGLE_API_IMPORT_ERROR = exc
+
+    class HttpError(Exception):
+        """Fallback HttpError when google-api-python-client is unavailable."""
+
+else:
+    _GOOGLE_API_IMPORT_ERROR = None
 
 from .oauth import OAuthManager
 
@@ -29,6 +39,11 @@ class GoogleTasksClient:
     def service(self):
         """Lazy-load Google Tasks service."""
         if self._service is None:
+            if build is None:
+                raise RuntimeError(
+                    "google-api-python-client is required for Google Tasks integration. "
+                    "Install it via `pip install google-api-python-client`."
+                ) from _GOOGLE_API_IMPORT_ERROR
             credentials = self.oauth_manager.get_credentials()
             self._service = build("tasks", "v1", credentials=credentials)
         return self._service
@@ -111,11 +126,7 @@ class GoogleTasksClient:
             task["due"] = due
 
         try:
-            created_task = (
-                self.service.tasks()
-                .insert(tasklist=task_list_id, body=task)
-                .execute()
-            )
+            created_task = self.service.tasks().insert(tasklist=task_list_id, body=task).execute()
             return {
                 "status": "success",
                 "task_id": created_task["id"],

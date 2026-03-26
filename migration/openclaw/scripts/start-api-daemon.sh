@@ -30,7 +30,7 @@ if [[ -f "${ENV_FILE}" ]]; then
 fi
 
 AUTORESEARCH_API_HOST="${AUTORESEARCH_API_HOST:-127.0.0.1}"
-AUTORESEARCH_API_PORT="${AUTORESEARCH_API_PORT:-8000}"
+AUTORESEARCH_API_PORT="${AUTORESEARCH_API_PORT:-8001}"
 
 cd "${PROJECT_ROOT}"
 nohup env PYTHONPATH=src "${PROJECT_ROOT}/.venv/bin/python" -m uvicorn autoresearch.api.main:app \

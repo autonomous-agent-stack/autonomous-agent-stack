@@ -29,7 +29,7 @@ help:
 	@echo "  make ai-lab-up   Start AI lab detached"
 	@echo "  make ai-lab-down Stop AI lab"
 	@echo "  make ai-lab-status Show AI lab status"
-	@echo "  make ai-lab-run ARGS='python -V' Run a one-shot command"
+	@echo "  make ai-lab-run ARGS='python -V' Run a one-shot command on the host"
 	@echo "  make masfactory-flight GOAL='...' WATCH=1 Run MASFactory first flight demo"
 	@echo "  make hygiene-check HYGIENE_PROFILE=dev Run prompt hygiene audit for src/"
 	@echo "  make hygiene-check-ci Strict prompt hygiene audit (fail on findings)"
@@ -112,6 +112,8 @@ ai-lab-shell:
 ai-lab-run:
 	@if [[ -z "$(strip $(ARGS))" ]]; then \
 		echo "Usage: make ai-lab-run ARGS='python -V'"; \
+		echo "Runs on the host and forwards the command into the ai-lab container."; \
+		echo "Do not prefix ARGS with --; make already passes it for you."; \
 		exit 1; \
 	fi
 	bash ./scripts/launch_ai_lab.sh run -- $(ARGS)

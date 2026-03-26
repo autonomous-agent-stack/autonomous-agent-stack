@@ -8,9 +8,35 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, BinaryIO
 
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload, MediaIoBaseUpload
-from googleapiclient.errors import HttpError
+try:
+    from googleapiclient.discovery import build
+    from googleapiclient.http import MediaFileUpload, MediaIoBaseUpload
+    from googleapiclient.errors import HttpError
+except ModuleNotFoundError as exc:  # pragma: no cover - optional dependency guard
+    build = None
+    _GOOGLE_API_IMPORT_ERROR = exc
+
+    class HttpError(Exception):
+        """Fallback HttpError when google-api-python-client is unavailable."""
+
+    class MediaFileUpload:  # type: ignore[override]
+        """Minimal fallback used in tests when google-api-python-client is absent."""
+
+        def __init__(self, filename: str, mimetype: str | None = None, resumable: bool = True):
+            self.filename = filename
+            self.mimetype = mimetype
+            self.resumable = resumable
+
+    class MediaIoBaseUpload:  # type: ignore[override]
+        """Minimal fallback used in tests when google-api-python-client is absent."""
+
+        def __init__(self, fd, mimetype: str | None = None, resumable: bool = True):
+            self.fd = fd
+            self.mimetype = mimetype
+            self.resumable = resumable
+
+else:
+    _GOOGLE_API_IMPORT_ERROR = None
 
 from .oauth import OAuthManager
 
@@ -31,6 +57,11 @@ class GoogleDriveClient:
     def service(self):
         """Lazy-load Google Drive service."""
         if self._service is None:
+            if build is None:
+                raise RuntimeError(
+                    "google-api-python-client is required for Google Drive integration. "
+                    "Install it via `pip install google-api-python-client`."
+                ) from _GOOGLE_API_IMPORT_ERROR
             credentials = self.oauth_manager.get_credentials()
             self._service = build("drive", "v3", credentials=credentials)
         return self._service

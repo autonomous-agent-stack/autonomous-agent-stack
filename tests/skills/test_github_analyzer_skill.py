@@ -5,7 +5,6 @@ import json
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 
-
 SKILL_PATH = Path(__file__).resolve().parents[2] / "skills/github-analyzer/main.py"
 MODULE_NAME = "github_analyzer_main_test"
 
@@ -53,14 +52,18 @@ def test_github_analyzer_success_and_token_header(monkeypatch):
     assert result["status"] == "success"
     assert result["language_distribution"]["Python"] == 1234
     assert result["stars"] == 10
-    assert any("authorization" in {k.lower() for k in headers.keys()} for headers in captured_headers)
+    assert any(
+        "authorization" in {k.lower() for k in headers.keys()} for headers in captured_headers
+    )
 
 
 def test_github_analyzer_rate_limit_error(monkeypatch):
     module = _load_module()
 
     def fake_urlopen(req, timeout=5):
-        raise HTTPError(req.full_url, 403, "API rate limit exceeded for 1.2.3.4", hdrs=None, fp=None)
+        raise HTTPError(
+            req.full_url, 403, "API rate limit exceeded for 1.2.3.4", hdrs=None, fp=None
+        )
 
     monkeypatch.setattr(module.urllib.request, "urlopen", fake_urlopen)
 

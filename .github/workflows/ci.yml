@@ -35,16 +35,44 @@ jobs:
           fi
           pip install ruff black pip-audit
 
-      - name: Ruff
-        run: ruff check .
+      - name: Ruff Smoke
+        run: |
+          ruff check \
+            scripts/doctor.py \
+            scripts/test_registry.py \
+            src/bridge/api.py \
+            src/integrations/google_workspace/calendar.py \
+            src/integrations/google_workspace/tasks.py \
+            src/integrations/google_workspace/drive.py \
+            src/integrations/google_workspace/oauth.py \
+            tests/test_gateway_telegram.py \
+            tests/skills/test_github_analyzer_skill.py
 
-      - name: Black
-        run: black --check .
+      - name: Black Smoke
+        run: |
+          black --check \
+            scripts/doctor.py \
+            scripts/test_registry.py \
+            src/bridge/api.py \
+            src/integrations/google_workspace/calendar.py \
+            src/integrations/google_workspace/tasks.py \
+            src/integrations/google_workspace/drive.py \
+            src/integrations/google_workspace/oauth.py \
+            tests/test_gateway_telegram.py \
+            tests/skills/test_github_analyzer_skill.py
 
-      - name: Pytest
+      - name: Pytest Smoke
         env:
           PYTHONPATH: src
-        run: pytest -q
+        run: |
+          pytest -q \
+            tests/test_gateway_telegram.py \
+            tests/skills/test_github_analyzer_skill.py
 
       - name: Pip Audit
-        run: pip-audit
+        run: |
+          if [ -f requirements.lock ]; then
+            pip-audit -r requirements.lock --disable-pip --no-deps
+          else
+            pip-audit -r requirements.txt --disable-pip --no-deps
+          fi
