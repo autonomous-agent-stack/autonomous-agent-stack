@@ -41,6 +41,14 @@ try:
 except Exception as e:
     logger.error(f"⚠️ Bridge API 集成失败，请检查导入路径: {e}")
 
+try:
+    from autoresearch.api.routers.integrations import router as integrations_router
+
+    app.include_router(integrations_router)
+    logger.info("✅ Self-Integration API 已集成 (/api/v1/integrations/*)")
+except Exception as e:
+    logger.error(f"⚠️ Self-Integration API 集成失败: {e}")
+
 # ========================================================================
 # 4. 视觉看板挂载 (Dashboard)
 # ========================================================================

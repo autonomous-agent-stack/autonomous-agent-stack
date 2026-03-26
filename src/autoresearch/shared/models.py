@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
+import re
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -169,11 +170,104 @@ class IntegrationDiscoveryRead(StrictModel):
     error: str | None = None
 
 
+class DependencyRequest(StrictModel):
+    package: str = Field(..., min_length=1)
+    version_spec: str = ""
+    reason: str = ""
+    ecosystem: Literal["pypi"] = "pypi"
+
+    @field_validator("package")
+    @classmethod
+    def normalize_package(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if not re.fullmatch(r"[a-z0-9][a-z0-9._-]*", normalized):
+            raise ValueError("package must contain lowercase letters, numbers, dot, dash or underscore")
+        return normalized
+
+    @field_validator("version_spec")
+    @classmethod
+    def normalize_version_spec(cls, value: str) -> str:
+        return value.strip()
+
+
+class SecureDependencyArtifactRead(StrictModel):
+    package: str = Field(..., min_length=1)
+    version_spec: str = ""
+    wheel_filename: str = Field(..., min_length=1)
+    sha256: str = Field(..., min_length=64, max_length=64)
+    source_index: str = "https://pypi.org/simple"
+
+    @field_validator("package")
+    @classmethod
+    def normalize_package(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if not re.fullmatch(r"[a-z0-9][a-z0-9._-]*", normalized):
+            raise ValueError("package must contain lowercase letters, numbers, dot, dash or underscore")
+        return normalized
+
+    @field_validator("version_spec")
+    @classmethod
+    def normalize_version_spec(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("sha256")
+    @classmethod
+    def normalize_sha256(cls, value: str) -> str:
+        digest = value.strip().lower()
+        if not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise ValueError("sha256 must be a 64-char hexadecimal digest")
+        return digest
+
+
+class SecureFetchPlanRead(StrictModel):
+    request_id: str = ""
+    status: Literal["pending", "audited", "rejected", "skipped"] = "skipped"
+    network_access: Literal["host_proxy_only"] = "host_proxy_only"
+    audit_commands: list[str] = Field(default_factory=list)
+    audit_notes: list[str] = Field(default_factory=list)
+    readonly_mount_dir: str = "/opt/secure-deps"
+    artifacts: list[SecureDependencyArtifactRead] = Field(default_factory=list)
+    sbom: dict[str, Any] = Field(default_factory=dict)
+    hash_manifest: dict[str, str] = Field(default_factory=dict)
+    trace_id: str = ""
+    policy_version: str = "sep-v1"
+    audited_at: datetime | None = None
+
+    @field_validator("hash_manifest")
+    @classmethod
+    def normalize_hash_manifest(cls, value: dict[str, str]) -> dict[str, str]:
+        normalized: dict[str, str] = {}
+        for package, digest_raw in value.items():
+            digest = digest_raw.strip().lower()
+            if not re.fullmatch(r"[0-9a-f]{64}", digest):
+                raise ValueError(f"hash_manifest[{package}] must be a 64-char hexadecimal digest")
+            normalized[package] = digest
+        return normalized
+
+
+class OfflineSandboxPolicyRead(StrictModel):
+    network: Literal["none"] = "none"
+    readonly_mounts: list[str] = Field(default_factory=lambda: ["/opt/secure-deps"])
+    restricted_capabilities: list[str] = Field(
+        default_factory=lambda: ["NET_ADMIN", "SYS_ADMIN", "SYS_PTRACE"]
+    )
+    allow_secrets: bool = False
+
+
+class EvaluationGateRead(StrictModel):
+    required_checks: list[str] = Field(default_factory=list)
+    passed_checks: list[str] = Field(default_factory=list)
+    failed_checks: list[str] = Field(default_factory=list)
+    status: Literal["pending", "passed", "failed"] = "pending"
+
+
 class IntegrationPrototypeRequest(StrictModel):
     discovery_id: str = Field(..., min_length=1)
     adapter_name: str = Field(..., min_length=1)
     sandbox_backend: Literal["docker", "colima", "mock"] = "docker"
     dry_run: bool = True
+    dependency_requests: list[DependencyRequest] = Field(default_factory=list)
+    policy_version: str = "sep-v1"
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -184,6 +278,11 @@ class IntegrationPrototypeRead(StrictModel):
     sandbox_backend: str
     dry_run: bool
     status: JobStatus
+    dependency_requests: list[DependencyRequest] = Field(default_factory=list)
+    secure_fetch_plan: SecureFetchPlanRead = Field(default_factory=SecureFetchPlanRead)
+    offline_sandbox_policy: OfflineSandboxPolicyRead = Field(default_factory=OfflineSandboxPolicyRead)
+    evaluation_gate: EvaluationGateRead = Field(default_factory=EvaluationGateRead)
+    trace_id: str = ""
     planned_files: list[str] = Field(default_factory=list)
     validation_checks: list[str] = Field(default_factory=list)
     summary: str
@@ -193,9 +292,21 @@ class IntegrationPrototypeRead(StrictModel):
     error: str | None = None
 
 
+class IntegrationSecureFetchRequest(StrictModel):
+    audited_artifacts: list[SecureDependencyArtifactRead] = Field(default_factory=list)
+    auditor: str = Field(default="security_auditor", min_length=1)
+    policy_version: str = "sep-v1"
+    sbom: dict[str, Any] = Field(default_factory=dict)
+    hash_manifest: dict[str, str] = Field(default_factory=dict)
+    mount_dir: str | None = None
+    notes: list[str] = Field(default_factory=list)
+
+
 class IntegrationPromoteRequest(StrictModel):
     prototype_id: str = Field(..., min_length=1)
     rollout_mode: Literal["shadow", "canary", "full"] = "shadow"
+    evaluation_results: dict[str, bool] = Field(default_factory=dict)
+    approval_mode: Literal["manual", "auto_if_green"] = "manual"
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -205,6 +316,12 @@ class IntegrationPromotionRead(StrictModel):
     rollout_mode: str
     status: JobStatus
     decision: Literal["pending", "approved", "rejected"] = "pending"
+    gate_status: Literal["pending", "passed", "failed"] = "pending"
+    required_checks: list[str] = Field(default_factory=list)
+    passed_checks: list[str] = Field(default_factory=list)
+    failed_checks: list[str] = Field(default_factory=list)
+    missing_checks: list[str] = Field(default_factory=list)
+    trace_id: str = ""
     topology_patch_preview: dict[str, Any] = Field(default_factory=dict)
     rollback_plan: list[str] = Field(default_factory=list)
     summary: str

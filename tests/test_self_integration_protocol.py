@@ -146,3 +146,169 @@ def test_promote_requires_existing_prototype(self_integration_client: TestClient
     )
     assert response.status_code == 404
     assert response.json()["detail"] == "Prototype not found"
+
+
+def test_prototype_with_dependencies_requires_secure_fetch_before_promote(
+    self_integration_client: TestClient,
+) -> None:
+    discovered = self_integration_client.post(
+        "/api/v1/integrations/discover",
+        json={
+            "source_url": "https://github.com/openclaw/openclaw",
+            "source_kind": "repository",
+            "ref": "0123456789abcdef0123456789abcdef01234567",
+        },
+    )
+    discovery_payload = discovered.json()
+
+    prototyped = self_integration_client.post(
+        "/api/v1/integrations/prototype",
+        json={
+            "discovery_id": discovery_payload["discovery_id"],
+            "adapter_name": "secure adapter",
+            "sandbox_backend": "docker",
+            "dry_run": True,
+            "dependency_requests": [
+                {"package": "scipy", "version_spec": "==1.13.1", "reason": "matrix compute"}
+            ],
+        },
+    )
+    assert prototyped.status_code == 202
+    prototype_payload = prototyped.json()
+    assert prototype_payload["secure_fetch_plan"]["status"] == "pending"
+    assert "pip-compile --require-hashes" in " ".join(
+        prototype_payload["secure_fetch_plan"]["audit_commands"]
+    )
+
+    promoted = self_integration_client.post(
+        "/api/v1/integrations/promote",
+        json={
+            "prototype_id": prototype_payload["prototype_id"],
+            "rollout_mode": "shadow",
+        },
+    )
+    assert promoted.status_code == 400
+    assert "secure fetch is incomplete" in promoted.json()["detail"]
+
+
+def test_secure_fetch_enables_full_auto_promotion(
+    self_integration_client: TestClient,
+) -> None:
+    discovered = self_integration_client.post(
+        "/api/v1/integrations/discover",
+        json={
+            "source_url": "https://github.com/openclaw/openclaw",
+            "source_kind": "repository",
+            "ref": "0123456789abcdef0123456789abcdef01234567",
+        },
+    )
+    discovery_payload = discovered.json()
+
+    prototyped = self_integration_client.post(
+        "/api/v1/integrations/prototype",
+        json={
+            "discovery_id": discovery_payload["discovery_id"],
+            "adapter_name": "secure adapter",
+            "sandbox_backend": "docker",
+            "dry_run": True,
+            "dependency_requests": [
+                {"package": "scipy", "version_spec": "==1.13.1", "reason": "matrix compute"},
+                {"package": "numpy", "version_spec": "==2.0.0", "reason": "array runtime"},
+            ],
+            "policy_version": "sep-v1",
+        },
+    )
+    prototype_payload = prototyped.json()
+    prototype_id = prototype_payload["prototype_id"]
+
+    secure_fetch = self_integration_client.post(
+        f"/api/v1/integrations/prototype/{prototype_id}/secure-fetch",
+        json={
+            "auditor": "Security_Auditor",
+            "policy_version": "sep-v1",
+            "mount_dir": "/opt/secure-deps/trace-001",
+            "audited_artifacts": [
+                {
+                    "package": "scipy",
+                    "version_spec": "==1.13.1",
+                    "wheel_filename": "scipy-1.13.1-cp312-cp312-manylinux.whl",
+                    "sha256": "a" * 64,
+                },
+                {
+                    "package": "numpy",
+                    "version_spec": "==2.0.0",
+                    "wheel_filename": "numpy-2.0.0-cp312-cp312-manylinux.whl",
+                    "sha256": "b" * 64,
+                },
+            ],
+        },
+    )
+    assert secure_fetch.status_code == 202
+    secure_payload = secure_fetch.json()
+    assert secure_payload["secure_fetch_plan"]["status"] == "audited"
+    assert secure_payload["offline_sandbox_policy"]["network"] == "none"
+    assert secure_payload["offline_sandbox_policy"]["readonly_mounts"] == [
+        "/opt/secure-deps/trace-001"
+    ]
+
+    required_checks = secure_payload["evaluation_gate"]["required_checks"]
+    evaluation_results = {check: True for check in required_checks}
+    promoted = self_integration_client.post(
+        "/api/v1/integrations/promote",
+        json={
+            "prototype_id": prototype_id,
+            "rollout_mode": "full",
+            "approval_mode": "auto_if_green",
+            "evaluation_results": evaluation_results,
+        },
+    )
+    assert promoted.status_code == 202
+    promotion_payload = promoted.json()
+    assert promotion_payload["status"] == "completed"
+    assert promotion_payload["decision"] == "approved"
+    assert promotion_payload["gate_status"] == "passed"
+    assert promotion_payload["trace_id"]
+
+
+def test_secure_fetch_rejects_artifact_dependency_mismatch(
+    self_integration_client: TestClient,
+) -> None:
+    discovered = self_integration_client.post(
+        "/api/v1/integrations/discover",
+        json={
+            "source_url": "https://github.com/openclaw/openclaw",
+            "source_kind": "repository",
+            "ref": "0123456789abcdef0123456789abcdef01234567",
+        },
+    )
+    discovery_payload = discovered.json()
+
+    prototyped = self_integration_client.post(
+        "/api/v1/integrations/prototype",
+        json={
+            "discovery_id": discovery_payload["discovery_id"],
+            "adapter_name": "secure adapter",
+            "sandbox_backend": "docker",
+            "dry_run": True,
+            "dependency_requests": [
+                {"package": "scipy", "version_spec": "==1.13.1", "reason": "matrix compute"}
+            ],
+        },
+    )
+    prototype_id = prototyped.json()["prototype_id"]
+
+    secure_fetch = self_integration_client.post(
+        f"/api/v1/integrations/prototype/{prototype_id}/secure-fetch",
+        json={
+            "audited_artifacts": [
+                {
+                    "package": "numpy",
+                    "version_spec": "==2.0.0",
+                    "wheel_filename": "numpy-2.0.0-cp312-cp312-manylinux.whl",
+                    "sha256": "b" * 64,
+                }
+            ]
+        },
+    )
+    assert secure_fetch.status_code == 400
+    assert "audited artifacts do not match requested dependencies" in secure_fetch.json()["detail"]

@@ -11,6 +11,7 @@ from autoresearch.shared.models import (
     IntegrationPromotionRead,
     IntegrationPrototypeRead,
     IntegrationPrototypeRequest,
+    IntegrationSecureFetchRequest,
 )
 
 
@@ -50,6 +51,24 @@ def prototype_integration(
 
 
 @router.post(
+    "/prototype/{prototype_id}/secure-fetch",
+    response_model=IntegrationPrototypeRead,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def secure_fetch_integration_dependencies(
+    prototype_id: str,
+    payload: IntegrationSecureFetchRequest,
+    service: SelfIntegrationService = Depends(get_self_integration_service),
+) -> IntegrationPrototypeRead:
+    try:
+        return service.secure_fetch(prototype_id=prototype_id, request=payload)
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Prototype not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post(
     "/promote",
     response_model=IntegrationPromotionRead,
     status_code=status.HTTP_202_ACCEPTED,
@@ -62,3 +81,5 @@ def promote_integration(
         return service.promote(payload)
     except KeyError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Prototype not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
