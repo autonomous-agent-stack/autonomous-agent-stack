@@ -5,12 +5,14 @@ MASFactory 集成 - 图编排引擎
 实现最小闭环：规划 → 生成 → 执行 → 评估 → (循环或结束)
 """
 
+import asyncio
 from typing import Dict, Any, Optional
 from dataclasses import dataclass
 from enum import Enum
 import json
 import re
 
+from .concurrency import ConcurrencyManager
 from .prompt_builder import PromptBuilder, PromptOrchestrationPlan
 
 
@@ -349,11 +351,13 @@ class Graph:
     将多个节点组装成可执行的工作流。
     """
     
-    def __init__(self, graph_id: str):
+    def __init__(self, graph_id: str, *, max_concurrency: int = 3):
         self.graph_id = graph_id
         self.nodes: Dict[str, Node] = {}
         self.edges: list[Edge] = []
         self.context = ContextBlock()
+        self._max_concurrency = max(1, max_concurrency)
+        self._concurrency_manager = ConcurrencyManager(max_concurrent=self._max_concurrency)
     
     def add_node(self, node: Node):
         """添加节点"""
@@ -363,6 +367,12 @@ class Graph:
         """添加边"""
         edge = Edge(source=source, target=target, condition=condition)
         self.edges.append(edge)
+
+    def set_max_concurrency(self, value: int) -> None:
+        """更新图执行并发度。"""
+        self._max_concurrency = max(1, value)
+        self._concurrency_manager = ConcurrencyManager(max_concurrent=self._max_concurrency)
+        self.context.set("orchestration_max_concurrency", self._max_concurrency)
 
     @staticmethod
     def _create_node_from_type(node_id: str, node_type: str) -> Node:
@@ -390,6 +400,7 @@ class Graph:
         self.context.set("goal", plan.goal)
         self.context.set("orchestration_plan", plan.to_dict())
         self.context.set("orchestration_max_steps", plan.max_steps)
+        self.set_max_concurrency(plan.max_concurrency)
 
     @classmethod
     def from_prompt(
@@ -398,33 +409,87 @@ class Graph:
         prompt: str,
         *,
         goal: Optional[str] = None,
+        max_concurrency: Optional[int] = None,
     ) -> "Graph":
         """通过 prompt 直接构建图编排。"""
-        graph = cls(graph_id)
+        graph = cls(graph_id, max_concurrency=max_concurrency or 3)
         plan = PromptBuilder.build_orchestration_plan(prompt, fallback_goal=goal)
+        if max_concurrency is not None:
+            plan.max_concurrency = max(1, max_concurrency)
         graph.apply_prompt_plan(plan)
         graph.context.set("orchestration_prompt", prompt.strip())
         return graph
-    
-    async def execute(self, max_steps: Optional[int] = None) -> Dict[str, Any]:
-        """按边驱动执行图，支持条件分支和循环保护。"""
-        if not self.nodes:
-            return {}
-        if max_steps is None:
-            max_steps = int(self.context.get("orchestration_max_steps", 32))
 
+    def _resolve_initial_queue(self) -> list[str]:
         incoming_counts = {node_id: 0 for node_id in self.nodes}
-        outgoing_edges: dict[str, list[Edge]] = {node_id: [] for node_id in self.nodes}
         for edge in self.edges:
             if edge.source not in self.nodes or edge.target not in self.nodes:
                 continue
             incoming_counts[edge.target] += 1
+        queue = [node_id for node_id, count in incoming_counts.items() if count == 0]
+        if not queue and self.nodes:
+            queue = [next(iter(self.nodes))]
+        return queue
+
+    @staticmethod
+    def _normalize_queue_batch(queue: list[str]) -> list[str]:
+        """去重并保持队列顺序，避免同轮重复执行同节点。"""
+        seen: set[str] = set()
+        batch: list[str] = []
+        while queue:
+            node_id = queue.pop(0)
+            if node_id in seen:
+                continue
+            seen.add(node_id)
+            batch.append(node_id)
+        return batch
+
+    async def _execute_node(self, node_id: str) -> tuple[str, dict[str, Any], bool]:
+        node = self.nodes[node_id]
+        print(f"🔄 执行节点: {node_id}")
+        acquired = False
+
+        try:
+            await self._concurrency_manager.acquire()
+            acquired = True
+            self._concurrency_manager.set_context({"graph_id": self.graph_id, "node_id": node_id})
+            node.pre_execute(self.context)
+            result = await node.execute(self.context)
+            node.post_execute(self.context)
+            self._concurrency_manager.record_result(False)
+            print(f"✅ 节点 {node_id} 完成")
+            return node_id, result, True
+        except Exception as e:
+            node.status = NodeStatus.FAILED
+            self._concurrency_manager.record_result(True)
+            print(f"❌ 节点 {node_id} 失败: {e}")
+            return node_id, {"error": str(e)}, False
+        finally:
+            if acquired:
+                self._concurrency_manager.release()
+
+    async def execute(
+        self,
+        max_steps: Optional[int] = None,
+        *,
+        max_concurrency: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """按边驱动执行图，支持条件分支、循环保护与同层并发。"""
+        if not self.nodes:
+            return {}
+        if max_steps is None:
+            max_steps = int(self.context.get("orchestration_max_steps", 32))
+        if max_concurrency is None:
+            max_concurrency = int(self.context.get("orchestration_max_concurrency", self._max_concurrency))
+        self.set_max_concurrency(max_concurrency)
+
+        outgoing_edges: dict[str, list[Edge]] = {node_id: [] for node_id in self.nodes}
+        for edge in self.edges:
+            if edge.source not in self.nodes or edge.target not in self.nodes:
+                continue
             outgoing_edges[edge.source].append(edge)
 
-        queue = [node_id for node_id, count in incoming_counts.items() if count == 0]
-        if not queue:
-            queue = [next(iter(self.nodes))]
-
+        queue = self._resolve_initial_queue()
         results: dict[str, Any] = {}
         steps = 0
 
@@ -432,27 +497,29 @@ class Graph:
             if steps >= max_steps:
                 raise RuntimeError(f"graph execution exceeded max_steps={max_steps}")
 
-            node_id = queue.pop(0)
-            node = self.nodes[node_id]
-            print(f"🔄 执行节点: {node_id}")
+            batch = self._normalize_queue_batch(queue)
+            remaining_budget = max_steps - steps
+            if len(batch) > remaining_budget:
+                batch = batch[:remaining_budget]
 
-            try:
-                node.pre_execute(self.context)
-                result = await node.execute(self.context)
-                node.post_execute(self.context)
+            print(f"🚦 并发批次: {', '.join(batch)}")
+            execution_results = await asyncio.gather(*(self._execute_node(node_id) for node_id in batch))
+            has_failure = False
+            next_queue: list[str] = []
+
+            for node_id, result, success in execution_results:
                 results[node_id] = result
-                print(f"✅ 节点 {node_id} 完成")
-            except Exception as e:
-                node.status = NodeStatus.FAILED
-                print(f"❌ 节点 {node_id} 失败: {e}")
-                results[node_id] = {"error": str(e)}
+                if not success:
+                    has_failure = True
+                    continue
+                for edge in outgoing_edges.get(node_id, []):
+                    if edge.evaluate(self.context):
+                        next_queue.append(edge.target)
+
+            steps += len(batch)
+            if has_failure:
                 break
-
-            for edge in outgoing_edges.get(node_id, []):
-                if edge.evaluate(self.context):
-                    queue.append(edge.target)
-
-            steps += 1
+            queue.extend(next_queue)
 
         return results
     
@@ -510,6 +577,7 @@ def create_graph_from_prompt(
     *,
     goal: Optional[str] = None,
     graph_id: str = "prompt_orchestration",
+    max_concurrency: Optional[int] = None,
 ) -> Graph:
     """
     从 prompt 快速创建图编排。
@@ -519,8 +587,14 @@ def create_graph_from_prompt(
         nodes: planner -> generator -> executor -> evaluator
         retry: evaluator -> generator when decision == 'retry'
         max_steps: 16
+        max_concurrency: 3
     """
-    return Graph.from_prompt(graph_id=graph_id, prompt=prompt, goal=goal)
+    return Graph.from_prompt(
+        graph_id=graph_id,
+        prompt=prompt,
+        goal=goal,
+        max_concurrency=max_concurrency,
+    )
 
 
 # 使用示例

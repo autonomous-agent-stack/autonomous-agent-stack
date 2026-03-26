@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from urllib.parse import urlparse
 
@@ -33,6 +34,11 @@ class SelfIntegrationService:
         source_url = request.source_url.strip()
         if not source_url:
             raise ValueError("source_url cannot be empty")
+        self._validate_source_trust(
+            source_url=source_url,
+            source_kind=request.source_kind,
+            ref=request.ref,
+        )
 
         now = utc_now()
         discovery = IntegrationDiscoveryRead(
@@ -144,6 +150,39 @@ class SelfIntegrationService:
             error=None,
         )
         return self._promotion_repository.save(promotion.promotion_id, promotion)
+
+    @staticmethod
+    def _validate_source_trust(source_url: str, source_kind: str, ref: str | None) -> None:
+        parsed = urlparse(source_url)
+        scheme = (parsed.scheme or "").lower()
+        host = (parsed.hostname or "").lower()
+
+        if scheme != "https":
+            raise ValueError("untrusted source: only https source_url is allowed")
+
+        if source_kind in {"repository", "mixed"}:
+            # 防止伪造仓库源，默认仅允许 GitHub 主域和 SSH 域。
+            allowed_hosts = {"github.com", "www.github.com"}
+            if host not in allowed_hosts:
+                raise ValueError(
+                    f"untrusted repository host: {host or '<empty>'}; allowed hosts: github.com"
+                )
+
+            # 默认要求 commit pin，避免分支漂移被投毒。可通过环境变量临时放宽。
+            require_pinned_ref = (
+                os.getenv("AUTORESEARCH_REQUIRE_PINNED_REPO_REF", "1").strip().lower()
+                not in {"0", "false", "no"}
+            )
+            if require_pinned_ref and not SelfIntegrationService._looks_like_commit_sha(ref):
+                raise ValueError(
+                    "untrusted repository ref: use full commit SHA (40 hex chars) to pin source"
+                )
+
+    @staticmethod
+    def _looks_like_commit_sha(ref: str | None) -> bool:
+        if ref is None:
+            return False
+        return bool(re.fullmatch(r"[0-9a-fA-F]{40}", ref.strip()))
 
     @staticmethod
     def _candidate_adapter_id(source_url: str) -> str:
