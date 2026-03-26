@@ -41,11 +41,18 @@ class ContextManager:
         # 提取对话事件
         conversation = []
         for event in session.events:
+            if isinstance(event, dict):
+                role = event.get("role")
+                content = event.get("content")
+            else:
+                role = getattr(event, "role", None)
+                content = getattr(event, "content", None)
+
             # 只保留 user 和 assistant 事件
-            if event.role in ["user", "assistant"]:
+            if role in ["user", "assistant"] and content:
                 conversation.append({
-                    "role": event.role,
-                    "content": event.content,
+                    "role": role,
+                    "content": content,
                 })
         
         # 限制轮次（保留最近的对话）
@@ -184,10 +191,14 @@ class ContextManager:
             }
         
         # 统计对话轮次
-        conversation_events = [
-            e for e in session.events
-            if e.role in ["user", "assistant"]
-        ]
+        conversation_events = []
+        for event in session.events:
+            if isinstance(event, dict):
+                role = event.get("role")
+            else:
+                role = getattr(event, "role", None)
+            if role in ["user", "assistant"]:
+                conversation_events.append(event)
         
         return {
             "session_id": session_id,
