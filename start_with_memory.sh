@@ -51,7 +51,7 @@ case $choice in
         echo ""
         echo "启动 FastAPI 服务..."
         echo "访问: http://localhost:8000/docs"
-        uvicorn src.api.main:app --reload --port 8000
+        uvicorn src.autoresearch.api.main:app --reload --port 8000
         ;;
     2)
         echo ""
