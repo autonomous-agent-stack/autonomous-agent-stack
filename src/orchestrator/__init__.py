@@ -15,8 +15,10 @@ from .graph_engine import (
     GeneratorNode,
     ExecutorNode,
     EvaluatorNode,
-    create_minimal_loop
+    create_minimal_loop,
+    create_graph_from_prompt,
 )
+from .prompt_builder import PromptBuilder, PromptOrchestrationPlan
 from .mcp_context import MCPContextBlock, MCPToolRegistry, create_default_mcp_registry
 from .node_protocol import NodeAdapter, NodeOutput, NodeRegistry
 from .shortcircuit import (
@@ -46,6 +48,9 @@ __all__ = [
     "ExecutorNode",
     "EvaluatorNode",
     "create_minimal_loop",
+    "create_graph_from_prompt",
+    "PromptBuilder",
+    "PromptOrchestrationPlan",
     "NodeOutput",
     "NodeAdapter",
     "NodeRegistry",

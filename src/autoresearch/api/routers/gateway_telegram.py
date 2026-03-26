@@ -198,6 +198,7 @@ def _extract_telegram_message(update: dict[str, Any]) -> dict[str, Any] | None:
             "text": (message.get("text") or message.get("caption") or "").strip(),
             "message_id": message.get("message_id"),
             "username": from_user.get("username"),
+            "from_user_id": _safe_int(from_user.get("id")),
             "raw_type": "message",
         }
 
@@ -211,6 +212,7 @@ def _extract_telegram_message(update: dict[str, Any]) -> dict[str, Any] | None:
             "text": (callback.get("data") or "").strip(),
             "message_id": callback_message.get("message_id"),
             "username": from_user.get("username"),
+            "from_user_id": _safe_int(from_user.get("id")),
             "raw_type": "callback_query",
         }
     return None
@@ -311,7 +313,7 @@ def _handle_status_query(
         chat_id_int = int(chat_id)
         if group_access_manager.is_internal_group(chat_id_int):
             # Generate group-scoped magic link
-            user_id = extracted.get("from", {}).get("id") or update.get("message", {}).get("from", {}).get("id")
+            user_id = extracted.get("from_user_id")
             if user_id:
                 group_link = group_access_manager.create_group_magic_link(
                     chat_id=chat_id_int,
@@ -334,6 +336,11 @@ def _handle_status_query(
             magic_link_url = None
             expires_at_iso = None
 
+    mini_app_url = _resolve_mini_app_url(
+        magic_link_url=magic_link_url,
+        is_group_link=is_group_link,
+    )
+
     if notifier.enabled:
         background_tasks.add_task(
             notifier.notify_status_magic_link,
@@ -342,6 +349,7 @@ def _handle_status_query(
             magic_link_url=magic_link_url,
             expires_at_iso=expires_at_iso,
             is_group_link=is_group_link,
+            mini_app_url=mini_app_url,
         )
 
     return TelegramWebhookAck(
@@ -356,6 +364,7 @@ def _handle_status_query(
             "magic_link_expires_at": expires_at_iso,
             "active_runs": len(runs),
             "is_group_link": is_group_link,
+            "mini_app_url": mini_app_url,
         },
     )
 
@@ -376,6 +385,21 @@ def _is_status_query(text: str) -> bool:
         "进度",
         "面板",
     }
+
+
+def _resolve_mini_app_url(
+    *,
+    magic_link_url: str | None,
+    is_group_link: bool,
+) -> str | None:
+    if is_group_link:
+        return None
+    configured = os.getenv("AUTORESEARCH_TELEGRAM_MINI_APP_URL", "").strip()
+    if configured:
+        return configured
+    if magic_link_url and magic_link_url.startswith("https://"):
+        return magic_link_url
+    return None
 
 
 def _build_status_summary_lines(

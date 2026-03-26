@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from autoresearch import __version__
 from autoresearch.core.services.panel_access import assert_safe_bind_host
 from autoresearch.api.routers import (
+    admin,
     evaluations,
     executors,
     experiments,
@@ -16,6 +17,7 @@ from autoresearch.api.routers import (
     integrations,
     knowledge_graph,
     loops,
+    orchestration,
     optimizations,
     openclaw,
     panel,
@@ -23,6 +25,7 @@ from autoresearch.api.routers import (
     streaming,
     synthesis,
     variants,
+    webauthn,  # WebAuthn 生物识别认证
 )
 
 
@@ -36,11 +39,13 @@ app = FastAPI(
 )
 
 app.include_router(evaluations.router)
+app.include_router(admin.router)
 app.include_router(gateway_telegram.router)
 app.include_router(generators.router)
 app.include_router(executors.router)
 app.include_router(synthesis.router)
 app.include_router(loops.router)
+app.include_router(orchestration.router)
 app.include_router(openclaw.router)
 app.include_router(panel.router)
 app.include_router(integrations.router)
@@ -49,7 +54,8 @@ app.include_router(variants.router)
 app.include_router(optimizations.router)
 app.include_router(experiments.router)
 app.include_router(streaming.router)
-app.include_router(knowledge_graph.router)
+app.include_router(knowledge_graph.router)  # Knowledge Graph
+app.include_router(webauthn.router)  # WebAuthn 生物识别认证
 
 
 @app.get("/", tags=["meta"])

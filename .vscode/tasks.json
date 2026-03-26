@@ -1,0 +1,41 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Orchestration: Run Prompt File",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": [
+        "${workspaceFolder}/scripts/vscode_orchestrate.py",
+        "--prompt-file",
+        "${file}",
+        "--pretty",
+        "--include-graph"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "API: Start Local Server",
+      "type": "shell",
+      "command": "PYTHONPATH=src ${workspaceFolder}/.venv/bin/uvicorn autoresearch.api.main:app --host 127.0.0.1 --port 8000",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "Orchestration API: Execute Prompt File",
+      "type": "shell",
+      "command": "PROMPT_FILE='${file}'; curl -sS -X POST 'http://127.0.0.1:8000/api/v1/orchestration/prompt/execute' -H 'Content-Type: application/json' --data-binary @<(${workspaceFolder}/.venv/bin/python - <<'PY'\nimport json, os\nfrom pathlib import Path\nprompt = Path(os.environ['PROMPT_FILE']).read_text(encoding='utf-8')\npayload = {\n  'prompt': prompt,\n  'include_graph': True,\n}\nprint(json.dumps(payload, ensure_ascii=False))\nPY\n)",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "dependsOn": "API: Start Local Server",
+      "problemMatcher": []
+    }
+  ]
+}
