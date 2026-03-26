@@ -31,19 +31,21 @@
 
 ## 快速使用
 
-1. 复制模板并按需修改：
+如果你是第一次操作，按下面顺序做就行。
+
+### 1. 先准备环境文件
 
 ```bash
 cp migration/openclaw/templates/openclaw-to-autoresearch.env.example migration/openclaw/.env.local
 ```
 
-2. 探测旧数据路径：
+### 2. 再检查旧 OpenClaw 数据在哪
 
 ```bash
 bash migration/openclaw/scripts/discover-openclaw-data.sh
 ```
 
-3. 启动 API（新终端）
+### 3. 启动 API（新终端）
 
 ```bash
 cd /Volumes/PS1008/Github/autonomous-agent-stack
@@ -51,11 +53,27 @@ set -a; source migration/openclaw/.env.local; set +a
 uvicorn src.autoresearch.api.main:app --host 127.0.0.1 --port 8000
 ```
 
-4. 运行一键验证：
+### 4. 用一键验证确认能跑
 
 ```bash
 bash migration/openclaw/scripts/verify-migration.sh
 ```
+
+### 5. 如果你只想接 Claude CLI
+
+把这里的变量改成你自己的命令：
+
+```bash
+export AUTORESEARCH_CLAUDE_COMMAND=claude
+```
+
+如果你的 Claude CLI 在别的项目里，就把它换成那个项目里的可执行文件路径，例如：
+
+```bash
+export AUTORESEARCH_CLAUDE_COMMAND="/path/to/your/project/bin/claude"
+```
+
+这个项目会优先使用这个环境变量来启动 Claude 子任务。
 
 ## 关于 `../openclaw`
 
@@ -79,10 +97,16 @@ bash migration/openclaw/scripts/logs-api-daemon.sh
 bash migration/openclaw/scripts/stop-api-daemon.sh
 
 # 公网隧道（cloudflared）
+# 一次性初始化命名 Tunnel + 私有域名（推荐）
+bash migration/openclaw/scripts/setup-cloudflared-tunnel.sh panel.malu.com
+
+# 启停与状态
 bash migration/openclaw/scripts/start-cloudflared-tunnel.sh
+bash migration/openclaw/scripts/status-cloudflared-tunnel.sh
+bash migration/openclaw/scripts/logs-cloudflared-tunnel.sh
 bash migration/openclaw/scripts/stop-cloudflared-tunnel.sh
 
-# 配置 Telegram webhook（优先使用 WEBHOOK_BASE_URL；否则尝试 cloudflared 日志中的 trycloudflare URL）
+# 配置 Telegram webhook（优先使用 WEBHOOK_BASE_URL / CLOUDFLARE_TUNNEL_PUBLIC_BASE_URL）
 bash migration/openclaw/scripts/configure-telegram-webhook.sh
 
 # Telegram 长轮询桥接（不依赖 webhook 公网域名）
@@ -98,5 +122,6 @@ bash migration/openclaw/scripts/stop-telegram-poller.sh
 2. 机器人会返回摘要 + Web 面板 magic link（需配置以下环境变量）：
    - `AUTORESEARCH_PANEL_JWT_SECRET`
    - `AUTORESEARCH_PANEL_BASE_URL`
+   - `AUTORESEARCH_TELEGRAM_MINI_APP_URL`（可选，配置后 `/status` 会带 Mini App 按钮）
    - `AUTORESEARCH_TELEGRAM_ALLOWED_UIDS`
 3. 默认面板地址为：`http://127.0.0.1:8000/api/v1/panel/view`

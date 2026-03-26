@@ -1,0 +1,22 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug Prompt Orchestration File",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/scripts/vscode_orchestrate.py",
+      "args": [
+        "--prompt-file",
+        "${file}",
+        "--pretty",
+        "--include-graph"
+      ],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/src"
+      },
+      "console": "integratedTerminal"
+    }
+  ]
+}

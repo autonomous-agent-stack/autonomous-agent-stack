@@ -6,8 +6,10 @@ import shlex
 import subprocess
 import threading
 import time
+from typing import Any
 
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
+from autoresearch.core.services.openclaw_skills import OpenClawSkillService
 from autoresearch.shared.models import (
     ClaudeAgentCancelRequest,
     ClaudeAgentCreateRequest,
@@ -17,6 +19,7 @@ from autoresearch.shared.models import (
     ClaudeAgentTreeNodeRead,
     ClaudeAgentTreeRead,
     JobStatus,
+    OpenClawSkillRead,
     OpenClawSessionCreateRequest,
     OpenClawSessionEventAppendRequest,
     utc_now,
@@ -38,9 +41,11 @@ class ClaudeAgentService:
         max_agents: int = 20,
         max_depth: int = 3,
         claude_command: list[str] | None = None,
+        openclaw_skill_service: OpenClawSkillService | None = None,
     ) -> None:
         self._repository = repository
         self._openclaw_service = openclaw_service
+        self._openclaw_skill_service = openclaw_skill_service
         self._repo_root = repo_root or Path(__file__).resolve().parents[4]
         self._max_agents = max_agents
         self._max_depth = max_depth
@@ -61,6 +66,7 @@ class ClaudeAgentService:
             raise RuntimeError(f"active agent limit reached ({self._max_agents})")
 
         session_id = request.session_id
+        session_metadata: dict[str, Any] = {}
         if session_id is None:
             session = self._openclaw_service.create_session(
                 OpenClawSessionCreateRequest(
@@ -73,10 +79,38 @@ class ClaudeAgentService:
                 )
             )
             session_id = session.session_id
-        elif self._openclaw_service.get_session(session_id) is None:
-            raise ValueError(f"session not found: {session_id}")
+            session_metadata = dict(session.metadata)
+        else:
+            session = self._openclaw_service.get_session(session_id)
+            if session is None:
+                raise ValueError(f"session not found: {session_id}")
+            session_metadata = dict(session.metadata)
 
-        command = self._build_command(request)
+        requested_skill_names = self._resolve_requested_skill_names(
+            request=request,
+            session_metadata=session_metadata,
+        )
+        effective_prompt, resolved_skills = self._compose_prompt_with_skills(
+            prompt=request.prompt,
+            requested_skill_names=requested_skill_names,
+        )
+        command = self._build_command(request, prompt_override=effective_prompt)
+        run_metadata = dict(request.metadata)
+        if requested_skill_names:
+            run_metadata.update(
+                {
+                    "requested_skill_names": requested_skill_names,
+                    "resolved_skills": [
+                        {
+                            "name": skill.name,
+                            "skill_key": skill.skill_key,
+                            "file_path": skill.file_path,
+                        }
+                        for skill in resolved_skills
+                    ],
+                    "skills_prompt_injected": bool(resolved_skills),
+                }
+            )
         now = utc_now()
         run = ClaudeAgentRunRead(
             agent_run_id=create_resource_id("agent"),
@@ -96,7 +130,7 @@ class ClaudeAgentService:
             duration_seconds=None,
             created_at=now,
             updated_at=now,
-            metadata=request.metadata,
+            metadata=run_metadata,
             error=None,
         )
         saved = self._repository.save(run.agent_run_id, run)
@@ -447,7 +481,11 @@ class ClaudeAgentService:
             },
         )
 
-    def _build_command(self, request: ClaudeAgentCreateRequest) -> list[str]:
+    def _build_command(
+        self,
+        request: ClaudeAgentCreateRequest,
+        prompt_override: str | None = None,
+    ) -> list[str]:
         if request.command_override:
             command = list(request.command_override)
         else:
@@ -460,7 +498,7 @@ class ClaudeAgentService:
                 command.append("--print")
 
         if request.append_prompt:
-            command.append(request.prompt)
+            command.append(prompt_override if prompt_override is not None else request.prompt)
         return command
 
     def _build_retry_request(
@@ -485,6 +523,7 @@ class ClaudeAgentService:
             env = {str(key): str(value) for key, value in env_overrides.items()}
         else:
             env = {}
+        skill_names = self._normalize_skill_name_list(current.metadata.get("requested_skill_names"))
 
         # Reuse exact previous command by default; when prompt is overridden, rebuild command.
         use_command_override = retry_request.prompt_override is None and bool(current.command)
@@ -500,9 +539,60 @@ class ClaudeAgentService:
             cli_args=[],
             command_override=list(current.command) if use_command_override else None,
             append_prompt=False if use_command_override else True,
+            skill_names=skill_names,
             env=env,
             metadata=metadata,
         )
+
+    def _resolve_requested_skill_names(
+        self,
+        *,
+        request: ClaudeAgentCreateRequest,
+        session_metadata: dict[str, Any],
+    ) -> list[str]:
+        explicit = self._normalize_skill_name_list(request.skill_names)
+        if explicit:
+            return explicit
+        loaded = self._normalize_skill_name_list(session_metadata.get("loaded_skill_names"))
+        return loaded
+
+    def _compose_prompt_with_skills(
+        self,
+        *,
+        prompt: str,
+        requested_skill_names: list[str],
+    ) -> tuple[str, list[OpenClawSkillRead]]:
+        if not requested_skill_names:
+            return prompt, []
+        if self._openclaw_skill_service is None:
+            raise ValueError("OpenClaw skill loader is not configured")
+
+        skill_prompt, resolved_skills, missing = self._openclaw_skill_service.build_skills_catalog_prompt(
+            requested_skill_names
+        )
+        if missing:
+            raise ValueError(f"OpenClaw skills not found: {', '.join(missing)}")
+        if not skill_prompt:
+            return prompt, resolved_skills
+        return f"{skill_prompt}\n\n{prompt}", resolved_skills
+
+    def _normalize_skill_name_list(self, raw: Any) -> list[str]:
+        if not isinstance(raw, list):
+            return []
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for item in raw:
+            if not isinstance(item, str):
+                continue
+            name = item.strip()
+            if not name:
+                continue
+            lowered = name.lower()
+            if lowered in seen:
+                continue
+            seen.add(lowered)
+            normalized.append(name)
+        return normalized
 
     def _build_error_message(self, completed: subprocess.CompletedProcess[str]) -> str:
         stderr = self._preview_output(completed.stderr or "")

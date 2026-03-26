@@ -11,6 +11,8 @@ from enum import Enum
 import json
 import re
 
+from .prompt_builder import PromptBuilder, PromptOrchestrationPlan
+
 
 class NodeType(Enum):
     """节点类型"""
@@ -163,7 +165,7 @@ class PlannerNode(Node):
         current_state = context.load_memory("current_state")
         
         # 2. 分析任务目标
-        task_goal = self.inputs.get("goal", "未定义目标")
+        task_goal = self.inputs.get("goal") or context.get("goal", "未定义目标")
         
         # 3. 生成下一步计划
         plan = {
@@ -208,10 +210,11 @@ class GeneratorNode(Node):
         
         # 2. 生成代码或工具调用
         # 简化版：直接生成 Python 代码
+        goal = plan.get("goal") or context.get("goal", "未知任务")
         code = f"""
 # 自动生成的代码
 def solve_task():
-    '''解决任务: {plan.get("goal", "未知任务")}'''
+    '''解决任务: {goal}'''
     print("执行任务...")
     return "success"
 """
@@ -331,6 +334,14 @@ class EvaluatorNode(Node):
         return evaluation
 
 
+NODE_FACTORY: dict[str, type[Node]] = {
+    NodeType.PLANNER.value: PlannerNode,
+    NodeType.GENERATOR.value: GeneratorNode,
+    NodeType.EXECUTOR.value: ExecutorNode,
+    NodeType.EVALUATOR.value: EvaluatorNode,
+}
+
+
 class Graph:
     """
     图编排引擎
@@ -352,11 +363,55 @@ class Graph:
         """添加边"""
         edge = Edge(source=source, target=target, condition=condition)
         self.edges.append(edge)
+
+    @staticmethod
+    def _create_node_from_type(node_id: str, node_type: str) -> Node:
+        node_class = NODE_FACTORY.get(node_type)
+        if node_class is None:
+            supported = ", ".join(sorted(NODE_FACTORY))
+            raise ValueError(
+                f"Unsupported node type '{node_type}' for node '{node_id}'. "
+                f"Supported types: {supported}"
+            )
+        return node_class(node_id)
+
+    def apply_prompt_plan(self, plan: PromptOrchestrationPlan) -> None:
+        """将 prompt 解析结果应用到图中。"""
+        self.nodes.clear()
+        self.edges.clear()
+
+        for step in plan.steps:
+            node = self._create_node_from_type(step.node_id, step.node_type)
+            self.add_node(node)
+
+        for edge in plan.edges:
+            self.add_edge(edge.source, edge.target, edge.condition)
+
+        self.context.set("goal", plan.goal)
+        self.context.set("orchestration_plan", plan.to_dict())
+        self.context.set("orchestration_max_steps", plan.max_steps)
+
+    @classmethod
+    def from_prompt(
+        cls,
+        graph_id: str,
+        prompt: str,
+        *,
+        goal: Optional[str] = None,
+    ) -> "Graph":
+        """通过 prompt 直接构建图编排。"""
+        graph = cls(graph_id)
+        plan = PromptBuilder.build_orchestration_plan(prompt, fallback_goal=goal)
+        graph.apply_prompt_plan(plan)
+        graph.context.set("orchestration_prompt", prompt.strip())
+        return graph
     
-    async def execute(self, max_steps: int = 32) -> Dict[str, Any]:
+    async def execute(self, max_steps: Optional[int] = None) -> Dict[str, Any]:
         """按边驱动执行图，支持条件分支和循环保护。"""
         if not self.nodes:
             return {}
+        if max_steps is None:
+            max_steps = int(self.context.get("orchestration_max_steps", 32))
 
         incoming_counts = {node_id: 0 for node_id in self.nodes}
         outgoing_edges: dict[str, list[Edge]] = {node_id: [] for node_id in self.nodes}
@@ -448,6 +503,24 @@ def create_minimal_loop() -> Graph:
     graph.add_edge("evaluator", "generator", condition="decision == 'retry'")
     
     return graph
+
+
+def create_graph_from_prompt(
+    prompt: str,
+    *,
+    goal: Optional[str] = None,
+    graph_id: str = "prompt_orchestration",
+) -> Graph:
+    """
+    从 prompt 快速创建图编排。
+
+    示例：
+        goal: 优化代码性能
+        nodes: planner -> generator -> executor -> evaluator
+        retry: evaluator -> generator when decision == 'retry'
+        max_steps: 16
+    """
+    return Graph.from_prompt(graph_id=graph_id, prompt=prompt, goal=goal)
 
 
 # 使用示例

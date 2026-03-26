@@ -31,6 +31,7 @@ class TelegramNotifierService:
         chat_id: str,
         text: str,
         disable_web_page_preview: bool = True,
+        reply_markup: dict[str, Any] | None = None,
     ) -> bool:
         if not self.enabled:
             return False
@@ -40,6 +41,8 @@ class TelegramNotifierService:
             "text": text,
             "disable_web_page_preview": disable_web_page_preview,
         }
+        if reply_markup is not None:
+            payload["reply_markup"] = reply_markup
         endpoint = f"{self._api_base}/bot{self._bot_token}/sendMessage"
         body = json.dumps(payload).encode("utf-8")
         req = request.Request(
@@ -87,6 +90,7 @@ class TelegramNotifierService:
         magic_link_url: str | None,
         expires_at_iso: str | None,
         is_group_link: bool = False,
+        mini_app_url: str | None = None,
     ) -> bool:
         """Send status notification with magic link.
 
@@ -96,6 +100,7 @@ class TelegramNotifierService:
             magic_link_url: Magic link URL
             expires_at_iso: Link expiration time
             is_group_link: Whether this is a group-scoped link (use Inline Button)
+            mini_app_url: Optional Telegram Mini App URL for 1:1 chats
 
         Returns:
             True if successful, False otherwise
@@ -111,14 +116,27 @@ class TelegramNotifierService:
                 expires_at_iso=expires_at_iso,
             )
 
-        # For regular links, use text message
+        # For regular links, use text message (with optional Mini App button)
         lines = ["[状态查询]", *summary_lines]
         if magic_link_url:
             lines.append("")
             lines.append(f"Web 面板: {magic_link_url}")
             if expires_at_iso:
                 lines.append(f"链接有效期至(UTC): {expires_at_iso}")
-        return self.send_message(chat_id=chat_id, text="\n".join(lines))
+
+        reply_markup: dict[str, Any] | None = None
+        if mini_app_url:
+            reply_markup = {
+                "inline_keyboard": [
+                    [
+                        {
+                            "text": "打开面板（Mini App）",
+                            "web_app": {"url": mini_app_url},
+                        }
+                    ]
+                ]
+            }
+        return self.send_message(chat_id=chat_id, text="\n".join(lines), reply_markup=reply_markup)
 
     def _send_group_magic_link(
         self,
