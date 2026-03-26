@@ -1,0 +1,33 @@
+services:
+  ai-lab:
+    image: python:3.11-slim-bookworm
+    platform: linux/arm64
+    container_name: ai-lab
+    working_dir: /workspace
+    command: ["python", "-m", "http.server", "8000"]
+
+    cpus: "4.0"
+    mem_limit: 2g
+    memswap_limit: 2g
+
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=256m
+      - /var/tmp:rw,noexec,nosuid,size=128m
+
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+    user: "1000:1000"
+
+    volumes:
+      - /Users/ai_lab/workspace:/workspace:rw
+
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+
+    restart: "no"
+

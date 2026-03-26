@@ -5,6 +5,13 @@
 - 时区：Asia/Taipei
 - 偏好沟通风格：干练
 
+## Prompt Hygiene 审计尺子（2026-03-26）
+- 新增只读审计脚本 `scripts/check_prompt_hygiene.py`，配套 `make hygiene-check`
+- 默认扫描 `src/`，输出到 `logs/audit/prompt_hygiene/report.txt` 和 `report.json`
+- 检查三类问题：工厂化/模板化敏感词、TODO/FIXME/placeholder 占位符、重复注释或 docstring 片段
+- policy 类文件（品牌审计、prompt 构建等）降级为 `info`，避免污染主审计结论
+- 当前仓库首次真实扫描结果：188 个文件、103 条 actionable warnings、38 条 policy references、37 组重复片段、score 52/100
+
 ## 今日完成 (2026-03-26 04:48)
 
 ### ✅ 满血平替完成 - 满血成果合并
@@ -688,5 +695,23 @@
 
 **文档**: knowledge/system-integration/p4-evolution-pipeline-design.md
 
----
+## ai_lab 安全实验环境（2026-03-26）
 
+- macOS M1 的实验环境优先采用 `ai_lab` 标准副账号隔离主账号风险。
+- 真正的磁盘硬限制建议使用独立 APFS 卷的 `-quota`，不要依赖“用户目录 quota”这种在 macOS 上不稳定的假设。
+- Docker 沙盒固定为 `python:3.11-slim-bookworm`、`platform: linux/arm64`、`cpus: "4"`、`memory: "2g"`。
+- 双向交换区只允许 `/Users/ai_lab/workspace/`，不挂载 `/etc`、`~/.ssh` 或主账号家目录。
+
+## MASFactory 首航与目标驱动（2026-03-26）
+
+- `make masfactory-flight GOAL="..."` 已接通目标透传，首航示例会读取 `MAS_FACTORY_GOAL`。
+- 首航输出保留彩色阶段提示，便于在终端快速识别 `PLANNING -> GENERATING -> EXECUTING -> SUCCESS/FAILED`。
+- `EvaluatorNode` 已能把失败分类为 `logic_error`、`resource_overflow`、`sandbox_error`，为后续自愈/重试打基础。
+
+## MASFactory 巡航模式（2026-03-26）
+
+- `WATCH=1` 会生成 JSONL 全链路日志，默认写入 `.masfactory_runtime/masfactory-flight.jsonl`。
+- `FlightRecorder` 适合做轻量、可测试的过程追踪，比直接散落 `print` 更适合后续自动化分析。
+- `PlannerNode` 能复用上一轮 `retry_hints`，让失败语义回流到下一次计划里。
+
+---

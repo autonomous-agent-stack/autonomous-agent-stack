@@ -39,7 +39,12 @@ make ai-lab
 make ai-lab-check
 make ai-lab-setup
 make masfactory-flight
+make masfactory-flight GOAL="探测当前 M1 的 CPU 核心数"
+make masfactory-flight GOAL="探测当前 M1 的 CPU 核心数" WATCH=1
+make hygiene-check
 ```
+
+`make hygiene-check` 会把结果写到 `logs/audit/prompt_hygiene/report.txt` 和 `logs/audit/prompt_hygiene/report.json`。
 
 如果端口冲突：
 
@@ -72,6 +77,97 @@ PORT=8010 make start
 2. 如果是依赖问题，执行 `make setup`
 3. 如果是端口问题，执行 `PORT=8010 make start`
 4. 如果是导入问题，确认通过 `make start` 启动（脚本会自动设置 `PYTHONPATH=src`）
+
+## 🎯 灵感来源（Inspirations）
+
+本项目深受以下 6 个优秀开源库的启发：
+
+### 1. **MASFactory** - 多智能体编排框架
+**GitHub**: https://github.com/BUPT-GAMMA/MASFactory  
+**Stars**: 125+  
+**启发点**:
+- ✅ 4 节点图结构（Planner/Generator/Executor/Evaluator）
+- ✅ M1 本地执行沙盒
+- ✅ MCP 网关集成
+- ✅ 可视化监控看板
+
+---
+
+### 2. **deer-flow** - 并发编排与沙盒隔离
+**GitHub**: https://github.com/nxs9bg24js-tech/deer-flow  
+**Stars**: 45,000+  
+**启发点**:
+- ✅ 多智能体并发编排（Lead Agent + Sub-agents）
+- ✅ 沙盒隔离执行（三级防御：L1/L2/L3）
+- ✅ 持久化长程记忆
+- ✅ Markdown Skills
+
+---
+
+### 3. **OpenSage** - 自演化智能体
+**论文**: arXiv:2602.16891  
+**官网**: https://www.opensage-agent.ai/  
+**启发点**:
+- ✅ 自编程智能体（Level 3 - AI 自动创建）
+- ✅ Self-generating Agent Topology（自生成拓扑）
+- ✅ Dynamic Tool and Skill Synthesis（动态工具合成）
+- ✅ Hierarchical, Graph-based Memory（分层图记忆）
+
+---
+
+### 4. **OpenClaw** - 多渠道接入与技能系统
+**GitHub**: https://github.com/openclaw/openclaw  
+**Stars**: 1,000+  
+**启发点**:
+- ✅ 多渠道接入（Telegram、Discord、Signal）
+- ✅ 技能系统（SKILL.md）
+- ✅ 会话管理
+- ✅ 记忆系统（MEMORY.md）
+
+---
+
+### 5. **OpenSpace** - SOP 演化引擎
+**GitHub**: https://github.com/HKUDS/OpenSpace  
+**版本**: v0.1.0  
+**启发点**:
+- ✅ 自演化技能引擎（越用越聪明）
+- ✅ Markdown SOP 演化（安全、可读、可积累）
+- ✅ AUTO-LEARN 机制（自动学习新技能）
+- ✅ 网络效应（集体智慧共享）
+
+---
+
+### 6. **AutoResearch** - Karpathy 循环
+**GitHub**: https://github.com/karpathy/autoresearch  
+**Stars**: 48,800+  
+**作者**: Andrej Karpathy（前 Tesla AI 总监）  
+**启发点**:
+- ✅ **自主实验循环**（Autonomous Experiment Loop）
+  ```
+  propose → train → evaluate → commit/revert → repeat
+  ```
+- ✅ 并行探索策略（多分支并行）
+- ✅ 结果导向（保留改进，回滚失败）
+- ✅ 无限迭代（自主优化）
+
+---
+
+### 整合价值
+
+| 开源库 | 核心价值 | 应用到本项目 |
+|--------|---------|-------------|
+| **MASFactory** | 多智能体编排 | 4 节点图结构 + MCP 网关 |
+| **deer-flow** | 并发编排 + 沙盒 | Lead Agent + Docker 沙盒 |
+| **OpenSage** | 自演化机制 | OpenSage 模块 + 动态工具合成 |
+| **OpenClaw** | 渠道接入 | Telegram Webhook + 技能系统 |
+| **OpenSpace** | SOP 演化引擎 | Markdown 技能库 + AUTO-LEARN |
+| **AutoResearch** | Karpathy 循环 | Propose-Train-Evaluate-Repeat |
+
+---
+
+**价值主张**: "构建无需人类干预、通过多渠道自我优化的超级智能体网络"
+
+---
 
 ## 深入文档
 
