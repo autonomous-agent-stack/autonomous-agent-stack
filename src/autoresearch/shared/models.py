@@ -392,6 +392,7 @@ class ClaudeAgentCreateRequest(StrictModel):
     command_override: list[str] | None = None
     append_prompt: bool = True
     skill_names: list[str] = Field(default_factory=list)
+    images: list[str] = Field(default_factory=list)  # 新增图片字段（URL 或路径）
     env: dict[str, str] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -400,6 +401,7 @@ class ClaudeAgentRunRead(StrictModel):
     agent_run_id: str
     task_name: str
     prompt: str
+    images: list[str] = Field(default_factory=list)  # 新增图片字段
     status: JobStatus
     agent_name: str | None = None
     session_id: str | None = None

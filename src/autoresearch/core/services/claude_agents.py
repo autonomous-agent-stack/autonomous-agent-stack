@@ -10,6 +10,10 @@ from typing import Any
 
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.openclaw_skills import OpenClawSkillService
+from autoresearch.core.services.telegram_image_downloader import (
+    TelegramImageDownloader,
+    parse_telegram_image_url,
+)
 from autoresearch.shared.models import (
     ClaudeAgentCancelRequest,
     ClaudeAgentCreateRequest,
@@ -170,11 +174,32 @@ class ClaudeAgentService:
             self._clear_cancel_requested(agent_run_id)
             return
 
+        # 下载图片（如果有）
+        downloaded_images = []
+        if request.images:
+            bot_token = os.getenv("AUTORESEARCH_TELEGRAM_BOT_TOKEN", "")
+            if bot_token:
+                downloader = TelegramImageDownloader(bot_token)
+                
+                for image_url in request.images:
+                    file_id = parse_telegram_image_url(image_url)
+                    if file_id:
+                        local_path = downloader.download_image(file_id)
+                        if local_path:
+                            downloaded_images.append(local_path)
+        
+        # 如果有图片，修改 prompt
+        effective_prompt = request.prompt
+        if downloaded_images:
+            image_paths = "\n".join([f"- {path}" for path in downloaded_images])
+            effective_prompt = f"{request.prompt}\n\n请分析以下图片：\n{image_paths}"
+
         running = current.model_copy(
             update={
                 "status": JobStatus.RUNNING,
                 "updated_at": utc_now(),
                 "error": None,
+                "images": downloaded_images,  # 保存下载的图片路径
             }
         )
         self._repository.save(running.agent_run_id, running)
@@ -185,7 +210,10 @@ class ClaudeAgentService:
                 request=OpenClawSessionEventAppendRequest(
                     role="status",
                     content=f"agent running: {running.agent_run_id}",
-                    metadata={"agent_run_id": running.agent_run_id},
+                    metadata={
+                        "agent_run_id": running.agent_run_id,
+                        "images_downloaded": len(downloaded_images),
+                    },
                 ),
             )
             self._openclaw_service.set_status(

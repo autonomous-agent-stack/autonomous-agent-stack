@@ -286,6 +286,8 @@ def create_channel_config(
         return service.create_channel(payload)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
 
 
 @router.get("/channels", response_model=list[AdminChannelConfigRead])
@@ -321,6 +323,8 @@ def update_channel_config(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Channel config not found") from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
 
 
 @router.post("/channels/{channel_id}/activate", response_model=AdminChannelConfigRead)
@@ -575,6 +579,7 @@ _ADMIN_HTML = """<!doctype html>
               <th>ID</th>
               <th>Key</th>
               <th>Provider</th>
+              <th>Secret</th>
               <th>Version</th>
               <th>Status</th>
               <th>Updated</th>
@@ -682,6 +687,7 @@ function channelRow(item) {
       <td>${item.channel_id}</td>
       <td>${item.key}</td>
       <td>${item.provider}</td>
+      <td>${item.has_secret ? "yes" : "no"}</td>
       <td>${item.version}</td>
       <td><span class="pill ${item.status}">${item.status}</span></td>
       <td>${fmtDate(item.updated_at)}</td>
@@ -702,7 +708,7 @@ async function refreshAll() {
       callApi("/api/v1/admin/channels"),
     ]);
     agentsBody.innerHTML = agents.map(agentRow).join("") || "<tr><td colspan='7'>暂无</td></tr>";
-    channelsBody.innerHTML = channels.map(channelRow).join("") || "<tr><td colspan='7'>暂无</td></tr>";
+    channelsBody.innerHTML = channels.map(channelRow).join("") || "<tr><td colspan='8'>暂无</td></tr>";
     summary.textContent = `Agents: ${agents.length} | Channels: ${channels.length} | API: /api/v1/admin`;
     await loadRevisions();
   } catch (err) {
@@ -806,7 +812,8 @@ async function createChannel() {
     display_name: "Telegram Main",
     provider: "telegram",
     endpoint_url: null,
-    secret_ref: "env:AUTORESEARCH_TELEGRAM_BOT_TOKEN",
+    secret_ref: null,
+    secret_value: null,
     allowed_chat_ids: [],
     allowed_user_ids: [],
     routing_policy: {},
@@ -826,6 +833,8 @@ async function editChannel(encodedItem) {
     provider: item.provider,
     endpoint_url: item.endpoint_url,
     secret_ref: item.secret_ref,
+    secret_value: null,
+    clear_secret: false,
     allowed_chat_ids: item.allowed_chat_ids,
     allowed_user_ids: item.allowed_user_ids,
     routing_policy: item.routing_policy,
