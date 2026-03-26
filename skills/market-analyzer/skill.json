@@ -1,0 +1,20 @@
+{
+  "id": "market-analyzer",
+  "name": "市场数据分析器",
+  "version": "1.0.0",
+  "description": "分析市场数据，提取关键指标和趋势",
+  "author": "Autonomous Agent Stack Team",
+  "category": "analysis",
+  "tags": ["market", "data", "analysis", "trends"],
+  "dependencies": [],
+  "entry_point": "market_analyzer.py",
+  "permissions": {
+    "network": true,
+    "file_system": false,
+    "subprocess": false
+  },
+  "config": {
+    "cache_ttl": 3600,
+    "max_retries": 3
+  }
+}
