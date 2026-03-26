@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 from enum import Enum
+import re
 
 
 class TaskComplexity(Enum):
@@ -65,8 +66,13 @@ class TaskDecomposer:
         Returns:
             任务复杂度级别
         """
+        task = task.strip()
+
         # 简单启发式规则
         word_count = len(task.split())
+        sentence_count = len([
+            part for part in re.split(r"[。！？.!?；;\n]+", task) if part.strip()
+        ])
         
         # 检查关键词
         complex_keywords = ["然后", "之后", "同时", "最后", "先", "再", "and then", "after that", "finally"]
@@ -77,9 +83,9 @@ class TaskDecomposer:
         
         if has_hierarchical or word_count > 200:
             return TaskComplexity.HIERARCHICAL
-        elif has_complex or word_count > 100:
+        elif has_complex or word_count > 100 or sentence_count > 5:
             return TaskComplexity.COMPLEX
-        elif word_count > 30:
+        elif word_count > 30 or sentence_count >= 2:
             return TaskComplexity.MEDIUM
         else:
             return TaskComplexity.SIMPLE

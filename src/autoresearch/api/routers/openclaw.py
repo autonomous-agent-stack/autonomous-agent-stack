@@ -8,12 +8,12 @@ from autoresearch.api.dependencies import (
     get_claude_agent_service,
     get_mirofish_prediction_service,
     get_openclaw_compat_service,
-    get_openviking_memory_service,
+    get_openclaw_skill_service,
 )
 from autoresearch.core.services.claude_agents import ClaudeAgentService
 from autoresearch.core.services.mirofish_prediction import MiroFishPredictionService
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
-from autoresearch.core.services.openviking_memory import OpenVikingMemoryService
+from autoresearch.core.services.openclaw_skills import OpenClawSkillService
 from autoresearch.shared.models import (
     ClaudeAgentCancelRequest,
     ClaudeAgentCreateRequest,
@@ -22,8 +22,11 @@ from autoresearch.shared.models import (
     ClaudeAgentTreeRead,
     MiroFishPredictionRead,
     MiroFishPredictionRequest,
+    OpenClawSessionSkillLoadRequest,
     OpenClawSessionCreateRequest,
     OpenClawSessionEventAppendRequest,
+    OpenClawSkillDetailRead,
+    OpenClawSkillRead,
     OpenClawSessionRead,
     OpenVikingCompactRequest,
     OpenVikingMemoryProfileRead,
@@ -78,28 +81,75 @@ def append_session_event(
         ) from exc
 
 
-@router.post("/sessions/{session_id}/compact", response_model=OpenVikingMemoryProfileRead)
-def compact_session_memory(
-    session_id: str,
-    payload: OpenVikingCompactRequest,
-    service: OpenVikingMemoryService = Depends(get_openviking_memory_service),
-) -> OpenVikingMemoryProfileRead:
-    try:
-        _, profile = service.compact_session(session_id=session_id, request=payload)
-        return profile
-    except KeyError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="OpenClaw session not found") from exc
+@router.get("/skills", response_model=list[OpenClawSkillRead])
+def list_openclaw_skills(
+    service: OpenClawSkillService = Depends(get_openclaw_skill_service),
+) -> list[OpenClawSkillRead]:
+    return service.list_skills()
 
 
-@router.get("/sessions/{session_id}/memory-profile", response_model=OpenVikingMemoryProfileRead)
-def get_session_memory_profile(
+@router.get("/skills/{skill_name}", response_model=OpenClawSkillDetailRead)
+def get_openclaw_skill(
+    skill_name: str,
+    service: OpenClawSkillService = Depends(get_openclaw_skill_service),
+) -> OpenClawSkillDetailRead:
+    skill = service.get_skill(skill_name)
+    if skill is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="OpenClaw skill not found")
+    return skill
+
+
+@router.post("/sessions/{session_id}/skills", response_model=OpenClawSessionRead)
+def load_session_skills(
     session_id: str,
-    service: OpenVikingMemoryService = Depends(get_openviking_memory_service),
-) -> OpenVikingMemoryProfileRead:
+    payload: OpenClawSessionSkillLoadRequest,
+    openclaw_service: OpenClawCompatService = Depends(get_openclaw_compat_service),
+    skill_service: OpenClawSkillService = Depends(get_openclaw_skill_service),
+) -> OpenClawSessionRead:
+    session = openclaw_service.get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="OpenClaw session not found")
+
+    resolved, missing = skill_service.resolve_skill_names(payload.skill_names)
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"OpenClaw skills not found: {', '.join(missing)}",
+        )
+
+    requested = [skill.name for skill in resolved]
+    if payload.merge:
+        existing = _normalize_skill_name_list(session.metadata.get("loaded_skill_names"))
+        existing_lower = {item.lower() for item in existing}
+        merged = existing + [name for name in requested if name.lower() not in existing_lower]
+    else:
+        merged = requested
+
     try:
-        return service.memory_profile(session_id=session_id)
+        updated = openclaw_service.update_metadata(
+            session_id=session_id,
+            metadata_updates={
+                "loaded_skill_names": merged,
+                "loaded_skill_count": len(merged),
+                "loaded_skill_sources": [skill.source for skill in resolved],
+            },
+        )
+        openclaw_service.append_event(
+            session_id=session_id,
+            request=OpenClawSessionEventAppendRequest(
+                role="status",
+                content=f"skills loaded: {', '.join(merged)}",
+                metadata={
+                    "loaded_skill_names": merged,
+                },
+            ),
+        )
     except KeyError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="OpenClaw session not found") from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="OpenClaw session not found",
+        ) from exc
+    return updated
 
 
 @router.post(
@@ -216,17 +266,20 @@ def retry_claude_agent(
     return replay_run
 
 
-def _prediction_gate_enabled() -> bool:
-    raw = os.getenv("AUTORESEARCH_MIROFISH_ENABLED")
-    if raw is None:
-        return False
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _prediction_min_confidence() -> float:
-    raw = os.getenv("AUTORESEARCH_MIROFISH_MIN_CONFIDENCE", "0.35").strip()
-    try:
-        value = float(raw)
-    except ValueError:
-        return 0.35
-    return max(0.0, min(1.0, value))
+def _normalize_skill_name_list(raw: object) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        if not isinstance(item, str):
+            continue
+        value = item.strip()
+        if not value:
+            continue
+        lowered = value.lower()
+        if lowered in seen:
+            continue
+        seen.add(lowered)
+        normalized.append(value)
+    return normalized

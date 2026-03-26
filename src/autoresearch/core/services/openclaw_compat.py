@@ -103,3 +103,21 @@ class OpenClawCompatService:
             }
         )
         return self._repository.save(updated.session_id, updated)
+
+    def update_metadata(
+        self,
+        session_id: str,
+        metadata_updates: dict[str, Any],
+    ) -> OpenClawSessionRead:
+        session = self.get_session(session_id)
+        if session is None:
+            raise KeyError(f"session not found: {session_id}")
+        updated_metadata = dict(session.metadata)
+        updated_metadata.update(metadata_updates)
+        updated = session.model_copy(
+            update={
+                "metadata": updated_metadata,
+                "updated_at": utc_now(),
+            }
+        )
+        return self._repository.save(updated.session_id, updated)

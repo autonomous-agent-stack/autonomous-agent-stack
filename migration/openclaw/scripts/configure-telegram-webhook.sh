@@ -30,12 +30,19 @@ if [[ -z "${SECRET_TOKEN}" || "${SECRET_TOKEN}" == "replace_with_your_webhook_se
 fi
 
 WEBHOOK_BASE_URL="${WEBHOOK_BASE_URL:-}"
+if [[ -z "${WEBHOOK_BASE_URL}" ]]; then
+  WEBHOOK_BASE_URL="${CLOUDFLARE_TUNNEL_PUBLIC_BASE_URL:-}"
+fi
+if [[ -z "${WEBHOOK_BASE_URL}" && -n "${CLOUDFLARE_TUNNEL_DOMAIN:-}" ]]; then
+  WEBHOOK_BASE_URL="https://${CLOUDFLARE_TUNNEL_DOMAIN}"
+fi
 if [[ -z "${WEBHOOK_BASE_URL}" && -f "${CF_LOG}" ]]; then
   WEBHOOK_BASE_URL="$(sed -n 's/.*\(https:\/\/[a-zA-Z0-9.-]*\.trycloudflare.com\).*/\1/p' "${CF_LOG}" | tail -n 1)"
 fi
 
 if [[ -z "${WEBHOOK_BASE_URL}" ]]; then
-  echo "missing WEBHOOK_BASE_URL (example: https://your-domain.com)"
+  echo "missing WEBHOOK_BASE_URL (example: https://panel.example.com)"
+  echo "tip: set CLOUDFLARE_TUNNEL_PUBLIC_BASE_URL or run setup-cloudflared-tunnel.sh first"
   exit 2
 fi
 if [[ -z "${BOT_TOKEN}" ]]; then

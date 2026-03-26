@@ -1,236 +1,168 @@
 # 🤖 Autonomous Agent Stack
 
-> **现代化多智能体编排框架** - 基于 MASFactory 的图编排引擎
+> 一个面向多智能体编排、审计、面板接入与迁移验证的工程化框架。
 
 ---
 
-## 📋 项目简介
+## 项目概览
 
-Autonomous Agent Stack 是一个基于 MASFactory 的多智能体编排框架，将 6 个开源项目整合为统一的"超级智能体底座"。
+Autonomous Agent Stack 目前已经把核心链路落到了代码里，重点覆盖以下几类能力：
 
-**核心特性**：
-- 🎯 **图编排引擎**：基于 MASFactory 的 Vibe Graphing
-- 🔧 **MCP 集成**：通过 ContextBlock 统一管理工具链
-- 🖥️ **M1 优化**：本地沙盒 + AppleDouble 自动清理
-- 📊 **可视化监控**：实时看板 + Mermaid 图
-- 🔄 **自愈能力**：自动重试 + 回滚机制
+- 多智能体图编排与 prompt 驱动执行
+- OpenClaw / Autoresearch 兼容会话与运行记录
+- MCP 工具注册、上下文桥接与动态工具合成
+- Docker 沙盒执行与 AppleDouble 清理
+- Telegram 网关、面板鉴权与审计
+- 静态安全审计、知识图谱与业务红线约束
+- 检查点恢复、人机协同拦截与标准 MCP 兼容能力
 
----
-
-## 🏗️ 架构设计
-
-### 核心流程
-
-```
-Planner Node → Generator Node → Executor Node → Evaluator Node
-      ↑                                                    ↓
-      └────────────── Retry Loop ──────────────────────────┘
-```
-
-### 6 部分架构
-
-| 部分 | 核心技术 | 价值 |
-|------|---------|------|
-| **Part 1** | MetaClaw 自演化 | 准确率 +89.7% |
-| **Part 2** | Autoresearch API-first | 最小闭环 ✅ |
-| **Part 3** | Deer-flow 并发隔离 | 会话零污染 |
-| **Part 4** | InfoQuest/MCP 深度耦合 | Token 优化 |
-| **Part 5** | Claude Code 终端集成 | 自动重连 |
-| **Part 6** | OpenClaw 持久化架构 | 污染防治 ✅ |
+这份 README 以“仓库里已实现什么”为准，而不是以愿景为准。
 
 ---
 
-## 🚀 快速开始
+## 已实现功能
 
-### 1. 安装
+### 1. 多智能体编排
+
+- 基于图的编排引擎
+- Planner / Generator / Executor / Evaluator 节点链路
+- 支持 prompt 直接生成编排图
+- 支持 VS Code 任务驱动的 prompt 文件执行
+- 支持失败重试和流程回环
+
+### 2. OpenClaw / Autoresearch 兼容层
+
+- SQLite 持久化会话与运行记录
+- OpenClaw 兼容服务入口
+- Claude 子 agent 调度接口
+- 会话、评估、运行状态可追踪
+
+### 3. MCP 工具体系
+
+- MCPContextBlock 上下文桥接
+- MCPToolRegistry 工具注册与缓存
+- 动态工具发现、合成与调用路径
+- 标准 MCP manifest 解析与导出
+- JSON Schema 输入校验
+
+### 4. 沙盒与执行环境
+
+- Docker 动态沙盒后端
+- 代码执行路由到容器
+- AppleDouble / `.DS_Store` 清理器
+- 适配本地开发和迁移验证流程
+
+### 5. Telegram 网关与面板安全
+
+- Telegram webhook 网关
+- `/status` 魔法链接流程
+- `x-telegram-bot-api-secret-token` 校验
+- 面板 JWT 鉴权
+- Telegram Mini App `initData` 验签
+- Telegram UID 白名单
+- 面板操作审计写入 SQLite
+- localhost / Tailscale 绑定限制
+
+### 6. 静态安全与业务约束
+
+- AST + 正则双通道安全审计
+- 高危调用拦截
+- Micro-GraphRAG 轻量知识图谱
+- 业务红线词汇约束
+- 基础安全扫描脚本与迁移校验脚本
+
+### 7. 高级工程特性
+
+- Checkpointing 节点快照与恢复
+- HITL 人机协同审批拦截
+- 标准 MCP 兼容层
+- 运行状态与回退记录
+
+---
+
+## 现状说明
+
+下面这些是仓库里已经有代码落点的能力，但其中有些仍是简化实现或需要特定环境验证：
+
+- WebAuthn 生物识别路由与前后端拦截器
+- P4 / OpenSage 自动发现与修复流程骨架
+- 并发稳定性与真实高压场景验证
+- 部分生态插件在真实业务场景下的收益评估
+
+如果你要判断“能不能直接上生产”，建议先看 `STATUS_AND_RELEASE_NOTES.md` 和各模块测试结果。
+
+---
+
+## 快速开始
+
+### 1. 后端 API
 
 ```bash
-# 克隆仓库
-git clone https://github.com/srxly888-creator/autonomous-agent-stack.git
-cd autonomous-agent-stack
-
-# 安装依赖
+cd /Volumes/PS1008/Github/autonomous-agent-stack
 pip install -r requirements.txt
-
-# 复制安全模板（填写 Telegram/Tailscale/JWT 参数）
-cp .env.security.example .env.local
+uvicorn src.autoresearch.api.main:app --host 127.0.0.1 --port 8000
 ```
 
-### 2. 运行最小闭环
-
-```python
-from src.orchestrator import create_minimal_loop
-import asyncio
-
-async def main():
-    # 创建最小闭环
-    graph = create_minimal_loop()
-    
-    # 设置初始输入
-    graph.context.set("goal", "优化代码性能")
-    
-    # 执行图
-    results = await graph.execute()
-    print(results)
-
-asyncio.run(main())
-```
-
-### 3. 启动监控看板
+健康检查：
 
 ```bash
-# 生成 HTML 看板
-python src/orchestrator/visualizer.py
+open http://127.0.0.1:8000/healthz
+```
 
-# 在浏览器中打开
-open dashboard.html
+### 2. Dashboard
+
+```bash
+cd /Volumes/PS1008/Github/autonomous-agent-stack/dashboard
+npm install
+npm run dev
+```
+
+打开：
+
+```bash
+open http://localhost:3000
+```
+
+### 3. OpenClaw 迁移配置
+
+```bash
+cp migration/openclaw/templates/openclaw-to-autoresearch.env.example migration/openclaw/.env.local
 ```
 
 ---
 
-## 🎯 核心组件
+## 主要入口
 
-### 1. 图编排引擎 (`src/orchestrator/graph_engine.py`)
-
-**4 个核心节点**：
-- **PlannerNode**: 规划节点，对接 OpenClaw
-- **GeneratorNode**: 生成节点，写代码或调用工具
-- **ExecutorNode**: 执行节点，沙盒环境
-- **EvaluatorNode**: 评估节点，承载 MetaClaw 逻辑
-
-### 2. MCP 上下文块 (`src/orchestrator/mcp_context.py`)
-
-**统一工具管理**：
-- Web Search
-- Link Reader
-- File Reader
-- Code Analyzer
-
-### 3. 可视化工具 (`src/orchestrator/visualizer.py`)
-
-**监控看板功能**：
-- 实时节点状态
-- 评估分数展示
-- Mermaid 图渲染
-- 浅色主题
+- API 服务：`src/autoresearch/api/main.py`
+- OpenClaw 兼容服务：`src/autoresearch/core/services/openclaw_compat.py`
+- 面板路由：`src/autoresearch/api/routers/panel.py`
+- Telegram 网关：`src/autoresearch/api/routers/gateway_telegram.py`
+- WebAuthn 路由：`src/autoresearch/api/routers/webauthn.py`
+- MCP 上下文：`src/orchestrator/mcp_context.py`
+- 沙盒清理：`src/orchestrator/sandbox_cleaner.py`
+- 静态安全审计：`src/gatekeeper/static_analyzer.py`
 
 ---
 
-## ✅ 当前实现进度（可运行）
+## 文档与看板
 
-### OpenClaw 替代核心（MVP）
-- OpenClaw 兼容会话层：`/api/v1/openclaw/sessions`（SQLite 持久化）
-- Claude 子 agent 调度：`/api/v1/openclaw/agents`
-- 运行控制（P1）：`cancel` / `retry` / `task tree`（含 Mermaid 文本）
-
-### Telegram 网关（P0 入口）
-- Webhook 入口：`/api/v1/gateway/telegram/webhook`
-- `chat_id -> session` 自动复用
-- 支持 `x-telegram-bot-api-secret-token` 校验
-- 支持 `/status` 动态魔法链接（短期 JWT + Telegram UID 签名）
-
-### Web 面板零信任安全（新增）
-- 默认仅允许 `127.0.0.1` 或 Tailscale IP 绑定，避免误暴露公网
-- 面板路由：`/api/v1/panel/*`，支持两种鉴权：
-  - 魔法链接 JWT：`Authorization: Bearer <token>` 或 `x-autoresearch-panel-token`
-  - Telegram Mini App：`x-telegram-init-data`（服务端验签 + UID 白名单）
-- 面板手动干预（`cancel/retry`）自动写入 SQLite 审计表 `panel_audit_logs`
-- 审计事件通过 Telegram Bot 实时推送（配置 `AUTORESEARCH_TELEGRAM_BOT_TOKEN`）
-- 适配两套移动访问路径：
-  - 方案一：Tailscale 私网直连
-  - 方案二：Cloudflare Tunnel + Telegram Mini App（解决手机 VPN 冲突）
-
-### 动态工具执行安全
-- Dynamic Tool Synthesis 默认 `docker` 后端
-- 执行前自动清理 `._*` / `.DS_Store`（AppleDouble 防污染）
-- 容器限制：CPU / Memory / PIDs / `--network none` / `--read-only`
-
-### P3 生态融合（OpenViking + MiroFish）
-- OpenViking 记忆压缩：
-  - `POST /api/v1/openclaw/sessions/{session_id}/compact`
-  - `GET /api/v1/openclaw/sessions/{session_id}/memory-profile`
-  - Badge 建议：`Compression 52% (OpenViking)`
-- MiroFish 预测旁路：
-  - `POST /api/v1/openclaw/predictions`
-  - `AUTORESEARCH_MIROFISH_ENABLED=true` 启用执行前闸门
-  - `AUTORESEARCH_MIROFISH_MIN_CONFIDENCE=0.35` 最低置信阈值
-  - Badge 建议：`Prediction 89% (MiroFish)`
-
-### P4 自主集成协议（最小骨架）
-- Discover：`POST /api/v1/integrations/discover`
-- Prototype：`POST /api/v1/integrations/prototype`
-- Promote：`POST /api/v1/integrations/promote`
-- 当前语义：生成“可执行计划 + 回滚模板”，用于后续真实沙盒执行与热替换
-
-### 运行状态（2026-03-25）
-- 分支：`codex/continue-autonomous-agent-stack`
-- 测试：`40 passed`
+- 根目录 README：项目总览
+- `dashboard/README.md`：前端看板说明
+- `dashboard/QUICKSTART.md`：看板快速启动
+- `STATUS_AND_RELEASE_NOTES.md`：真实状态与发布说明
+- `FINAL_DELIVERY_REPORT.md`：收尾交付报告
+- `NIGHT_SPRINT_REPORT.md`：夜间冲刺报告
 
 ---
 
-## 📚 文档
+## 开发约定
 
-- **[架构文档](docs/architecture.md)**: 6 部分完整架构
-- **[关键工程决策](docs/critical-designs.md)**: 短路机制 + 节点协议 + 并发安全 ⭐ **NEW**
-- **[OpenClaw 替代迁移手册](docs/openclaw-replacement-migration-playbook.md)**: 最佳实践 + 分阶段迁移 + 回滚方案 ⭐ **NEW**
-- **[P3 生态融合手册](docs/p3-ecosystem-fusion-playbook.md)**: OpenViking + MiroFish 接入与 API 契约 ⭐ **NEW**
-- **[P4 自主集成协议](docs/p4-self-integration-protocol.md)**: discover/prototype/promote 设计与契约 ⭐ **NEW**
-- **[MASFactory 集成](docs/masfactory-integration.md)**: 集成指南
-- **[集成指南](docs/integration-guide.md)**: 快速集成
-- **[API 参考](docs/api-reference.md)**: API 详细说明
-- **[路线图](docs/roadmap.md)**: 未来演进方向
-- **[贡献指南](CONTRIBUTING.md)**: 如何贡献
+- 以代码和测试为准，不把愿景默认当成已完成
+- 新增能力尽量补充到对应模块 README 或状态说明
+- 涉及安全、鉴权、审批链路的改动，优先补测试再合并
 
 ---
 
-## 🎯 使用场景
+## 许可证
 
-### 1. 软件工程
-- 自动化代码优化
-- 架构演进
-- Bug 修复
-
-### 2. 科学研究
-- 自动化实验
-- 参数优化
-- 论文生成
-
-### 3. 数据分析
-- 自动化分析
-- 可视化生成
-- 报告生成
-
----
-
-## 📊 项目统计
-
-| 指标 | 数值 |
-|------|------|
-| **文件数量** | 58 个 |
-| **代码行数** | 4,000+ 行 |
-| **文档字数** | 30,000+ 字 |
-| **测试覆盖率** | 60%+ |
-
----
-
-## 🤝 贡献
-
-欢迎贡献！请查看 [CONTRIBUTING.md](CONTRIBUTING.md) 了解详情。
-
----
-
-## 📄 许可证
-
-MIT License - 详见 [LICENSE](LICENSE)
-
----
-
-## 🔗 相关链接
-
-- **GitHub**: https://github.com/srxly888-creator/autonomous-agent-stack
-- **MASFactory**: https://github.com/BUPT-GAMMA/MASFactory
-- **OpenClaw**: https://github.com/openclaw/openclaw
-
----
-
-**一起构建未来！** 🚀
+MIT License
