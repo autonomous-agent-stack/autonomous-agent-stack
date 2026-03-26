@@ -12,9 +12,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import os
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Any, List, Optional
+
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 
 logger = logging.getLogger(__name__)
 
@@ -48,8 +53,17 @@ class GoogleMCPScopedDeletion:
         "temp",
     ]
     
-    def __init__(self, allowed_keywords: Optional[List[str]] = None):
+    def __init__(
+        self,
+        allowed_keywords: Optional[List[str]] = None,
+        oauth_manager: Any | None = None,
+        calendar_service: Any | None = None,
+        drive_service: Any | None = None,
+    ):
         self.allowed_keywords = allowed_keywords or self.ALLOWED_KEYWORDS
+        self._oauth_manager = oauth_manager
+        self._calendar_service = calendar_service
+        self._drive_service = drive_service
     
     def _validate_scope(self, resource_name: str) -> bool:
         """验证资源名称是否在允许的作用域内
@@ -69,6 +83,39 @@ class GoogleMCPScopedDeletion:
         # 如果没有匹配任何关键词，拒绝删除
         logger.warning(f"❌ 作用域验证失败: {resource_name}")
         return False
+
+    def _has_google_credentials(self) -> bool:
+        if self._oauth_manager is not None:
+            return True
+        return bool(os.getenv("GOOGLE_CLIENT_ID") and os.getenv("GOOGLE_CLIENT_SECRET"))
+
+    def _get_oauth_manager(self) -> Any:
+        if self._oauth_manager is not None:
+            return self._oauth_manager
+        from .oauth import OAuthManager
+
+        self._oauth_manager = OAuthManager()
+        return self._oauth_manager
+
+    def _get_calendar_service(self) -> Any:
+        if self._calendar_service is not None:
+            return self._calendar_service
+        credentials = self._get_oauth_manager().get_credentials()
+        self._calendar_service = build("calendar", "v3", credentials=credentials)
+        return self._calendar_service
+
+    def _get_drive_service(self) -> Any:
+        if self._drive_service is not None:
+            return self._drive_service
+        credentials = self._get_oauth_manager().get_credentials()
+        self._drive_service = build("drive", "v3", credentials=credentials)
+        return self._drive_service
+
+    def _delete_google_event_sync(self, event_id: str, calendar_id: str) -> None:
+        self._get_calendar_service().events().delete(calendarId=calendar_id, eventId=event_id).execute()
+
+    def _delete_drive_file_sync(self, file_id: str) -> None:
+        self._get_drive_service().files().delete(fileId=file_id).execute()
     
     async def delete_google_event(
         self,
@@ -97,21 +144,28 @@ class GoogleMCPScopedDeletion:
                 f"作用域违规: 不允许删除非玛露相关的日历事件 '{event_name}'"
             )
         
-        # 2. 执行删除（TODO: 集成真实的 Google Calendar API）
-        # 目前返回模拟结果
         try:
-            # TODO: 调用 Google Calendar API
-            # service.events().delete(calendarId=calendar_id, eventId=event_id).execute()
-            
-            logger.info(f"✅ 已删除日历事件: {event_name} (ID: {event_id})")
-            
+            if self._has_google_credentials():
+                await asyncio.to_thread(self._delete_google_event_sync, event_id, calendar_id)
+                logger.info(f"✅ 已删除日历事件: {event_name} (ID: {event_id})")
+                message = "已删除日历事件"
+            else:
+                logger.warning("⚠️ 未配置 Google 凭据，执行作用域通过后的模拟删除。")
+                message = "已删除日历事件 (模拟模式: 未配置 Google 凭据)"
             return DeletionResult(
                 success=True,
-                message="已删除日历事件",
+                message=message,
                 resource_id=event_id,
                 resource_name=event_name,
             )
-        
+        except HttpError as e:
+            logger.error(f"❌ 删除日历事件失败: {e}")
+            return DeletionResult(
+                success=False,
+                message=f"删除失败: {str(e)}",
+                resource_id=event_id,
+                resource_name=event_name,
+            )
         except Exception as e:
             logger.error(f"❌ 删除日历事件失败: {e}")
             return DeletionResult(
@@ -146,21 +200,28 @@ class GoogleMCPScopedDeletion:
                 f"作用域违规: 不允许删除非玛露相关的文件 '{file_name}'"
             )
         
-        # 2. 执行删除（TODO: 集成真实的 Google Drive API）
-        # 目前返回模拟结果
         try:
-            # TODO: 调用 Google Drive API
-            # service.files().delete(fileId=file_id).execute()
-            
-            logger.info(f"✅ 已删除文件: {file_name} (ID: {file_id})")
-            
+            if self._has_google_credentials():
+                await asyncio.to_thread(self._delete_drive_file_sync, file_id)
+                logger.info(f"✅ 已删除文件: {file_name} (ID: {file_id})")
+                message = "已删除文件"
+            else:
+                logger.warning("⚠️ 未配置 Google 凭据，执行作用域通过后的模拟删除。")
+                message = "已删除文件 (模拟模式: 未配置 Google 凭据)"
             return DeletionResult(
                 success=True,
-                message="已删除文件",
+                message=message,
                 resource_id=file_id,
                 resource_name=file_name,
             )
-        
+        except HttpError as e:
+            logger.error(f"❌ 删除文件失败: {e}")
+            return DeletionResult(
+                success=False,
+                message=f"删除失败: {str(e)}",
+                resource_id=file_id,
+                resource_name=file_name,
+            )
         except Exception as e:
             logger.error(f"❌ 删除文件失败: {e}")
             return DeletionResult(

@@ -7,6 +7,7 @@ SECURITY: Only Read operations are allowed.
 from __future__ import annotations
 
 import subprocess
+import re
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -187,8 +188,58 @@ class CalendarService:
 
     def _parse_events_output(self, output: str) -> list[dict[str, Any]]:
         """Parse AppleScript event list output."""
-        # Simplified parser
-        # In production, use proper parser or JXA for JSON output
-        events = []
-        # TODO: Implement proper parsing
+        output = output.strip()
+        if not output:
+            return []
+
+        records = self._split_records(output, anchor_key="summary")
+        events: list[dict[str, Any]] = []
+        key_map = {
+            "summary": "summary",
+            "startDate": "start_date",
+            "endDate": "end_date",
+            "location": "location",
+        }
+        for record in records:
+            parsed = self._parse_record(record, list(key_map.keys()))
+            if not parsed:
+                continue
+            event = {target: parsed.get(source, "") for source, target in key_map.items() if parsed.get(source)}
+            if event:
+                events.append(event)
         return events
+
+    @staticmethod
+    def _split_records(output: str, anchor_key: str) -> list[str]:
+        payload = output.strip().strip("{}").strip()
+        if not payload:
+            return []
+        anchor_pattern = re.compile(rf"(?:^|,\s*){re.escape(anchor_key)}:")
+        matches = list(anchor_pattern.finditer(payload))
+        if not matches:
+            return [payload]
+
+        starts = [match.start() for match in matches] + [len(payload)]
+        records: list[str] = []
+        for index in range(len(starts) - 1):
+            segment = payload[starts[index]:starts[index + 1]].lstrip(", ").strip()
+            if segment:
+                records.append(segment)
+        return records
+
+    @staticmethod
+    def _parse_record(record: str, keys: list[str]) -> dict[str, str]:
+        key_pattern = "|".join(re.escape(key) for key in keys)
+        matcher = re.compile(rf"(?:^|,\s*)({key_pattern}):")
+        matches = list(matcher.finditer(record))
+        if not matches:
+            return {}
+
+        parsed: dict[str, str] = {}
+        for index, match in enumerate(matches):
+            key = match.group(1)
+            start = match.end()
+            end = matches[index + 1].start() if index + 1 < len(matches) else len(record)
+            value = record[start:end].strip().strip(",").strip()
+            parsed[key] = value.strip('"')
+        return parsed
