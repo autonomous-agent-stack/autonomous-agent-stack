@@ -15,24 +15,43 @@ import {
 const SuperAgentDashboard = () => {
   const [activeTab, setActiveTab] = useState('matrix');
   const [stats, setStats] = useState({
-    cleanupCount: 82,
-    astBlocks: 14,
-    uptime: '18h 42m',
-    memoryUsage: '1.2GB'
+    cleanupCount: 0,
+    astBlocks: 0,
+    uptime: '0h 0m',
+    memoryUsage: '0GB'
   });
+  const [agents, setAgents] = useState([]);
+  const [recentLogs, setRecentLogs] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  const agents = [
-    { id: 'architect', name: '架构领航员', status: 'idle', color: 'blue', work: '等待指令' },
-    { id: 'scout', name: '市场情报官', status: 'working', color: 'green', work: '抓取 XHS 趋势中...' },
-    { id: 'alchemist', name: '内容视觉专家', status: 'idle', color: 'purple', work: '准备分析多模态数据' },
-    { id: 'auditor', name: '安全审计员', status: 'monitoring', color: 'amber', work: '监控 M1 文件系统' }
-  ];
+  // 获取实时数据
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const response = await fetch('/api/v1/system/health');
+        const data = await response.json();
+        
+        setStats({
+          cleanupCount: data.cleanup_count,
+          astBlocks: data.ast_blocks,
+          uptime: data.uptime,
+          memoryUsage: data.memory_usage
+        });
+        setAgents(data.agents);
+        setRecentLogs(data.recent_logs);
+        setLoading(false);
+      } catch (error) {
+        console.error('Failed to fetch system health:', error);
+        setLoading(false);
+      }
+    };
 
-  const recentLogs = [
-    { id: 1, type: 'security', msg: '[环境防御] 物理清理了 12 个 ._ 缓存文件', time: '1m ago' },
-    { id: 2, type: 'system', msg: '[Bridge] 接收到来自 OpenClaw 的任务委派', time: '5m ago' },
-    { id: 3, type: 'audit', msg: '[AST] 拦截了一个未授权的 os.system 调用', time: '12m ago' },
-  ];
+    fetchData();
+    // 每 30 秒刷新一次
+    const interval = setInterval(fetchData, 30000);
+    
+    return () => clearInterval(interval);
+  }, []);
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans p-6 lg:p-12">

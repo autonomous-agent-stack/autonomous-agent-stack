@@ -7,9 +7,49 @@ import logging
 from typing import Dict, List, Optional, Any, Set
 from dataclasses import dataclass, field
 from enum import Enum
-import networkx as nx
 
 logger = logging.getLogger(__name__)
+
+
+class SimpleGraph:
+    """简单有向图"""
+    
+    def __init__(self):
+        self.nodes: Dict[str, Dict] = {}
+        self.edges: List[tuple] = []
+        
+    def add_node(self, node_id: str, **attrs):
+        self.nodes[node_id] = attrs
+        
+    def add_edge(self, source: str, target: str, **attrs):
+        self.edges.append((source, target, attrs))
+        
+    def topological_sort(self) -> List[str]:
+        """拓扑排序（简化版）"""
+        # 构建邻接表
+        in_degree = {node: 0 for node in self.nodes}
+        graph = {node: [] for node in self.nodes}
+        
+        for source, target, _ in self.edges:
+            if source in graph and target in in_degree:
+                graph[source].append(target)
+                in_degree[target] += 1
+            
+        # BFS
+        queue = [node for node, degree in in_degree.items() if degree == 0]
+        result = []
+        
+        while queue:
+            node = queue.pop(0)
+            result.append(node)
+            
+            if node in graph:
+                for neighbor in graph[node]:
+                    in_degree[neighbor] -= 1
+                    if in_degree[neighbor] == 0:
+                        queue.append(neighbor)
+                    
+        return result if len(result) == len(self.nodes) else []
 
 
 class NodeType(Enum):
@@ -56,7 +96,7 @@ class TopologyEngine:
     """拓扑引擎"""
     
     def __init__(self):
-        self.graph = nx.DiGraph()
+        self.graph = SimpleGraph()  # 使用简化图
         self.nodes: Dict[str, TaskNode] = {}
         self.edges: List[TaskEdge] = []
         
