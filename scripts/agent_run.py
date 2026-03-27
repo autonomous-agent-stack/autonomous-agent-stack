@@ -19,10 +19,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--agent", required=True, help="agent id from configs/agents/<id>.yaml")
     parser.add_argument("--task", required=True, help="execution task")
     parser.add_argument("--run-id", default=None, help="optional run id")
-    parser.add_argument("--validator-cmd", action="append", default=[], help="command validator to run in workspace")
-    parser.add_argument("--retry", type=int, default=0, help="additional retry attempts after primary attempt")
+    parser.add_argument(
+        "--validator-cmd", action="append", default=[], help="command validator to run in workspace"
+    )
+    parser.add_argument(
+        "--retry", type=int, default=0, help="additional retry attempts after primary attempt"
+    )
     parser.add_argument("--fallback-agent", default=None, help="fallback agent id")
-    parser.add_argument("--no-human-review", action="store_true", help="do not append human_review fallback step")
+    parser.add_argument(
+        "--no-human-review", action="store_true", help="do not append human_review fallback step"
+    )
     return parser.parse_args()
 
 
@@ -39,7 +45,9 @@ def main() -> int:
     if args.retry > 0:
         fallback.append(FallbackStep(action="retry", max_attempts=args.retry))
     if args.fallback_agent:
-        fallback.append(FallbackStep(action="fallback_agent", agent_id=args.fallback_agent, max_attempts=1))
+        fallback.append(
+            FallbackStep(action="fallback_agent", agent_id=args.fallback_agent, max_attempts=1)
+        )
     if not args.no_human_review:
         fallback.append(FallbackStep(action="human_review", max_attempts=1))
 
