@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import os
-
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 
+from autoresearch.api.settings import load_feature_settings
 from autoresearch.api.dependencies import (
     get_claude_agent_service,
     get_mirofish_prediction_service,
@@ -283,3 +282,12 @@ def _normalize_skill_name_list(raw: object) -> list[str]:
         seen.add(lowered)
         normalized.append(value)
     return normalized
+
+
+def _prediction_gate_enabled() -> bool:
+    return load_feature_settings().enable_mirofish_gate
+
+
+def _prediction_min_confidence() -> float:
+    value = load_feature_settings().mirofish_min_confidence
+    return max(0.0, min(value, 1.0))

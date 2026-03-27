@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import inspect
-import os
-import shlex
 import threading
 import time
 from typing import Any
@@ -17,6 +15,7 @@ from autoresearch.api.dependencies import (
     get_panel_access_service,
     get_telegram_notifier_service,
 )
+from autoresearch.api.settings import load_panel_settings, load_runtime_settings, load_telegram_settings
 from autoresearch.core.services.admin_config import AdminConfigService
 from autoresearch.core.services.claude_agents import ClaudeAgentService
 from autoresearch.core.services.group_access import GroupAccessManager
@@ -36,6 +35,7 @@ from autoresearch.shared.models import (
 
 
 router = APIRouter(prefix="/api/v1/gateway/telegram", tags=["gateway", "telegram"])
+compat_router = APIRouter(tags=["gateway", "telegram", "compat"])
 _UPDATE_REPLAY_TTL_SECONDS = 600
 _RATE_WINDOW_SECONDS = 60
 _RATE_MAX_REQUESTS_PER_CHAT = 30
@@ -63,6 +63,56 @@ def telegram_webhook(
     panel_access_service: PanelAccessService = Depends(get_panel_access_service),
     notifier: TelegramNotifierService = Depends(get_telegram_notifier_service),
     admin_config_service: AdminConfigService = Depends(get_admin_config_service),
+) -> TelegramWebhookAck:
+    return _handle_telegram_webhook(
+        update=update,
+        raw_request=raw_request,
+        background_tasks=background_tasks,
+        openclaw_service=openclaw_service,
+        agent_service=agent_service,
+        panel_access_service=panel_access_service,
+        notifier=notifier,
+        admin_config_service=admin_config_service,
+    )
+
+
+@compat_router.post(
+    "/telegram/webhook",
+    response_model=TelegramWebhookAck,
+    status_code=status.HTTP_200_OK,
+)
+def legacy_telegram_webhook(
+    update: dict[str, Any],
+    raw_request: Request,
+    background_tasks: BackgroundTasks,
+    openclaw_service: OpenClawCompatService = Depends(get_openclaw_compat_service),
+    agent_service: ClaudeAgentService = Depends(get_claude_agent_service),
+    panel_access_service: PanelAccessService = Depends(get_panel_access_service),
+    notifier: TelegramNotifierService = Depends(get_telegram_notifier_service),
+    admin_config_service: AdminConfigService = Depends(get_admin_config_service),
+) -> TelegramWebhookAck:
+    return _handle_telegram_webhook(
+        update=update,
+        raw_request=raw_request,
+        background_tasks=background_tasks,
+        openclaw_service=openclaw_service,
+        agent_service=agent_service,
+        panel_access_service=panel_access_service,
+        notifier=notifier,
+        admin_config_service=admin_config_service,
+    )
+
+
+def _handle_telegram_webhook(
+    *,
+    update: dict[str, Any],
+    raw_request: Request,
+    background_tasks: BackgroundTasks,
+    openclaw_service: OpenClawCompatService,
+    agent_service: ClaudeAgentService,
+    panel_access_service: PanelAccessService,
+    notifier: TelegramNotifierService,
+    admin_config_service: AdminConfigService,
 ) -> TelegramWebhookAck:
     _validate_secret_token(raw_request)
     _guard_webhook_replay_and_rate(update)
@@ -130,17 +180,18 @@ def telegram_webhook(
         extracted=extracted,
     )
 
+    telegram_settings = load_telegram_settings()
     request_payload = ClaudeAgentCreateRequest(
         task_name=_build_task_name(chat_id, update, extracted),
         prompt=text,
         session_id=session.session_id,
-        agent_name=os.getenv("AUTORESEARCH_TELEGRAM_AGENT_NAME"),
-        generation_depth=_bounded_env_int("AUTORESEARCH_TELEGRAM_GENERATION_DEPTH", 1, 1, 10),
-        timeout_seconds=_bounded_env_int("AUTORESEARCH_TELEGRAM_TIMEOUT_SECONDS", 900, 1, 7200),
-        work_dir=os.getenv("AUTORESEARCH_TELEGRAM_WORK_DIR"),
-        cli_args=_env_cli_args("AUTORESEARCH_TELEGRAM_CLAUDE_ARGS"),
-        command_override=_env_command_override("AUTORESEARCH_TELEGRAM_CLAUDE_COMMAND_OVERRIDE"),
-        append_prompt=_env_bool("AUTORESEARCH_TELEGRAM_APPEND_PROMPT", default=True),
+        agent_name=telegram_settings.agent_name,
+        generation_depth=max(1, min(telegram_settings.generation_depth, 10)),
+        timeout_seconds=max(1, min(telegram_settings.timeout_seconds, 7200)),
+        work_dir=str(telegram_settings.work_dir) if telegram_settings.work_dir else None,
+        cli_args=telegram_settings.claude_args,
+        command_override=telegram_settings.command_override,
+        append_prompt=telegram_settings.append_prompt,
         images=extracted.get("images", []),  # 新增图片字段
         env={},
         metadata={
@@ -202,7 +253,7 @@ def telegram_webhook(
 
 
 def _validate_secret_token(raw_request: Request) -> None:
-    expected = os.getenv("AUTORESEARCH_TELEGRAM_SECRET_TOKEN", "").strip()
+    expected = (load_telegram_settings().secret_token or "").strip()
     if _is_production_env() and not expected:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -216,13 +267,7 @@ def _validate_secret_token(raw_request: Request) -> None:
 
 
 def _is_production_env() -> bool:
-    environment = (
-        os.getenv("AUTORESEARCH_ENV")
-        or os.getenv("ENVIRONMENT")
-        or os.getenv("AUTORESEARCH_ENVIRONMENT")
-        or ""
-    ).strip().lower()
-    return environment in {"prod", "production"}
+    return load_runtime_settings().is_production
 
 
 def _extract_telegram_message(update: dict[str, Any]) -> dict[str, Any] | None:
@@ -241,7 +286,7 @@ def _extract_telegram_message(update: dict[str, Any]) -> dict[str, Any] | None:
                 file_id = largest_photo.get("file_id")
                 if file_id:
                     # 构造图片 URL（需要 Bot Token）
-                    bot_token = os.getenv("AUTORESEARCH_TELEGRAM_BOT_TOKEN", "")
+                    bot_token = load_telegram_settings().bot_token or ""
                     if bot_token:
                         image_urls.append(f"telegram://{file_id}")
         
@@ -352,11 +397,12 @@ def _ensure_admin_channel_visibility(
     if not chat_id:
         return
 
-    key = (os.getenv("AUTORESEARCH_TELEGRAM_CHANNEL_KEY", "telegram-main") or "telegram-main").strip()
+    telegram_settings = load_telegram_settings()
+    key = telegram_settings.channel_key.strip()
     if not key:
         key = "telegram-main"
-    display_name = (os.getenv("AUTORESEARCH_TELEGRAM_CHANNEL_DISPLAY_NAME", "Telegram Main") or "Telegram Main").strip()
-    actor = os.getenv("AUTORESEARCH_TELEGRAM_CHANNEL_ACTOR", "telegram-webhook").strip() or "telegram-webhook"
+    display_name = telegram_settings.channel_display_name.strip() or "Telegram Main"
+    actor = telegram_settings.channel_actor.strip() or "telegram-webhook"
 
     channels = admin_config_service.list_channels()
     existing = next((item for item in channels if item.key == key), None)
@@ -572,7 +618,7 @@ def _resolve_mini_app_url(
 ) -> str | None:
     if is_group_link:
         return None
-    configured = os.getenv("AUTORESEARCH_TELEGRAM_MINI_APP_URL", "").strip()
+    configured = (load_panel_settings().mini_app_url or "").strip()
     if configured:
         return configured
     if magic_link_url and magic_link_url.startswith("https://"):
@@ -651,38 +697,6 @@ def _build_task_name(chat_id: str, update: dict[str, Any], extracted: dict[str, 
     if suffix is None:
         suffix = _utc_now().replace("-", "").replace(":", "").replace(".", "")
     return f"tg_{chat_id}_{suffix}"
-
-
-def _env_command_override(name: str) -> list[str] | None:
-    raw = os.getenv(name, "").strip()
-    if not raw:
-        return None
-    return shlex.split(raw)
-
-
-def _env_cli_args(name: str) -> list[str]:
-    raw = os.getenv(name, "").strip()
-    if not raw:
-        return []
-    return shlex.split(raw)
-
-
-def _env_bool(name: str, default: bool) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() not in {"0", "false", "no", "off"}
-
-
-def _bounded_env_int(name: str, default: int, minimum: int, maximum: int) -> int:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    try:
-        value = int(raw)
-    except ValueError:
-        return default
-    return max(minimum, min(maximum, value))
 
 
 def _safe_str(value: Any) -> str | None:

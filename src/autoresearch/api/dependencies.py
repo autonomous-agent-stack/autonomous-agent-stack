@@ -1,11 +1,17 @@
 from __future__ import annotations
 
-import os
 from functools import lru_cache
 from pathlib import Path
 
 from fastapi import Depends
 
+from autoresearch.api.settings import (
+    get_admin_settings,
+    get_feature_settings,
+    get_panel_settings,
+    get_runtime_settings,
+    get_telegram_settings,
+)
 from autoresearch.core.repositories import SQLiteEvaluationRepository
 from autoresearch.core.services.admin_auth import AdminAuthService
 from autoresearch.core.services.admin_config import AdminConfigService
@@ -50,56 +56,7 @@ def _repo_root() -> Path:
 
 
 def _api_db_path() -> Path:
-    configured = os.getenv("AUTORESEARCH_API_DB_PATH")
-    if configured:
-        return Path(configured).expanduser().resolve()
-    return (_repo_root() / "artifacts" / "api" / "evaluations.sqlite3").resolve()
-
-
-def _env_csv(name: str) -> set[str]:
-    raw = os.getenv(name, "").strip()
-    if not raw:
-        return set()
-    return {item.strip() for item in raw.split(",") if item.strip()}
-
-
-def _env_path_list(name: str) -> list[Path]:
-    raw = os.getenv(name, "").strip()
-    if not raw:
-        return []
-    if os.pathsep in raw:
-        parts = raw.split(os.pathsep)
-    else:
-        parts = raw.split(",")
-    resolved: list[Path] = []
-    for item in parts:
-        value = item.strip()
-        if not value:
-            continue
-        resolved.append(Path(value).expanduser().resolve())
-    return resolved
-
-
-def _env_int(name: str, default: int, *, minimum: int, maximum: int) -> int:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    try:
-        parsed = int(raw)
-    except ValueError:
-        return default
-    return max(minimum, min(maximum, parsed))
-
-
-def _env_float(name: str, default: float, *, minimum: float, maximum: float) -> float:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    try:
-        parsed = float(raw)
-    except ValueError:
-        return default
-    return max(minimum, min(maximum, parsed))
+    return get_runtime_settings().api_db_path
 
 
 @lru_cache(maxsize=1)
@@ -181,26 +138,18 @@ def get_openclaw_compat_service() -> OpenClawCompatService:
 
 @lru_cache(maxsize=1)
 def get_openclaw_skill_service() -> OpenClawSkillService:
+    feature_settings = get_feature_settings()
     return OpenClawSkillService(
         repo_root=_repo_root(),
-        skill_roots=_env_path_list("AUTORESEARCH_OPENCLAW_SKILLS_DIRS") or None,
-        max_skill_file_bytes=_env_int(
-            "AUTORESEARCH_OPENCLAW_SKILL_MAX_BYTES",
-            256_000,
-            minimum=8_192,
-            maximum=2_000_000,
-        ),
-        max_skills_per_root=_env_int(
-            "AUTORESEARCH_OPENCLAW_SKILLS_MAX_PER_ROOT",
-            300,
-            minimum=1,
-            maximum=10_000,
-        ),
+        skill_roots=feature_settings.openclaw_skill_dirs or None,
+        max_skill_file_bytes=max(8_192, min(feature_settings.openclaw_skill_max_bytes, 2_000_000)),
+        max_skills_per_root=max(1, min(feature_settings.openclaw_skill_max_per_root, 10_000)),
     )
 
 
 @lru_cache(maxsize=1)
 def get_claude_agent_service() -> ClaudeAgentService:
+    feature_settings = get_feature_settings()
     return ClaudeAgentService(
         repository=SQLiteModelRepository(
             db_path=_api_db_path(),
@@ -209,8 +158,8 @@ def get_claude_agent_service() -> ClaudeAgentService:
         ),
         openclaw_service=get_openclaw_compat_service(),
         repo_root=_repo_root(),
-        max_agents=int(os.getenv("AUTORESEARCH_AGENT_MAX_CONCURRENCY", "20")),
-        max_depth=int(os.getenv("AUTORESEARCH_AGENT_MAX_DEPTH", "3")),
+        max_agents=feature_settings.agent_max_concurrency,
+        max_depth=feature_settings.agent_max_depth,
         openclaw_skill_service=get_openclaw_skill_service(),
     )
 
@@ -223,9 +172,7 @@ def get_openviking_memory_service(
 
 @lru_cache(maxsize=1)
 def get_mirofish_prediction_service() -> MiroFishPredictionService:
-    return MiroFishPredictionService(
-        engine=os.getenv("AUTORESEARCH_MIROFISH_ENGINE", "mirofish_heuristic_v1")
-    )
+    return MiroFishPredictionService(engine=get_feature_settings().mirofish_engine)
 
 
 @lru_cache(maxsize=1)
@@ -251,31 +198,18 @@ def get_self_integration_service() -> SelfIntegrationService:
 
 @lru_cache(maxsize=1)
 def get_panel_access_service() -> PanelAccessService:
+    panel_settings = get_panel_settings()
+    telegram_settings = get_telegram_settings()
     return PanelAccessService(
-        secret=os.getenv("AUTORESEARCH_PANEL_JWT_SECRET"),
-        base_url=os.getenv("AUTORESEARCH_PANEL_BASE_URL", "http://127.0.0.1:8000/api/v1/panel/view"),
-        issuer=os.getenv("AUTORESEARCH_PANEL_JWT_ISSUER", "autoresearch.telegram"),
-        audience=os.getenv("AUTORESEARCH_PANEL_JWT_AUDIENCE", "autoresearch.panel"),
-        default_ttl_seconds=_env_int(
-            "AUTORESEARCH_PANEL_MAGIC_LINK_TTL_SECONDS",
-            300,
-            minimum=30,
-            maximum=3600,
-        ),
-        max_ttl_seconds=_env_int(
-            "AUTORESEARCH_PANEL_MAGIC_LINK_MAX_TTL_SECONDS",
-            3600,
-            minimum=30,
-            maximum=86400,
-        ),
-        telegram_bot_token=os.getenv("AUTORESEARCH_TELEGRAM_BOT_TOKEN"),
-        telegram_init_data_max_age_seconds=_env_int(
-            "AUTORESEARCH_PANEL_TELEGRAM_INITDATA_MAX_AGE_SECONDS",
-            900,
-            minimum=60,
-            maximum=86400,
-        ),
-        allowed_uids=_env_csv("AUTORESEARCH_TELEGRAM_ALLOWED_UIDS"),
+        secret=panel_settings.jwt_secret,
+        base_url=panel_settings.base_url,
+        issuer=panel_settings.jwt_issuer,
+        audience=panel_settings.jwt_audience,
+        default_ttl_seconds=max(30, min(panel_settings.magic_link_ttl_seconds, 3600)),
+        max_ttl_seconds=max(30, min(panel_settings.magic_link_max_ttl_seconds, 86400)),
+        telegram_bot_token=telegram_settings.bot_token,
+        telegram_init_data_max_age_seconds=max(60, min(panel_settings.telegram_initdata_max_age_seconds, 86400)),
+        allowed_uids=telegram_settings.allowed_uids,
     )
 
 
@@ -292,15 +226,11 @@ def get_panel_audit_service() -> PanelAuditService:
 
 @lru_cache(maxsize=1)
 def get_telegram_notifier_service() -> TelegramNotifierService:
+    telegram_settings = get_telegram_settings()
     return TelegramNotifierService(
-        bot_token=os.getenv("AUTORESEARCH_TELEGRAM_BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN"),
-        api_base=os.getenv("AUTORESEARCH_TELEGRAM_API_BASE", "https://api.telegram.org"),
-        timeout_seconds=_env_float(
-            "AUTORESEARCH_TELEGRAM_NOTIFY_TIMEOUT_SECONDS",
-            10.0,
-            minimum=1.0,
-            maximum=120.0,
-        ),
+        bot_token=telegram_settings.bot_token,
+        api_base=telegram_settings.api_base,
+        timeout_seconds=max(1.0, min(telegram_settings.notify_timeout_seconds, 120.0)),
     )
 
 
@@ -333,28 +263,38 @@ def get_admin_config_service() -> AdminConfigService:
 
 @lru_cache(maxsize=1)
 def get_admin_secret_cipher() -> AdminSecretCipher:
-    return AdminSecretCipher(secret_key=os.getenv("AUTORESEARCH_ADMIN_SECRET_KEY"))
+    return AdminSecretCipher(secret_key=get_admin_settings().secret_key)
 
 
 @lru_cache(maxsize=1)
 def get_admin_auth_service() -> AdminAuthService:
+    admin_settings = get_admin_settings()
     return AdminAuthService(
-        secret=os.getenv("AUTORESEARCH_ADMIN_JWT_SECRET"),
-        bootstrap_key=os.getenv("AUTORESEARCH_ADMIN_BOOTSTRAP_KEY"),
-        issuer=os.getenv("AUTORESEARCH_ADMIN_JWT_ISSUER", "autoresearch.admin"),
-        audience=os.getenv("AUTORESEARCH_ADMIN_JWT_AUDIENCE", "autoresearch.admin.api"),
-        default_ttl_seconds=_env_int(
-            "AUTORESEARCH_ADMIN_TOKEN_TTL_SECONDS",
-            3600,
-            minimum=60,
-            maximum=86400,
-        ),
-        max_ttl_seconds=_env_int(
-            "AUTORESEARCH_ADMIN_TOKEN_MAX_TTL_SECONDS",
-            86400,
-            minimum=300,
-            maximum=604800,
-        ),
-        allowed_roles=_env_csv("AUTORESEARCH_ADMIN_ALLOWED_ROLES")
-        or {"viewer", "editor", "admin", "owner"},
+        secret=admin_settings.jwt_secret,
+        bootstrap_key=admin_settings.bootstrap_key,
+        issuer=admin_settings.jwt_issuer,
+        audience=admin_settings.jwt_audience,
+        default_ttl_seconds=max(60, min(admin_settings.token_ttl_seconds, 86400)),
+        max_ttl_seconds=max(300, min(admin_settings.token_max_ttl_seconds, 604800)),
+        allowed_roles=admin_settings.allowed_roles,
     )
+
+
+def clear_dependency_caches() -> None:
+    get_evaluation_service.cache_clear()
+    get_report_service.cache_clear()
+    get_variant_service.cache_clear()
+    get_optimization_service.cache_clear()
+    get_experiment_service.cache_clear()
+    get_execution_service.cache_clear()
+    get_openclaw_compat_service.cache_clear()
+    get_openclaw_skill_service.cache_clear()
+    get_claude_agent_service.cache_clear()
+    get_mirofish_prediction_service.cache_clear()
+    get_self_integration_service.cache_clear()
+    get_panel_access_service.cache_clear()
+    get_panel_audit_service.cache_clear()
+    get_telegram_notifier_service.cache_clear()
+    get_admin_config_service.cache_clear()
+    get_admin_secret_cipher.cache_clear()
+    get_admin_auth_service.cache_clear()

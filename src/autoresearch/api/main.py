@@ -2,119 +2,28 @@ from __future__ import annotations
 
 import logging
 import sys
+from contextlib import asynccontextmanager
+from importlib import import_module
 from pathlib import Path
+from typing import Any
+
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from contextlib import asynccontextmanager
 
-# Ensure `src/` is importable no matter whether app is launched as
-# `autoresearch.api.main:app` or `src.autoresearch.api.main:app`.
+from autoresearch import __version__
+from autoresearch.api.settings import get_runtime_settings
+from autoresearch.core.services.panel_access import assert_safe_bind_host
+
+
 _SRC_ROOT = Path(__file__).resolve().parents[2]
 if str(_SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(_SRC_ROOT))
 
-_REPO_ROOT = Path(__file__).resolve().parents[3]
-_PANEL_OUT_DIR = _REPO_ROOT / "panel" / "out"
-
-# ========================================================================
-# 1. 核心日志配置 (前置初始化)
-# ========================================================================
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
 logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
-# ========================================================================
-# 2. 生命周期与 App 初始化
-# ========================================================================
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    logger.info("🌐 Autonomous Agent Stack v1.2.0 启动序列初始化...")
-    yield
-    logger.info("🛑 服务正在安全关闭...")
-
-app = FastAPI(
-    title="Autonomous Agent Stack",
-    version="1.2.0-autonomous-genesis",
-    lifespan=lifespan
-)
-
-# ========================================================================
-# 3. 核心 API 路由挂载 (Bridge + Blitz)
-# ========================================================================
-try:
-    # 绝对路径导入，避免包冲突
-    from bridge import system_router, blitz_router
-    app.include_router(system_router, tags=["system_health"])
-    app.include_router(blitz_router, tags=["blitz_core"])
-    logger.info("✅ Bridge API 已集成 (/api/v1/system/health, /api/v1/blitz)")
-except Exception as e:
-    logger.error(f"⚠️ Bridge API 集成失败，请检查导入路径: {e}")
-
-try:
-    from autoresearch.api.routers.integrations import router as integrations_router
-
-    app.include_router(integrations_router)
-    logger.info("✅ Self-Integration API 已集成 (/api/v1/integrations/*)")
-except Exception as e:
-    logger.error(f"⚠️ Self-Integration API 集成失败: {e}")
-
-try:
-    from autoresearch.api.routers.evaluations import router as evaluations_router
-
-    app.include_router(evaluations_router)
-    logger.info("✅ Evaluations API 已集成 (/api/v1/evaluations/*)")
-except Exception as e:
-    logger.error(f"⚠️ Evaluations API 集成失败: {e}")
-
-try:
-    from autoresearch.api.routers.openclaw import router as openclaw_router
-
-    app.include_router(openclaw_router)
-    logger.info("✅ OpenClaw API 已集成 (/api/v1/openclaw/*)")
-except Exception as e:
-    logger.error(f"⚠️ OpenClaw API 集成失败: {e}")
-
-try:
-    from autoresearch.api.routers.admin import router as admin_router
-
-    app.include_router(admin_router)
-    logger.info("✅ Admin API 已集成 (/api/v1/admin/*)")
-except Exception as e:
-    logger.error(f"⚠️ Admin API 集成失败: {e}")
-
-# ========================================================================
-# 4.5. Telegram Webhook 挂载（优先新网关，兼容旧路由）
-# ========================================================================
-try:
-    from autoresearch.api.routers.gateway_telegram import router as telegram_gateway_router
-
-    app.include_router(telegram_gateway_router)
-    logger.info("✅ Telegram Gateway 已集成 (/api/v1/gateway/telegram/*)")
-except Exception as e:
-    logger.error(f"⚠️ Telegram Gateway 集成失败: {e}")
-
-try:
-    # 兼容历史路径 /telegram/webhook
-    from gateway.telegram_webhook import router as legacy_telegram_router
-
-    app.include_router(legacy_telegram_router, tags=["telegram_webhook_legacy"])
-    logger.info("✅ Legacy Telegram Webhook 已集成 (/telegram/webhook)")
-except Exception as e:
-    logger.warning(f"⚠️ Legacy Telegram Webhook 挂载跳过: {e}")
-
-# ========================================================================
-# 4. 视觉看板挂载 (Dashboard)
-# ========================================================================
-if _PANEL_OUT_DIR.exists():
-    app.mount("/panel", StaticFiles(directory=str(_PANEL_OUT_DIR), html=True), name="panel")
-    logger.info("✅ 视觉看板已成功挂载至 /panel")
-else:
-    logger.warning(f"⚠️ 视觉看板挂载跳过 (目录未就绪): {_PANEL_OUT_DIR}")
-
-    _PANEL_NOT_READY_HTML = """
+_PANEL_NOT_READY_HTML = """
 <!doctype html>
 <html lang="en">
   <head>
@@ -133,18 +42,64 @@ else:
     <div class="box">
       <h1>/panel is not built yet</h1>
       <p>The API is running, but static panel assets were not found.</p>
-      <p>Expected directory: <code>panel/out</code></p>
       <p>You can use these pages right now:</p>
       <ul>
         <li><a href="/api/v1/admin/view">Admin View</a></li>
         <li><a href="/docs">Swagger API Docs</a></li>
         <li><a href="/health">Health Check</a></li>
       </ul>
-      <p>If you plan to serve a static panel, build/export it to <code>panel/out</code> first.</p>
     </div>
   </body>
 </html>
 """
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    settings = get_runtime_settings()
+    assert_safe_bind_host(host=settings.api_host, allow_unsafe=settings.api_allow_unsafe_bind)
+    logger.info("Autonomous Agent Stack %s startup initialized", __version__)
+    yield
+    logger.info("Autonomous Agent Stack shutdown complete")
+
+
+def _include_router(
+    app: FastAPI,
+    *,
+    module_path: str,
+    attribute: str = "router",
+    required: bool = True,
+    message: str | None = None,
+) -> None:
+    try:
+        module = import_module(module_path)
+        router = getattr(module, attribute)
+        app.include_router(router)
+        logger.info("Mounted %s", message or f"{module_path}:{attribute}")
+    except Exception as exc:
+        if required:
+            logger.exception("Failed to mount required router %s", module_path)
+            raise
+        logger.warning("Skipped optional router %s: %s", module_path, exc)
+
+
+def _include_bridge_routers(app: FastAPI) -> None:
+    try:
+        from bridge import blitz_router, system_router
+
+        app.include_router(system_router, tags=["bridge"])
+        app.include_router(blitz_router, tags=["blitz"])
+        logger.info("Mounted bridge routers")
+    except Exception as exc:
+        logger.warning("Skipped optional bridge routers: %s", exc)
+
+
+def _mount_panel_surface(app: FastAPI) -> None:
+    panel_static_dir = get_runtime_settings().panel_static_dir
+    if panel_static_dir.exists():
+        app.mount("/panel", StaticFiles(directory=str(panel_static_dir), html=True), name="panel")
+        logger.info("Mounted static panel assets from %s", panel_static_dir)
+        return
 
     @app.get("/panel", include_in_schema=False, response_class=HTMLResponse)
     async def panel_not_ready() -> HTMLResponse:
@@ -154,31 +109,114 @@ else:
     async def panel_not_ready_with_slash() -> HTMLResponse:
         return HTMLResponse(_PANEL_NOT_READY_HTML, status_code=200)
 
-# ========================================================================
-# 5. 健康检查端点
-# ========================================================================
-@app.get("/health")
-async def health():
-    """健康检查"""
-    return {"status": "ok", "version": "1.2.0-autonomous-genesis"}
+    logger.warning("Static panel assets not found at %s", panel_static_dir)
 
-@app.get("/")
-async def root():
-    """根端点"""
-    return {
-        "name": "Autonomous Agent Stack",
-        "version": "1.2.0-autonomous-genesis",
-        "status": "ok",
-        "docs": "/docs",
-        "health": "/health",
-        "blitz": "/api/v1/blitz/status",
-        "panel": "/panel"
-    }
 
-# ========================================================================
-# 6. 守护进程启动
-# ========================================================================
-if __name__ == "__main__":
+def create_app() -> FastAPI:
+    settings = get_runtime_settings()
+    app = FastAPI(
+        title="Autonomous Agent Stack",
+        version=__version__,
+        description="Unified API entrypoint for Telegram, OpenClaw compatibility, and panel control.",
+        lifespan=lifespan,
+    )
+
+    required_routers = [
+        ("autoresearch.api.routers.evaluations", "router", "evaluations"),
+        ("autoresearch.api.routers.generators", "router", "generators"),
+        ("autoresearch.api.routers.executors", "router", "executors"),
+        ("autoresearch.api.routers.synthesis", "router", "synthesis"),
+        ("autoresearch.api.routers.loops", "router", "loops"),
+        ("autoresearch.api.routers.orchestration", "router", "orchestration"),
+        ("autoresearch.api.routers.openclaw", "router", "openclaw"),
+        ("autoresearch.api.routers.panel", "router", "panel api"),
+        ("autoresearch.api.routers.gateway_telegram", "router", "telegram gateway"),
+        ("autoresearch.api.routers.integrations", "router", "integrations"),
+        ("autoresearch.api.routers.reports", "router", "reports"),
+        ("autoresearch.api.routers.variants", "router", "variants"),
+        ("autoresearch.api.routers.optimizations", "router", "optimizations"),
+        ("autoresearch.api.routers.experiments", "router", "experiments"),
+        ("autoresearch.api.routers.streaming", "router", "streaming"),
+        ("autoresearch.api.routers.knowledge_graph", "router", "knowledge graph"),
+    ]
+    for module_path, attribute, message in required_routers:
+        _include_router(app, module_path=module_path, attribute=attribute, required=True, message=message)
+
+    if settings.enable_admin:
+        _include_router(
+            app,
+            module_path="autoresearch.api.routers.admin",
+            attribute="router",
+            required=True,
+            message="admin",
+        )
+
+    if settings.enable_webauthn:
+        _include_router(
+            app,
+            module_path="autoresearch.api.routers.webauthn",
+            attribute="router",
+            required=True,
+            message="webauthn",
+        )
+        _include_router(
+            app,
+            module_path="autoresearch.api.webauthn_interceptor",
+            attribute="demo_router",
+            required=False,
+            message="webauthn demo",
+        )
+
+    if settings.enable_legacy_telegram_webhook:
+        _include_router(
+            app,
+            module_path="autoresearch.api.routers.gateway_telegram",
+            attribute="compat_router",
+            required=True,
+            message="legacy telegram compat",
+        )
+
+    if settings.enable_cluster:
+        _include_router(
+            app,
+            module_path="autoresearch.api.routers.cluster",
+            attribute="router",
+            required=True,
+            message="cluster",
+        )
+
+    _include_bridge_routers(app)
+    _mount_panel_surface(app)
+
+    @app.get("/", tags=["meta"])
+    async def read_root() -> dict[str, Any]:
+        return {
+            "name": app.title,
+            "version": app.version,
+            "status": "ok",
+            "docs_url": app.docs_url,
+        }
+
+    @app.get("/health", tags=["meta"])
+    async def healthcheck() -> dict[str, str]:
+        return {"status": "ok"}
+
+    @app.get("/healthz", tags=["meta"])
+    async def healthcheck_alias() -> dict[str, str]:
+        return {"status": "ok"}
+
+    return app
+
+
+app = create_app()
+
+
+def run() -> None:
     import uvicorn
-    logger.info("🚀 正在拉起 P4 级别执行节点...")
-    uvicorn.run("autoresearch.api.main:app", host="127.0.0.1", port=8001, reload=False)
+
+    settings = get_runtime_settings()
+    uvicorn.run("autoresearch.api.main:app", host=settings.api_host, port=settings.api_port, reload=False)
+
+
+if __name__ == "__main__":
+    run()

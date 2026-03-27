@@ -1,0 +1,296 @@
+from __future__ import annotations
+
+import logging
+import os
+import shlex
+from functools import lru_cache
+from pathlib import Path
+from typing import Any
+
+from pydantic import AliasChoices, Field, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+logger = logging.getLogger(__name__)
+
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_DEFAULT_API_DB_PATH = (_REPO_ROOT / "artifacts" / "api" / "evaluations.sqlite3").resolve()
+_DEFAULT_PANEL_STATIC_DIR = (_REPO_ROOT / "panel" / "out").resolve()
+_WARNED_DEPRECATED_ALIASES: set[tuple[str, str]] = set()
+
+
+def _warn_deprecated_alias(*, alias: str, canonical: str) -> None:
+    if not os.getenv(alias) or os.getenv(canonical):
+        return
+    key = (alias, canonical)
+    if key in _WARNED_DEPRECATED_ALIASES:
+        return
+    _WARNED_DEPRECATED_ALIASES.add(key)
+    logger.warning("Environment variable %s is deprecated; use %s instead.", alias, canonical)
+
+
+def _parse_csv_set(value: Any) -> set[str]:
+    if value is None:
+        return set()
+    if isinstance(value, set):
+        return {str(item).strip() for item in value if str(item).strip()}
+    if isinstance(value, (list, tuple)):
+        return {str(item).strip() for item in value if str(item).strip()}
+    raw = str(value).strip()
+    if not raw:
+        return set()
+    return {item.strip() for item in raw.split(",") if item.strip()}
+
+
+def _parse_path_list(value: Any) -> list[Path]:
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        items = value
+    else:
+        raw = str(value).strip()
+        if not raw:
+            return []
+        items = raw.split(os.pathsep) if os.pathsep in raw else raw.split(",")
+    resolved: list[Path] = []
+    for item in items:
+        normalized = str(item).strip()
+        if not normalized:
+            continue
+        resolved.append(Path(normalized).expanduser().resolve())
+    return resolved
+
+
+def _parse_path(value: Any) -> Path | None:
+    if value is None:
+        return None
+    if isinstance(value, Path):
+        return value.expanduser().resolve()
+    normalized = str(value).strip()
+    if not normalized:
+        return None
+    return Path(normalized).expanduser().resolve()
+
+
+class _BaseApiSettings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="", extra="ignore")
+
+
+class RuntimeSettings(_BaseApiSettings):
+    environment: str = Field(
+        default="development",
+        validation_alias=AliasChoices("AUTORESEARCH_ENV", "AUTORESEARCH_ENVIRONMENT", "ENVIRONMENT"),
+    )
+    api_host: str = Field(default="127.0.0.1", validation_alias="AUTORESEARCH_API_HOST")
+    api_port: int = Field(default=8000, validation_alias="AUTORESEARCH_API_PORT")
+    api_db_path: Path = Field(default=_DEFAULT_API_DB_PATH, validation_alias="AUTORESEARCH_API_DB_PATH")
+    api_allow_unsafe_bind: bool = Field(default=False, validation_alias="AUTORESEARCH_API_ALLOW_UNSAFE_BIND")
+    enable_cluster: bool = Field(default=False, validation_alias="AUTORESEARCH_ENABLE_CLUSTER")
+    enable_admin: bool = Field(default=True, validation_alias="AUTORESEARCH_ENABLE_ADMIN")
+    enable_legacy_telegram_webhook: bool = Field(
+        default=True,
+        validation_alias="AUTORESEARCH_ENABLE_LEGACY_TELEGRAM_WEBHOOK",
+    )
+    enable_webauthn: bool = Field(default=True, validation_alias="AUTORESEARCH_ENABLE_WEBAUTHN")
+    panel_static_dir: Path = Field(default=_DEFAULT_PANEL_STATIC_DIR)
+
+    @field_validator("api_db_path", mode="before")
+    @classmethod
+    def _normalize_api_db_path(cls, value: Any) -> Path:
+        path = _parse_path(value)
+        return path or _DEFAULT_API_DB_PATH
+
+    @field_validator("panel_static_dir", mode="before")
+    @classmethod
+    def _normalize_panel_static_dir(cls, value: Any) -> Path:
+        path = _parse_path(value)
+        return path or _DEFAULT_PANEL_STATIC_DIR
+
+    @property
+    def is_production(self) -> bool:
+        return self.environment.strip().lower() in {"prod", "production"}
+
+
+class TelegramSettings(_BaseApiSettings):
+    bot_token: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("AUTORESEARCH_TELEGRAM_BOT_TOKEN", "TELEGRAM_BOT_TOKEN"),
+    )
+    secret_token: str | None = Field(default=None, validation_alias="AUTORESEARCH_TELEGRAM_SECRET_TOKEN")
+    allowed_uids: set[str] = Field(default_factory=set, validation_alias="AUTORESEARCH_TELEGRAM_ALLOWED_UIDS")
+    internal_groups: set[str] = Field(default_factory=set, validation_alias="AUTORESEARCH_INTERNAL_GROUPS")
+    agent_name: str | None = Field(default=None, validation_alias="AUTORESEARCH_TELEGRAM_AGENT_NAME")
+    timeout_seconds: int = Field(default=900, validation_alias="AUTORESEARCH_TELEGRAM_TIMEOUT_SECONDS")
+    generation_depth: int = Field(default=1, validation_alias="AUTORESEARCH_TELEGRAM_GENERATION_DEPTH")
+    work_dir: Path | None = Field(default=None, validation_alias="AUTORESEARCH_TELEGRAM_WORK_DIR")
+    claude_args_raw: str = Field(default="", validation_alias="AUTORESEARCH_TELEGRAM_CLAUDE_ARGS")
+    command_override_raw: str = Field(
+        default="",
+        validation_alias="AUTORESEARCH_TELEGRAM_CLAUDE_COMMAND_OVERRIDE",
+    )
+    append_prompt: bool = Field(default=True, validation_alias="AUTORESEARCH_TELEGRAM_APPEND_PROMPT")
+    api_base: str = Field(default="https://api.telegram.org", validation_alias="AUTORESEARCH_TELEGRAM_API_BASE")
+    notify_timeout_seconds: float = Field(
+        default=10.0,
+        validation_alias="AUTORESEARCH_TELEGRAM_NOTIFY_TIMEOUT_SECONDS",
+    )
+    channel_key: str = Field(default="telegram-main", validation_alias="AUTORESEARCH_TELEGRAM_CHANNEL_KEY")
+    channel_display_name: str = Field(
+        default="Telegram Main",
+        validation_alias="AUTORESEARCH_TELEGRAM_CHANNEL_DISPLAY_NAME",
+    )
+    channel_actor: str = Field(default="telegram-webhook", validation_alias="AUTORESEARCH_TELEGRAM_CHANNEL_ACTOR")
+
+    @field_validator("allowed_uids", "internal_groups", mode="before")
+    @classmethod
+    def _normalize_sets(cls, value: Any) -> set[str]:
+        return _parse_csv_set(value)
+
+    @field_validator("work_dir", mode="before")
+    @classmethod
+    def _normalize_work_dir(cls, value: Any) -> Path | None:
+        return _parse_path(value)
+
+    @property
+    def claude_args(self) -> list[str]:
+        return shlex.split(self.claude_args_raw) if self.claude_args_raw.strip() else []
+
+    @property
+    def command_override(self) -> list[str] | None:
+        return shlex.split(self.command_override_raw) if self.command_override_raw.strip() else None
+
+
+class PanelSettings(_BaseApiSettings):
+    jwt_secret: str | None = Field(default=None, validation_alias="AUTORESEARCH_PANEL_JWT_SECRET")
+    base_url: str = Field(
+        default="http://127.0.0.1:8000/api/v1/panel/view",
+        validation_alias=AliasChoices("AUTORESEARCH_PANEL_BASE_URL", "AUTORESEARCH_BASE_URL"),
+    )
+    jwt_issuer: str = Field(default="autoresearch.telegram", validation_alias="AUTORESEARCH_PANEL_JWT_ISSUER")
+    jwt_audience: str = Field(default="autoresearch.panel", validation_alias="AUTORESEARCH_PANEL_JWT_AUDIENCE")
+    magic_link_ttl_seconds: int = Field(
+        default=300,
+        validation_alias="AUTORESEARCH_PANEL_MAGIC_LINK_TTL_SECONDS",
+    )
+    magic_link_max_ttl_seconds: int = Field(
+        default=3600,
+        validation_alias="AUTORESEARCH_PANEL_MAGIC_LINK_MAX_TTL_SECONDS",
+    )
+    telegram_initdata_max_age_seconds: int = Field(
+        default=900,
+        validation_alias="AUTORESEARCH_PANEL_TELEGRAM_INITDATA_MAX_AGE_SECONDS",
+    )
+    mini_app_url: str | None = Field(default=None, validation_alias="AUTORESEARCH_TELEGRAM_MINI_APP_URL")
+
+
+class FeatureSettings(_BaseApiSettings):
+    enable_mirofish_gate: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("AUTORESEARCH_ENABLE_MIROFISH_GATE", "AUTORESEARCH_MIROFISH_ENABLED"),
+    )
+    mirofish_min_confidence: float = Field(
+        default=0.5,
+        validation_alias="AUTORESEARCH_MIROFISH_MIN_CONFIDENCE",
+    )
+    mirofish_engine: str = Field(
+        default="mirofish_heuristic_v1",
+        validation_alias="AUTORESEARCH_MIROFISH_ENGINE",
+    )
+    openclaw_skill_dirs: list[Path] = Field(
+        default_factory=list,
+        validation_alias="AUTORESEARCH_OPENCLAW_SKILLS_DIRS",
+    )
+    openclaw_skill_max_bytes: int = Field(
+        default=256_000,
+        validation_alias="AUTORESEARCH_OPENCLAW_SKILL_MAX_BYTES",
+    )
+    openclaw_skill_max_per_root: int = Field(
+        default=300,
+        validation_alias="AUTORESEARCH_OPENCLAW_SKILLS_MAX_PER_ROOT",
+    )
+    agent_max_concurrency: int = Field(default=20, validation_alias="AUTORESEARCH_AGENT_MAX_CONCURRENCY")
+    agent_max_depth: int = Field(default=3, validation_alias="AUTORESEARCH_AGENT_MAX_DEPTH")
+
+    @field_validator("openclaw_skill_dirs", mode="before")
+    @classmethod
+    def _normalize_skill_dirs(cls, value: Any) -> list[Path]:
+        return _parse_path_list(value)
+
+
+class AdminSettings(_BaseApiSettings):
+    secret_key: str | None = Field(default=None, validation_alias="AUTORESEARCH_ADMIN_SECRET_KEY")
+    jwt_secret: str | None = Field(default=None, validation_alias="AUTORESEARCH_ADMIN_JWT_SECRET")
+    bootstrap_key: str | None = Field(default=None, validation_alias="AUTORESEARCH_ADMIN_BOOTSTRAP_KEY")
+    jwt_issuer: str = Field(default="autoresearch.admin", validation_alias="AUTORESEARCH_ADMIN_JWT_ISSUER")
+    jwt_audience: str = Field(
+        default="autoresearch.admin.api",
+        validation_alias="AUTORESEARCH_ADMIN_JWT_AUDIENCE",
+    )
+    token_ttl_seconds: int = Field(default=3600, validation_alias="AUTORESEARCH_ADMIN_TOKEN_TTL_SECONDS")
+    token_max_ttl_seconds: int = Field(
+        default=86400,
+        validation_alias="AUTORESEARCH_ADMIN_TOKEN_MAX_TTL_SECONDS",
+    )
+    allowed_roles: set[str] = Field(default_factory=set, validation_alias="AUTORESEARCH_ADMIN_ALLOWED_ROLES")
+
+    @field_validator("allowed_roles", mode="before")
+    @classmethod
+    def _normalize_allowed_roles(cls, value: Any) -> set[str]:
+        roles = _parse_csv_set(value)
+        return roles or {"viewer", "editor", "admin", "owner"}
+
+
+def load_runtime_settings() -> RuntimeSettings:
+    return RuntimeSettings()
+
+
+def load_telegram_settings() -> TelegramSettings:
+    _warn_deprecated_alias(alias="TELEGRAM_BOT_TOKEN", canonical="AUTORESEARCH_TELEGRAM_BOT_TOKEN")
+    return TelegramSettings()
+
+
+def load_panel_settings() -> PanelSettings:
+    _warn_deprecated_alias(alias="AUTORESEARCH_BASE_URL", canonical="AUTORESEARCH_PANEL_BASE_URL")
+    return PanelSettings()
+
+
+def load_feature_settings() -> FeatureSettings:
+    return FeatureSettings()
+
+
+def load_admin_settings() -> AdminSettings:
+    return AdminSettings()
+
+
+@lru_cache(maxsize=1)
+def get_runtime_settings() -> RuntimeSettings:
+    return load_runtime_settings()
+
+
+@lru_cache(maxsize=1)
+def get_telegram_settings() -> TelegramSettings:
+    return load_telegram_settings()
+
+
+@lru_cache(maxsize=1)
+def get_panel_settings() -> PanelSettings:
+    return load_panel_settings()
+
+
+@lru_cache(maxsize=1)
+def get_feature_settings() -> FeatureSettings:
+    return load_feature_settings()
+
+
+@lru_cache(maxsize=1)
+def get_admin_settings() -> AdminSettings:
+    return load_admin_settings()
+
+
+def clear_settings_caches() -> None:
+    get_runtime_settings.cache_clear()
+    get_telegram_settings.cache_clear()
+    get_panel_settings.cache_clear()
+    get_feature_settings.cache_clear()
+    get_admin_settings.cache_clear()
+    _WARNED_DEPRECATED_ALIASES.clear()

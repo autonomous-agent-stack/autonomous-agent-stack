@@ -1,17 +1,17 @@
-"""Integrations Package.
+"""Integrations package with lazy submodule loading."""
 
-Provides cross-ecosystem integration modules:
-- Google Workspace (Calendar, Tasks, Drive)
-- Apple Ecosystem (Reminders, Notes, Calendar)
-- HITL Approval System
-"""
+from __future__ import annotations
 
-from . import google_workspace
-from . import apple_bridge
-from . import hitl_approval
+from importlib import import_module
 
 __all__ = [
     "google_workspace",
     "apple_bridge",
     "hitl_approval",
 ]
+
+
+def __getattr__(name: str):
+    if name not in __all__:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return import_module(f".{name}", __name__)

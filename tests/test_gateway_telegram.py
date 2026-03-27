@@ -136,6 +136,35 @@ def test_telegram_webhook_routes_to_openclaw_and_agents(
     assert any("agent queued" in event["content"] for event in session_payload["events"])
 
 
+def test_legacy_telegram_webhook_uses_same_processing_path(
+    telegram_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "AUTORESEARCH_TELEGRAM_CLAUDE_COMMAND_OVERRIDE",
+        f"{sys.executable} -c \"print('tg-legacy-ok')\"",
+    )
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_APPEND_PROMPT", "false")
+
+    response = telegram_client.post(
+        "/telegram/webhook",
+        json={
+            "update_id": 1099,
+            "message": {
+                "message_id": 78,
+                "text": "legacy webhook smoke",
+                "chat": {"id": 9528},
+                "from": {"username": "legacy"},
+            },
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["accepted"] is True
+    assert payload["chat_id"] == "9528"
+    assert payload["agent_run_id"] is not None
+
+
 def test_telegram_webhook_secret_token_guard(
     telegram_client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
