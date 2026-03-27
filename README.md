@@ -41,10 +41,22 @@ make ai-lab-setup
 make masfactory-flight
 make masfactory-flight GOAL="探测当前 M1 的 CPU 核心数"
 make masfactory-flight GOAL="探测当前 M1 的 CPU 核心数" WATCH=1
+make openhands-dry-run
+make openhands OH_TASK="Please scan /opt/workspace/src/autoresearch/core and fix TODOs with tests."
+make openhands-controlled-dry-run
+make openhands-controlled OH_TASK="Create src/demo_math.py with add(a,b), then run validation."
+make openhands-demo OH_BACKEND=mock OH_TASK="Create src/demo_math.py with add(a,b)."
+make agent-run AEP_AGENT=openhands AEP_TASK="Create src/demo_math.py with add(a,b)."
 make hygiene-check
 ```
 
 `make hygiene-check` 会把结果写到 `logs/audit/prompt_hygiene/report.txt` 和 `logs/audit/prompt_hygiene/report.json`。
+
+`make openhands` 会调用 `scripts/openhands_start.sh`（CLI 直连模式），默认注入 `DIFF_ONLY=1` 与 `MAX_FILES_PER_STEP=3` 的执行约束，并优先读取 `memory/SOP/MASFactory_Strict_Execution_v1.md`。
+
+`make openhands-controlled` 会走最窄闭环：创建隔离 workspace、执行 OpenHands 子任务、运行校验、输出 promotion patch 与审计摘要（不直接污染主仓库）。
+
+`make agent-run` 走 AEP v0 统一执行内核：`JobSpec -> driver adapter -> patch gate -> decision`，OpenHands/Codex/本地脚本都可作为 driver 接入。
 
 如果端口冲突：
 
@@ -59,6 +71,22 @@ PORT=8010 make start
 - 为外部仓库生成 prototype，并在 secure-fetch 后推进 promotion
 - 扫描并执行本地技能
 - 运行零信任加固脚本和相关验证脚本
+
+## OpenHands 接入边界（重要）
+
+- “更容易上手”指 AAS 的统一启动和排错流程：`make setup -> make doctor -> make start`。
+- OpenHands 文档里的“切换简单”指其内部 SDK/workspace 抽象下的切换，不等同于跨平台融合。
+- 本仓库采用分层接法：AAS 负责任务路由、状态、校验与 promotion；OpenHands 只负责隔离 workspace 内的代码执行。
+
+最窄链路：
+
+1. AAS 下发 task（受控输入契约）
+2. OpenHands 在隔离 workspace 执行
+3. AAS 执行 validation gate
+4. AAS 产出 promotion patch 并决定 promote/reject
+
+详见：[OpenHands Controlled Backend Integration](./docs/openhands-cli-integration.md)
+协议文档：[Agent Execution Protocol (AEP v0)](./docs/agent-execution-protocol.md)
 
 ## 关键入口
 
