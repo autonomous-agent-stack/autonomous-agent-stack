@@ -1,0 +1,430 @@
+# AI Agent 完整监控面板
+
+> **版本**: v1.0
+> **更新时间**: 2026-03-27 14:15
+> **面板类型**: 10+
+
+---
+
+## 📊 仪表板 1: 概览面板
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AI Agent Dashboard</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 20px;
+        }
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .card h3 {
+            color: #666;
+            font-size: 14px;
+            margin-bottom: 10px;
+        }
+        .card .value {
+            font-size: 32px;
+            font-weight: bold;
+            color: #333;
+        }
+        .card .change {
+            font-size: 14px;
+            margin-top: 10px;
+        }
+        .positive { color: #10b981; }
+        .negative { color: #ef4444; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 AI Agent Dashboard</h1>
+            <p>实时监控 · 性能分析 · 成本控制</p>
+        </div>
+        
+        <div class="grid">
+            <div class="card">
+                <h3>总请求数</h3>
+                <div class="value">125,847</div>
+                <div class="change positive">↑ 12.5% vs 上周</div>
+            </div>
+            
+            <div class="card">
+                <h3>成功率</h3>
+                <div class="value">99.5%</div>
+                <div class="change positive">↑ 0.3% vs 上周</div>
+            </div>
+            
+            <div class="card">
+                <h3>平均延迟</h3>
+                <div class="value">1.2s</div>
+                <div class="change positive">↓ 15% vs 上周</div>
+            </div>
+            
+            <div class="card">
+                <h3>今日成本</h3>
+                <div class="value">$45.20</div>
+                <div class="change negative">↑ 5% vs 预算</div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+```
+
+---
+
+## 📊 仪表板 2: 性能面板
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+    <title>性能监控</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="dashboard">
+        <div class="chart-container">
+            <canvas id="latencyChart"></canvas>
+        </div>
+        
+        <div class="chart-container">
+            <canvas id="throughputChart"></canvas>
+        </div>
+    </div>
+    
+    <script>
+        // 延迟图表
+        const latencyCtx = document.getElementById('latencyChart').getContext('2d');
+        new Chart(latencyCtx, {
+            type: 'line',
+            data: {
+                labels: ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00'],
+                datasets: [{
+                    label: 'P95 Latency',
+                    data: [1.2, 1.1, 1.5, 2.1, 1.8, 1.4],
+                    borderColor: 'rgb(255, 99, 132)',
+                    tension: 0.1
+                }, {
+                    label: 'P99 Latency',
+                    data: [2.5, 2.3, 3.1, 4.2, 3.6, 2.8],
+                    borderColor: 'rgb(54, 162, 235)',
+                    tension: 0.1
+                }]
+            }
+        });
+        
+        // 吞吐量图表
+        const throughputCtx = document.getElementById('throughputChart').getContext('2d');
+        new Chart(throughputCtx, {
+            type: 'bar',
+            data: {
+                labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+                datasets: [{
+                    label: 'Requests per Minute',
+                    data: [120, 135, 142, 138, 145, 89, 76],
+                    backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                    borderColor: 'rgb(75, 192, 192)',
+                    borderWidth: 1
+                }]
+            }
+        });
+    </script>
+</body>
+</html>
+```
+
+---
+
+## 📊 仪表板 3: 成本面板
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+    <title>成本分析</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="dashboard">
+        <div class="stats">
+            <div class="stat-card">
+                <h3>今日成本</h3>
+                <div class="value">$45.20</div>
+                <div class="progress">
+                    <div class="progress-bar" style="width: 45%;"></div>
+                </div>
+                <small>预算: $100/天</small>
+            </div>
+            
+            <div class="stat-card">
+                <h3>本月成本</h1>
+                <div class="value">$1,234.56</div>
+                <div class="progress">
+                    <div class="progress-bar" style="width: 62%;"></div>
+                </div>
+                <small>预算: $2000/月</small>
+            </div>
+        </div>
+        
+        <div class="chart-container">
+            <canvas id="costChart"></canvas>
+        </div>
+    </div>
+    
+    <script>
+        const ctx = document.getElementById('costChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: ['GPT-4', 'Claude 3', 'GPT-3.5', 'Embeddings'],
+                datasets: [{
+                    data: [60, 25, 10, 5],
+                    backgroundColor: [
+                        'rgb(255, 99, 132)',
+                        'rgb(54, 162, 235)',
+                        'rgb(255, 205, 86)',
+                        'rgb(75, 192, 192)'
+                    ]
+                }]
+            }
+        });
+    </script>
+</body>
+</html>
+```
+
+---
+
+## 📊 仪表板 4: 错误面板
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+    <title>错误分析</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="dashboard">
+        <div class="error-list">
+            <div class="error-item critical">
+                <span class="type">CRITICAL</span>
+                <span class="message">Database connection failed</span>
+                <span class="count">12</span>
+            </div>
+            
+            <div class="error-item error">
+                <span class="type">ERROR</span>
+                <span class="message">API timeout</span>
+                <span class="count">45</span>
+            </div>
+            
+            <div class="error-item warning">
+                <span class="type">WARNING</span>
+                <span class="message">High latency detected</span>
+                <span class="count">128</span>
+            </div>
+        </div>
+        
+        <div class="chart-container">
+            <canvas id="errorChart"></canvas>
+        </div>
+    </div>
+    
+    <script>
+        const ctx = document.getElementById('errorChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00'],
+                datasets: [{
+                    label: 'Error Rate',
+                    data: [0.5, 0.3, 0.8, 1.2, 0.9, 0.6],
+                    borderColor: 'rgb(239, 68, 68)',
+                    fill: true,
+                    backgroundColor: 'rgba(239, 68, 68, 0.1)'
+                }]
+            }
+        });
+    </script>
+</body>
+</html>
+```
+
+---
+
+## 📊 仪表板 5: 工具面板
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+    <title>工具使用统计</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="dashboard">
+        <div class="tools-grid">
+            <div class="tool-card">
+                <h3>Search Tool</h3>
+                <div class="usage">12,345 调用</div>
+                <div class="success-rate">98.5% 成功率</div>
+            </div>
+            
+            <div class="tool-card">
+                <h3>Calculator</h3>
+                <div class="usage">8,765 调用</div>
+                <div class="success-rate">100% 成功率</div>
+            </div>
+            
+            <div class="tool-card">
+                <h3>Code Execute</h3>
+                <div class="usage">5,432 调用</div>
+                <div class="success-rate">95.2% 成功率</div>
+            </div>
+            
+            <div class="tool-card">
+                <h3>Database</h3>
+                <div class="usage">3,210 调用</div>
+                <div class="success-rate">99.1% 成功率</div>
+            </div>
+        </div>
+        
+        <div class="chart-container">
+            <canvas id="toolChart"></canvas>
+        </div>
+    </div>
+    
+    <script>
+        const ctx = document.getElementById('toolChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: ['Search', 'Calculator', 'Code', 'Database'],
+                datasets: [{
+                    label: 'Success',
+                    data: [12, 9, 5, 3],
+                    backgroundColor: 'rgb(34, 197, 94)'
+                }, {
+                    label: 'Error',
+                    data: [0.2, 0, 0.2, 0.03],
+                    backgroundColor: 'rgb(239, 68, 68)'
+                }]
+            }
+        });
+    </script>
+</body>
+</html>
+```
+
+---
+
+## 📊 仪表板 6: 资源面板
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+    <title>资源监控</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="dashboard">
+        <div class="resource-grid">
+            <div class="resource-card">
+                <h3>CPU 使用率</h3>
+                <div class="circular-progress">
+                    <div class="value">45%</div>
+                </div>
+            </div>
+            
+            <div class="resource-card">
+                <h3>内存使用率</h3>
+                <div class="circular-progress">
+                    <div class="value">68%</div>
+                </div>
+            </div>
+            
+            <div class="resource-card">
+                <h3>磁盘使用率</h3>
+                <div class="circular-progress">
+                    <div class="value">52%</div>
+                </div>
+            </div>
+            
+            <div class="resource-card">
+                <h3>网络 I/O</h1>
+                <div class="value">125 MB/s</div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+```
+
+---
+
+## 🎯 监控最佳实践
+
+### 1. 实时刷新
+
+```javascript
+// 每 5 秒刷新
+setInterval(() => {
+    fetch('/api/metrics')
+        .then(response => response.json())
+        .then(data => {
+            updateCharts(data);
+        });
+}, 5000);
+```
+
+### 2. 告警集成
+
+```javascript
+// 检查告警
+function checkAlerts(metrics) {
+    if (metrics.error_rate > 0.05) {
+        showAlert('High error rate!');
+    }
+    
+    if (metrics.latency_p95 > 5) {
+        showAlert('High latency!');
+    }
+    
+    if (metrics.cost > 100) {
+        showAlert('Budget exceeded!');
+    }
+}
+```
+
+---
+
+**生成时间**: 2026-03-27 14:20 GMT+8
