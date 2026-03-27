@@ -12,9 +12,22 @@ HYGIENE_ROOT ?= src
 HYGIENE_OUTPUT_DIR ?= logs/audit/prompt_hygiene
 HYGIENE_MIN_REPEAT ?= 3
 FAIL_ON_FINDINGS ?= 0
+OH_TASK ?= Please scan /opt/workspace/src/autoresearch/core, identify TODOs, implement production-grade fixes, and run tests after each fix.
+OH_DRY_RUN ?= 0
+OH_CHAIN_DRY_RUN ?= 0
+OH_VALIDATE_CMD ?= python3 scripts/check_prompt_hygiene.py --root src --output-dir logs/audit/prompt_hygiene --min-repeat 3
+OH_BACKEND ?= mock
+OH_FAILURE_STRATEGY ?= human_in_loop
+OH_MAX_RETRIES ?= 1
+AEP_AGENT ?= openhands
+AEP_TASK ?= Create src/demo_math.py with add(a,b).
+AEP_RUN_ID ?=
+AEP_RETRY ?= 0
+AEP_FALLBACK_AGENT ?=
 
 .PHONY: help setup doctor start test-quick clean
-.PHONY: ai-lab ai-lab-setup ai-lab-check ai-lab-up ai-lab-down ai-lab-status ai-lab-shell ai-lab-run masfactory-flight hygiene-check
+.PHONY: ai-lab ai-lab-setup ai-lab-check ai-lab-up ai-lab-down ai-lab-status ai-lab-shell ai-lab-run masfactory-flight hygiene-check openhands openhands-dry-run openhands-controlled openhands-controlled-dry-run openhands-demo agent-run
+.PHONY: review-gates-local
 
 help:
 	@echo "Autonomous Agent Stack - common commands"
@@ -30,7 +43,14 @@ help:
 	@echo "  make ai-lab-status Show AI lab status"
 	@echo "  make ai-lab-run ARGS='python -V' Run a one-shot command"
 	@echo "  make masfactory-flight GOAL='...' WATCH=1 Run MASFactory first flight demo"
+	@echo "  make openhands OH_TASK='...' Launch OpenHands CLI with strict guardrails"
+	@echo "  make openhands-dry-run Preview the OpenHands docker command"
+	@echo "  make openhands-controlled OH_TASK='...' Run controlled backend chain (isolated workspace + validation + patch)"
+	@echo "  make openhands-controlled-dry-run Preview controlled backend chain with dry-run OpenHands"
+	@echo "  make openhands-demo OH_BACKEND=mock Run minimal closed-loop demo (contract + failure policy)"
+	@echo "  make agent-run AEP_AGENT=openhands AEP_TASK='...' Run AEP v0 runner entrypoint"
 	@echo "  make hygiene-check FAIL_ON_FINDINGS=1 Run prompt hygiene audit for src/"
+	@echo "  make review-gates-local Run mypy/bandit/semgrep on reviewer core modules"
 	@echo "  make test-quick  Run quick smoke tests"
 	@echo "  make clean       Remove Python cache folders"
 	@echo ""
@@ -130,4 +150,45 @@ hygiene-check:
 		STRICT_FLAG=""; \
 		if [[ "$(FAIL_ON_FINDINGS)" == "1" ]]; then STRICT_FLAG="--fail-on-findings"; fi; \
 		$(PYTHON) scripts/check_prompt_hygiene.py --root "$(HYGIENE_ROOT)" --output-dir "$(HYGIENE_OUTPUT_DIR)" --min-repeat "$(HYGIENE_MIN_REPEAT)" $$STRICT_FLAG; \
+	fi
+
+review-gates-local:
+	@set -euo pipefail; \
+	MYPY_BIN="mypy"; \
+	BANDIT_BIN="bandit"; \
+	SEMGREP_BIN="semgrep"; \
+	if [[ -x "$(VENV)/bin/mypy" ]]; then MYPY_BIN="$(VENV)/bin/mypy"; fi; \
+	if [[ -x "$(VENV)/bin/bandit" ]]; then BANDIT_BIN="$(VENV)/bin/bandit"; fi; \
+	if [[ -x "$(VENV)/bin/semgrep" ]]; then SEMGREP_BIN="$(VENV)/bin/semgrep"; fi; \
+	$$MYPY_BIN --config-file mypy.ini src/gatekeeper/static_analyzer.py src/gatekeeper/business_enforcer.py src/gatekeeper/llm_reviewer.py src/gatekeeper/board_summarizer.py; \
+	$$BANDIT_BIN -q src/gatekeeper/static_analyzer.py src/gatekeeper/business_enforcer.py src/gatekeeper/llm_reviewer.py src/gatekeeper/board_summarizer.py; \
+	$$SEMGREP_BIN --error --config=p/python src/gatekeeper/static_analyzer.py src/gatekeeper/business_enforcer.py src/gatekeeper/llm_reviewer.py src/gatekeeper/board_summarizer.py
+
+openhands:
+	OPENHANDS_TASK='$(OH_TASK)' OPENHANDS_DRY_RUN='$(OH_DRY_RUN)' bash ./scripts/openhands_start.sh
+
+openhands-dry-run:
+	OPENHANDS_TASK='$(OH_TASK)' OPENHANDS_DRY_RUN=1 bash ./scripts/openhands_start.sh
+
+openhands-controlled:
+	OPENHANDS_TASK='$(OH_TASK)' OPENHANDS_CHAIN_DRY_RUN='$(OH_CHAIN_DRY_RUN)' OPENHANDS_VALIDATE_CMD='$(OH_VALIDATE_CMD)' bash ./scripts/openhands_controlled_backend.sh
+
+openhands-controlled-dry-run:
+	OPENHANDS_TASK='$(OH_TASK)' OPENHANDS_CHAIN_DRY_RUN=1 OPENHANDS_VALIDATE_CMD='$(OH_VALIDATE_CMD)' bash ./scripts/openhands_controlled_backend.sh
+
+openhands-demo:
+	@if [[ -x "$(VENV_PYTHON)" ]]; then \
+		PYTHONPATH=src $(VENV_PYTHON) examples/openhands_minimal_closed_loop.py --backend "$(OH_BACKEND)" --failure-strategy "$(OH_FAILURE_STRATEGY)" --max-retries "$(OH_MAX_RETRIES)" --prompt "$(OH_TASK)"; \
+	else \
+		PYTHONPATH=src $(PYTHON) examples/openhands_minimal_closed_loop.py --backend "$(OH_BACKEND)" --failure-strategy "$(OH_FAILURE_STRATEGY)" --max-retries "$(OH_MAX_RETRIES)" --prompt "$(OH_TASK)"; \
+	fi
+
+agent-run:
+	@CMD_ARGS="--agent \"$(AEP_AGENT)\" --task \"$(AEP_TASK)\" --retry \"$(AEP_RETRY)\""; \
+	if [[ -n "$(strip $(AEP_RUN_ID))" ]]; then CMD_ARGS="$$CMD_ARGS --run-id \"$(AEP_RUN_ID)\""; fi; \
+	if [[ -n "$(strip $(AEP_FALLBACK_AGENT))" ]]; then CMD_ARGS="$$CMD_ARGS --fallback-agent \"$(AEP_FALLBACK_AGENT)\""; fi; \
+	if [[ -x "$(VENV_PYTHON)" ]]; then \
+		eval "PYTHONPATH=src $(VENV_PYTHON) scripts/agent_run.py $$CMD_ARGS"; \
+	else \
+		eval "PYTHONPATH=src $(PYTHON) scripts/agent_run.py $$CMD_ARGS"; \
 	fi

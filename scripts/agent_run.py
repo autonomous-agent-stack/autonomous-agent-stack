@@ -1,0 +1,67 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+from datetime import datetime, timezone
+
+from autoresearch.agent_protocol.models import FallbackStep, JobSpec, ValidatorSpec
+from autoresearch.executions.runner import AgentExecutionRunner
+
+
+def _default_run_id(agent: str) -> str:
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return f"aep-{agent}-{ts}"
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run AEP v0 job with a registered agent adapter")
+    parser.add_argument("--agent", required=True, help="agent id from configs/agents/<id>.yaml")
+    parser.add_argument("--task", required=True, help="execution task")
+    parser.add_argument("--run-id", default=None, help="optional run id")
+    parser.add_argument("--validator-cmd", action="append", default=[], help="command validator to run in workspace")
+    parser.add_argument("--retry", type=int, default=0, help="additional retry attempts after primary attempt")
+    parser.add_argument("--fallback-agent", default=None, help="fallback agent id")
+    parser.add_argument("--no-human-review", action="store_true", help="do not append human_review fallback step")
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = parse_args()
+    run_id = args.run_id or _default_run_id(args.agent)
+
+    validators = [
+        ValidatorSpec(id=f"cmd_{idx+1}", kind="command", command=command)
+        for idx, command in enumerate(args.validator_cmd)
+    ]
+
+    fallback: list[FallbackStep] = []
+    if args.retry > 0:
+        fallback.append(FallbackStep(action="retry", max_attempts=args.retry))
+    if args.fallback_agent:
+        fallback.append(FallbackStep(action="fallback_agent", agent_id=args.fallback_agent, max_attempts=1))
+    if not args.no_human_review:
+        fallback.append(FallbackStep(action="human_review", max_attempts=1))
+
+    job = JobSpec(
+        run_id=run_id,
+        agent_id=args.agent,
+        role="executor",
+        mode="apply_in_workspace",
+        task=args.task,
+        validators=validators,
+        fallback=fallback,
+        metadata={"entrypoint": "scripts/agent_run.py"},
+    )
+
+    runner = AgentExecutionRunner()
+    summary = runner.run_job(job)
+    print(json.dumps(summary.model_dump(mode="json"), ensure_ascii=False, indent=2))
+
+    if summary.final_status == "ready_for_promotion":
+        return 0
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
