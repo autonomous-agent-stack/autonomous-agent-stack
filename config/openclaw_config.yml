@@ -1,0 +1,188 @@
+# OpenClaw 配置模板
+
+version: "1.0"
+
+# Gateway 配置
+gateway:
+  # 监听地址
+  host: "0.0.0.0"
+  port: 443
+  
+  # TLS 配置
+  tls:
+    enabled: true
+    cert: "/path/to/cert.pem"
+    key: "/path/to/key.pem"
+  
+  # 认证配置
+  auth:
+    mode: "token"  # token | basic | none
+    tokens:
+      - "your-secret-token-1"
+      - "your-secret-token-2"
+
+# 模型配置
+models:
+  # 主模型
+  main:
+    provider: "zhipuai"  # openai | anthropic | zhipuai
+    model: "glm-5"
+    api_key: "${ZHIPUAI_API_KEY}"
+    
+  # 备用模型
+  fallback:
+    provider: "openai"
+    model: "gpt-4o-mini"
+    api_key: "${OPENAI_API_KEY}"
+  
+  # 成本控制
+  cost_limit:
+    daily: 10.0  # USD
+    monthly: 200.0  # USD
+
+# Agent 配置
+agents:
+  # 默认配置
+  default:
+    model: "main"
+    temperature: 0.7
+    max_tokens: 4096
+    
+  # 专用 Agent
+  specialized:
+    coder:
+      model: "main"
+      temperature: 0.3
+      system_prompt: "You are an expert programmer."
+    
+    researcher:
+      model: "main"
+      temperature: 0.5
+      tools:
+        - "search_web"
+        - "scrape_page"
+
+# 工具配置
+tools:
+  # 内置工具
+  builtin:
+    - "read_file"
+    - "write_file"
+    - "execute_shell"
+    - "web_search"
+  
+  # 自定义工具
+  custom:
+    search_web:
+      enabled: true
+      timeout: 30  # seconds
+      max_results: 10
+    
+    scrape_page:
+      enabled: true
+      timeout: 20
+      max_size: 1048576  # 1MB
+
+# 技能配置
+skills:
+  # 技能目录
+  directory: "~/.openclaw/skills"
+  
+  # 自动加载
+  auto_load: true
+  
+  # 热重载
+  hot_reload: true
+  
+  # 权限控制
+  permissions:
+    read_file: "allow"
+    write_file: "ask"
+    execute_shell: "deny"
+
+# 日志配置
+logging:
+  level: "info"  # debug | info | warn | error
+  format: "json"
+  
+  # 输出位置
+  outputs:
+    - type: "file"
+      path: "~/.openclaw/logs/openclaw.log"
+      max_size: 10485760  # 10MB
+      max_files: 5
+    
+    - type: "console"
+      colorize: true
+
+# 监控配置
+monitoring:
+  # 性能监控
+  performance:
+    enabled: true
+    interval: 60  # seconds
+  
+  # 错误追踪
+  error_tracking:
+    enabled: true
+    service: "sentry"  # sentry | custom
+    dsn: "${SENTRY_DSN}"
+  
+  # 使用统计
+  usage_stats:
+    enabled: true
+    report_interval: 3600  # 1 hour
+
+# 通道配置（多平台）
+channels:
+  # Telegram
+  telegram:
+    enabled: true
+    bot_token: "${TELEGRAM_BOT_TOKEN}"
+    allowed_users:
+      - 123456789
+      - 987654321
+  
+  # Discord
+  discord:
+    enabled: false
+    bot_token: "${DISCORD_BOT_TOKEN}"
+    guild_id: "your-guild-id"
+  
+  # Slack
+  slack:
+    enabled: false
+    bot_token: "${SLACK_BOT_TOKEN}"
+    app_token: "${SLACK_APP_TOKEN}"
+  
+  # iMessage
+  imessage:
+    enabled: true
+    phone_numbers:
+      - "+8618819954764"
+
+# 安全配置
+security:
+  # API 密钥加密
+  encrypt_keys: true
+  encryption_key: "${OPENCLAW_ENCRYPTION_KEY}"
+  
+  # 访问控制
+  access_control:
+    enabled: true
+    whitelist:
+      - "127.0.0.1"
+      - "192.168.1.0/24"
+  
+  # 速率限制
+  rate_limit:
+    enabled: true
+    requests_per_minute: 60
+    burst: 10
+
+# 备份配置
+backup:
+  enabled: true
+  interval: 86400  # 24 hours
+  retention: 7  # days
+  destination: "s3://your-bucket/backups"

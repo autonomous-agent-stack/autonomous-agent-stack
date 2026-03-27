@@ -1,0 +1,61 @@
+# Claude Code 配置模板
+
+{
+  "model": {
+    "provider": "anthropic",
+    "name": "claude-3-opus-20240229",
+    "api_key": "${ANTHROPIC_API_KEY}",
+    "temperature": 0.7,
+    "max_tokens": 4096
+  },
+  
+  "context": {
+    "max_files": 100,
+    "max_file_size": 1048576,
+    "exclude_patterns": [
+      "node_modules/",
+      ".git/",
+      "*.log",
+      "*.tmp"
+    ]
+  },
+  
+  "tools": {
+    "enabled": [
+      "read",
+      "write",
+      "edit",
+      "execute"
+    ],
+    "permissions": {
+      "read": "allow",
+      "write": "ask",
+      "edit": "ask",
+      "execute": "deny"
+    }
+  },
+  
+  "formatting": {
+    "indent_size": 2,
+    "max_line_length": 100,
+    "quote_style": "double"
+  },
+  
+  "testing": {
+    "framework": "pytest",
+    "coverage_threshold": 80,
+    "timeout": 30
+  },
+  
+  "git": {
+    "auto_commit": false,
+    "commit_message_template": "feat: ${description}\n\nCo-authored-by: Claude Code <claude-code@anthropic>",
+    "branch_naming": "feature/${ticket}-${description}"
+  },
+  
+  "logging": {
+    "level": "info",
+    "file": "~/.claude-code/logs/claude-code.log",
+    "max_size": 10485760
+  }
+}
