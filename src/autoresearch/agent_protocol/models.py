@@ -148,5 +148,7 @@ class AgentManifest(StrictModel):
     entrypoint: str
     version: str = "0.1"
     capabilities: list[str] = Field(default_factory=list)
-    default_mode: Literal["plan_only", "patch_only", "apply_in_workspace", "review_only"] = "apply_in_workspace"
+    default_mode: Literal["plan_only", "patch_only", "apply_in_workspace", "review_only"] = (
+        "apply_in_workspace"
+    )
     policy_defaults: ExecutionPolicy = Field(default_factory=ExecutionPolicy)

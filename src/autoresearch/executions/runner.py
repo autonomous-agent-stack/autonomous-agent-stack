@@ -21,7 +21,6 @@ from autoresearch.agent_protocol.decision import attempt_succeeded, derive_termi
 from autoresearch.agent_protocol.policy import EffectivePolicy, build_effective_policy
 from autoresearch.agent_protocol.registry import AgentRegistry
 
-
 _RUNTIME_DENY_PREFIXES = (
     "logs/",
     ".masfactory_runtime/",
@@ -38,7 +37,9 @@ class AgentExecutionRunner:
         manifests_dir: Path | None = None,
     ) -> None:
         self._repo_root = (repo_root or Path(__file__).resolve().parents[3]).resolve()
-        self._runtime_root = (runtime_root or (self._repo_root / ".masfactory_runtime" / "runs")).resolve()
+        self._runtime_root = (
+            runtime_root or (self._repo_root / ".masfactory_runtime" / "runs")
+        ).resolve()
         self._manifests_dir = (manifests_dir or (self._repo_root / "configs" / "agents")).resolve()
         self._registry = AgentRegistry(self._manifests_dir)
 
@@ -61,14 +62,18 @@ class AgentExecutionRunner:
             shutil.rmtree(run_dir)
         artifacts_dir.mkdir(parents=True, exist_ok=True)
 
-        job_path.write_text(json.dumps(job.model_dump(mode="json"), ensure_ascii=False, indent=2), encoding="utf-8")
+        job_path.write_text(
+            json.dumps(job.model_dump(mode="json"), ensure_ascii=False, indent=2), encoding="utf-8"
+        )
         policy_payload = {
             "hard": effective_policy.hard.model_dump(mode="json"),
             "manifest_default": effective_policy.manifest_default.model_dump(mode="json"),
             "job": effective_policy.job.model_dump(mode="json"),
             "merged": effective_policy.merged.model_dump(mode="json"),
         }
-        policy_path.write_text(json.dumps(policy_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        policy_path.write_text(
+            json.dumps(policy_payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
 
         self._snapshot_repo_to_baseline(baseline_dir)
 
@@ -160,7 +165,9 @@ class AgentExecutionRunner:
             )
 
             if not driver_result.changed_paths:
-                driver_result = driver_result.model_copy(update={"changed_paths": patch_filtered_paths})
+                driver_result = driver_result.model_copy(
+                    update={"changed_paths": patch_filtered_paths}
+                )
 
             last_result = driver_result
             last_validation = validation
@@ -326,7 +333,9 @@ class AgentExecutionRunner:
             )
 
         merged_metrics = result.metrics.model_copy(update={"duration_ms": duration_ms})
-        result = result.model_copy(update={"metrics": merged_metrics, "attempt": attempt, "agent_id": agent_id})
+        result = result.model_copy(
+            update={"metrics": merged_metrics, "attempt": attempt, "agent_id": agent_id}
+        )
 
         if completed.returncode == 10 and result.status not in {"policy_blocked", "contract_error"}:
             result = result.model_copy(update={"status": "policy_blocked"})
@@ -366,7 +375,9 @@ class AgentExecutionRunner:
         forbidden_changed = [
             path for path in changed_paths if self._matches_any(path, policy.merged.forbidden_paths)
         ]
-        runtime_changed = [path for path in changed_paths if path.startswith(_RUNTIME_DENY_PREFIXES)]
+        runtime_changed = [
+            path for path in changed_paths if path.startswith(_RUNTIME_DENY_PREFIXES)
+        ]
 
         allowed_changed = [
             path
@@ -379,7 +390,15 @@ class AgentExecutionRunner:
         checks.append(
             ValidationCheck(
                 id="builtin.allowed_paths",
-                passed=len([p for p in changed_paths if p not in allowed_changed and p not in forbidden_changed and p not in runtime_changed])
+                passed=len(
+                    [
+                        p
+                        for p in changed_paths
+                        if p not in allowed_changed
+                        and p not in forbidden_changed
+                        and p not in runtime_changed
+                    ]
+                )
                 == 0,
                 detail="all changed files must be inside allowed_paths",
             )
@@ -411,13 +430,19 @@ class AgentExecutionRunner:
         patch_line_count = 0
 
         for rel in allowed_changed:
-            diff_text, is_binary = self._diff_single_path(baseline_dir / rel, workspace_dir / rel, rel)
+            diff_text, is_binary = self._diff_single_path(
+                baseline_dir / rel, workspace_dir / rel, rel
+            )
             if is_binary:
                 binary_changed.append(rel)
                 continue
             if diff_text:
                 patch_chunks.append(diff_text)
-                patch_line_count += sum(1 for line in diff_text.splitlines() if line.startswith("+") or line.startswith("-"))
+                patch_line_count += sum(
+                    1
+                    for line in diff_text.splitlines()
+                    if line.startswith("+") or line.startswith("-")
+                )
 
         checks.append(
             ValidationCheck(
@@ -550,7 +575,9 @@ class AgentExecutionRunner:
             files.append(path.relative_to(root).as_posix())
         return files
 
-    def _diff_single_path(self, base_path: Path, workspace_path: Path, rel_path: str) -> tuple[str, bool]:
+    def _diff_single_path(
+        self, base_path: Path, workspace_path: Path, rel_path: str
+    ) -> tuple[str, bool]:
         base_lines, base_binary = self._read_text_lines(base_path)
         ws_lines, ws_binary = self._read_text_lines(workspace_path)
 

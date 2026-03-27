@@ -3,7 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 
-from autoresearch.core.services.openhands_controlled_backend import OpenHandsControlledBackendService
+from autoresearch.core.services.openhands_controlled_backend import (
+    OpenHandsControlledBackendService,
+)
 from autoresearch.shared.openhands_controlled_contract import (
     ControlledBackend,
     ControlledExecutionRequest,
