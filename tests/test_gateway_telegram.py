@@ -103,8 +103,8 @@ def test_telegram_webhook_routes_to_openclaw_and_agents(
             "message": {
                 "message_id": 77,
                 "text": "给我一条口红营销文案",
-                "chat": {"id": 9527},
-                "from": {"username": "alice"},
+                "chat": {"id": 9527, "type": "private"},
+                "from": {"id": 9527, "username": "alice"},
             },
         },
     )
@@ -132,6 +132,9 @@ def test_telegram_webhook_routes_to_openclaw_and_agents(
     assert session.status_code == 200
     session_payload = session.json()
     assert session_payload["external_id"] == "9527"
+    assert session_payload["scope"] == "personal"
+    assert session_payload["session_key"] == "telegram:personal:user:9527"
+    assert session_payload["chat_context"]["chat_type"] == "private"
     assert any(event["role"] == "user" for event in session_payload["events"])
     assert any("agent queued" in event["content"] for event in session_payload["events"])
 
@@ -153,8 +156,8 @@ def test_legacy_telegram_webhook_uses_same_processing_path(
             "message": {
                 "message_id": 78,
                 "text": "legacy webhook smoke",
-                "chat": {"id": 9528},
-                "from": {"username": "legacy"},
+                "chat": {"id": 9528, "type": "private"},
+                "from": {"id": 9528, "username": "legacy"},
             },
         },
     )
@@ -163,6 +166,59 @@ def test_legacy_telegram_webhook_uses_same_processing_path(
     assert payload["accepted"] is True
     assert payload["chat_id"] == "9528"
     assert payload["agent_run_id"] is not None
+
+
+def test_telegram_webhook_separates_private_and_group_sessions(
+    telegram_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "AUTORESEARCH_TELEGRAM_CLAUDE_COMMAND_OVERRIDE",
+        f"{sys.executable} -c \"print('scope-ok')\"",
+    )
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_APPEND_PROMPT", "false")
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_OWNER_UIDS", "3001")
+
+    private_response = telegram_client.post(
+        "/api/v1/gateway/telegram/webhook",
+        json={
+            "update_id": 1301,
+            "message": {
+                "message_id": 81,
+                "text": "private scope",
+                "chat": {"id": 3001, "type": "private"},
+                "from": {"id": 3001, "username": "duo"},
+            },
+        },
+    )
+    assert private_response.status_code == 200
+
+    group_response = telegram_client.post(
+        "/api/v1/gateway/telegram/webhook",
+        json={
+            "update_id": 1302,
+            "message": {
+                "message_id": 82,
+                "text": "group scope",
+                "chat": {"id": -1003001, "type": "supergroup"},
+                "from": {"id": 3001, "username": "duo"},
+            },
+        },
+    )
+    assert group_response.status_code == 200
+
+    sessions = telegram_client.get("/api/v1/openclaw/sessions")
+    assert sessions.status_code == 200
+    payload = sessions.json()
+    assert len(payload) == 2
+
+    session_by_scope = {item["scope"]: item for item in payload}
+    assert session_by_scope["personal"]["session_key"] == "telegram:personal:user:3001"
+    assert session_by_scope["personal"]["actor"]["role"] == "owner"
+    assert session_by_scope["personal"]["chat_context"]["chat_type"] == "private"
+    assert session_by_scope["shared"]["session_key"] == "telegram:shared:chat:-1003001"
+    assert session_by_scope["shared"]["assistant_id"] == "telegram-shared"
+    assert session_by_scope["shared"]["chat_context"]["chat_type"] == "supergroup"
 
 
 def test_telegram_webhook_secret_token_guard(

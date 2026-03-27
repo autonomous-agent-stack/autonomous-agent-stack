@@ -36,6 +36,39 @@ class OptimizationStrategy(str, Enum):
     GENETIC = "genetic"
 
 
+class AssistantScope(str, Enum):
+    PERSONAL = "personal"
+    SHARED = "shared"
+
+
+class ActorRole(str, Enum):
+    OWNER = "owner"
+    PARTNER = "partner"
+    MEMBER = "member"
+    UNKNOWN = "unknown"
+
+
+class ChatType(str, Enum):
+    PRIVATE = "private"
+    GROUP = "group"
+    SUPERGROUP = "supergroup"
+    CHANNEL = "channel"
+    UNKNOWN = "unknown"
+
+
+class OpenClawSessionActorRead(StrictModel):
+    user_id: str | None = None
+    username: str | None = None
+    role: ActorRole = ActorRole.UNKNOWN
+
+
+class OpenClawSessionChatContextRead(StrictModel):
+    chat_id: str | None = None
+    chat_type: ChatType = ChatType.UNKNOWN
+    user_id: str | None = None
+    message_id: str | None = None
+
+
 class EvaluatorCommand(StrictModel):
     command: list[str] = Field(..., min_length=1)
     timeout_seconds: int = Field(default=300, ge=1)
@@ -107,6 +140,11 @@ class OpenClawSessionCreateRequest(StrictModel):
     channel: str = "api"
     external_id: str | None = None
     title: str = "openclaw-session"
+    scope: AssistantScope = AssistantScope.PERSONAL
+    session_key: str | None = None
+    assistant_id: str | None = None
+    actor: OpenClawSessionActorRead | None = None
+    chat_context: OpenClawSessionChatContextRead | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -121,6 +159,11 @@ class OpenClawSessionRead(StrictModel):
     channel: str
     external_id: str | None = None
     title: str
+    scope: AssistantScope = AssistantScope.PERSONAL
+    session_key: str | None = None
+    assistant_id: str | None = None
+    actor: OpenClawSessionActorRead | None = None
+    chat_context: OpenClawSessionChatContextRead | None = None
     status: JobStatus
     created_at: datetime
     updated_at: datetime

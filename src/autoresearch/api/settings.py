@@ -118,7 +118,13 @@ class TelegramSettings(_BaseApiSettings):
     )
     secret_token: str | None = Field(default=None, validation_alias="AUTORESEARCH_TELEGRAM_SECRET_TOKEN")
     allowed_uids: set[str] = Field(default_factory=set, validation_alias="AUTORESEARCH_TELEGRAM_ALLOWED_UIDS")
+    owner_uids: set[str] = Field(default_factory=set, validation_alias="AUTORESEARCH_TELEGRAM_OWNER_UIDS")
+    partner_uids: set[str] = Field(default_factory=set, validation_alias="AUTORESEARCH_TELEGRAM_PARTNER_UIDS")
     internal_groups: set[str] = Field(default_factory=set, validation_alias="AUTORESEARCH_INTERNAL_GROUPS")
+    shared_assistant_id: str = Field(
+        default="telegram-shared",
+        validation_alias="AUTORESEARCH_TELEGRAM_SHARED_ASSISTANT_ID",
+    )
     agent_name: str | None = Field(default=None, validation_alias="AUTORESEARCH_TELEGRAM_AGENT_NAME")
     timeout_seconds: int = Field(default=900, validation_alias="AUTORESEARCH_TELEGRAM_TIMEOUT_SECONDS")
     generation_depth: int = Field(default=1, validation_alias="AUTORESEARCH_TELEGRAM_GENERATION_DEPTH")
@@ -141,7 +147,7 @@ class TelegramSettings(_BaseApiSettings):
     )
     channel_actor: str = Field(default="telegram-webhook", validation_alias="AUTORESEARCH_TELEGRAM_CHANNEL_ACTOR")
 
-    @field_validator("allowed_uids", "internal_groups", mode="before")
+    @field_validator("allowed_uids", "owner_uids", "partner_uids", "internal_groups", mode="before")
     @classmethod
     def _normalize_sets(cls, value: Any) -> set[str]:
         return _parse_csv_set(value)

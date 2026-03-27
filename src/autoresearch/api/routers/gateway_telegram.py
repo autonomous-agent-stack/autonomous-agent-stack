@@ -21,10 +21,15 @@ from autoresearch.core.services.claude_agents import ClaudeAgentService
 from autoresearch.core.services.group_access import GroupAccessManager
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.panel_access import PanelAccessService
+from autoresearch.core.services.telegram_identity import (
+    TelegramSessionIdentityRead,
+    build_telegram_session_identity,
+)
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
 from autoresearch.shared.models import (
     AdminChannelConfigCreateRequest,
     AdminChannelConfigUpdateRequest,
+    AssistantScope,
     ClaudeAgentCreateRequest,
     ClaudeAgentRunRead,
     OpenClawSessionCreateRequest,
@@ -141,6 +146,9 @@ def _handle_telegram_webhook(
             reason="empty message text",
         )
 
+    telegram_settings = load_telegram_settings()
+    session_identity = build_telegram_session_identity(extracted, telegram_settings)
+
     _ensure_admin_channel_visibility(
         admin_config_service=admin_config_service,
         chat_id=chat_id,
@@ -156,18 +164,33 @@ def _handle_telegram_webhook(
             agent_service=agent_service,
             panel_access_service=panel_access_service,
             notifier=notifier,
+            session_identity=session_identity,
         )
 
-    session = openclaw_service.find_session(channel="telegram", external_id=chat_id)
+    session = openclaw_service.find_session_by_key(channel="telegram", session_key=session_identity.session_key)
+    if session is None:
+        session = openclaw_service.find_session(channel="telegram", external_id=chat_id)
     if session is None:
         session = openclaw_service.create_session(
             OpenClawSessionCreateRequest(
                 channel="telegram",
                 external_id=chat_id,
-                title=f"telegram-{chat_id}",
+                title=_build_session_title(chat_id=chat_id, session_identity=session_identity),
+                scope=session_identity.scope,
+                session_key=session_identity.session_key,
+                assistant_id=session_identity.assistant_id,
+                actor=session_identity.actor,
+                chat_context=session_identity.chat_context,
                 metadata={
                     "source": "telegram_webhook",
                     "created_at": _utc_now(),
+                    "identity_version": 1,
+                    "scope": session_identity.scope.value,
+                    "session_key": session_identity.session_key,
+                    "assistant_id": session_identity.assistant_id,
+                    "chat_type": session_identity.chat_context.chat_type.value,
+                    "actor_role": session_identity.actor.role.value,
+                    "actor_user_id": session_identity.actor.user_id,
                 },
             )
         )
@@ -178,9 +201,9 @@ def _handle_telegram_webhook(
         text=text,
         update=update,
         extracted=extracted,
+        session_identity=session_identity,
     )
 
-    telegram_settings = load_telegram_settings()
     request_payload = ClaudeAgentCreateRequest(
         task_name=_build_task_name(chat_id, update, extracted),
         prompt=text,
@@ -201,6 +224,12 @@ def _handle_telegram_webhook(
             "message_id": extracted.get("message_id"),
             "username": extracted.get("username"),
             "has_images": len(extracted.get("images", [])) > 0,  # 标记是否有图片
+            "scope": session_identity.scope.value,
+            "session_key": session_identity.session_key,
+            "assistant_id": session_identity.assistant_id,
+            "chat_type": session_identity.chat_context.chat_type.value,
+            "actor_role": session_identity.actor.role.value,
+            "actor_user_id": session_identity.actor.user_id,
         },
     )
 
@@ -292,6 +321,7 @@ def _extract_telegram_message(update: dict[str, Any]) -> dict[str, Any] | None:
         
         return {
             "chat_id": _safe_str(chat.get("id")),
+            "chat_type": _safe_str(chat.get("type")),
             "text": (message.get("text") or message.get("caption") or "").strip(),
             "message_id": message.get("message_id"),
             "username": from_user.get("username"),
@@ -308,6 +338,7 @@ def _extract_telegram_message(update: dict[str, Any]) -> dict[str, Any] | None:
         from_user = callback.get("from", {})
         return {
             "chat_id": _safe_str(chat.get("id")),
+            "chat_type": _safe_str(chat.get("type")),
             "text": (callback.get("data") or "").strip(),
             "message_id": callback_message.get("message_id"),
             "username": from_user.get("username"),
@@ -371,6 +402,7 @@ def _append_user_event(
     text: str,
     update: dict[str, Any],
     extracted: dict[str, Any],
+    session_identity: TelegramSessionIdentityRead,
 ) -> None:
     openclaw_service.append_event(
         session_id=session.session_id,
@@ -384,9 +416,14 @@ def _append_user_event(
                 "username": extracted.get("username"),
                 "update_id": _safe_int(update.get("update_id")),
                 "update_type": extracted.get("raw_type"),
+                "scope": session_identity.scope.value,
+                "session_key": session_identity.session_key,
+                "chat_type": session_identity.chat_context.chat_type.value,
+                "actor_role": session_identity.actor.role.value,
+                "actor_user_id": session_identity.actor.user_id,
             },
         ),
-        )
+    )
 
 
 def _ensure_admin_channel_visibility(
@@ -512,14 +549,22 @@ def _handle_status_query(
     agent_service: ClaudeAgentService,
     panel_access_service: PanelAccessService,
     notifier: TelegramNotifierService,
+    session_identity: TelegramSessionIdentityRead,
 ) -> TelegramWebhookAck:
-    session = openclaw_service.find_session(channel="telegram", external_id=chat_id)
+    session = openclaw_service.find_session_by_key(channel="telegram", session_key=session_identity.session_key)
+    if session is None:
+        session = openclaw_service.find_session(channel="telegram", external_id=chat_id)
     runs = []
     if session is not None:
         runs = [run for run in agent_service.list() if run.session_id == session.session_id]
         runs.sort(key=lambda item: item.updated_at, reverse=True)
 
-    summary_lines = _build_status_summary_lines(chat_id=chat_id, session=session, runs=runs)
+    summary_lines = _build_status_summary_lines(
+        chat_id=chat_id,
+        session=session,
+        runs=runs,
+        session_identity=session_identity,
+    )
 
     # Initialize GroupAccessManager for whitelist groups
     group_access_manager = GroupAccessManager()
@@ -589,6 +634,8 @@ def _handle_status_query(
             "active_runs": len(runs),
             "is_group_link": is_group_link,
             "mini_app_url": mini_app_url,
+            "scope": session_identity.scope.value,
+            "session_key": session_identity.session_key,
         },
     )
 
@@ -666,20 +713,27 @@ def _build_status_summary_lines(
     chat_id: str,
     session: OpenClawSessionRead | None,
     runs: list[Any],
+    session_identity: TelegramSessionIdentityRead,
 ) -> list[str]:
     if session is None:
         return [
             f"chat_id: {chat_id}",
+            f"scope: {session_identity.scope.value}",
+            f"session_key: {session_identity.session_key}",
             "当前没有历史会话。",
             "发送任务文本后系统会自动创建会话并执行。",
         ]
 
     lines = [
         f"chat_id: {chat_id}",
+        f"scope: {session.scope.value}",
+        f"session_key: {session.session_key or session_identity.session_key}",
         f"session: {session.session_id}",
         f"session_status: {session.status.value}",
         f"active_runs: {sum(1 for run in runs if run.status.value in {'queued', 'running'})}",
     ]
+    if session.actor is not None:
+        lines.append(f"actor_role: {session.actor.role.value}")
     if not runs:
         lines.append("最近任务: 暂无")
         return lines
@@ -697,6 +751,15 @@ def _build_task_name(chat_id: str, update: dict[str, Any], extracted: dict[str, 
     if suffix is None:
         suffix = _utc_now().replace("-", "").replace(":", "").replace(".", "")
     return f"tg_{chat_id}_{suffix}"
+
+
+def _build_session_title(*, chat_id: str, session_identity: TelegramSessionIdentityRead) -> str:
+    scope = session_identity.scope
+    if scope == AssistantScope.PERSONAL and session_identity.actor.user_id:
+        return f"telegram-personal-{session_identity.actor.user_id}"
+    if scope == AssistantScope.SHARED:
+        return f"telegram-shared-{chat_id}"
+    return f"telegram-{chat_id}"
 
 
 def _safe_str(value: Any) -> str | None:

@@ -25,6 +25,11 @@ class OpenClawCompatService:
             channel=request.channel,
             external_id=request.external_id,
             title=request.title,
+            scope=request.scope,
+            session_key=request.session_key,
+            assistant_id=request.assistant_id,
+            actor=request.actor,
+            chat_context=request.chat_context,
             status=JobStatus.CREATED,
             created_at=now,
             updated_at=now,
@@ -51,6 +56,17 @@ class OpenClawCompatService:
             if session.channel != channel:
                 continue
             if session.external_id == normalized_external_id:
+                return session
+        return None
+
+    def find_session_by_key(self, channel: str, session_key: str) -> OpenClawSessionRead | None:
+        normalized_session_key = session_key.strip()
+        if not normalized_session_key:
+            return None
+        for session in self.list_sessions():
+            if session.channel != channel:
+                continue
+            if session.session_key == normalized_session_key:
                 return session
         return None
 
