@@ -62,6 +62,14 @@ except Exception as e:
     logger.error(f"⚠️ Self-Integration API 集成失败: {e}")
 
 try:
+    from autoresearch.api.routers.evaluations import router as evaluations_router
+
+    app.include_router(evaluations_router)
+    logger.info("✅ Evaluations API 已集成 (/api/v1/evaluations/*)")
+except Exception as e:
+    logger.error(f"⚠️ Evaluations API 集成失败: {e}")
+
+try:
     from autoresearch.api.routers.openclaw import router as openclaw_router
 
     app.include_router(openclaw_router)
