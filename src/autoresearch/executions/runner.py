@@ -136,6 +136,10 @@ class AgentExecutionRunner:
                 attempt=attempt,
                 timeout_sec=effective_policy.merged.timeout_sec,
             )
+            result_path.write_text(
+                json.dumps(driver_result.model_dump(mode="json"), ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
 
             changed_paths = self._collect_changed_paths(baseline_dir, workspace_dir)
             patch_text, patch_filtered_paths, builtin_checks = self._build_filtered_patch(
