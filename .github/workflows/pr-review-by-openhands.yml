@@ -29,10 +29,12 @@ jobs:
       )
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
 
     steps:
       - name: Check required secret
-        if: ${{ secrets.LLM_API_KEY == '' }}
+        if: ${{ env.LLM_API_KEY == '' }}
         run: |
           echo "::error::Missing LLM_API_KEY secret. Add it in Settings -> Secrets and variables -> Actions."
           exit 1
@@ -44,5 +46,5 @@ jobs:
           llm-base-url: ${{ vars.OPENHANDS_LLM_BASE_URL || '' }}
           review-style: ${{ vars.OPENHANDS_REVIEW_STYLE || 'standard' }}
           extensions-version: fdd6c7373bdf1c20cfdedb7261ffdbf49d5a76e5
-          llm-api-key: ${{ secrets.LLM_API_KEY }}
+          llm-api-key: ${{ env.LLM_API_KEY }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
