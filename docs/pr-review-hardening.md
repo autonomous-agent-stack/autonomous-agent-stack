@@ -45,6 +45,7 @@ This repository now uses a two-layer review setup:
 - Require pull request before merge
 - Require status checks:
   - Use job names/check contexts (not workflow filenames)
+  - `CI / lint-test-audit` (main CI line; matrix variants may appear in UI)
   - `Quality Gates / reviewer-gates`
 - Require review from Code Owners
 - Restrict direct pushes to `main`
@@ -53,3 +54,4 @@ This repository now uses a two-layer review setup:
 
 - `CODEOWNERS` is in `.github/CODEOWNERS` and should be kept in sync with maintainers.
 - Repository-specific review policy is in `.agents/skills/custom-codereview-guide.md`.
+- If merge queue is enabled, keep both `CI` and `Quality Gates` workflows listening on `merge_group`.

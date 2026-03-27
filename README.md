@@ -70,6 +70,7 @@ make review-gates-local
 - 质量门禁：`.github/workflows/quality-gates.yml`
   - 检查项：`mypy + bandit + semgrep`（工具版本固定在 `requirements-review.lock`）
   - 包含 `merge_group` 触发，兼容 merge queue
+- 仓库 required checks 建议：`CI / lint-test-audit` + `Quality Gates / reviewer-gates`
 
 完整落地说明见：[PR Review Hardening](./docs/pr-review-hardening.md)
 
