@@ -1,458 +1,552 @@
 # AI Agent 完整故障排查手册
 
 > **版本**: v1.0
-> **更新时间**: 2026-03-27 16:44
-> **故障类型**: 50+
+> **更新时间**: 2026-03-27 22:26
+> **故障场景**: 100+
 
 ---
 
-## 🚨 故障分类
+## 🔍 故障排查流程
 
-### 1. API 相关故障
+### 通用排查步骤
 
-#### 1.1 API Key 无效
+1. **收集信息**
+   - 错误消息
+   - 日志文件
+   - 系统状态
+   - 时间戳
 
-**症状**:
-```
-Error: Invalid API key provided
-```
+2. **定位问题**
+   - 网络层
+   - 应用层
+   - 数据层
+   - 外部服务
 
-**原因**:
-- API Key 错误
-- API Key 过期
-- API Key 权限不足
+3. **诊断分析**
+   - 查看日志
+   - 检查指标
+   - 复现问题
+   - 隔离测试
 
-**解决方案**:
-```python
-# 1. 检查 API Key
-import os
-api_key = os.getenv("OPENAI_API_KEY")
-print(f"API Key: {api_key[:10]}...")  # 只打印前 10 位
-
-# 2. 验证 API Key
-import openai
-openai.api_key = api_key
-
-try:
-    openai.Model.list()
-    print("API Key 有效")
-except Exception as e:
-    print(f"API Key 无效: {e}")
-
-# 3. 更新 API Key
-# 登录 OpenAI 平台重新生成
-```
+4. **修复验证**
+   - 应用修复
+   - 验证效果
+   - 监控指标
+   - 文档记录
 
 ---
 
-#### 1.2 API 限流
+## 🌐 网络问题
 
-**症状**:
+### 问题 1：API 超时
+
+**症状**：
 ```
-Error: Rate limit exceeded
+RequestTimeoutError: Request timed out after 30s
 ```
 
-**原因**:
-- 请求过快
-- 超过配额
+**排查**：
+```bash
+# 1. 检查网络连接
+ping api.openai.com
 
-**解决方案**:
+# 2. 检查 DNS
+nslookup api.openai.com
+
+# 3. 检查防火墙
+iptables -L -n | grep 443
+
+# 4. 测试连接
+curl -v https://api.openai.com/v1/models
+```
+
+**解决方案**：
 ```python
-# 1. 添加重试机制
+# 增加超时时间
+client = OpenAI(timeout=60.0)
+
+# 添加重试机制
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-@retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=4, max=10)
-)
-def call_api(prompt):
-    return openai.ChatCompletion.create(
-        model="gpt-4",
-        messages=[{"role": "user", "content": prompt}]
-    )
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+def call_api():
+    return client.chat.completions.create(...)
+```
 
-# 2. 添加速率限制
+---
+
+### 问题 2：DNS 解析失败
+
+**症状**：
+```
+DNSLookupError: Failed to resolve api.openai.com
+```
+
+**排查**：
+```bash
+# 1. 检查 DNS 配置
+cat /etc/resolv.conf
+
+# 2. 测试 DNS 解析
+dig api.openai.com
+
+# 3. 使用公共 DNS
+echo "nameserver 8.8.8.8" | sudo tee /etc/resolv.conf
+```
+
+**解决方案**：
+```python
+# 使用 IP 直连
+import socket
+ip = socket.gethostbyname('api.openai.com')
+client = OpenAI(base_url=f'https://{ip}/v1')
+```
+
+---
+
+## 🔑 认证问题
+
+### 问题 3：API 密钥无效
+
+**症状**：
+```
+AuthenticationError: Invalid API key
+```
+
+**排查**：
+```bash
+# 1. 检查密钥格式
+echo $OPENAI_API_KEY | grep 'sk-'
+
+# 2. 验证密钥有效性
+curl https://api.openai.com/v1/models \
+  -H "Authorization: Bearer $OPENAI_API_KEY"
+
+# 3. 检查密钥权限
+openai api keys list
+```
+
+**解决方案**：
+```python
+# 验证密钥
+import os
+api_key = os.getenv('OPENAI_API_KEY')
+if not api_key or not api_key.startswith('sk-'):
+    raise ValueError('Invalid API key')
+
+# 重新生成密钥
+# 登录 OpenAI Dashboard → API Keys → Create new secret key
+```
+
+---
+
+### 问题 4：Token 过期
+
+**症状**：
+```
+AuthenticationError: Token expired
+```
+
+**排查**：
+```python
+# 解码 JWT
+import jwt
+decoded = jwt.decode(token, options={"verify_signature": False})
+print(decoded['exp'])  # 过期时间
+
+# 检查是否过期
+from datetime import datetime
+if decoded['exp'] < datetime.now().timestamp():
+    print('Token expired')
+```
+
+**解决方案**：
+```python
+# 自动刷新 Token
+def refresh_token(refresh_token):
+    response = requests.post('/auth/refresh', json={
+        'refresh_token': refresh_token
+    })
+    return response.json()['access_token']
+```
+
+---
+
+## 💾 数据库问题
+
+### 问题 5：向量数据库连接失败
+
+**症状**：
+```
+ConnectionError: Failed to connect to Qdrant at localhost:6333
+```
+
+**排查**：
+```bash
+# 1. 检查服务状态
+docker ps | grep qdrant
+
+# 2. 检查端口
+netstat -an | grep 6333
+
+# 3. 测试连接
+curl http://localhost:6333/collections
+
+# 4. 查看日志
+docker logs qdrant
+```
+
+**解决方案**：
+```bash
+# 重启服务
+docker restart qdrant
+
+# 检查配置
+docker exec -it qdrant cat /qdrant/config/production.yaml
+```
+
+---
+
+### 问题 6：查询性能慢
+
+**症状**：
+```
+Query took 5.2s (expected <500ms)
+```
+
+**排查**：
+```python
+# 1. 检查索引
+from qdrant_client import QdrantClient
+client = QdrantClient(host='localhost', port=6333)
+info = client.get_collection('my_collection')
+print(info.points_count)  # 点数量
+print(info.indexed_vectors_count)  # 索引数量
+
+# 2. 分析查询计划
+# Qdrant 暂无查询计划，检查 HNSW 配置
+```
+
+**解决方案**：
+```python
+# 优化索引配置
+client.recreate_collection(
+    collection_name='optimized',
+    vectors_config={
+        'size': 1536,
+        'distance': 'Cosine',
+        'hnsw_config': {
+            'm': 16,           # 增加连接数
+            'ef_construct': 100  # 增加构建时搜索范围
+        }
+    }
+)
+
+# 批量插入
+points = [...]
+client.upsert(collection_name='optimized', points=points, batch_size=100)
+```
+
+---
+
+## 🤖 Agent 问题
+
+### 问题 7：Agent 无响应
+
+**症状**：
+```
+Agent hung for >60s without response
+```
+
+**排查**：
+```python
+# 1. 检查 LLM 调用
+import logging
+logging.basicConfig(level=logging.DEBUG)
+
+# 2. 检查工具调用
+for tool in agent.tools:
+    print(f"Tool: {tool.name}, Status: {tool.status}")
+
+# 3. 检查记忆
+print(agent.memory.load_memory_variables({}))
+```
+
+**解决方案**：
+```python
+# 添加超时控制
+from threading import Thread
 import time
-from functools import wraps
 
-def rate_limit(calls_per_minute=60):
-    min_interval = 60.0 / calls_per_minute
-    last_called = [0.0]
+def run_with_timeout(agent, query, timeout=30):
+    result = None
     
-    def decorator(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            elapsed = time.time() - last_called[0]
-            left = min_interval - elapsed
-            
-            if left > 0:
-                time.sleep(left)
-            
-            last_called[0] = time.time()
-            return func(*args, **kwargs)
-        
-        return wrapper
-    return decorator
-
-@rate_limit(calls_per_minute=50)
-def safe_call(prompt):
-    return call_api(prompt)
+    def worker():
+        nonlocal result
+        result = agent.run(query)
+    
+    thread = Thread(target=worker)
+    thread.start()
+    thread.join(timeout=timeout)
+    
+    if thread.is_alive():
+        return "Timeout: Agent took too long"
+    return result
 ```
 
 ---
 
-#### 1.3 超时错误
+### 问题 8：工具调用失败
 
-**症状**:
+**症状**：
 ```
-Error: Request timeout
+ToolExecutionError: Tool 'search' failed: Connection refused
 ```
 
-**原因**:
-- 网络慢
-- 模型响应慢
-- 请求过大
-
-**解决方案**:
+**排查**：
 ```python
-# 1. 增加超时时间
-import requests
+# 1. 测试工具
+from langchain.tools import Tool
+tool = Tool(name='search', func=search_func, description='Search')
+try:
+    result = tool.run('test query')
+    print(f"Tool result: {result}")
+except Exception as e:
+    print(f"Tool error: {e}")
 
-response = requests.post(
-    "https://api.openai.com/v1/chat/completions",
-    headers={"Authorization": f"Bearer {api_key}"},
-    json={
-        "model": "gpt-4",
-        "messages": [{"role": "user", "content": "Hello"}]
-    },
-    timeout=30  # 30 秒超时
-)
+# 2. 检查工具配置
+print(tool.args_schema.schema())
+```
 
-# 2. 添加超时重试
-@retry(stop=stop_after_attempt(3))
-def call_with_timeout(prompt, timeout=30):
+**解决方案**：
+```python
+# 添加错误处理
+def safe_tool_call(tool, *args, **kwargs):
     try:
-        return call_api(prompt, timeout=timeout)
-    except requests.Timeout:
-        print("请求超时，正在重试...")
-        raise
+        return tool.run(*args, **kwargs)
+    except Exception as e:
+        logging.error(f"Tool {tool.name} failed: {e}")
+        return f"Error: {str(e)}"
+
+# 添加重试机制
+from tenacity import retry, stop_after_attempt
+
+@retry(stop=stop_after_attempt(3))
+def call_tool_with_retry(tool, *args, **kwargs):
+    return tool.run(*args, **kwargs)
 ```
 
 ---
 
-### 2. Token 相关故障
+## 💰 成本问题
 
-#### 2.1 Token 超限
+### 问题 9：成本激增
 
-**症状**:
+**症状**：
 ```
-Error: This model's maximum context length is 8192 tokens
+Daily cost increased from $10 to $100
 ```
 
-**原因**:
-- 输入过长
-- 历史记录过多
-
-**解决方案**:
+**排查**：
 ```python
-# 1. 计算 Token 数
-import tiktoken
+# 1. 分析使用情况
+from openai import OpenAI
+client = OpenAI()
 
-def count_tokens(text: str, model: str = "gpt-4") -> int:
-    """计算 Token 数"""
-    encoder = tiktoken.encoding_for_model(model)
-    return len(encoder.encode(text))
+usage = client.usage.list(start_date='2026-03-01', end_date='2026-03-27')
+print(usage)
 
-# 2. 截断文本
-def truncate_text(text: str, max_tokens: int = 7000) -> str:
-    """截断文本到指定 Token 数"""
-    encoder = tiktoken.encoding_for_model("gpt-4")
-    tokens = encoder.encode(text)
-    
-    if len(tokens) > max_tokens:
-        tokens = tokens[:max_tokens]
-        text = encoder.decode(tokens)
-    
-    return text
-
-# 3. 分段处理
-def split_long_text(text: str, max_tokens: int = 3000) -> List[str]:
-    """分段处理长文本"""
-    encoder = tiktoken.encoding_for_model("gpt-4")
-    tokens = encoder.encode(text)
-    
-    chunks = []
-    for i in range(0, len(tokens), max_tokens):
-        chunk_tokens = tokens[i:i+max_tokens]
-        chunk_text = encoder.decode(chunk_tokens)
-        chunks.append(chunk_text)
-    
-    return chunks
+# 2. 检查 Token 使用
+for agent in agents:
+    print(f"Agent: {agent.name}, Tokens: {agent.total_tokens}")
 ```
 
----
-
-#### 2.2 Token 成本过高
-
-**症状**:
-- 账单快速增长
-- 超出预算
-
-**原因**:
-- 模型选择不当
-- 请求过于频繁
-- 未使用缓存
-
-**解决方案**:
+**解决方案**：
 ```python
-# 1. 使用缓存
+# 1. Token 优化
+def optimize_prompt(prompt):
+    # 移除冗余
+    prompt = prompt.strip()
+    # 限制长度
+    if len(prompt) > 4000:
+        prompt = prompt[:4000] + '...'
+    return prompt
+
+# 2. 使用更便宜的模型
+def select_model(complexity):
+    if complexity == 'simple':
+        return 'gpt-3.5-turbo'  # $0.0005/1K
+    else:
+        return 'gpt-4'  # $0.03/1K
+
+# 3. 缓存常见查询
 from functools import lru_cache
 
 @lru_cache(maxsize=1000)
-def cached_call(prompt: str) -> str:
-    """缓存 LLM 调用"""
-    return call_api(prompt)
-
-# 2. 选择更便宜的模型
-def smart_model_selection(prompt: str) -> str:
-    """智能模型选择"""
-    token_count = count_tokens(prompt)
-    
-    if token_count < 500:
-        model = "gpt-3.5-turbo"  # 便宜
-    else:
-        model = "gpt-4"  # 强大
-    
-    return call_api(prompt, model=model)
-
-# 3. 设置成本警告
-def cost_monitor(func):
-    """成本监控装饰器"""
-    total_cost = [0.0]
-    
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        result = func(*args, **kwargs)
-        
-        # 计算成本
-        cost = calculate_cost(result)
-        total_cost[0] += cost
-        
-        # 警告
-        if total_cost[0] > 100:  # 超过 $100
-            print(f"⚠️ 成本警告: ${total_cost[0]:.2f}")
-        
-        return result
-    
-    return wrapper
+def cached_query(query_hash):
+    return agent.run(query)
 ```
 
 ---
 
-### 3. 网络相关故障
+## 🚀 性能问题
 
-#### 3.1 连接失败
+### 问题 10：响应时间慢
 
-**症状**:
+**症状**：
 ```
-Error: Connection refused
+P95 response time: 5s (target: <2s)
 ```
 
-**原因**:
-- 服务未启动
-- 防火墙阻止
-- DNS 解析失败
-
-**解决方案**:
+**排查**：
 ```python
-# 1. 检查服务状态
-import socket
-
-def check_connection(host: str, port: int) -> bool:
-    """检查连接"""
-    try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(5)
-        result = sock.connect_ex((host, port))
-        sock.close()
-        
-        return result == 0
-    except Exception as e:
-        print(f"连接失败: {e}")
-        return False
-
-# 2. 添加连接池
-import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
-
-def create_session():
-    """创建连接池会话"""
-    session = requests.Session()
-    
-    # 重试策略
-    retry = Retry(
-        total=3,
-        backoff_factor=1,
-        status_forcelist=[500, 502, 503, 504]
-    )
-    
-    adapter = HTTPAdapter(max_retries=retry)
-    session.mount("http://", adapter)
-    session.mount("https://", adapter)
-    
-    return session
-```
-
----
-
-### 4. 数据库相关故障
-
-#### 4.1 连接失败
-
-**症状**:
-```
-Error: Could not connect to database
-```
-
-**原因**:
-- 数据库未启动
-- 连接字符串错误
-- 权限不足
-
-**解决方案**:
-```python
-# 1. 测试数据库连接
-async def test_db_connection(connection_string: str) -> bool:
-    """测试数据库连接"""
-    try:
-        engine = create_engine(connection_string)
-        with engine.connect() as conn:
-            conn.execute("SELECT 1")
-        return True
-    except Exception as e:
-        print(f"数据库连接失败: {e}")
-        return False
-
-# 2. 添加连接池
-from sqlalchemy import create_engine
-from sqlalchemy.pool import QueuePool
-
-engine = create_engine(
-    connection_string,
-    poolclass=QueuePool,
-    pool_size=10,
-    max_overflow=20,
-    pool_pre_ping=True  # 检查连接是否有效
-)
-```
-
----
-
-### 5. 内存相关故障
-
-#### 5.1 内存溢出
-
-**症状**:
-```
-Error: Out of memory
-```
-
-**原因**:
-- 加载大数据
-- 内存泄漏
-- 未释放资源
-
-**解决方案**:
-```python
-# 1. 监控内存
-import psutil
-
-def monitor_memory():
-    """监控内存使用"""
-    process = psutil.Process()
-    memory_info = process.memory_info()
-    
-    print(f"内存使用: {memory_info.rss / 1024 / 1024:.2f} MB")
-    
-    if memory_info.rss > 1024 * 1024 * 1024:  # 1GB
-        print("⚠️ 内存使用过高")
-
-# 2. 释放资源
-def process_large_file(file_path: str):
-    """处理大文件"""
-    with open(file_path, 'r') as f:
-        for line in f:
-            # 逐行处理
-            process_line(line)
-            # 不保存所有行在内存中
-```
-
----
-
-## 📊 故障排查流程
-
-```
-1. 确认故障症状
-   ↓
-2. 查看错误日志
-   ↓
-3. 分析可能原因
-   ↓
-4. 尝试解决方案
-   ↓
-5. 验证修复效果
-   ↓
-6. 记录解决方案
-```
-
----
-
-## 🔍 调试工具
-
-```python
-# 1. 日志记录
-import logging
-
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-
-logger = logging.getLogger(__name__)
-
-# 2. 性能分析
+# 1. 性能分析
 import cProfile
+import pstats
 
-cProfile.run('agent.run("test")')
+profiler = cProfile.Profile()
+profiler.enable()
 
-# 3. 内存追踪
-import tracemalloc
+# 运行 Agent
+agent.run('test query')
 
-tracemalloc.start()
+profiler.disable()
+stats = pstats.Stats(profiler)
+stats.sort_stats('cumulative')
+stats.print_stats(20)
 
-# ... 运行代码 ...
+# 2. 检查瓶颈
+import time
 
-snapshot = tracemalloc.take_snapshot()
-top_stats = snapshot.statistics('lineno')
+start = time.time()
+response = llm.invoke('test')
+print(f"LLM time: {time.time() - start}")
 
-for stat in top_stats[:10]:
-    print(stat)
+start = time.time()
+result = tool.run('test')
+print(f"Tool time: {time.time() - start}")
+```
+
+**解决方案**：
+```python
+# 1. 异步处理
+import asyncio
+
+async def async_agent_run(query):
+    # 并行调用工具
+    tasks = [
+        asyncio.create_task(tool.arun(query))
+        for tool in agent.tools
+    ]
+    results = await asyncio.gather(*tasks)
+    return results
+
+# 2. 缓存
+from functools import lru_cache
+
+@lru_cache(maxsize=1000)
+def cached_llm_call(prompt):
+    return llm.invoke(prompt)
+
+# 3. 批处理
+def batch_process(queries):
+    return [llm.invoke(q) for q in queries]
 ```
 
 ---
 
-## 📝 故障预防
+## 📊 监控问题
 
-1. ✅ 添加错误处理
-2. ✅ 实现重试机制
-3. ✅ 设置超时时间
-4. ✅ 监控资源使用
-5. ✅ 定期备份数据
-6. ✅ 测试边界情况
-7. ✅ 文档化常见问题
-8. ✅ 建立故障恢复计划
+### 问题 11：指标丢失
+
+**症状**：
+```
+Prometheus metrics not showing up
+```
+
+**排查**：
+```bash
+# 1. 检查端点
+curl http://localhost:8000/metrics
+
+# 2. 检查 Prometheus 配置
+cat /etc/prometheus/prometheus.yml
+
+# 3. 检查日志
+journalctl -u prometheus -f
+```
+
+**解决方案**：
+```yaml
+# prometheus.yml
+scrape_configs:
+  - job_name: 'ai-agent'
+    static_configs:
+      - targets: ['localhost:8000']
+    scrape_interval: 15s
+```
 
 ---
 
-**生成时间**: 2026-03-27 16:46 GMT+8
+## 🛠️ 通用排查工具
+
+### 日志分析
+```bash
+# 查看错误日志
+grep -i error /var/log/ai-agent/*.log
+
+# 实时监控
+tail -f /var/log/ai-agent/app.log | grep ERROR
+
+# 统计错误类型
+awk '/ERROR/ {print $5}' /var/log/ai-agent/app.log | sort | uniq -c
+```
+
+---
+
+### 系统诊断
+```bash
+# 系统资源
+top -p $(pgrep -d',' python)
+
+# 网络连接
+netstat -an | grep ESTABLISHED
+
+# 磁盘使用
+df -h
+
+# 内存使用
+free -m
+```
+
+---
+
+## 📝 故障排查清单
+
+### 网络层
+- [ ] 检查网络连接
+- [ ] 检查 DNS 解析
+- [ ] 检查防火墙规则
+- [ ] 检查代理配置
+
+### 应用层
+- [ ] 检查日志文件
+- [ ] 检查错误消息
+- [ ] 检查配置文件
+- [ ] 检查依赖版本
+
+### 数据层
+- [ ] 检查数据库连接
+- [ ] 检查查询性能
+- [ ] 检查索引状态
+- [ ] 检查数据一致性
+
+### 外部服务
+- [ ] 检查 API 状态
+- [ ] 检查认证信息
+- [ ] 检查速率限制
+- [ ] 检查服务健康
+
+---
+
+**生成时间**: 2026-03-27 22:30 GMT+8
