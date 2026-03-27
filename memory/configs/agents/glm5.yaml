@@ -1,0 +1,87 @@
+# GLM-5 Adapter Configuration
+
+adapter:
+  id: glm5
+  name: "GLM-5 (Zhipu AI) Driver"
+  version: "1.0.0"
+  protocol: "aep/v0"
+
+# 模型配置
+model:
+  default: "glm-5"
+  
+  available:
+    - id: "glm-5"
+      name: "GLM-5"
+      cost_tier: "ultra-low"  # ¥0.012/千tokens（比GPT-4便宜98%）
+      speed: "fast"
+      reasoning: "high"
+      use_for: ["chinese_tasks", "code_generation", "refactoring"]
+      
+    - id: "glm-5-plus"
+      name: "GLM-5 Plus"
+      cost_tier: "low"  # ¥0.05/千tokens
+      speed: "medium"
+      reasoning: "very-high"
+      use_for: ["architecture", "complex_reasoning", "analysis"]
+
+# 执行设置
+execution:
+  timeout_sec: 300
+  max_attempts: 2
+  api_base: "https://open.bigmodel.cn/api/paas/v4"
+
+# 策略覆盖
+policy:
+  network: "disabled"
+  
+  tool_allowlist:
+    - "read"
+    - "write"
+    - "bash"
+    - "edit"
+  
+  allowed_paths:
+    - "src/**"
+    - "tests/**"
+    - "docs/**"
+  
+  forbidden_paths:
+    - ".git/**"
+    - "logs/**"
+    - "**/*.key"
+    - "**/*.pem"
+  
+  max_changed_files: 20
+
+# 任务路由
+routing:
+  prefer_for:
+    - "chinese_tasks"
+    - "code_generation"
+    - "refactoring"
+    - "documentation_cn"
+    - "bug_fix_cn"
+  
+  avoid_for:
+    - "english_tasks"
+    - "api_integration"
+  
+  rules:
+    - condition: "task.contains('中文') or task.contains('添加') or task.contains('修复')"
+      use: "glm5"
+    - condition: "language == 'zh'"
+      use: "glm5"
+
+# 成本追踪
+cost:
+  enabled: true
+  max_per_run: 0.10  # ¥0.10 max per run
+  max_per_day: 5.00   # ¥5 max per day
+  alert_at: 0.05
+
+# 中文优化
+optimizations:
+  chinese_first: true
+  use_traditional: false
+  encoding: "utf-8"

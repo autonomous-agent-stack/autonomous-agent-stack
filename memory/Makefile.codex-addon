@@ -1,0 +1,134 @@
+# Makefile Additions for Codex Adapter
+
+# Add these targets to your existing Makefile
+
+# ============================================================================
+# Codex Adapter Commands
+# ============================================================================
+
+.PHONY: codex-run codex-test codex-dry-run codex-config
+
+# Run Codex adapter with AEP
+codex-run: ## Run Codex adapter (requires TASK and optional CODEX_MODEL)
+	@if [ -z "$(TASK)" ]; then \
+		echo "Error: TASK is required"; \
+		echo "Usage: make codex-run TASK='your task'"; \
+		exit 1; \
+	fi
+	@echo "[codex] Running task: $(TASK)"
+	python scripts/agent_run.py \
+		--agent codex \
+		--task "$(TASK)" \
+		--model $(or $(CODEX_MODEL),gpt-4o-mini)
+
+# Test Codex adapter
+codex-test: ## Run Codex adapter tests
+	pytest tests/test_codex_adapter.py -v
+
+# Dry run (no actual execution)
+codex-dry-run: ## Test Codex adapter without execution
+	@OPENHANDS_DRY_RUN=1 $(MAKE) codex-run TASK="$(or $(TASK),test task)"
+
+# Show Codex configuration
+codex-config: ## Display Codex adapter configuration
+	@echo "Codex Adapter Configuration:"
+	@echo "  Model: $(or $(CODEX_MODEL),gpt-4o-mini)"
+	@echo "  Timeout: $(or $(CODEX_TIMEOUT),300)s"
+	@echo "  Approval: $(or $(CODEX_APPROVAL_MODE),full-auto)"
+	@echo "  Config: configs/agents/codex.yaml"
+
+# ============================================================================
+# Enhanced agent-run with Codex Support
+# ============================================================================
+
+# Update the existing agent-run target to support both adapters
+agent-run: ## Run agent (AEP_AGENT=codex|openhands, TASK=...)
+	@if [ -z "$(AEP_AGENT)" ]; then \
+		echo "Error: AEP_AGENT is required (codex or openhands)"; \
+		echo "Usage: make agent-run AEP_AGENT=codex TASK='your task'"; \
+		exit 1; \
+	fi
+	@if [ -z "$(TASK)" ]; then \
+		echo "Error: TASK is required"; \
+		echo "Usage: make agent-run AEP_AGENT=$(AEP_AGENT) TASK='your task'"; \
+		exit 1; \
+	fi
+	@echo "[aep] Running $(AEP_AGENT) adapter..."
+	python scripts/agent_run.py \
+		--agent $(AEP_AGENT) \
+		--task "$(TASK)" \
+		--model $(or $(CODEX_MODEL),gpt-4o-mini)
+
+# ============================================================================
+# Comparison Commands
+# ============================================================================
+
+.PHONY: compare-adapters
+
+compare-adapters: ## Compare Codex vs OpenHands on same task
+	@echo "=== Running Codex ==="
+	@time $(MAKE) codex-run TASK="$(or $(TASK),Add docstring to main function)"
+	@echo ""
+	@echo "=== Running OpenHands ==="
+	@time $(MAKE) agent-run AEP_AGENT=openhands TASK="$(or $(TASK),Add docstring to main function)"
+	@echo ""
+	@echo "Compare results in .masfactory_runtime/runs/"
+
+# ============================================================================
+# Cost Tracking
+# ============================================================================
+
+.PHONY: codex-cost-today codex-cost-reset
+
+codex-cost-today: ## Show today's Codex costs
+	@echo "Today's Codex costs:"
+	@cat logs/codex_costs.json 2>/dev/null || echo "No cost data available"
+
+codex-cost-reset: ## Reset daily cost counter
+	@echo "Resetting cost counter..."
+	@rm -f logs/codex_costs.json
+	@echo "Done"
+
+# ============================================================================
+# Batch Operations
+# ============================================================================
+
+.PHONY: codex-batch-review codex-batch-fix
+
+# Batch code review
+codex-batch-review: ## Review multiple files with Codex
+	@echo "Batch reviewing changed files..."
+	@for file in $$(git diff --name-only HEAD~1 | grep '\.py$$'); do \
+		echo "[codex] Reviewing $$file"; \
+		$(MAKE) codex-run TASK="Review $$file for bugs and improvements"; \
+	done
+
+# Batch bug fixes
+codex-batch-fix: ## Fix bugs in test failures
+	@echo "Fixing failing tests..."
+	@failed_tests=$$(pytest tests/ --collect-only -q 2>&1 | grep FAILED | head -5); \
+	if [ -n "$$failed_tests" ]; then \
+		$(MAKE) codex-run TASK="Fix these test failures: $$failed_tests"; \
+	else \
+		echo "No failing tests found"; \
+	fi
+
+# ============================================================================
+# Help Update
+# ============================================================================
+
+# Add to help target
+help: ## Show this help
+	@echo "Codex Adapter Commands:"
+	@echo "  codex-run          - Run Codex adapter (TASK required)"
+	@echo "  codex-test         - Run Codex adapter tests"
+	@echo "  codex-dry-run      - Test without execution"
+	@echo "  codex-config       - Show configuration"
+	@echo "  compare-adapters   - Compare Codex vs OpenHands"
+	@echo "  codex-cost-today   - Show today's costs"
+	@echo "  codex-batch-review - Review all changed files"
+	@echo ""
+	@echo "Examples:"
+	@echo "  make codex-run TASK='Add docstring to hello'"
+	@echo "  make agent-run AEP_AGENT=codex TASK='Fix bug'"
+	@echo "  CODEX_MODEL=gpt-4o make codex-run TASK='Refactor auth'"

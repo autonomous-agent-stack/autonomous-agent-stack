@@ -1,0 +1,192 @@
+# Codex Adapter Configuration
+# 
+# This configuration defines how Codex CLI integrates with AEP v0.
+# Codex provides fast, lightweight code execution compared to OpenHands.
+
+# Adapter identification
+adapter:
+  id: codex
+  name: "Codex CLI Driver"
+  version: "1.0.0"
+  protocol: "aep/v0"
+
+# Model configuration
+model:
+  # Default model (can be overridden via CODEX_MODEL env var)
+  default: "gpt-4o-mini"
+  
+  # Available models with their characteristics
+  available:
+    - id: "gpt-4o-mini"
+      name: "GPT-4o Mini"
+      cost_tier: "low"  # $0.15/1M tokens
+      speed: "fast"
+      reasoning: "medium"
+      use_for: ["code_review", "bug_fix", "refactoring", "tests"]
+      
+    - id: "gpt-4o"
+      name: "GPT-4o"
+      cost_tier: "medium"  # $2.50/1M tokens
+      speed: "medium"
+      reasoning: "high"
+      use_for: ["architecture", "complex_features", "design"]
+      
+    - id: "o3-mini"
+      name: "O3 Mini"
+      cost_tier: "medium"
+      speed: "medium"
+      reasoning: "high"
+      use_for: ["research", "analysis", "planning"]
+
+# Execution settings
+execution:
+  # Approval mode: suggest | auto-edit | full-auto
+  # - suggest: Codex suggests changes, user approves
+  # - auto-edit: Codex edits files automatically, user confirms
+  # - full-auto: Codex executes without confirmation (recommended for AEP)
+  approval_mode: "full-auto"
+  
+  # Timeout in seconds (default: 5 minutes)
+  timeout_sec: 300
+  
+  # Maximum retry attempts
+  max_attempts: 2
+  
+  # Writable root (defaults to AEP_WORKSPACE)
+  # writable_root: "/path/to/workspace"
+
+# Policy overrides (merged with job policy, deny wins)
+policy:
+  # Network access (Codex CLI doesn't support network anyway)
+  network: "disabled"
+  
+  # Allowed tools
+  tool_allowlist:
+    - "read"
+    - "write"
+    - "bash"
+    - "edit"
+    - "create"
+  
+  # Path restrictions
+  allowed_paths:
+    - "src/**"
+    - "tests/**"
+    - "docs/**"
+    - "examples/**"
+  
+  forbidden_paths:
+    - ".git/**"
+    - "logs/**"
+    - ".masfactory_runtime/**"
+    - "**/*.key"
+    - "**/*.pem"
+    - "**/.env*"
+  
+  # Change limits
+  max_changed_files: 20
+  max_patch_lines: 1000
+  
+  # Binary files
+  allow_binary_changes: false
+
+# Fallback configuration
+fallback:
+  # What to do if Codex fails
+  on_failure:
+    - action: "retry"
+      max_attempts: 2
+    - action: "fallback_agent"
+      agent_id: "openhands"  # Fall back to OpenHands for complex tasks
+    - action: "human_review"
+  
+  # What to do if Codex times out
+  on_timeout:
+    - action: "fallback_agent"
+      agent_id: "openhands"
+
+# Task routing (when to use Codex vs other adapters)
+routing:
+  # Use Codex for these task types
+  prefer_for:
+    - "code_review"
+    - "bug_fix"
+    - "refactoring"
+    - "add_tests"
+    - "documentation"
+    - "small_feature"
+  
+  # Avoid Codex for these (use OpenHands instead)
+  avoid_for:
+    - "architecture_design"
+    - "multi_file_refactor"
+    - "complex_debugging"
+    - "integration_work"
+  
+  # Routing rules (evaluated in order)
+  rules:
+    - condition: "task.includes('review')"
+      use: "codex"
+    - condition: "task.includes('fix') and changed_files < 5"
+      use: "codex"
+    - condition: "task.includes('architect') or task.includes('design')"
+      use: "openhands"
+    - condition: "policy.max_changed_files > 20"
+      use: "openhands"
+
+# Validators to run after Codex execution
+validators:
+  - id: "builtin.allowed_paths"
+    kind: "builtin"
+  
+  - id: "builtin.forbidden_paths"
+    kind: "builtin"
+  
+  - id: "builtin.no_runtime_artifacts"
+    kind: "builtin"
+  
+  - id: "python_syntax_check"
+    kind: "command"
+    command: "python -m py_compile {changed_files}"
+  
+  - id: "test_runner"
+    kind: "command"
+    command: "pytest tests/ -v --tb=short"
+    on_failure: "warn"  # Don't block, just warn
+
+# Cost tracking
+cost:
+  # Enable cost tracking
+  enabled: true
+  
+  # Cost limits (in USD)
+  max_per_run: 0.50
+  max_per_day: 10.00
+  
+  # Alert thresholds
+  alert_at: 0.25
+
+# Logging and monitoring
+logging:
+  # Log level: debug | info | warn | error
+  level: "info"
+  
+  # Log to file
+  file: "logs/codex_adapter.log"
+  
+  # Include in AEP event log
+  to_aep_events: true
+
+# Integration with MASFactory
+masfactory:
+  # Register as MASFactory node
+  as_node: true
+  
+  # Node type in graph
+  node_type: "executor"
+  
+  # Compatible with these nodes
+  compatible_with:
+    - "planner"
+    - "generator"
+    - "evaluator"

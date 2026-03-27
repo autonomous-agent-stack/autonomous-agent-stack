@@ -1,0 +1,96 @@
+# Claude Adapter Configuration
+
+adapter:
+  id: claude
+  name: "Claude (Anthropic) Driver"
+  version: "1.0.0"
+  protocol: "aep/v0"
+
+# 模型配置
+model:
+  default: "claude-3-5-sonnet-20241022"
+  
+  available:
+    - id: "claude-3-5-sonnet-20241022"
+      name: "Claude 3.5 Sonnet"
+      cost_tier: "medium"  # $3/百万tokens
+      speed: "fast"
+      reasoning: "very-high"
+      use_for: ["code_review", "architecture", "complex_reasoning"]
+      
+    - id: "claude-3-opus-20240229"
+      name: "Claude 3 Opus"
+      cost_tier: "high"  # $15/百万tokens
+      speed: "medium"
+      reasoning: "ultra"
+      use_for: ["research", "analysis", "critical_decisions"]
+    
+    - id: "claude-3-haiku-20240307"
+      name: "Claude 3 Haiku"
+      cost_tier: "low"  # $0.25/百万tokens
+      speed: "ultra-fast"
+      reasoning: "medium"
+      use_for: ["quick_tasks", "formatting", "simple_reviews"]
+
+# 执行设置
+execution:
+  timeout_sec: 300
+  max_attempts: 2
+  api_base: "https://api.anthropic.com/v1"
+
+# 策略覆盖
+policy:
+  network: "disabled"
+  
+  tool_allowlist:
+    - "read"
+    - "write"
+    - "bash"
+    - "edit"
+  
+  allowed_paths:
+    - "src/**"
+    - "tests/**"
+    - "docs/**"
+  
+  forbidden_paths:
+    - ".git/**"
+    - "logs/**"
+    - "**/*.key"
+    - "**/*.pem"
+  
+  max_changed_files: 30
+
+# 任务路由
+routing:
+  prefer_for:
+    - "code_review"
+    - "architecture_design"
+    - "complex_reasoning"
+    - "long_context_tasks"
+    - "critical_decisions"
+  
+  avoid_for:
+    - "simple_tasks"
+    - "high_volume"
+  
+  rules:
+    - condition: "task.contains('review') or task.contains('architect')"
+      use: "claude"
+    - condition: "complexity == 'high'"
+      use: "claude"
+    - condition: "task.length > 500"
+      use: "claude"
+
+# 成本追踪
+cost:
+  enabled: true
+  max_per_run: 1.00  # $1.00 max per run
+  max_per_day: 20.00  # $20 max per day
+  alert_at: 0.50
+
+# 质量优化
+quality:
+  use_extended_thinking: false  # Claude 3.5 Sonnet feature
+  prefer_detailed_responses: true
+  max_context_tokens: 200000
