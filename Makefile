@@ -27,6 +27,7 @@ AEP_FALLBACK_AGENT ?=
 
 .PHONY: help setup doctor start test-quick clean
 .PHONY: ai-lab ai-lab-setup ai-lab-check ai-lab-up ai-lab-down ai-lab-status ai-lab-shell ai-lab-run masfactory-flight hygiene-check openhands openhands-dry-run openhands-controlled openhands-controlled-dry-run openhands-demo agent-run
+.PHONY: review-gates-local
 
 help:
 	@echo "Autonomous Agent Stack - common commands"
@@ -49,6 +50,7 @@ help:
 	@echo "  make openhands-demo OH_BACKEND=mock Run minimal closed-loop demo (contract + failure policy)"
 	@echo "  make agent-run AEP_AGENT=openhands AEP_TASK='...' Run AEP v0 runner entrypoint"
 	@echo "  make hygiene-check FAIL_ON_FINDINGS=1 Run prompt hygiene audit for src/"
+	@echo "  make review-gates-local Run mypy/bandit/semgrep on reviewer core modules"
 	@echo "  make test-quick  Run quick smoke tests"
 	@echo "  make clean       Remove Python cache folders"
 	@echo ""
@@ -149,6 +151,18 @@ hygiene-check:
 		if [[ "$(FAIL_ON_FINDINGS)" == "1" ]]; then STRICT_FLAG="--fail-on-findings"; fi; \
 		$(PYTHON) scripts/check_prompt_hygiene.py --root "$(HYGIENE_ROOT)" --output-dir "$(HYGIENE_OUTPUT_DIR)" --min-repeat "$(HYGIENE_MIN_REPEAT)" $$STRICT_FLAG; \
 	fi
+
+review-gates-local:
+	@set -euo pipefail; \
+	MYPY_BIN="mypy"; \
+	BANDIT_BIN="bandit"; \
+	SEMGREP_BIN="semgrep"; \
+	if [[ -x "$(VENV)/bin/mypy" ]]; then MYPY_BIN="$(VENV)/bin/mypy"; fi; \
+	if [[ -x "$(VENV)/bin/bandit" ]]; then BANDIT_BIN="$(VENV)/bin/bandit"; fi; \
+	if [[ -x "$(VENV)/bin/semgrep" ]]; then SEMGREP_BIN="$(VENV)/bin/semgrep"; fi; \
+	$$MYPY_BIN --config-file mypy.ini src/gatekeeper/static_analyzer.py src/gatekeeper/business_enforcer.py src/gatekeeper/llm_reviewer.py src/gatekeeper/board_summarizer.py; \
+	$$BANDIT_BIN -q src/gatekeeper/static_analyzer.py src/gatekeeper/business_enforcer.py src/gatekeeper/llm_reviewer.py src/gatekeeper/board_summarizer.py; \
+	$$SEMGREP_BIN --error --config=p/python src/gatekeeper/static_analyzer.py src/gatekeeper/business_enforcer.py src/gatekeeper/llm_reviewer.py src/gatekeeper/board_summarizer.py
 
 openhands:
 	OPENHANDS_TASK='$(OH_TASK)' OPENHANDS_DRY_RUN='$(OH_DRY_RUN)' bash ./scripts/openhands_start.sh

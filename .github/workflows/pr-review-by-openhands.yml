@@ -1,0 +1,48 @@
+name: PR Review by OpenHands
+
+on:
+  pull_request:
+    types: [labeled, review_requested]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: openhands-pr-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pr-review:
+    # Security posture:
+    # 1) Trigger only via maintainer-controlled actions (label/reviewer request)
+    # 2) Skip fork PRs so repository secrets are never used on untrusted code
+    if: |
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      (
+        github.event.label.name == 'review-this' ||
+        (
+          vars.OPENHANDS_REVIEWER_HANDLE &&
+          github.event.requested_reviewer.login == vars.OPENHANDS_REVIEWER_HANDLE
+        )
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check required secret
+        if: ${{ secrets.LLM_API_KEY == '' }}
+        run: |
+          echo "::error::Missing LLM_API_KEY secret. Add it in Settings -> Secrets and variables -> Actions."
+          exit 1
+
+      - name: Run PR Review (comment-only)
+        uses: OpenHands/software-agent-sdk/.github/actions/pr-review@3635cda1d62f961e8d6a4f5a8f05a3aaa72d8ad2
+        with:
+          llm-model: ${{ vars.OPENHANDS_REVIEW_MODEL || 'anthropic/claude-sonnet-4-5-20250929' }}
+          llm-base-url: ${{ vars.OPENHANDS_LLM_BASE_URL || '' }}
+          review-style: ${{ vars.OPENHANDS_REVIEW_STYLE || 'standard' }}
+          extensions-version: fdd6c7373bdf1c20cfdedb7261ffdbf49d5a76e5
+          llm-api-key: ${{ secrets.LLM_API_KEY }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
