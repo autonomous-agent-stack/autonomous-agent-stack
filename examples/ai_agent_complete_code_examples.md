@@ -1,569 +1,545 @@
 # AI Agent 完整代码示例集
 
 > **版本**: v1.0
-> **更新时间**: 2026-03-27 18:02
+> **更新时间**: 2026-03-27 23:05
 > **示例数**: 50+
 
 ---
 
-## 💻 代码示例
+## 🚀 快速开始示例
 
-### 示例 1: 简单问答系统
+### 1. Hello World Agent
 
 ```python
-"""
-简单问答系统
-"""
-from openai import OpenAI
+from langchain.agents import initialize_agent
+from langchain.chat_models import ChatOpenAI
 
-class SimpleQA:
-    """简单问答系统"""
-    
-    def __init__(self, api_key: str):
-        self.client = OpenAI(api_key=api_key)
-    
-    def ask(self, question: str) -> str:
-        """提问"""
-        response = self.client.chat.completions.create(
-            model="gpt-4",
-            messages=[{"role": "user", "content": question}]
-        )
-        
-        return response.choices[0].message.content
+# 创建 LLM
+llm = ChatOpenAI(model='gpt-3.5-turbo', temperature=0)
 
-# 使用
-qa = SimpleQA(api_key="your-api-key")
-answer = qa.ask("What is AI?")
-print(answer)
+# 创建 Agent
+agent = initialize_agent([], llm, agent='zero-shot-react-description')
+
+# 运行
+response = agent.run('Hello, AI Agent!')
+print(response)
 ```
 
 ---
 
-### 示例 2: 带记忆的对话系统
+### 2. 带工具的 Agent
 
 ```python
-"""
-带记忆的对话系统
-"""
-from openai import OpenAI
-from collections import deque
+from langchain.agents import initialize_agent, Tool
+from langchain.chat_models import ChatOpenAI
 
-class ConversationalAgent:
-    """带记忆的对话系统"""
-    
-    def __init__(self, api_key: str, max_history: int = 10):
-        self.client = OpenAI(api_key=api_key)
-        self.history = deque(maxlen=max_history)
-    
-    def chat(self, message: str) -> str:
-        """聊天"""
-        # 添加用户消息
-        self.history.append({"role": "user", "content": message})
-        
-        # 调用 LLM
-        response = self.client.chat.completions.create(
-            model="gpt-4",
-            messages=list(self.history)
-        )
-        
-        # 获取回复
-        reply = response.choices[0].message.content
-        
-        # 添加助手消息
-        self.history.append({"role": "assistant", "content": reply})
-        
-        return reply
+# 定义工具
+def calculator(expression: str) -> str:
+    return str(eval(expression))
 
-# 使用
-agent = ConversationalAgent(api_key="your-api-key")
+def search(query: str) -> str:
+    # 模拟搜索
+    return f'Search results for: {query}'
 
-print(agent.chat("Hello!"))
-print(agent.chat("What's my name?"))  # 会记住之前的对话
-```
-
----
-
-### 示例 3: 工具调用系统
-
-```python
-"""
-工具调用系统
-"""
-from openai import OpenAI
-import json
-
-class ToolUsingAgent:
-    """工具调用系统"""
-    
-    def __init__(self, api_key: str):
-        self.client = OpenAI(api_key=api_key)
-        self.tools = {
-            "search": self._search,
-            "calculate": self._calculate,
-            "translate": self._translate
-        }
-    
-    def run(self, prompt: str) -> str:
-        """运行"""
-        # 1. 定义工具
-        tools = [
-            {
-                "type": "function",
-                "function": {
-                    "name": "search",
-                    "description": "Search the web",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "query": {"type": "string"}
-                        },
-                        "required": ["query"]
-                    }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "calculate",
-                    "description": "Calculate expression",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "expression": {"type": "string"}
-                        },
-                        "required": ["expression"]
-                    }
-                }
-            }
-        ]
-        
-        # 2. 调用 LLM
-        response = self.client.chat.completions.create(
-            model="gpt-4",
-            messages=[{"role": "user", "content": prompt}],
-            tools=tools
-        )
-        
-        # 3. 检查是否需要调用工具
-        message = response.choices[0].message
-        
-        if message.tool_calls:
-            # 调用工具
-            tool_call = message.tool_calls[0]
-            tool_name = tool_call.function.name
-            tool_args = json.loads(tool_call.function.arguments)
-            
-            result = self.tools[tool_name](**tool_args)
-            
-            # 返回结果
-            return f"Tool {tool_name} result: {result}"
-        
-        return message.content
-    
-    def _search(self, query: str) -> str:
-        """搜索"""
-        return f"Search results for: {query}"
-    
-    def _calculate(self, expression: str) -> str:
-        """计算"""
-        try:
-            return str(eval(expression))
-        except:
-            return "Invalid expression"
-    
-    def _translate(self, text: str) -> str:
-        """翻译"""
-        return f"Translated: {text}"
-
-# 使用
-agent = ToolUsingAgent(api_key="your-api-key")
-
-print(agent.run("Search for AI news"))
-print(agent.run("Calculate 123 + 456"))
-```
-
----
-
-### 示例 4: RAG 系统
-
-```python
-"""
-RAG 系统
-"""
-from openai import OpenAI
-import chromadb
-
-class RAGSystem:
-    """RAG 系统"""
-    
-    def __init__(self, api_key: str):
-        self.client = OpenAI(api_key=api_key)
-        self.chroma = chromadb.Client()
-        self.collection = self.chroma.create_collection("knowledge")
-    
-    def add_documents(self, documents: list):
-        """添加文档"""
-        # 生成 embeddings
-        embeddings = self._get_embeddings(documents)
-        
-        # 存储
-        self.collection.add(
-            documents=documents,
-            embeddings=embeddings,
-            ids=[f"doc_{i}" for i in range(len(documents))]
-        )
-    
-    def query(self, question: str, top_k: int = 3) -> str:
-        """查询"""
-        # 1. 检索相关文档
-        query_embedding = self._get_embeddings([question])[0]
-        
-        results = self.collection.query(
-            query_embeddings=[query_embedding],
-            n_results=top_k
-        )
-        
-        # 2. 构建上下文
-        context = "\n\n".join(results['documents'][0])
-        
-        # 3. 生成回答
-        prompt = f"""
-        Context: {context}
-        
-        Question: {question}
-        
-        Answer based on the context:
-        """
-        
-        response = self.client.chat.completions.create(
-            model="gpt-4",
-            messages=[{"role": "user", "content": prompt}]
-        )
-        
-        return response.choices[0].message.content
-    
-    def _get_embeddings(self, texts: list) -> list:
-        """获取 embeddings"""
-        response = self.client.embeddings.create(
-            model="text-embedding-ada-002",
-            input=texts
-        )
-        
-        return [item.embedding for item in response.data]
-
-# 使用
-rag = RAGSystem(api_key="your-api-key")
-
-# 添加知识库
-documents = [
-    "Python is a programming language.",
-    "AI agents use LLMs for reasoning."
+tools = [
+    Tool(name='calculator', func=calculator, description='Useful for math'),
+    Tool(name='search', func=search, description='Useful for search')
 ]
-rag.add_documents(documents)
+
+# 创建 Agent
+llm = ChatOpenAI(model='gpt-3.5-turbo')
+agent = initialize_agent(tools, llm, agent='zero-shot-react-description')
+
+# 运行
+response = agent.run('What is 2 + 2?')
+print(response)
+```
+
+---
+
+### 3. 带 RAG 的 Agent
+
+```python
+from langchain.embeddings import OpenAIEmbeddings
+from langchain.vectorstores import Chroma
+from langchain.chat_models import ChatOpenAI
+from langchain.chains import RetrievalQA
+
+# 创建向量存储
+embeddings = OpenAIEmbeddings()
+texts = ['AI Agent is useful', 'LangChain is a framework']
+vectorstore = Chroma.from_texts(texts, embeddings)
+
+# 创建 RAG 链
+llm = ChatOpenAI(model='gpt-3.5-turbo')
+qa = RetrievalQA.from_chain_type(llm, retriever=vectorstore.as_retriever())
 
 # 查询
-answer = rag.query("What is Python?")
-print(answer)
+response = qa.run('What is AI Agent?')
+print(response)
 ```
 
 ---
 
-### 示例 5: 多 Agent 系统
+## 🛠️ 工具示例
+
+### 1. 自定义工具
 
 ```python
-"""
-多 Agent 系统
-"""
-from openai import OpenAI
-import asyncio
+from langchain.tools import BaseTool
+from pydantic import BaseModel, Field
 
-class MultiAgentSystem:
-    """多 Agent 系统"""
+class WeatherInput(BaseModel):
+    location: str = Field(description='City name')
+
+class WeatherTool(BaseTool):
+    name = 'weather'
+    description = 'Get weather for a location'
+    args_schema = WeatherInput
     
-    def __init__(self, api_key: str):
-        self.client = OpenAI(api_key=api_key)
-        self.agents = {}
+    def _run(self, location: str) -> str:
+        # 模拟天气 API
+        return f'Weather in {location}: Sunny, 25°C'
     
-    def add_agent(self, name: str, role: str):
-        """添加 Agent"""
-        self.agents[name] = {
-            "role": role,
-            "history": []
-        }
-    
-    async def run(self, task: str) -> str:
-        """运行任务"""
-        results = {}
-        
-        # 每个 Agent 处理任务
-        for name, agent in self.agents.items():
-            result = await self._agent_run(name, agent, task)
-            results[name] = result
-        
-        # 汇总结果
-        final = await self._aggregate(results)
-        
-        return final
-    
-    async def _agent_run(self, name: str, agent: dict, task: str) -> str:
-        """单个 Agent 运行"""
-        prompt = f"""
-        You are {name} with role: {agent['role']}
-        
-        Task: {task}
-        
-        Provide your analysis.
-        """
-        
-        response = self.client.chat.completions.create(
-            model="gpt-4",
-            messages=[{"role": "user", "content": prompt}]
-        )
-        
-        return response.choices[0].message.content
-    
-    async def _aggregate(self, results: dict) -> str:
-        """汇总结果"""
-        summary = "Agent Perspectives:\n\n"
-        
-        for name, result in results.items():
-            summary += f"**{name}**: {result}\n\n"
-        
-        return summary
+    async def _arun(self, location: str) -> str:
+        return self._run(location)
 
 # 使用
-async def main():
-    system = MultiAgentSystem(api_key="your-api-key")
-    
-    # 添加 Agent
-    system.add_agent("researcher", "Research information")
-    system.add_agent("analyst", "Analyze data")
-    system.add_agent("writer", "Create content")
-    
-    # 运行任务
-    result = await system.run("Explain AI agents")
-    print(result)
-
-asyncio.run(main())
-```
-
----
-
-### 示例 6: 流式输出
-
-```python
-"""
-流式输出
-"""
-from openai import OpenAI
-
-class StreamingAgent:
-    """流式输出 Agent"""
-    
-    def __init__(self, api_key: str):
-        self.client = OpenAI(api_key=api_key)
-    
-    def stream(self, prompt: str):
-        """流式输出"""
-        stream = self.client.chat.completions.create(
-            model="gpt-4",
-            messages=[{"role": "user", "content": prompt}],
-            stream=True
-        )
-        
-        for chunk in stream:
-            if chunk.choices[0].delta.content:
-                yield chunk.choices[0].delta.content
-
-# 使用
-agent = StreamingAgent(api_key="your-api-key")
-
-for chunk in agent.stream("Tell me a story"):
-    print(chunk, end="", flush=True)
-```
-
----
-
-### 示例 7: 异步处理
-
-```python
-"""
-异步处理
-"""
-from openai import AsyncOpenAI
-import asyncio
-
-class AsyncAgent:
-    """异步 Agent"""
-    
-    def __init__(self, api_key: str):
-        self.client = AsyncOpenAI(api_key=api_key)
-    
-    async def run(self, prompt: str) -> str:
-        """运行"""
-        response = await self.client.chat.completions.create(
-            model="gpt-4",
-            messages=[{"role": "user", "content": prompt}]
-        )
-        
-        return response.choices[0].message.content
-    
-    async def batch_run(self, prompts: list) -> list:
-        """批量运行"""
-        tasks = [self.run(prompt) for prompt in prompts]
-        results = await asyncio.gather(*tasks)
-        return results
-
-# 使用
-async def main():
-    agent = AsyncAgent(api_key="your-api-key")
-    
-    # 单个任务
-    result = await agent.run("Hello")
-    print(result)
-    
-    # 批量任务
-    prompts = ["What is AI?", "What is ML?", "What is DL?"]
-    results = await agent.batch_run(prompts)
-    
-    for prompt, result in zip(prompts, results):
-        print(f"{prompt}: {result}")
-
-asyncio.run(main())
-```
-
----
-
-### 示例 8: 错误处理
-
-```python
-"""
-错误处理
-"""
-from openai import OpenAI
-import time
-
-class RobustAgent:
-    """健壮的 Agent"""
-    
-    def __init__(self, api_key: str, max_retries: int = 3):
-        self.client = OpenAI(api_key=api_key)
-        self.max_retries = max_retries
-    
-    def run(self, prompt: str) -> str:
-        """运行"""
-        for i in range(self.max_retries):
-            try:
-                response = self.client.chat.completions.create(
-                    model="gpt-4",
-                    messages=[{"role": "user", "content": prompt}]
-                )
-                
-                return response.choices[0].message.content
-            
-            except Exception as e:
-                if i == self.max_retries - 1:
-                    return f"Error after {self.max_retries} retries: {e}"
-                
-                # 指数退避
-                time.sleep(2 ** i)
-        
-        return "Failed"
-
-# 使用
-agent = RobustAgent(api_key="your-api-key")
-result = agent.run("Hello")
+tool = WeatherTool()
+result = tool.run('Beijing')
 print(result)
 ```
 
 ---
 
-### 示例 9: 缓存系统
+### 2. 多工具协调
 
 ```python
-"""
-缓存系统
-"""
-from openai import OpenAI
-from functools import lru_cache
+from langchain.agents import AgentExecutor
+from langchain.chat_models import ChatOpenAI
+from langchain.tools import Tool
 
-class CachedAgent:
-    """带缓存的 Agent"""
-    
-    def __init__(self, api_key: str):
-        self.client = OpenAI(api_key=api_key)
-    
-    @lru_cache(maxsize=1000)
-    def run(self, prompt: str) -> str:
-        """运行（带缓存）"""
-        response = self.client.chat.completions.create(
-            model="gpt-4",
-            messages=[{"role": "user", "content": prompt}]
-        )
-        
-        return response.choices[0].message.content
+# 定义工具
+def search(query):
+    return f'Search: {query}'
 
-# 使用
-agent = CachedAgent(api_key="your-api-key")
+def analyze(text):
+    return f'Analysis: {text}'
 
-# 第一次调用（会调用 API）
-result1 = agent.run("What is AI?")
+def summarize(text):
+    return f'Summary: {text}'
 
-# 第二次调用（从缓存读取）
-result2 = agent.run("What is AI?")
+tools = [
+    Tool(name='search', func=search, description='Search web'),
+    Tool(name='analyze', func=analyze, description='Analyze text'),
+    Tool(name='summarize', func=summarize, description='Summarize text')
+]
 
-print(result1 == result2)  # True
-```
-
----
-
-### 示例 10: FastAPI 集成
-
-```python
-"""
-FastAPI 集成
-"""
-from fastapi import FastAPI
-from openai import OpenAI
-from pydantic import BaseModel
-
-app = FastAPI()
-client = OpenAI(api_key="your-api-key")
-
-class ChatRequest(BaseModel):
-    message: str
-
-@app.post("/api/v1/chat")
-async def chat(request: ChatRequest):
-    """聊天接口"""
-    response = client.chat.completions.create(
-        model="gpt-4",
-        messages=[{"role": "user", "content": request.message}]
-    )
-    
-    return {
-        "response": response.choices[0].message.content
-    }
-
-@app.get("/health")
-async def health():
-    """健康检查"""
-    return {"status": "healthy"}
+# 创建 Agent
+llm = ChatOpenAI(model='gpt-4')
+from langchain.agents import create_react_agent
+from langchain import hub
+prompt = hub.pull('hwchase17/react')
+agent = create_react_agent(llm, tools, prompt)
+executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
 
 # 运行
-# uvicorn main:app --reload
+result = executor.invoke({
+    'input': 'Search for AI news, analyze it, and summarize'
+})
+print(result['output'])
 ```
 
 ---
 
-## 📊 示例分类
+## 🧠 记忆示例
 
-| 类别 | 示例数 | 难度 |
-|------|--------|------|
-| **基础** | 10 | ⭐⭐ |
-| **中级** | 20 | ⭐⭐⭐ |
-| **高级** | 20 | ⭐⭐⭐⭐ |
+### 1. 对话记忆
+
+```python
+from langchain.memory import ConversationBufferMemory
+from langchain.chat_models import ChatOpenAI
+from langchain.chains import ConversationChain
+
+# 创建记忆
+memory = ConversationBufferMemory()
+
+# 创建对话链
+llm = ChatOpenAI(model='gpt-3.5-turbo')
+conversation = ConversationChain(llm=llm, memory=memory, verbose=True)
+
+# 对话
+print(conversation.predict(input='Hi, I am Alice'))
+print(conversation.predict(input='What is my name?'))
+```
 
 ---
 
-**生成时间**: 2026-03-27 18:05 GMT+8
+### 2. 向量记忆
+
+```python
+from langchain.memory import VectorStoreRetrieverMemory
+from langchain.embeddings import OpenAIEmbeddings
+from langchain.vectorstores import Chroma
+
+# 创建向量存储
+embeddings = OpenAIEmbeddings()
+vectorstore = Chroma(embedding_function=embeddings)
+
+# 创建记忆
+memory = VectorStoreRetrieverMemory(
+    retriever=vectorstore.as_retriever()
+)
+
+# 保存记忆
+memory.save_context(
+    {'input': 'My favorite color is blue'},
+    {'output': 'I will remember that'}
+)
+
+# 查询记忆
+result = memory.load_memory_variables({'prompt': 'color'})
+print(result)
+```
+
+---
+
+## 🤖 多 Agent 示例
+
+### 1. AutoGen 多 Agent
+
+```python
+from autogen import AssistantAgent, UserProxyAgent
+
+# 创建配置
+config_list = [{'model': 'gpt-4', 'api_key': 'your-key'}]
+
+# 创建 Agent
+planner = AssistantAgent(
+    name='Planner',
+    llm_config={'config_list': config_list},
+    system_message='You are a planner'
+)
+
+coder = AssistantAgent(
+    name='Coder',
+    llm_config={'config_list': config_list},
+    system_message='You are a coder'
+)
+
+reviewer = AssistantAgent(
+    name='Reviewer',
+    llm_config={'config_list': config_list},
+    system_message='You are a code reviewer'
+)
+
+# 创建用户代理
+user = UserProxyAgent(
+    name='User',
+    human_input_mode='NEVER',
+    max_consecutive_auto_reply=10
+)
+
+# 开始协作
+user.initiate_chat(
+    planner,
+    message='Plan a Python web scraper'
+)
+```
+
+---
+
+### 2. CrewAI 角色 Agent
+
+```python
+from crewai import Agent, Task, Crew
+
+# 创建 Agent
+researcher = Agent(
+    role='Researcher',
+    goal='Find information',
+    backstory='Expert researcher',
+    verbose=True
+)
+
+writer = Agent(
+    role='Writer',
+    goal='Write content',
+    backstory='Professional writer',
+    verbose=True
+)
+
+# 创建任务
+research_task = Task(
+    description='Research AI agents',
+    agent=researcher
+)
+
+write_task = Task(
+    description='Write article about AI agents',
+    agent=writer
+)
+
+# 创建团队
+crew = Crew(
+    agents=[researcher, writer],
+    tasks=[research_task, write_task],
+    verbose=True
+)
+
+# 执行
+result = crew.kickoff()
+print(result)
+```
+
+---
+
+## 📊 RAG 示例
+
+### 1. 基础 RAG
+
+```python
+from langchain.embeddings import OpenAIEmbeddings
+from langchain.vectorstores import Chroma
+from langchain.chat_models import ChatOpenAI
+from langchain.chains import RetrievalQA
+from langchain.document_loaders import TextLoader
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+
+# 加载文档
+loader = TextLoader('document.txt')
+documents = loader.load()
+
+# 分割文档
+text_splitter = RecursiveCharacterTextSplitter(
+    chunk_size=1000,
+    chunk_overlap=200
+)
+texts = text_splitter.split_documents(documents)
+
+# 创建向量存储
+embeddings = OpenAIEmbeddings()
+vectorstore = Chroma.from_documents(texts, embeddings)
+
+# 创建 RAG 链
+llm = ChatOpenAI(model='gpt-4')
+qa = RetrievalQA.from_chain_type(
+    llm,
+    retriever=vectorstore.as_retriever(),
+    return_source_documents=True
+)
+
+# 查询
+result = qa({'query': 'What is the main topic?'})
+print(result['result'])
+print(result['source_documents'])
+```
+
+---
+
+### 2. 高级 RAG
+
+```python
+from langchain.retrievers import ContextualCompressionRetriever
+from langchain.retrievers.document_compressors import LLMChainExtractor
+
+# 创建压缩器
+llm = ChatOpenAI(model='gpt-4')
+compressor = LLMChainExtractor.from_llm(llm)
+
+# 创建压缩检索器
+compression_retriever = ContextualCompressionRetriever(
+    base_compressor=compressor,
+    base_retriever=vectorstore.as_retriever()
+)
+
+# 查询
+docs = compression_retriever.get_relevant_documents('What is AI?')
+for doc in docs:
+    print(doc.page_content)
+```
+
+---
+
+## 🔄 工作流示例
+
+### 1. LangGraph 工作流
+
+```python
+from langgraph.graph import StateGraph, END
+from typing import TypedDict
+
+class State(TypedDict):
+    query: str
+    search_result: str
+    analysis: str
+    summary: str
+
+def search_node(state: State) -> State:
+    # 搜索逻辑
+    result = search(state['query'])
+    return {'search_result': result}
+
+def analyze_node(state: State) -> State:
+    # 分析逻辑
+    analysis = analyze(state['search_result'])
+    return {'analysis': analysis}
+
+def summarize_node(state: State) -> State:
+    # 总结逻辑
+    summary = summarize(state['analysis'])
+    return {'summary': summary}
+
+# 创建图
+workflow = StateGraph(State)
+workflow.add_node('search', search_node)
+workflow.add_node('analyze', analyze_node)
+workflow.add_node('summarize', summarize_node)
+
+# 添加边
+workflow.add_edge('search', 'analyze')
+workflow.add_edge('analyze', 'summarize')
+workflow.add_edge('summarize', END)
+
+# 设置入口
+workflow.set_entry_point('search')
+
+# 编译
+app = workflow.compile()
+
+# 运行
+result = app.invoke({'query': 'AI agents'})
+print(result)
+```
+
+---
+
+### 2. 条件工作流
+
+```python
+def should_continue(state: State) -> str:
+    if state.get('needs_more_search'):
+        return 'search'
+    return 'summarize'
+
+# 添加条件边
+workflow.add_conditional_edges(
+    'analyze',
+    should_continue,
+    {
+        'search': 'search',
+        'summarize': 'summarize'
+    }
+)
+```
+
+---
+
+## 🎯 完整应用示例
+
+### 1. 客服 Agent
+
+```python
+from langchain.agents import AgentExecutor
+from langchain.chat_models import ChatOpenAI
+from langchain.memory import ConversationBufferMemory
+from langchain.tools import Tool
+
+class CustomerServiceAgent:
+    def __init__(self):
+        self.llm = ChatOpenAI(model='gpt-4')
+        self.memory = ConversationBufferMemory()
+        self.tools = self._create_tools()
+        self.agent = self._create_agent()
+    
+    def _create_tools(self):
+        def check_order(order_id: str) -> str:
+            # 检查订单
+            return f'Order {order_id}: Shipped'
+        
+        def create_ticket(issue: str) -> str:
+            # 创建工单
+            return f'Ticket created for: {issue}'
+        
+        return [
+            Tool(name='check_order', func=check_order, description='Check order status'),
+            Tool(name='create_ticket', func=create_ticket, description='Create support ticket')
+        ]
+    
+    def _create_agent(self):
+        from langchain.agents import create_react_agent
+        from langchain import hub
+        prompt = hub.pull('hwchase17/react')
+        agent = create_react_agent(self.llm, self.tools, prompt)
+        return AgentExecutor(
+            agent=agent,
+            tools=self.tools,
+            memory=self.memory,
+            verbose=True
+        )
+    
+    def chat(self, message: str) -> str:
+        result = self.agent.invoke({'input': message})
+        return result['output']
+
+# 使用
+agent = CustomerServiceAgent()
+print(agent.chat('Where is my order 12345?'))
+print(agent.chat('I have an issue with my order'))
+```
+
+---
+
+### 2. 研究助手 Agent
+
+```python
+class ResearchAgent:
+    def __init__(self):
+        self.llm = ChatOpenAI(model='gpt-4')
+        self.vectorstore = self._create_vectorstore()
+    
+    def _create_vectorstore(self):
+        from langchain.embeddings import OpenAIEmbeddings
+        from langchain.vectorstores import Chroma
+        
+        embeddings = OpenAIEmbeddings()
+        return Chroma(embedding_function=embeddings)
+    
+    def research(self, topic: str) -> dict:
+        # 搜索
+        search_results = self._search(topic)
+        
+        # 分析
+        analysis = self._analyze(search_results)
+        
+        # 总结
+        summary = self._summarize(analysis)
+        
+        return {
+            'topic': topic,
+            'search_results': search_results,
+            'analysis': analysis,
+            'summary': summary
+        }
+    
+    def _search(self, topic):
+        # 实现搜索逻辑
+        pass
+    
+    def _analyze(self, results):
+        # 实现分析逻辑
+        pass
+    
+    def _summarize(self, analysis):
+        # 实现总结逻辑
+        pass
+
+# 使用
+agent = ResearchAgent()
+result = agent.research('AI Agent architectures')
+print(result['summary'])
+```
+
+---
+
+**生成时间**: 2026-03-27 23:10 GMT+8
