@@ -14,6 +14,9 @@ OVERRIDE_LOG_DIR="${LOG_DIR:-}"
 OVERRIDE_CACHE_DIR="${CACHE_DIR:-}"
 OVERRIDE_LAB_USER="${LAB_USER:-}"
 OVERRIDE_AUTO_OPEN_DOCKER="${AUTO_OPEN_DOCKER:-}"
+OVERRIDE_IMAGE_TAG="${AI_LAB_IMAGE_TAG:-}"
+OVERRIDE_FORCE_DOCKER_RUN="${AI_LAB_FORCE_DOCKER_RUN:-}"
+OVERRIDE_HOST_MOUNT_ROOT="${AI_LAB_HOST_MOUNT_ROOT:-}"
 
 load_env_file() {
   local file="$1"
@@ -35,6 +38,10 @@ LOG_DIR="${OVERRIDE_LOG_DIR:-${LOG_DIR:-/Users/ai_lab/logs}}"
 CACHE_DIR="${OVERRIDE_CACHE_DIR:-${CACHE_DIR:-/Users/ai_lab/.cache}}"
 LAB_USER="${OVERRIDE_LAB_USER:-${LAB_USER:-ai_lab}}"
 AUTO_OPEN_DOCKER="${OVERRIDE_AUTO_OPEN_DOCKER:-${AUTO_OPEN_DOCKER:-1}}"
+IMAGE_TAG="${OVERRIDE_IMAGE_TAG:-${AI_LAB_IMAGE_TAG:-ai-lab-local:dev}}"
+FORCE_DOCKER_RUN="${OVERRIDE_FORCE_DOCKER_RUN:-${AI_LAB_FORCE_DOCKER_RUN:-0}}"
+HOST_MOUNT_ROOT="${OVERRIDE_HOST_MOUNT_ROOT:-${AI_LAB_HOST_MOUNT_ROOT:-${WORKSPACE_DIR}}}"
+OPENHANDS_HOME_DIR="${LOG_DIR}/openhands-home"
 
 if [[ "${LAB_USER}" != "ai_lab" ]]; then
   WORKSPACE_DIR="${WORKSPACE_DIR:-/Users/${LAB_USER}/workspace}"
@@ -121,9 +128,31 @@ compose_cmd() {
   if command -v docker-compose >/dev/null 2>&1; then
     need_cmd docker-compose
     docker-compose "$@"
-  else
+  elif docker compose version >/dev/null 2>&1; then
     docker compose "$@"
+  else
+    die "docker compose is not available"
   fi
+}
+
+compose_available() {
+  if command -v docker-compose >/dev/null 2>&1; then
+    return 0
+  fi
+
+  docker compose version >/dev/null 2>&1
+}
+
+use_direct_docker() {
+  if [[ "${FORCE_DOCKER_RUN}" == "1" ]]; then
+    return 0
+  fi
+
+  if compose_available; then
+    return 1
+  fi
+
+  return 0
 }
 
 ensure_workspace() {
@@ -152,6 +181,7 @@ ensure_workspace() {
 ensure_launch_prereqs() {
   ensure_docker
   ensure_workspace
+  mkdir -p "${CACHE_DIR}" "${LOG_DIR}" "${OPENHANDS_HOME_DIR}" "${WORKSPACE_DIR}"
 }
 
 workspace_quota_info() {
@@ -164,12 +194,61 @@ run_guardrails() {
   "${REPO_ROOT}/scripts/check_ai_lab_guardrails.sh"
 }
 
+append_env_passthrough() {
+  local name="$1"
+  if [[ -n "${!name+x}" ]]; then
+    DIRECT_DOCKER_ARGS+=("-e" "${name}")
+  fi
+}
+
+build_direct_image() {
+  log "building docker image ${IMAGE_TAG}"
+  docker build -t "${IMAGE_TAG}" -f "${COMPOSE_DIR}/Dockerfile" "${COMPOSE_DIR}"
+}
+
+direct_docker_base_args() {
+  DIRECT_DOCKER_ARGS=(
+    docker run --rm
+    --platform linux/arm64
+    --workdir /workspace
+    --user root
+    --tmpfs /tmp:size=2g,mode=1777
+    --mount "type=bind,src=${HOST_MOUNT_ROOT},dst=/workspace,readonly"
+    --mount "type=bind,src=${CACHE_DIR},dst=/root/.cache"
+    --mount "type=bind,src=${OPENHANDS_HOME_DIR},dst=/root/.openhands"
+    -e HOME=/root
+    -e PYTHONDONTWRITEBYTECODE=1
+    -e PYTHONUNBUFFERED=1
+  )
+
+  append_env_passthrough TELEGRAM_BOT_TOKEN
+  append_env_passthrough TELEGRAM_CHAT_ID
+  append_env_passthrough GITHUB_TOKEN
+  append_env_passthrough LLM_API_KEY
+  append_env_passthrough LLM_MODEL
+  append_env_passthrough LLM_BASE_URL
+}
+
 start_stack() {
+  if use_direct_docker; then
+    build_direct_image
+    ok "docker image ready (compose bypassed)"
+    return
+  fi
   log "starting compose stack"
   compose_cmd -f "${COMPOSE_FILE}" up -d
 }
 
 enter_shell() {
+  if use_direct_docker; then
+    local -a cmd=()
+    direct_docker_base_args
+    cmd=("${DIRECT_DOCKER_ARGS[@]}")
+    cmd+=("${IMAGE_TAG}" /bin/sh)
+    log "entering container shell (compose bypassed)"
+    "${cmd[@]}"
+    return
+  fi
   log "entering container shell"
   compose_cmd -f "${COMPOSE_FILE}" exec ai-lab /bin/sh
 }
@@ -179,6 +258,21 @@ run_command() {
   if [[ "$#" -eq 0 ]]; then
     die "no command provided for run mode"
   fi
+
+  if use_direct_docker; then
+    local -a cmd=()
+    direct_docker_base_args
+    cmd=("${DIRECT_DOCKER_ARGS[@]}")
+    if [[ -n "${EXTRA_VOLUME:-}" ]]; then
+      cmd+=("-v" "${EXTRA_VOLUME}")
+    fi
+    cmd+=("${IMAGE_TAG}" "$@")
+    build_direct_image
+    log "running command in container without compose: $*"
+    "${cmd[@]}"
+    return
+  fi
+
   log "running command in container: $*"
   local compose_args=("-f" "${COMPOSE_FILE}" "run" "--rm")
   if [[ -n "${EXTRA_VOLUME:-}" ]]; then
@@ -189,6 +283,14 @@ run_command() {
 }
 
 status() {
+  if use_direct_docker; then
+    if docker image inspect "${IMAGE_TAG}" >/dev/null 2>&1; then
+      ok "docker image available: ${IMAGE_TAG}"
+    else
+      warn "docker image missing: ${IMAGE_TAG}"
+    fi
+    return
+  fi
   compose_cmd -f "${COMPOSE_FILE}" ps
 }
 

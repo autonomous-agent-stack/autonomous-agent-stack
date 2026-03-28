@@ -7,11 +7,21 @@ services:
     # 强制以 root 运行，确保能抡得动 gh 和 git 这类重型扳手
     user: "root"
     volumes:
-      - ../..:/workspace:rw
+      - ../..:/workspace:ro
+      - ../../logs:/workspace/logs:rw
+      - ${WORKSPACE_DIR}/worktrees:/opt/worktrees:rw
+      - ${CACHE_DIR}:/root/.cache:rw
+      - ${LOG_DIR}/openhands-home:/root/.openhands:rw
+    tmpfs:
+      - /tmp:size=2g,mode=1777
     environment:
+      - HOME=/root
       - PYTHONDONTWRITEBYTECODE=1
       - PYTHONUNBUFFERED=1
       - TELEGRAM_BOT_TOKEN
       - TELEGRAM_CHAT_ID
       - GITHUB_TOKEN
+      - LLM_API_KEY
+      - LLM_MODEL
+      - LLM_BASE_URL
     restart: "no"
