@@ -26,6 +26,8 @@ class TelegramSessionIdentityRead(StrictModel):
 def build_telegram_session_identity(
     extracted: dict[str, Any],
     settings: TelegramSettings,
+    *,
+    scope_override: AssistantScope | None = None,
 ) -> TelegramSessionIdentityRead:
     chat_id = _safe_str(extracted.get("chat_id"))
     user_id = _safe_str(extracted.get("from_user_id") or extracted.get("from_id"))
@@ -33,7 +35,7 @@ def build_telegram_session_identity(
     chat_type = _coerce_chat_type(extracted.get("chat_type"))
     message_id = _safe_str(extracted.get("message_id"))
 
-    scope = AssistantScope.PERSONAL if chat_type == ChatType.PRIVATE else AssistantScope.SHARED
+    scope = scope_override or (AssistantScope.PERSONAL if chat_type == ChatType.PRIVATE else AssistantScope.SHARED)
     role = _resolve_actor_role(user_id=user_id, settings=settings)
 
     if scope == AssistantScope.PERSONAL:

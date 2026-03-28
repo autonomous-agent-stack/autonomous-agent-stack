@@ -8,12 +8,23 @@ from fastapi.responses import HTMLResponse
 from autoresearch.api.dependencies import (
     get_admin_auth_service,
     get_admin_config_service,
+    get_approval_store_service,
+    get_capability_provider_registry,
     get_claude_agent_service,
 )
+from autoresearch.core.adapters import CalendarAdapter, CapabilityProviderRegistry, GitHubAdapter, MCPProvider, SkillProvider
 from autoresearch.core.services.admin_auth import AdminAccessClaims, AdminAuthService
 from autoresearch.core.services.admin_config import AdminConfigService
+from autoresearch.core.services.approval_store import ApprovalStoreService
 from autoresearch.core.services.claude_agents import ClaudeAgentService
 from autoresearch.shared.models import (
+    ApprovalDecisionRequest,
+    ApprovalNoteRequest,
+    ApprovalRequestRead,
+    ApprovalStatus,
+    AdminCapabilityProviderInventoryRead,
+    AdminCapabilitySnapshotRead,
+    AdminCapabilityToolRead,
     AdminAgentConfigCreateRequest,
     AdminAgentConfigRead,
     AdminAgentConfigUpdateRequest,
@@ -26,8 +37,10 @@ from autoresearch.shared.models import (
     AdminConfigStatusChangeRequest,
     AdminTokenIssueRequest,
     AdminTokenRead,
+    CapabilityProviderSummaryRead,
     ClaudeAgentCreateRequest,
     ClaudeAgentRunRead,
+    utc_now,
 )
 
 
@@ -84,6 +97,113 @@ def _require_admin_high_risk(
 @router.get("/health")
 def admin_health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@router.get("/capabilities", response_model=AdminCapabilitySnapshotRead)
+def admin_capability_snapshot(
+    access: AdminAccessClaims = Depends(_require_admin_read),
+    registry: CapabilityProviderRegistry = Depends(get_capability_provider_registry),
+) -> AdminCapabilitySnapshotRead:
+    inventories: list[AdminCapabilityProviderInventoryRead] = []
+    for descriptor in registry.list_descriptors():
+        provider = registry.get(descriptor.provider_id)
+        if provider is None:
+            continue
+        skills = provider.list_skills().skills if isinstance(provider, SkillProvider) else []
+        tools = (
+            [
+                AdminCapabilityToolRead(
+                    name=tool.name,
+                    description=tool.description,
+                    metadata=tool.metadata,
+                )
+                for tool in provider.list_tools()
+            ]
+            if isinstance(provider, MCPProvider)
+            else []
+        )
+        inventories.append(
+            AdminCapabilityProviderInventoryRead(
+                provider=CapabilityProviderSummaryRead(**descriptor.model_dump()),
+                skills=skills,
+                tools=tools,
+                supports_calendar_query=isinstance(provider, CalendarAdapter),
+                supports_github_search=isinstance(provider, GitHubAdapter),
+            )
+        )
+    return AdminCapabilitySnapshotRead(providers=inventories, issued_at=utc_now())
+
+
+@router.get("/approvals", response_model=list[ApprovalRequestRead])
+def admin_list_approvals(
+    approval_status: ApprovalStatus | None = Query(default=None, alias="status"),
+    telegram_uid: str | None = Query(default=None),
+    session_id: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    access: AdminAccessClaims = Depends(_require_admin_read),
+    approval_service: ApprovalStoreService = Depends(get_approval_store_service),
+) -> list[ApprovalRequestRead]:
+    _ = access
+    return approval_service.list_requests(
+        status=approval_status,
+        telegram_uid=telegram_uid,
+        session_id=session_id,
+        limit=limit,
+    )
+
+
+@router.post("/approvals/{approval_id}/approve", response_model=ApprovalRequestRead)
+def admin_approve_request(
+    approval_id: str,
+    payload: ApprovalNoteRequest,
+    access: AdminAccessClaims = Depends(_require_admin_high_risk),
+    approval_service: ApprovalStoreService = Depends(get_approval_store_service),
+) -> ApprovalRequestRead:
+    try:
+        return approval_service.resolve_request(
+            approval_id,
+            ApprovalDecisionRequest(
+                decision="approved",
+                decided_by=access.subject,
+                note=payload.note,
+                metadata={
+                    **payload.metadata,
+                    "resolved_via": "admin_api",
+                    "admin_roles": list(access.roles),
+                },
+            ),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="approval not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post("/approvals/{approval_id}/reject", response_model=ApprovalRequestRead)
+def admin_reject_request(
+    approval_id: str,
+    payload: ApprovalNoteRequest,
+    access: AdminAccessClaims = Depends(_require_admin_high_risk),
+    approval_service: ApprovalStoreService = Depends(get_approval_store_service),
+) -> ApprovalRequestRead:
+    try:
+        return approval_service.resolve_request(
+            approval_id,
+            ApprovalDecisionRequest(
+                decision="rejected",
+                decided_by=access.subject,
+                note=payload.note,
+                metadata={
+                    **payload.metadata,
+                    "resolved_via": "admin_api",
+                    "admin_roles": list(access.roles),
+                },
+            ),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="approval not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.get("/view", response_class=HTMLResponse, include_in_schema=False)
@@ -680,6 +800,53 @@ _ADMIN_HTML = """<!doctype html>
         </table>
       </div>
     </section>
+
+    <section class="card">
+      <h2>Capability Inventory</h2>
+      <div class="row">
+        <button class="btn-primary" onclick="refreshAll()">刷新</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Provider</th>
+              <th>Domain</th>
+              <th>Status</th>
+              <th>Capabilities</th>
+              <th>Skills</th>
+              <th>Tools</th>
+              <th>Read Ops</th>
+            </tr>
+          </thead>
+          <tbody id="capabilities-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Approval Queue</h2>
+      <div class="row">
+        <button class="btn-primary" onclick="refreshAll()">刷新</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Status</th>
+              <th>Risk</th>
+              <th>Title</th>
+              <th>UID</th>
+              <th>Source</th>
+              <th>Expires</th>
+              <th>Ops</th>
+            </tr>
+          </thead>
+          <tbody id="approvals-body"></tbody>
+        </table>
+      </div>
+    </section>
   </section>
 
   <section class="card">
@@ -701,6 +868,8 @@ _ADMIN_HTML = """<!doctype html>
 const summary = document.getElementById("summary");
 const agentsBody = document.getElementById("agents-body");
 const channelsBody = document.getElementById("channels-body");
+const capabilitiesBody = document.getElementById("capabilities-body");
+const approvalsBody = document.getElementById("approvals-body");
 const revisionsPre = document.getElementById("revisions-pre");
 const tokenFromQuery = new URLSearchParams(window.location.search).get("token") || "";
 let adminToken = localStorage.getItem("autoresearch_admin_token") || tokenFromQuery;
@@ -917,18 +1086,65 @@ function channelRow(item) {
     </tr>`;
 }
 
+function capabilityRow(item) {
+  const provider = item.provider || {};
+  const capabilityList = (provider.capabilities || []).join(", ") || "-";
+  const skillList = (item.skills || []).map((skill) => skill.skill_key || skill.name).join(", ") || "-";
+  const toolList = (item.tools || []).map((tool) => tool.name).join(", ") || "-";
+  const readOps = [
+    item.supports_calendar_query ? "calendar" : "",
+    item.supports_github_search ? "github" : "",
+  ].filter(Boolean).join(", ") || "-";
+  return `
+    <tr>
+      <td>${provider.display_name || provider.provider_id || "-"}</td>
+      <td>${provider.domain || "-"}</td>
+      <td><span class="pill ${provider.status === "available" ? "active" : "inactive"}">${provider.status || "-"}</span></td>
+      <td>${capabilityList}</td>
+      <td>${skillList}</td>
+      <td>${toolList}</td>
+      <td>${readOps}</td>
+    </tr>`;
+}
+
+function approvalRow(item) {
+  return `
+    <tr>
+      <td>${item.approval_id}</td>
+      <td>${item.status}</td>
+      <td>${item.risk}</td>
+      <td>${item.title}</td>
+      <td>${item.telegram_uid || "-"}</td>
+      <td>${item.source || "-"}</td>
+      <td>${fmtDate(item.expires_at)}</td>
+      <td>
+        <div class="toolbar">
+          <button onclick='decideApproval("${item.approval_id}", "approve")'>批准</button>
+          <button class="btn-danger" onclick='decideApproval("${item.approval_id}", "reject")'>拒绝</button>
+        </div>
+      </td>
+    </tr>`;
+}
+
 async function refreshAll() {
   try {
-    const [agents, channels] = await Promise.all([
+    const [agents, channels, capabilitySnapshot, approvals] = await Promise.all([
       callApi("/api/v1/admin/agents"),
       callApi("/api/v1/admin/channels"),
+      callApi("/api/v1/admin/capabilities"),
+      callApi("/api/v1/admin/approvals?status=pending&limit=80"),
     ]);
     agentsBody.innerHTML = agents.map(agentRow).join("") || "<tr><td colspan='7'>暂无</td></tr>";
     channelsBody.innerHTML = channels.map(channelRow).join("") || "<tr><td colspan='8'>暂无</td></tr>";
-    summary.textContent = `Agents: ${agents.length} | Channels: ${channels.length} | API: /api/v1/admin`;
+    capabilitiesBody.innerHTML = (capabilitySnapshot.providers || []).map(capabilityRow).join("")
+      || "<tr><td colspan='7'>暂无</td></tr>";
+    approvalsBody.innerHTML = approvals.map(approvalRow).join("") || "<tr><td colspan='8'>暂无</td></tr>";
+    summary.textContent = `Agents: ${agents.length} | Channels: ${channels.length} | Providers: ${(capabilitySnapshot.providers || []).length} | Approvals: ${approvals.length} | API: /api/v1/admin`;
     await loadRevisions();
   } catch (err) {
     summary.textContent = `加载失败: ${err.message}`;
+    capabilitiesBody.innerHTML = "<tr><td colspan='7'>加载失败</td></tr>";
+    approvalsBody.innerHTML = "<tr><td colspan='8'>加载失败</td></tr>";
   }
 }
 
@@ -1200,6 +1416,17 @@ async function rollbackChannel(channelId) {
     version: Number(version),
     actor: "admin-ui",
     reason: "manual rollback"
+  });
+  await refreshAll();
+}
+
+async function decideApproval(approvalId, op) {
+  const note = prompt(`${op === "approve" ? "批准" : "拒绝"}备注（可空）`, "");
+  if (note === null) return;
+  const path = `/api/v1/admin/approvals/${approvalId}/${op}`;
+  await callApi(path, "POST", {
+    note: note.trim() || null,
+    metadata: {source: "admin-ui"},
   });
   await refreshAll();
 }

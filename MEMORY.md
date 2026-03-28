@@ -5,6 +5,21 @@
 - 时区：Asia/Taipei
 - 偏好沟通风格：干练
 
+## v1 收敛原则（2026-03-27）
+- 当前最优策略是冻结“硬核版 v1 定义”，优先落地可运行的工程规格，而不是继续扩需求。
+- 倾向的核心取舍：
+  - 本地 Mac OS + M1 绑定，优先保证单机可运行与主进程流畅度
+  - 用 macOS Native STT 和 GLM-V API 分别解决音频与视觉输入，降低本地算力压力
+  - 用低危 Bot 内联按钮、高危 Mini App + 生物特征 + `initData` 校验做审批分级
+  - 用一 Bot 双 Scope（`personal` / `shared`）和 actor 标签实现身份与记忆隔离
+- 里程碑推进优先级：先做阶段一的主路由收口与稳定化，再推进身份/记忆、多模态、审批流、技能库与并发架构
+- 更完整的路线图要点：
+  - 阶段一：清理旧版 Webhook、遗留 Workflow、僵尸代码，统一单一 App 主入口，并修复 Spawn Gate 阻断
+  - 阶段二：定义 `AssistantScope`、`ActorRole`、`CapabilityMode`，实现白名单拦截和 SQLite 三层记忆隔离
+  - 阶段三：接入 `VisionAdapter` 与 `AudioTranscriptionAdapter`，完成图片与本地轻量 STT
+  - 阶段四：实现 Mini App 高危审批与受控 Git 策略
+  - 阶段五：重构 `SkillRegistry`，落实签名白名单和受控多智能体并发
+
 ## Prompt Hygiene 审计尺子（2026-03-26）
 - 新增只读审计脚本 `scripts/check_prompt_hygiene.py`，配套 `make hygiene-check`
 - 默认扫描 `src/`，输出到 `logs/audit/prompt_hygiene/report.txt` 和 `report.json`

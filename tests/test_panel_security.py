@@ -12,6 +12,8 @@ from fastapi.testclient import TestClient
 import pytest
 
 from autoresearch.api.dependencies import (
+    get_approval_store_service,
+    get_capability_provider_registry,
     get_claude_agent_service,
     get_openclaw_compat_service,
     get_panel_access_service,
@@ -19,11 +21,16 @@ from autoresearch.api.dependencies import (
     get_telegram_notifier_service,
 )
 from autoresearch.api.main import app
+from autoresearch.core.adapters import CapabilityProviderDescriptorRead, CapabilityProviderRegistry
+from autoresearch.core.adapters.contracts import CapabilityDomain
+from autoresearch.core.services.approval_store import ApprovalStoreService
 from autoresearch.core.services.claude_agents import ClaudeAgentService
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.panel_access import PanelAccessService, assert_safe_bind_host
 from autoresearch.core.services.panel_audit import PanelAuditService
 from autoresearch.shared.models import (
+    ApprovalRequestCreateRequest,
+    ApprovalRequestRead,
     ClaudeAgentCreateRequest,
     ClaudeAgentRunRead,
     OpenClawSessionCreateRequest,
@@ -76,6 +83,20 @@ class StubTelegramNotifier:
         return True
 
 
+class _StubCapabilityProvider:
+    def __init__(self, provider_id: str, domain: CapabilityDomain, display_name: str) -> None:
+        self._descriptor = CapabilityProviderDescriptorRead(
+            provider_id=provider_id,
+            domain=domain,
+            display_name=display_name,
+            capabilities=["stub"],
+            metadata={"stub": True},
+        )
+
+    def describe(self) -> CapabilityProviderDescriptorRead:
+        return self._descriptor
+
+
 @pytest.fixture
 def panel_client(tmp_path: Path) -> TestClient:
     db_path = tmp_path / "panel-security.sqlite3"
@@ -110,18 +131,32 @@ def panel_client(tmp_path: Path) -> TestClient:
             model_cls=PanelAuditLogRead,
         )
     )
+    approval_service = ApprovalStoreService(
+        repository=SQLiteModelRepository(
+            db_path=db_path,
+            table_name="approval_requests_panel_it",
+            model_cls=ApprovalRequestRead,
+        )
+    )
+    capability_registry = CapabilityProviderRegistry()
+    capability_registry.register(_StubCapabilityProvider("apple-calendar", CapabilityDomain.CALENDAR, "Apple Calendar"))
+    capability_registry.register(_StubCapabilityProvider("openclaw-skills", CapabilityDomain.SKILL, "OpenClaw Skills"))
     notifier = StubTelegramNotifier()
 
     app.dependency_overrides[get_openclaw_compat_service] = lambda: openclaw_service
     app.dependency_overrides[get_claude_agent_service] = lambda: claude_service
     app.dependency_overrides[get_panel_access_service] = lambda: panel_access
     app.dependency_overrides[get_panel_audit_service] = lambda: panel_audit
+    app.dependency_overrides[get_approval_store_service] = lambda: approval_service
+    app.dependency_overrides[get_capability_provider_registry] = lambda: capability_registry
     app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
 
     with TestClient(app) as client:
         setattr(client, "_openclaw", openclaw_service)
         setattr(client, "_claude", claude_service)
         setattr(client, "_panel_access", panel_access)
+        setattr(client, "_approval_store", approval_service)
+        setattr(client, "_capability_registry", capability_registry)
         setattr(client, "_notifier", notifier)
         yield client
 
@@ -142,10 +177,21 @@ def test_panel_state_requires_magic_link_token(panel_client: TestClient) -> None
     assert response.status_code == 401
 
 
+def test_panel_view_contains_capability_section(panel_client: TestClient) -> None:
+    response = panel_client.get("/api/v1/panel/view")
+
+    assert response.status_code == 200
+    assert "能力概览" in response.text
+    assert "capability_providers" in response.text
+    assert "待审批" in response.text
+    assert "pending_approvals" in response.text
+
+
 def test_panel_state_is_scoped_by_telegram_uid(panel_client: TestClient) -> None:
     openclaw = getattr(panel_client, "_openclaw")
     claude = getattr(panel_client, "_claude")
     panel_access = getattr(panel_client, "_panel_access")
+    approval_store = getattr(panel_client, "_approval_store")
 
     session_uid_a = openclaw.create_session(
         OpenClawSessionCreateRequest(channel="telegram", external_id="10001", title="uid-a")
@@ -172,6 +218,22 @@ def test_panel_state_is_scoped_by_telegram_uid(panel_client: TestClient) -> None
             append_prompt=False,
         )
     )
+    approval_store.create_request(
+        ApprovalRequestCreateRequest(
+            title="Approve UID A branch",
+            telegram_uid="10001",
+            session_id=session_uid_a.session_id,
+            agent_run_id=run_uid_a.agent_run_id,
+        )
+    )
+    approval_store.create_request(
+        ApprovalRequestCreateRequest(
+            title="Approve UID B branch",
+            telegram_uid="20002",
+            session_id=session_uid_b.session_id,
+            agent_run_id=run_uid_b.agent_run_id,
+        )
+    )
 
     token = _token_from_magic_link(panel_access.create_magic_link("10001").url)
     scoped = panel_client.get(
@@ -185,6 +247,13 @@ def test_panel_state_is_scoped_by_telegram_uid(panel_client: TestClient) -> None
     assert all(run["session_id"] == session_uid_a.session_id for run in payload["agent_runs"])
     assert any(run["agent_run_id"] == run_uid_a.agent_run_id for run in payload["agent_runs"])
     assert all(run["agent_run_id"] != run_uid_b.agent_run_id for run in payload["agent_runs"])
+    assert [item["provider_id"] for item in payload["capability_providers"]] == [
+        "apple-calendar",
+        "openclaw-skills",
+    ]
+    assert len(payload["pending_approvals"]) == 1
+    assert payload["pending_approvals"][0]["telegram_uid"] == "10001"
+    assert payload["pending_approvals"][0]["agent_run_id"] == run_uid_a.agent_run_id
 
     forbidden = panel_client.get(
         f"/api/v1/panel/agents/{run_uid_b.agent_run_id}",
@@ -238,6 +307,64 @@ def test_panel_cancel_retry_writes_audit_and_pushes_notify(panel_client: TestCli
 
     assert len(notifier.manual_events) >= 2
     assert {event["action"] for event in notifier.manual_events} >= {"cancel", "retry"}
+
+
+def test_panel_approval_actions_are_scoped_and_audited(panel_client: TestClient) -> None:
+    panel_access = getattr(panel_client, "_panel_access")
+    approval_store = getattr(panel_client, "_approval_store")
+    notifier = getattr(panel_client, "_notifier")
+
+    owned = approval_store.create_request(
+        ApprovalRequestCreateRequest(
+            title="Approve owned branch",
+            telegram_uid="9527",
+            session_id="oc_owned",
+            agent_run_id="run_owned",
+        )
+    )
+    foreign = approval_store.create_request(
+        ApprovalRequestCreateRequest(
+            title="Approve foreign branch",
+            telegram_uid="9528",
+            session_id="oc_foreign",
+            agent_run_id="run_foreign",
+        )
+    )
+
+    token = _token_from_magic_link(panel_access.create_magic_link("9527").url)
+    headers = {"x-autoresearch-panel-token": token}
+
+    approvals = panel_client.get("/api/v1/panel/approvals", headers=headers)
+    assert approvals.status_code == 200
+    payload = approvals.json()
+    assert len(payload) == 1
+    assert payload[0]["approval_id"] == owned.approval_id
+
+    approved = panel_client.post(
+        f"/api/v1/panel/approvals/{owned.approval_id}/approve",
+        headers=headers,
+        json={"note": "approved via panel", "metadata": {}},
+    )
+    assert approved.status_code == 200
+    approved_payload = approved.json()
+    assert approved_payload["status"] == "approved"
+    assert approved_payload["decided_by"] == "9527"
+
+    forbidden = panel_client.post(
+        f"/api/v1/panel/approvals/{foreign.approval_id}/reject",
+        headers=headers,
+        json={"note": "not mine", "metadata": {}},
+    )
+    assert forbidden.status_code == 403
+
+    audit = panel_client.get("/api/v1/panel/audit/logs?limit=20", headers=headers)
+    assert audit.status_code == 200
+    audit_payload = audit.json()
+    assert audit_payload[0]["action"] == "approve"
+    assert audit_payload[0]["target_type"] == "approval_request"
+    assert audit_payload[0]["target_id"] == owned.approval_id
+
+    assert any(event["action"] == "approve" for event in notifier.manual_events)
 
 
 def test_panel_state_supports_telegram_init_data_auth(panel_client: TestClient) -> None:

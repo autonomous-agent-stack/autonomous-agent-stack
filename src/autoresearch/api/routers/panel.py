@@ -6,18 +6,27 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, R
 from fastapi.responses import HTMLResponse
 
 from autoresearch.api.dependencies import (
+    get_approval_store_service,
+    get_capability_provider_registry,
     get_claude_agent_service,
     get_openclaw_compat_service,
     get_panel_access_service,
     get_panel_audit_service,
     get_telegram_notifier_service,
 )
+from autoresearch.core.adapters import CapabilityProviderRegistry
+from autoresearch.core.services.approval_store import ApprovalStoreService
 from autoresearch.core.services.claude_agents import ClaudeAgentService
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.panel_access import PanelAccessService
 from autoresearch.core.services.panel_audit import PanelAuditService
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
 from autoresearch.shared.models import (
+    ApprovalDecisionRequest,
+    ApprovalNoteRequest,
+    ApprovalRequestRead,
+    ApprovalStatus,
+    CapabilityProviderSummaryRead,
     ClaudeAgentCancelRequest,
     ClaudeAgentRetryRequest,
     ClaudeAgentRunRead,
@@ -116,17 +125,30 @@ def get_panel_state(
     openclaw_service: OpenClawCompatService = Depends(get_openclaw_compat_service),
     agent_service: ClaudeAgentService = Depends(get_claude_agent_service),
     audit_service: PanelAuditService = Depends(get_panel_audit_service),
+    approval_service: ApprovalStoreService = Depends(get_approval_store_service),
+    capability_registry: CapabilityProviderRegistry = Depends(get_capability_provider_registry),
 ) -> PanelStateRead:
     sessions = _sessions_for_uid(openclaw_service=openclaw_service, telegram_uid=access.telegram_uid)
     session_ids = {session.session_id for session in sessions}
     runs = [run for run in agent_service.list() if run.session_id in session_ids]
     runs.sort(key=lambda item: item.updated_at, reverse=True)
     audit_logs = audit_service.list_by_uid(access.telegram_uid, limit=limit_audit)
+    pending_approvals = approval_service.list_requests(
+        status=ApprovalStatus.PENDING,
+        telegram_uid=access.telegram_uid,
+        limit=20,
+    )
+    capability_providers = [
+        CapabilityProviderSummaryRead(**descriptor.model_dump())
+        for descriptor in capability_registry.list_descriptors()
+    ]
     return PanelStateRead(
         telegram_uid=access.telegram_uid,
         sessions=sessions,
         agent_runs=runs[:limit_runs],
         audit_logs=audit_logs,
+        capability_providers=capability_providers,
+        pending_approvals=pending_approvals,
         issued_at=utc_now(),
     )
 
@@ -138,6 +160,131 @@ def list_panel_audit_logs(
     audit_service: PanelAuditService = Depends(get_panel_audit_service),
 ) -> list[PanelAuditLogRead]:
     return audit_service.list_by_uid(access.telegram_uid, limit=limit)
+
+
+@router.get("/approvals", response_model=list[ApprovalRequestRead])
+def list_panel_approvals(
+    limit: int = Query(default=20, ge=1, le=200),
+    access: PanelAccessContext = Depends(_require_panel_access),
+    approval_service: ApprovalStoreService = Depends(get_approval_store_service),
+) -> list[ApprovalRequestRead]:
+    return approval_service.list_requests(
+        status=ApprovalStatus.PENDING,
+        telegram_uid=access.telegram_uid,
+        limit=limit,
+    )
+
+
+@router.post("/approvals/{approval_id}/approve", response_model=ApprovalRequestRead)
+def approve_panel_approval(
+    approval_id: str,
+    payload: ApprovalNoteRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    access: PanelAccessContext = Depends(_require_panel_access),
+    approval_service: ApprovalStoreService = Depends(get_approval_store_service),
+    audit_service: PanelAuditService = Depends(get_panel_audit_service),
+    notifier: TelegramNotifierService = Depends(get_telegram_notifier_service),
+) -> ApprovalRequestRead:
+    approval = _authorized_approval(
+        approval_id=approval_id,
+        telegram_uid=access.telegram_uid,
+        approval_service=approval_service,
+    )
+    resolved = approval_service.resolve_request(
+        approval_id,
+        ApprovalDecisionRequest(
+            decision="approved",
+            decided_by=access.telegram_uid,
+            note=payload.note,
+            metadata={
+                **payload.metadata,
+                "auth_method": access.auth_method,
+                "token_id": access.token_id,
+            },
+        ),
+    )
+    entry = audit_service.log_action(
+        telegram_uid=access.telegram_uid,
+        action="approve",
+        target_id=approval_id,
+        target_type="approval_request",
+        status="accepted",
+        reason=payload.note,
+        request_ip=_request_ip(request),
+        user_agent=request.headers.get("user-agent"),
+        metadata={
+            "approval_title": approval.title,
+            "session_id": approval.session_id,
+            "agent_run_id": approval.agent_run_id,
+            "auth_method": access.auth_method,
+            "token_id": access.token_id,
+        },
+    )
+    if notifier.enabled:
+        background_tasks.add_task(
+            notifier.notify_manual_action,
+            chat_id=access.telegram_uid,
+            entry=entry,
+            run_status=resolved.status.value,
+        )
+    return resolved
+
+
+@router.post("/approvals/{approval_id}/reject", response_model=ApprovalRequestRead)
+def reject_panel_approval(
+    approval_id: str,
+    payload: ApprovalNoteRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    access: PanelAccessContext = Depends(_require_panel_access),
+    approval_service: ApprovalStoreService = Depends(get_approval_store_service),
+    audit_service: PanelAuditService = Depends(get_panel_audit_service),
+    notifier: TelegramNotifierService = Depends(get_telegram_notifier_service),
+) -> ApprovalRequestRead:
+    approval = _authorized_approval(
+        approval_id=approval_id,
+        telegram_uid=access.telegram_uid,
+        approval_service=approval_service,
+    )
+    resolved = approval_service.resolve_request(
+        approval_id,
+        ApprovalDecisionRequest(
+            decision="rejected",
+            decided_by=access.telegram_uid,
+            note=payload.note,
+            metadata={
+                **payload.metadata,
+                "auth_method": access.auth_method,
+                "token_id": access.token_id,
+            },
+        ),
+    )
+    entry = audit_service.log_action(
+        telegram_uid=access.telegram_uid,
+        action="reject",
+        target_id=approval_id,
+        target_type="approval_request",
+        status="accepted",
+        reason=payload.note,
+        request_ip=_request_ip(request),
+        user_agent=request.headers.get("user-agent"),
+        metadata={
+            "approval_title": approval.title,
+            "session_id": approval.session_id,
+            "agent_run_id": approval.agent_run_id,
+            "auth_method": access.auth_method,
+            "token_id": access.token_id,
+        },
+    )
+    if notifier.enabled:
+        background_tasks.add_task(
+            notifier.notify_manual_action,
+            chat_id=access.telegram_uid,
+            entry=entry,
+            run_status=resolved.status.value,
+        )
+    return resolved
 
 
 @router.get("/agents/{agent_run_id}", response_model=ClaudeAgentRunRead)
@@ -282,6 +429,20 @@ def _authorized_agent_run(
     return run
 
 
+def _authorized_approval(
+    *,
+    approval_id: str,
+    telegram_uid: str,
+    approval_service: ApprovalStoreService,
+) -> ApprovalRequestRead:
+    approval = approval_service.get_request(approval_id)
+    if approval is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="approval not found")
+    if approval.telegram_uid != telegram_uid:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="forbidden")
+    return approval
+
+
 def _request_ip(request: Request) -> str | None:
     if request.client is None:
         return None
@@ -323,6 +484,14 @@ _PANEL_HTML = """<!doctype html>
     <div id="runs"></div>
   </section>
   <section class="card">
+    <h2>能力概览</h2>
+    <div id="capabilities"></div>
+  </section>
+  <section class="card">
+    <h2>待审批</h2>
+    <div id="approvals"></div>
+  </section>
+  <section class="card">
     <h2>审计日志</h2>
     <pre id="audit"></pre>
   </section>
@@ -333,6 +502,8 @@ const tgWebApp = window.Telegram && window.Telegram.WebApp ? window.Telegram.Web
 const telegramInitData = tgWebApp && tgWebApp.initData ? tgWebApp.initData : "";
 const summary = document.getElementById("summary");
 const runsEl = document.getElementById("runs");
+const capabilitiesEl = document.getElementById("capabilities");
+const approvalsEl = document.getElementById("approvals");
 const auditEl = document.getElementById("audit");
 
 if (tgWebApp) {
@@ -372,6 +543,34 @@ function runRow(run) {
   `;
 }
 
+function capabilityRow(item) {
+  const capabilities = (item.capabilities || []).join(", ") || "-";
+  return `
+    <tr>
+      <td>${item.display_name || item.provider_id || "-"}</td>
+      <td>${item.domain || "-"}</td>
+      <td>${item.status || "-"}</td>
+      <td>${capabilities}</td>
+    </tr>
+  `;
+}
+
+function approvalRow(item) {
+  return `
+    <tr>
+      <td>${item.approval_id}</td>
+      <td>${item.risk}</td>
+      <td>${item.title}</td>
+      <td>${item.source || "-"}</td>
+      <td>${item.expires_at || "-"}</td>
+      <td>
+        <button class="btn-retry" data-approval-id="${item.approval_id}" data-approval-op="approve">Approve</button>
+        <button class="btn-cancel" data-approval-id="${item.approval_id}" data-approval-op="reject">Reject</button>
+      </td>
+    </tr>
+  `;
+}
+
 async function refresh() {
   if (!token && !telegramInitData) {
     summary.textContent = "缺少访问凭证，请使用 Telegram /status 魔法链接或 Mini App 打开。";
@@ -380,12 +579,18 @@ async function refresh() {
   try {
     const state = await callApi("/api/v1/panel/state?limit_runs=60&limit_audit=40");
     const mode = token ? "JWT" : "Telegram Mini App";
-    summary.textContent = `UID: ${state.telegram_uid} | mode: ${mode} | sessions: ${state.sessions.length} | runs: ${state.agent_runs.length}`;
+    summary.textContent = `UID: ${state.telegram_uid} | mode: ${mode} | sessions: ${state.sessions.length} | runs: ${state.agent_runs.length} | approvals: ${(state.pending_approvals || []).length} | providers: ${(state.capability_providers || []).length}`;
     const rows = state.agent_runs.map(runRow).join("");
     runsEl.innerHTML = `<table><thead><tr><th>Agent</th><th>Status</th><th>Task</th><th>Updated</th><th>Action</th><th>Hint</th></tr></thead><tbody>${rows}</tbody></table>`;
+    const capabilityRows = (state.capability_providers || []).map(capabilityRow).join("");
+    capabilitiesEl.innerHTML = `<table><thead><tr><th>Provider</th><th>Domain</th><th>Status</th><th>Capabilities</th></tr></thead><tbody>${capabilityRows || "<tr><td colspan='4'>暂无</td></tr>"}</tbody></table>`;
+    const approvalRows = (state.pending_approvals || []).map(approvalRow).join("");
+    approvalsEl.innerHTML = `<table><thead><tr><th>ID</th><th>Risk</th><th>Title</th><th>Source</th><th>Expires</th><th>Decision</th></tr></thead><tbody>${approvalRows || "<tr><td colspan='6'>暂无</td></tr>"}</tbody></table>`;
     auditEl.textContent = JSON.stringify(state.audit_logs, null, 2);
   } catch (err) {
     summary.textContent = `加载失败: ${err.message}`;
+    capabilitiesEl.innerHTML = "<p class='muted'>加载失败</p>";
+    approvalsEl.innerHTML = "<p class='muted'>加载失败</p>";
   }
 }
 
@@ -402,6 +607,20 @@ runsEl.addEventListener("click", async (event) => {
     } else if (op === "retry") {
       await callApi(`/api/v1/panel/agents/${agentId}/retry`, "POST", {reason, metadata_updates: {}});
     }
+    await refresh();
+  } catch (err) {
+    alert(`操作失败: ${err.message}`);
+  }
+});
+
+approvalsEl.addEventListener("click", async (event) => {
+  const target = event.target;
+  if (!target || !target.dataset || !target.dataset.approvalId) return;
+  const approvalId = target.dataset.approvalId;
+  const op = target.dataset.approvalOp;
+  const note = prompt(`输入 ${op} 备注`, op === "approve" ? "approved via panel" : "rejected via panel") || "";
+  try {
+    await callApi(`/api/v1/panel/approvals/${approvalId}/${op}`, "POST", {note, metadata: {}});
     await refresh();
   } catch (err) {
     alert(`操作失败: ${err.message}`);

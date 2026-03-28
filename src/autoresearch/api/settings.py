@@ -5,10 +5,10 @@ import os
 import shlex
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from pydantic import AliasChoices, Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 logger = logging.getLogger(__name__)
@@ -121,6 +121,10 @@ class TelegramSettings(_BaseApiSettings):
     owner_uids: set[str] = Field(default_factory=set, validation_alias="AUTORESEARCH_TELEGRAM_OWNER_UIDS")
     partner_uids: set[str] = Field(default_factory=set, validation_alias="AUTORESEARCH_TELEGRAM_PARTNER_UIDS")
     internal_groups: set[str] = Field(default_factory=set, validation_alias="AUTORESEARCH_INTERNAL_GROUPS")
+    bot_usernames: Annotated[set[str], NoDecode] = Field(
+        default_factory=set,
+        validation_alias="AUTORESEARCH_TELEGRAM_BOT_USERNAMES",
+    )
     shared_assistant_id: str = Field(
         default="telegram-shared",
         validation_alias="AUTORESEARCH_TELEGRAM_SHARED_ASSISTANT_ID",
@@ -147,7 +151,7 @@ class TelegramSettings(_BaseApiSettings):
     )
     channel_actor: str = Field(default="telegram-webhook", validation_alias="AUTORESEARCH_TELEGRAM_CHANNEL_ACTOR")
 
-    @field_validator("allowed_uids", "owner_uids", "partner_uids", "internal_groups", mode="before")
+    @field_validator("allowed_uids", "owner_uids", "partner_uids", "internal_groups", "bot_usernames", mode="before")
     @classmethod
     def _normalize_sets(cls, value: Any) -> set[str]:
         return _parse_csv_set(value)

@@ -130,6 +130,8 @@ def create_app() -> FastAPI:
         ("autoresearch.api.routers.orchestration", "router", "orchestration"),
         ("autoresearch.api.routers.openclaw", "router", "openclaw"),
         ("autoresearch.api.routers.panel", "router", "panel api"),
+        ("autoresearch.api.routers.capabilities", "router", "capabilities"),
+        ("autoresearch.api.routers.approvals", "router", "approvals"),
         ("autoresearch.api.routers.gateway_telegram", "router", "telegram gateway"),
         ("autoresearch.api.routers.integrations", "router", "integrations"),
         ("autoresearch.api.routers.reports", "router", "reports"),

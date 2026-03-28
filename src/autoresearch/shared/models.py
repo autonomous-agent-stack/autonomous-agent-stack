@@ -56,6 +56,26 @@ class ChatType(str, Enum):
     UNKNOWN = "unknown"
 
 
+class MemoryScope(str, Enum):
+    SESSION = "session"
+    PERSONAL = "personal"
+    SHARED = "shared"
+
+
+class ApprovalRisk(str, Enum):
+    READ = "read"
+    WRITE = "write"
+    EXTERNAL = "external"
+    DESTRUCTIVE = "destructive"
+
+
+class ApprovalStatus(str, Enum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    EXPIRED = "expired"
+
+
 class OpenClawSessionActorRead(StrictModel):
     user_id: str | None = None
     username: str | None = None
@@ -170,6 +190,86 @@ class OpenClawSessionRead(StrictModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
     events: list[dict[str, Any]] = Field(default_factory=list)
     error: str | None = None
+
+
+class OpenClawMemoryRecordCreateRequest(StrictModel):
+    content: str = Field(..., min_length=1)
+    scope: MemoryScope | None = None
+    source: str = "manual"
+    tags: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class OpenClawMemoryRecordRead(StrictModel):
+    memory_id: str
+    scope: MemoryScope
+    content: str
+    source: str
+    session_id: str | None = None
+    session_key: str | None = None
+    assistant_id: str | None = None
+    actor_user_id: str | None = None
+    actor_role: ActorRole = ActorRole.UNKNOWN
+    tags: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+    updated_at: datetime
+
+
+class OpenClawMemoryBundleRead(StrictModel):
+    session_id: str
+    session_scope: AssistantScope
+    session_key: str | None = None
+    assistant_id: str | None = None
+    actor_user_id: str | None = None
+    session_events: list[dict[str, Any]] = Field(default_factory=list)
+    personal_memories: list[OpenClawMemoryRecordRead] = Field(default_factory=list)
+    shared_memories: list[OpenClawMemoryRecordRead] = Field(default_factory=list)
+
+
+class ApprovalRequestCreateRequest(StrictModel):
+    title: str = Field(..., min_length=1)
+    summary: str = ""
+    risk: ApprovalRisk = ApprovalRisk.WRITE
+    source: str = "manual"
+    telegram_uid: str | None = None
+    session_id: str | None = None
+    agent_run_id: str | None = None
+    assistant_scope: AssistantScope | None = None
+    expires_in_seconds: int = Field(default=3600, ge=60, le=604800)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ApprovalDecisionRequest(StrictModel):
+    decision: Literal["approved", "rejected"]
+    decided_by: str = Field(..., min_length=1)
+    note: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ApprovalNoteRequest(StrictModel):
+    note: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ApprovalRequestRead(StrictModel):
+    approval_id: str
+    title: str
+    summary: str = ""
+    status: ApprovalStatus = ApprovalStatus.PENDING
+    risk: ApprovalRisk = ApprovalRisk.WRITE
+    source: str = "manual"
+    telegram_uid: str | None = None
+    session_id: str | None = None
+    agent_run_id: str | None = None
+    assistant_scope: AssistantScope | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+    updated_at: datetime
+    expires_at: datetime | None = None
+    resolved_at: datetime | None = None
+    decided_by: str | None = None
+    decision_note: str | None = None
 
 
 class OpenClawSessionSkillLoadRequest(StrictModel):
@@ -589,8 +689,8 @@ class PanelMagicLinkRead(StrictModel):
 class PanelAuditLogRead(StrictModel):
     audit_id: str
     telegram_uid: str
-    action: Literal["cancel", "retry"]
-    target_type: Literal["agent_run"] = "agent_run"
+    action: Literal["cancel", "retry", "approve", "reject"]
+    target_type: Literal["agent_run", "approval_request"] = "agent_run"
     target_id: str
     status: Literal["accepted", "rejected", "failed"] = "accepted"
     reason: str | None = None
@@ -600,11 +700,41 @@ class PanelAuditLogRead(StrictModel):
     created_at: datetime
 
 
+class CapabilityProviderSummaryRead(StrictModel):
+    provider_id: str
+    domain: str
+    display_name: str
+    status: str
+    capabilities: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class AdminCapabilityToolRead(StrictModel):
+    name: str
+    description: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class AdminCapabilityProviderInventoryRead(StrictModel):
+    provider: CapabilityProviderSummaryRead
+    skills: list[OpenClawSkillRead] = Field(default_factory=list)
+    tools: list[AdminCapabilityToolRead] = Field(default_factory=list)
+    supports_calendar_query: bool = False
+    supports_github_search: bool = False
+
+
+class AdminCapabilitySnapshotRead(StrictModel):
+    providers: list[AdminCapabilityProviderInventoryRead] = Field(default_factory=list)
+    issued_at: datetime
+
+
 class PanelStateRead(StrictModel):
     telegram_uid: str
     sessions: list[OpenClawSessionRead] = Field(default_factory=list)
     agent_runs: list[ClaudeAgentRunRead] = Field(default_factory=list)
     audit_logs: list[PanelAuditLogRead] = Field(default_factory=list)
+    capability_providers: list[CapabilityProviderSummaryRead] = Field(default_factory=list)
+    pending_approvals: list[ApprovalRequestRead] = Field(default_factory=list)
     issued_at: datetime
 
 

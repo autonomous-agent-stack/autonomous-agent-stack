@@ -12,15 +12,25 @@ from autoresearch.api.settings import (
     get_runtime_settings,
     get_telegram_settings,
 )
+from autoresearch.agents.opensource_searcher import GitHubSearcher
+from autoresearch.core.adapters import (
+    AppleCalendarAdapter,
+    CapabilityProviderRegistry,
+    GitHubSearchAdapter,
+    MCPContextProviderAdapter,
+    OpenClawSkillProviderAdapter,
+)
 from autoresearch.core.repositories import SQLiteEvaluationRepository
 from autoresearch.core.services.admin_auth import AdminAuthService
 from autoresearch.core.services.admin_config import AdminConfigService
 from autoresearch.core.services.admin_secrets import AdminSecretCipher
+from autoresearch.core.services.approval_store import ApprovalStoreService
 from autoresearch.core.services.claude_agents import ClaudeAgentService
 from autoresearch.core.services.evaluations import EvaluationService
 from autoresearch.core.services.executions import ExecutionService
 from autoresearch.core.services.mirofish_prediction import MiroFishPredictionService
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
+from autoresearch.core.services.openclaw_memory import OpenClawMemoryService
 from autoresearch.core.services.openclaw_skills import OpenClawSkillService
 from autoresearch.core.services.openviking_memory import OpenVikingMemoryService
 from autoresearch.core.services.panel_access import PanelAccessService
@@ -35,11 +45,13 @@ from autoresearch.shared.models import (
     AdminChannelConfigRead,
     AdminConfigRevisionRead,
     AdminSecretRecordRead,
+    ApprovalRequestRead,
     ExecutionRead,
     ExperimentRead,
     IntegrationDiscoveryRead,
     IntegrationPromotionRead,
     IntegrationPrototypeRead,
+    OpenClawMemoryRecordRead,
     OpenClawSessionRead,
     OptimizationRead,
     PanelAuditLogRead,
@@ -49,6 +61,8 @@ from autoresearch.shared.models import (
 from autoresearch.shared.store import SQLiteModelRepository
 from autoresearch.train.services.experiments import ExperimentService
 from autoresearch.train.services.optimizations import OptimizationService
+from integrations.apple_bridge.calendar import CalendarService
+from orchestrator.mcp_context import MCPContextBlock
 
 
 def _repo_root() -> Path:
@@ -171,6 +185,43 @@ def get_openviking_memory_service(
 
 
 @lru_cache(maxsize=1)
+def get_openclaw_memory_service() -> OpenClawMemoryService:
+    return OpenClawMemoryService(
+        repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="openclaw_long_term_memories",
+            model_cls=OpenClawMemoryRecordRead,
+        ),
+        openclaw_service=get_openclaw_compat_service(),
+    )
+
+
+@lru_cache(maxsize=1)
+def get_approval_store_service() -> ApprovalStoreService:
+    return ApprovalStoreService(
+        repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="approval_requests",
+            model_cls=ApprovalRequestRead,
+        )
+    )
+
+
+@lru_cache(maxsize=1)
+def get_capability_provider_registry() -> CapabilityProviderRegistry:
+    registry = CapabilityProviderRegistry()
+    registry.register_many(
+        [
+            AppleCalendarAdapter(CalendarService()),
+            GitHubSearchAdapter(GitHubSearcher()),
+            OpenClawSkillProviderAdapter(get_openclaw_skill_service()),
+            MCPContextProviderAdapter(MCPContextBlock()),
+        ]
+    )
+    return registry
+
+
+@lru_cache(maxsize=1)
 def get_mirofish_prediction_service() -> MiroFishPredictionService:
     return MiroFishPredictionService(engine=get_feature_settings().mirofish_engine)
 
@@ -288,6 +339,8 @@ def clear_dependency_caches() -> None:
     get_experiment_service.cache_clear()
     get_execution_service.cache_clear()
     get_openclaw_compat_service.cache_clear()
+    get_openclaw_memory_service.cache_clear()
+    get_capability_provider_registry.cache_clear()
     get_openclaw_skill_service.cache_clear()
     get_claude_agent_service.cache_clear()
     get_mirofish_prediction_service.cache_clear()

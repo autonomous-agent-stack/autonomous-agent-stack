@@ -7,11 +7,13 @@ from autoresearch.api.dependencies import (
     get_claude_agent_service,
     get_mirofish_prediction_service,
     get_openclaw_compat_service,
+    get_openclaw_memory_service,
     get_openclaw_skill_service,
 )
 from autoresearch.core.services.claude_agents import ClaudeAgentService
 from autoresearch.core.services.mirofish_prediction import MiroFishPredictionService
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
+from autoresearch.core.services.openclaw_memory import OpenClawMemoryService
 from autoresearch.core.services.openclaw_skills import OpenClawSkillService
 from autoresearch.shared.models import (
     ClaudeAgentCancelRequest,
@@ -21,6 +23,9 @@ from autoresearch.shared.models import (
     ClaudeAgentTreeRead,
     MiroFishPredictionRead,
     MiroFishPredictionRequest,
+    OpenClawMemoryBundleRead,
+    OpenClawMemoryRecordCreateRequest,
+    OpenClawMemoryRecordRead,
     OpenClawSessionSkillLoadRequest,
     OpenClawSessionCreateRequest,
     OpenClawSessionEventAppendRequest,
@@ -78,6 +83,43 @@ def append_session_event(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="OpenClaw session not found",
         ) from exc
+
+
+@router.get("/sessions/{session_id}/memory", response_model=OpenClawMemoryBundleRead)
+def get_session_memory(
+    session_id: str,
+    session_event_limit: int = 12,
+    long_term_limit: int = 5,
+    service: OpenClawMemoryService = Depends(get_openclaw_memory_service),
+) -> OpenClawMemoryBundleRead:
+    try:
+        return service.bundle_for_session(
+            session_id=session_id,
+            session_event_limit=max(1, min(session_event_limit, 100)),
+            long_term_limit=max(1, min(long_term_limit, 50)),
+        )
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="OpenClaw session not found",
+        ) from exc
+
+
+@router.post("/sessions/{session_id}/memory", response_model=OpenClawMemoryRecordRead, status_code=status.HTTP_201_CREATED)
+def remember_for_session(
+    session_id: str,
+    payload: OpenClawMemoryRecordCreateRequest,
+    service: OpenClawMemoryService = Depends(get_openclaw_memory_service),
+) -> OpenClawMemoryRecordRead:
+    try:
+        return service.remember_for_session(session_id=session_id, request=payload)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="OpenClaw session not found",
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.get("/skills", response_model=list[OpenClawSkillRead])

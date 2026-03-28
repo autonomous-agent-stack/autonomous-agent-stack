@@ -10,16 +10,22 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request,
 
 from autoresearch.api.dependencies import (
     get_admin_config_service,
+    get_approval_store_service,
+    get_capability_provider_registry,
     get_claude_agent_service,
     get_openclaw_compat_service,
+    get_openclaw_memory_service,
     get_panel_access_service,
     get_telegram_notifier_service,
 )
 from autoresearch.api.settings import load_panel_settings, load_runtime_settings, load_telegram_settings
+from autoresearch.core.adapters import CapabilityDomain, CapabilityProviderRegistry, SkillProvider
 from autoresearch.core.services.admin_config import AdminConfigService
+from autoresearch.core.services.approval_store import ApprovalStoreService
 from autoresearch.core.services.claude_agents import ClaudeAgentService
 from autoresearch.core.services.group_access import GroupAccessManager
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
+from autoresearch.core.services.openclaw_memory import OpenClawMemoryService
 from autoresearch.core.services.panel_access import PanelAccessService
 from autoresearch.core.services.telegram_identity import (
     TelegramSessionIdentityRead,
@@ -29,12 +35,19 @@ from autoresearch.core.services.telegram_notify import TelegramNotifierService
 from autoresearch.shared.models import (
     AdminChannelConfigCreateRequest,
     AdminChannelConfigUpdateRequest,
+    ApprovalDecisionRequest,
+    ApprovalStatus,
     AssistantScope,
     ClaudeAgentCreateRequest,
     ClaudeAgentRunRead,
+    JobStatus,
+    OpenClawMemoryBundleRead,
+    OpenClawMemoryRecordCreateRequest,
+    OpenClawMemoryRecordRead,
     OpenClawSessionCreateRequest,
     OpenClawSessionEventAppendRequest,
     OpenClawSessionRead,
+    ChatType,
     TelegramWebhookAck,
 )
 
@@ -64,7 +77,10 @@ def telegram_webhook(
     raw_request: Request,
     background_tasks: BackgroundTasks,
     openclaw_service: OpenClawCompatService = Depends(get_openclaw_compat_service),
+    memory_service: OpenClawMemoryService = Depends(get_openclaw_memory_service),
+    approval_service: ApprovalStoreService = Depends(get_approval_store_service),
     agent_service: ClaudeAgentService = Depends(get_claude_agent_service),
+    capability_registry: CapabilityProviderRegistry = Depends(get_capability_provider_registry),
     panel_access_service: PanelAccessService = Depends(get_panel_access_service),
     notifier: TelegramNotifierService = Depends(get_telegram_notifier_service),
     admin_config_service: AdminConfigService = Depends(get_admin_config_service),
@@ -74,7 +90,10 @@ def telegram_webhook(
         raw_request=raw_request,
         background_tasks=background_tasks,
         openclaw_service=openclaw_service,
+        memory_service=memory_service,
+        approval_service=approval_service,
         agent_service=agent_service,
+        capability_registry=capability_registry,
         panel_access_service=panel_access_service,
         notifier=notifier,
         admin_config_service=admin_config_service,
@@ -91,7 +110,10 @@ def legacy_telegram_webhook(
     raw_request: Request,
     background_tasks: BackgroundTasks,
     openclaw_service: OpenClawCompatService = Depends(get_openclaw_compat_service),
+    memory_service: OpenClawMemoryService = Depends(get_openclaw_memory_service),
+    approval_service: ApprovalStoreService = Depends(get_approval_store_service),
     agent_service: ClaudeAgentService = Depends(get_claude_agent_service),
+    capability_registry: CapabilityProviderRegistry = Depends(get_capability_provider_registry),
     panel_access_service: PanelAccessService = Depends(get_panel_access_service),
     notifier: TelegramNotifierService = Depends(get_telegram_notifier_service),
     admin_config_service: AdminConfigService = Depends(get_admin_config_service),
@@ -101,7 +123,10 @@ def legacy_telegram_webhook(
         raw_request=raw_request,
         background_tasks=background_tasks,
         openclaw_service=openclaw_service,
+        memory_service=memory_service,
+        approval_service=approval_service,
         agent_service=agent_service,
+        capability_registry=capability_registry,
         panel_access_service=panel_access_service,
         notifier=notifier,
         admin_config_service=admin_config_service,
@@ -114,7 +139,10 @@ def _handle_telegram_webhook(
     raw_request: Request,
     background_tasks: BackgroundTasks,
     openclaw_service: OpenClawCompatService,
+    memory_service: OpenClawMemoryService,
+    approval_service: ApprovalStoreService,
     agent_service: ClaudeAgentService,
+    capability_registry: CapabilityProviderRegistry,
     panel_access_service: PanelAccessService,
     notifier: TelegramNotifierService,
     admin_config_service: AdminConfigService,
@@ -147,7 +175,29 @@ def _handle_telegram_webhook(
         )
 
     telegram_settings = load_telegram_settings()
-    session_identity = build_telegram_session_identity(extracted, telegram_settings)
+    session_identity = _resolve_telegram_session_identity(
+        extracted=extracted,
+        telegram_settings=telegram_settings,
+        openclaw_service=openclaw_service,
+    )
+    routing_rejection_reason = _evaluate_telegram_routing_policy(
+        extracted=extracted,
+        telegram_settings=telegram_settings,
+        session_identity=session_identity,
+    )
+    if routing_rejection_reason is not None:
+        return TelegramWebhookAck(
+            accepted=False,
+            update_id=_safe_int(update.get("update_id")),
+            chat_id=chat_id,
+            reason=routing_rejection_reason,
+            metadata={
+                "source": "telegram_routing_policy",
+                "scope": session_identity.scope.value,
+                "session_key": session_identity.session_key,
+                "chat_type": session_identity.chat_context.chat_type.value,
+            },
+        )
 
     _ensure_admin_channel_visibility(
         admin_config_service=admin_config_service,
@@ -162,38 +212,82 @@ def _handle_telegram_webhook(
             background_tasks=background_tasks,
             openclaw_service=openclaw_service,
             agent_service=agent_service,
+            memory_service=memory_service,
+            capability_registry=capability_registry,
             panel_access_service=panel_access_service,
             notifier=notifier,
             session_identity=session_identity,
         )
 
-    session = openclaw_service.find_session_by_key(channel="telegram", session_key=session_identity.session_key)
-    if session is None:
-        session = openclaw_service.find_session(channel="telegram", external_id=chat_id)
-    if session is None:
-        session = openclaw_service.create_session(
-            OpenClawSessionCreateRequest(
-                channel="telegram",
-                external_id=chat_id,
-                title=_build_session_title(chat_id=chat_id, session_identity=session_identity),
-                scope=session_identity.scope,
-                session_key=session_identity.session_key,
-                assistant_id=session_identity.assistant_id,
-                actor=session_identity.actor,
-                chat_context=session_identity.chat_context,
-                metadata={
-                    "source": "telegram_webhook",
-                    "created_at": _utc_now(),
-                    "identity_version": 1,
-                    "scope": session_identity.scope.value,
-                    "session_key": session_identity.session_key,
-                    "assistant_id": session_identity.assistant_id,
-                    "chat_type": session_identity.chat_context.chat_type.value,
-                    "actor_role": session_identity.actor.role.value,
-                    "actor_user_id": session_identity.actor.user_id,
-                },
-            )
+    if _is_help_command(text):
+        return _handle_help_command(
+            chat_id=chat_id,
+            update=update,
+            background_tasks=background_tasks,
+            notifier=notifier,
+            session_identity=session_identity,
         )
+
+    if _is_approve_command(text):
+        return _handle_approve_command(
+            chat_id=chat_id,
+            update=update,
+            extracted=extracted,
+            background_tasks=background_tasks,
+            approval_service=approval_service,
+            notifier=notifier,
+            session_identity=session_identity,
+        )
+
+    if _is_mode_command(text):
+        return _handle_mode_command(
+            chat_id=chat_id,
+            update=update,
+            extracted=extracted,
+            background_tasks=background_tasks,
+            openclaw_service=openclaw_service,
+            notifier=notifier,
+            session_identity=session_identity,
+        )
+
+    if _is_skills_command(text):
+        return _handle_skills_command(
+            chat_id=chat_id,
+            update=update,
+            extracted=extracted,
+            background_tasks=background_tasks,
+            notifier=notifier,
+            capability_registry=capability_registry,
+        )
+
+    if _is_reset_command(text):
+        return _handle_reset_command(
+            chat_id=chat_id,
+            update=update,
+            extracted=extracted,
+            background_tasks=background_tasks,
+            openclaw_service=openclaw_service,
+            notifier=notifier,
+            session_identity=session_identity,
+        )
+
+    if _is_memory_command(text):
+        return _handle_memory_command(
+            chat_id=chat_id,
+            update=update,
+            extracted=extracted,
+            background_tasks=background_tasks,
+            openclaw_service=openclaw_service,
+            memory_service=memory_service,
+            notifier=notifier,
+            session_identity=session_identity,
+        )
+
+    session = _find_or_create_telegram_session(
+        openclaw_service=openclaw_service,
+        chat_id=chat_id,
+        session_identity=session_identity,
+    )
 
     _append_user_event(
         openclaw_service=openclaw_service,
@@ -327,6 +421,9 @@ def _extract_telegram_message(update: dict[str, Any]) -> dict[str, Any] | None:
             "username": from_user.get("username"),
             "from_user_id": _safe_int(from_user.get("id")),
             "from_id": from_user.get("id"),
+            "reply_to_user_id": _safe_int(((message.get("reply_to_message") or {}).get("from") or {}).get("id")),
+            "reply_to_username": _safe_str(((message.get("reply_to_message") or {}).get("from") or {}).get("username")),
+            "reply_to_is_bot": bool(((message.get("reply_to_message") or {}).get("from") or {}).get("is_bot")),
             "raw_type": "message",
             "images": image_urls,  # 新增图片字段
         }
@@ -344,6 +441,9 @@ def _extract_telegram_message(update: dict[str, Any]) -> dict[str, Any] | None:
             "username": from_user.get("username"),
             "from_user_id": _safe_int(from_user.get("id")),
             "from_id": from_user.get("id"),
+            "reply_to_user_id": None,
+            "reply_to_username": None,
+            "reply_to_is_bot": False,
             "raw_type": "callback_query",
         }
     return None
@@ -378,6 +478,57 @@ def _guard_webhook_replay_and_rate(update: dict[str, Any]) -> None:
                 detail="telegram webhook rate limit exceeded",
             )
         window.append(now_ts)
+
+
+def _evaluate_telegram_routing_policy(
+    *,
+    extracted: dict[str, Any],
+    telegram_settings,
+    session_identity: TelegramSessionIdentityRead,
+) -> str | None:
+    actor_user_id = session_identity.actor.user_id
+    allowed_uids = _effective_allowed_uids(telegram_settings)
+    if allowed_uids and actor_user_id not in allowed_uids:
+        return "telegram user is not allowlisted"
+
+    chat_type = session_identity.chat_context.chat_type
+    if chat_type not in {ChatType.GROUP, ChatType.SUPERGROUP}:
+        return None
+
+    chat_id = session_identity.chat_context.chat_id
+    if telegram_settings.internal_groups and chat_id not in telegram_settings.internal_groups:
+        return "telegram group is not allowlisted"
+    if _message_addresses_bot(extracted=extracted, telegram_settings=telegram_settings):
+        return None
+    return "group message ignored without explicit bot address"
+
+
+def _effective_allowed_uids(telegram_settings) -> set[str]:
+    return set(telegram_settings.allowed_uids) | set(telegram_settings.owner_uids) | set(telegram_settings.partner_uids)
+
+
+def _message_addresses_bot(*, extracted: dict[str, Any], telegram_settings) -> bool:
+    raw_type = str(extracted.get("raw_type") or "").strip().lower()
+    if raw_type == "callback_query":
+        return True
+
+    text = str(extracted.get("text") or "").strip()
+    if not text:
+        return False
+    if text.startswith("/"):
+        return True
+    if bool(extracted.get("reply_to_is_bot")):
+        return True
+
+    normalized_text = text.lower()
+    normalized_usernames = {
+        item.strip().lower().lstrip("@")
+        for item in telegram_settings.bot_usernames
+        if str(item).strip()
+    }
+    if not normalized_usernames:
+        return False
+    return any(f"@{username}" in normalized_text for username in normalized_usernames)
 
 
 def _gc_guard_state(now_ts: float) -> None:
@@ -423,6 +574,475 @@ def _append_user_event(
                 "actor_user_id": session_identity.actor.user_id,
             },
         ),
+    )
+
+
+def _find_or_create_telegram_session(
+    *,
+    openclaw_service: OpenClawCompatService,
+    chat_id: str,
+    session_identity: TelegramSessionIdentityRead,
+) -> OpenClawSessionRead:
+    session = _find_existing_telegram_session(
+        openclaw_service=openclaw_service,
+        chat_id=chat_id,
+        session_identity=session_identity,
+    )
+    if session is not None:
+        return session
+
+    return openclaw_service.create_session(
+        OpenClawSessionCreateRequest(
+            channel="telegram",
+            external_id=chat_id,
+            title=_build_session_title(chat_id=chat_id, session_identity=session_identity),
+            scope=session_identity.scope,
+            session_key=session_identity.session_key,
+            assistant_id=session_identity.assistant_id,
+            actor=session_identity.actor,
+            chat_context=session_identity.chat_context,
+            metadata={
+                "source": "telegram_webhook",
+                "created_at": _utc_now(),
+                "identity_version": 1,
+                "scope": session_identity.scope.value,
+                "session_key": session_identity.session_key,
+                "assistant_id": session_identity.assistant_id,
+                "chat_type": session_identity.chat_context.chat_type.value,
+                "actor_role": session_identity.actor.role.value,
+                "actor_user_id": session_identity.actor.user_id,
+                "telegram_mode_preference": session_identity.scope.value,
+            },
+        )
+    )
+
+
+def _handle_memory_command(
+    *,
+    chat_id: str,
+    update: dict[str, Any],
+    extracted: dict[str, Any],
+    background_tasks: BackgroundTasks,
+    openclaw_service: OpenClawCompatService,
+    memory_service: OpenClawMemoryService,
+    notifier: TelegramNotifierService,
+    session_identity: TelegramSessionIdentityRead,
+) -> TelegramWebhookAck:
+    session = _find_or_create_telegram_session(
+        openclaw_service=openclaw_service,
+        chat_id=chat_id,
+        session_identity=session_identity,
+    )
+    memory_content = _extract_memory_content(extracted["text"])
+    if not memory_content:
+        bundle = memory_service.bundle_for_session(session.session_id)
+        if notifier.enabled:
+            background_tasks.add_task(
+                notifier.send_message,
+                chat_id=chat_id,
+                text="\n".join(_build_memory_summary_lines(bundle)),
+            )
+        return TelegramWebhookAck(
+            accepted=True,
+            update_id=_safe_int(update.get("update_id")),
+            chat_id=chat_id,
+            session_id=session.session_id,
+            metadata={
+                "source": "telegram_memory_summary",
+                "scope": session.scope.value,
+                "session_key": session.session_key,
+                "personal_memory_count": len(bundle.personal_memories),
+                "shared_memory_count": len(bundle.shared_memories),
+            },
+        )
+
+    record = memory_service.remember_for_session(
+        session.session_id,
+        OpenClawMemoryRecordCreateRequest(
+            content=memory_content,
+            source="telegram_explicit_memory",
+            metadata={
+                "chat_id": chat_id,
+                "update_id": _safe_int(update.get("update_id")),
+                "message_id": extracted.get("message_id"),
+                "chat_type": session_identity.chat_context.chat_type.value,
+            },
+        ),
+    )
+    openclaw_service.append_event(
+        session_id=session.session_id,
+        request=OpenClawSessionEventAppendRequest(
+            role="status",
+            content=f"memory stored: {record.scope.value}",
+            metadata={
+                "memory_id": record.memory_id,
+                "scope": record.scope.value,
+                "source": record.source,
+            },
+        ),
+    )
+    if notifier.enabled:
+        background_tasks.add_task(
+            notifier.send_message,
+            chat_id=chat_id,
+            text=f"记忆已保存到 {record.scope.value}: {record.memory_id}",
+        )
+    return TelegramWebhookAck(
+        accepted=True,
+        update_id=_safe_int(update.get("update_id")),
+        chat_id=chat_id,
+        session_id=session.session_id,
+        metadata={
+            "source": "telegram_memory_store",
+            "memory_id": record.memory_id,
+            "scope": record.scope.value,
+            "session_key": session.session_key,
+        },
+    )
+
+
+def _handle_skills_command(
+    *,
+    chat_id: str,
+    update: dict[str, Any],
+    extracted: dict[str, Any],
+    background_tasks: BackgroundTasks,
+    notifier: TelegramNotifierService,
+    capability_registry: CapabilityProviderRegistry,
+) -> TelegramWebhookAck:
+    skill_query = _extract_skill_query(extracted["text"])
+    skill_providers = _list_skill_providers(capability_registry)
+    catalogs = [(provider_id, provider.list_skills()) for provider_id, provider in skill_providers]
+    total_skills = sum(len(catalog.skills) for _, catalog in catalogs)
+
+    if skill_query:
+        detail = _find_skill_detail(skill_query=skill_query, skill_providers=skill_providers)
+        if detail is None:
+            message_text = f"未找到 skill: {skill_query}"
+        else:
+            message_text = _build_skill_detail_message(provider_id=detail[0], skill=detail[1])
+    else:
+        message_text = _build_skills_catalog_message(catalogs)
+
+    if notifier.enabled:
+        background_tasks.add_task(
+            notifier.send_message,
+            chat_id=chat_id,
+            text=message_text,
+        )
+    return TelegramWebhookAck(
+        accepted=True,
+        update_id=_safe_int(update.get("update_id")),
+        chat_id=chat_id,
+        metadata={
+            "source": "telegram_skills_query",
+            "skill_query": skill_query or None,
+            "skill_provider_count": len(skill_providers),
+            "skill_count": total_skills,
+        },
+    )
+
+
+def _handle_reset_command(
+    *,
+    chat_id: str,
+    update: dict[str, Any],
+    extracted: dict[str, Any],
+    background_tasks: BackgroundTasks,
+    openclaw_service: OpenClawCompatService,
+    notifier: TelegramNotifierService,
+    session_identity: TelegramSessionIdentityRead,
+) -> TelegramWebhookAck:
+    existing_session = _find_existing_telegram_session(
+        openclaw_service=openclaw_service,
+        chat_id=chat_id,
+        session_identity=session_identity,
+    )
+
+    previous_session_id: str | None = None
+    if existing_session is not None:
+        previous_session_id = existing_session.session_id
+        existing_metadata = dict(existing_session.metadata)
+        existing_metadata.update(
+            {
+                "reset_at": _utc_now(),
+                "reset_source": "telegram_command",
+                "archived_session_key": existing_session.session_key,
+            }
+        )
+        archived_session_key = (
+            f"{existing_session.session_key}#archived:{int(time.time())}"
+            if existing_session.session_key
+            else None
+        )
+        archived_session = existing_session.model_copy(
+            update={
+                "session_key": archived_session_key,
+                "status": JobStatus.INTERRUPTED,
+                "updated_at": datetime.now(timezone.utc),
+                "metadata": existing_metadata,
+            }
+        )
+        openclaw_service.save_session(archived_session)
+
+    session = openclaw_service.create_session(
+        OpenClawSessionCreateRequest(
+            channel="telegram",
+            external_id=chat_id,
+            title=_build_session_title(chat_id=chat_id, session_identity=session_identity),
+            scope=session_identity.scope,
+            session_key=session_identity.session_key,
+            assistant_id=session_identity.assistant_id,
+            actor=session_identity.actor,
+            chat_context=session_identity.chat_context,
+            metadata={
+                "source": "telegram_reset",
+                "created_at": _utc_now(),
+                "reset_from_session_id": previous_session_id,
+                "scope": session_identity.scope.value,
+                "session_key": session_identity.session_key,
+                "assistant_id": session_identity.assistant_id,
+                "chat_type": session_identity.chat_context.chat_type.value,
+                "actor_role": session_identity.actor.role.value,
+                "actor_user_id": session_identity.actor.user_id,
+                "telegram_mode_preference": session_identity.scope.value,
+            },
+        )
+    )
+    openclaw_service.append_event(
+        session_id=session.session_id,
+        request=OpenClawSessionEventAppendRequest(
+            role="status",
+            content="session reset via telegram",
+            metadata={
+                "source": "telegram_reset",
+                "previous_session_id": previous_session_id,
+            },
+        ),
+    )
+    if notifier.enabled:
+        background_tasks.add_task(
+            notifier.send_message,
+            chat_id=chat_id,
+            text=(
+                f"会话已重置。\nnew_session: {session.session_id}"
+                + (f"\nprevious_session: {previous_session_id}" if previous_session_id else "")
+            ),
+        )
+    return TelegramWebhookAck(
+        accepted=True,
+        update_id=_safe_int(update.get("update_id")),
+        chat_id=chat_id,
+        session_id=session.session_id,
+        metadata={
+            "source": "telegram_reset",
+            "previous_session_id": previous_session_id,
+            "scope": session.scope.value,
+            "session_key": session.session_key,
+        },
+    )
+
+
+def _handle_mode_command(
+    *,
+    chat_id: str,
+    update: dict[str, Any],
+    extracted: dict[str, Any],
+    background_tasks: BackgroundTasks,
+    openclaw_service: OpenClawCompatService,
+    notifier: TelegramNotifierService,
+    session_identity: TelegramSessionIdentityRead,
+) -> TelegramWebhookAck:
+    target_scope = _extract_mode_target(extracted["text"])
+    chat_type = session_identity.chat_context.chat_type
+
+    if chat_type != ChatType.PRIVATE:
+        message_text = f"当前 chat_type={chat_type.value}，群组或频道固定为 shared 模式。"
+        if notifier.enabled:
+            background_tasks.add_task(notifier.send_message, chat_id=chat_id, text=message_text)
+        return TelegramWebhookAck(
+            accepted=True,
+            update_id=_safe_int(update.get("update_id")),
+            chat_id=chat_id,
+            metadata={
+                "source": "telegram_mode_query",
+                "scope": session_identity.scope.value,
+                "chat_type": chat_type.value,
+                "switch_allowed": False,
+            },
+        )
+
+    if target_scope is None:
+        message_text = (
+            f"当前模式: {session_identity.scope.value}\n"
+            "用法:\n"
+            "- /mode personal\n"
+            "- /mode shared"
+        )
+        if notifier.enabled:
+            background_tasks.add_task(notifier.send_message, chat_id=chat_id, text=message_text)
+        return TelegramWebhookAck(
+            accepted=True,
+            update_id=_safe_int(update.get("update_id")),
+            chat_id=chat_id,
+            metadata={
+                "source": "telegram_mode_query",
+                "scope": session_identity.scope.value,
+                "switch_allowed": True,
+            },
+        )
+
+    target_identity = build_telegram_session_identity(
+        extracted,
+        load_telegram_settings(),
+        scope_override=target_scope,
+    )
+    session = _find_or_create_telegram_session(
+        openclaw_service=openclaw_service,
+        chat_id=chat_id,
+        session_identity=target_identity,
+    )
+    session = openclaw_service.update_metadata(
+        session.session_id,
+        {
+            "telegram_mode_preference": target_scope.value,
+            "mode_switched_at": _utc_now(),
+            "mode_switched_from": session_identity.scope.value,
+        },
+    )
+    openclaw_service.append_event(
+        session_id=session.session_id,
+        request=OpenClawSessionEventAppendRequest(
+            role="status",
+            content=f"mode selected: {target_scope.value}",
+            metadata={
+                "source": "telegram_mode_command",
+                "scope": target_scope.value,
+                "previous_scope": session_identity.scope.value,
+            },
+        ),
+    )
+    if notifier.enabled:
+        background_tasks.add_task(
+            notifier.send_message,
+            chat_id=chat_id,
+            text=(
+                f"模式已切换到 {target_scope.value}。\n"
+                f"session: {session.session_id}\n"
+                f"session_key: {session.session_key}"
+            ),
+        )
+    return TelegramWebhookAck(
+        accepted=True,
+        update_id=_safe_int(update.get("update_id")),
+        chat_id=chat_id,
+        session_id=session.session_id,
+        metadata={
+            "source": "telegram_mode_switch",
+            "scope": session.scope.value,
+            "session_key": session.session_key,
+            "assistant_id": session.assistant_id,
+        },
+    )
+
+
+def _handle_help_command(
+    *,
+    chat_id: str,
+    update: dict[str, Any],
+    background_tasks: BackgroundTasks,
+    notifier: TelegramNotifierService,
+    session_identity: TelegramSessionIdentityRead,
+) -> TelegramWebhookAck:
+    if notifier.enabled:
+        background_tasks.add_task(
+            notifier.send_message,
+            chat_id=chat_id,
+            text=_build_help_message(session_identity=session_identity),
+        )
+    return TelegramWebhookAck(
+        accepted=True,
+        update_id=_safe_int(update.get("update_id")),
+        chat_id=chat_id,
+        metadata={
+            "source": "telegram_help",
+            "scope": session_identity.scope.value,
+            "chat_type": session_identity.chat_context.chat_type.value,
+        },
+    )
+
+
+def _handle_approve_command(
+    *,
+    chat_id: str,
+    update: dict[str, Any],
+    extracted: dict[str, Any],
+    background_tasks: BackgroundTasks,
+    approval_service: ApprovalStoreService,
+    notifier: TelegramNotifierService,
+    session_identity: TelegramSessionIdentityRead,
+) -> TelegramWebhookAck:
+    approval_query = _extract_approve_query(extracted["text"])
+    approval_id, approval_action, approval_note = _parse_approve_query(approval_query)
+    approval_uid = session_identity.actor.user_id or chat_id
+    message_source = "telegram_approve_query"
+    if approval_action is not None and approval_id:
+        approval = approval_service.get_request(approval_id)
+        if approval is None or approval.telegram_uid != approval_uid:
+            message_text = f"未找到 approval: {approval_id}"
+        else:
+            decision = "approved" if approval_action == "approve" else "rejected"
+            try:
+                approval = approval_service.resolve_request(
+                    approval.approval_id,
+                    ApprovalDecisionRequest(
+                        decision=decision,
+                        decided_by=approval_uid,
+                        note=approval_note or None,
+                        metadata={
+                            "resolved_via": "telegram_command",
+                            "chat_id": chat_id,
+                            "scope": session_identity.scope.value,
+                        },
+                    ),
+                )
+                message_text = _build_approval_decision_message(approval)
+                message_source = "telegram_approve_decision"
+                approval_query = approval.approval_id
+            except ValueError as exc:
+                message_text = str(exc)
+                message_source = "telegram_approve_decision"
+    elif approval_id:
+        approval = approval_service.get_request(approval_id)
+        if approval is None or approval.telegram_uid != approval_uid:
+            message_text = f"未找到 approval: {approval_id}"
+        else:
+            approval_query = approval.approval_id
+            message_text = _build_approval_detail_message(approval)
+    else:
+        approvals = approval_service.list_requests(
+            status=ApprovalStatus.PENDING,
+            telegram_uid=approval_uid,
+            limit=10,
+        )
+        message_text = _build_approval_list_message(approvals)
+
+    if notifier.enabled:
+        background_tasks.add_task(
+            notifier.send_message,
+            chat_id=chat_id,
+            text=message_text,
+        )
+    return TelegramWebhookAck(
+        accepted=True,
+        update_id=_safe_int(update.get("update_id")),
+        chat_id=chat_id,
+        metadata={
+            "source": message_source,
+            "approval_id": approval_query or None,
+            "decision": approval_action or None,
+            "scope": session_identity.scope.value,
+        },
     )
 
 
@@ -547,23 +1167,30 @@ def _handle_status_query(
     background_tasks: BackgroundTasks,
     openclaw_service: OpenClawCompatService,
     agent_service: ClaudeAgentService,
+    memory_service: OpenClawMemoryService,
+    capability_registry: CapabilityProviderRegistry,
     panel_access_service: PanelAccessService,
     notifier: TelegramNotifierService,
     session_identity: TelegramSessionIdentityRead,
 ) -> TelegramWebhookAck:
-    session = openclaw_service.find_session_by_key(channel="telegram", session_key=session_identity.session_key)
-    if session is None:
-        session = openclaw_service.find_session(channel="telegram", external_id=chat_id)
+    session = _find_existing_telegram_session(
+        openclaw_service=openclaw_service,
+        chat_id=chat_id,
+        session_identity=session_identity,
+    )
     runs = []
     if session is not None:
         runs = [run for run in agent_service.list() if run.session_id == session.session_id]
         runs.sort(key=lambda item: item.updated_at, reverse=True)
+    memory_bundle = memory_service.bundle_for_session(session.session_id) if session is not None else None
 
     summary_lines = _build_status_summary_lines(
         chat_id=chat_id,
         session=session,
         runs=runs,
         session_identity=session_identity,
+        memory_bundle=memory_bundle,
+        capability_registry=capability_registry,
     )
 
     # Initialize GroupAccessManager for whitelist groups
@@ -632,6 +1259,7 @@ def _handle_status_query(
             "magic_link_url": magic_link_url,
             "magic_link_expires_at": expires_at_iso,
             "active_runs": len(runs),
+            "provider_count": len(capability_registry.list_descriptors()),
             "is_group_link": is_group_link,
             "mini_app_url": mini_app_url,
             "scope": session_identity.scope.value,
@@ -656,6 +1284,189 @@ def _is_status_query(text: str) -> bool:
         "进度",
         "面板",
     }
+
+
+def _is_help_command(text: str) -> bool:
+    normalized = text.strip().lower()
+    return normalized in {"/help", "help", "帮助"}
+
+
+def _is_approve_command(text: str) -> bool:
+    normalized = text.strip().lower()
+    return normalized == "/approve" or normalized.startswith("/approve ")
+
+
+def _is_mode_command(text: str) -> bool:
+    normalized = text.strip().lower()
+    return normalized == "/mode" or normalized.startswith("/mode ")
+
+
+def _is_memory_command(text: str) -> bool:
+    normalized = text.strip()
+    lowered = normalized.lower()
+    return (
+        lowered == "/memory"
+        or lowered.startswith("/memory ")
+        or normalized.startswith("记住")
+        or lowered.startswith("remember ")
+        or lowered.startswith("remember this:")
+    )
+
+
+def _is_skills_command(text: str) -> bool:
+    normalized = text.strip()
+    lowered = normalized.lower()
+    return lowered == "/skills" or lowered.startswith("/skills ")
+
+
+def _is_reset_command(text: str) -> bool:
+    normalized = text.strip()
+    lowered = normalized.lower()
+    return lowered == "/reset" or normalized == "重置会话"
+
+
+def _extract_mode_target(text: str) -> AssistantScope | None:
+    normalized = text.strip()
+    lowered = normalized.lower()
+    if lowered == "/mode":
+        return None
+    if not lowered.startswith("/mode "):
+        return None
+    target = normalized.split(" ", 1)[1].strip().lower()
+    if target == "personal":
+        return AssistantScope.PERSONAL
+    if target == "shared":
+        return AssistantScope.SHARED
+    return None
+
+
+def _extract_memory_content(text: str) -> str:
+    normalized = text.strip()
+    lowered = normalized.lower()
+    if lowered == "/memory":
+        return ""
+    if lowered.startswith("/memory "):
+        return normalized.split(" ", 1)[1].strip()
+    if normalized.startswith("记住"):
+        return normalized[2:].lstrip(" ：:").strip()
+    if lowered.startswith("remember this:"):
+        return normalized[len("remember this:") :].strip()
+    if lowered.startswith("remember "):
+        return normalized[len("remember ") :].strip()
+    return ""
+
+
+def _extract_approve_query(text: str) -> str:
+    normalized = text.strip()
+    lowered = normalized.lower()
+    if lowered == "/approve":
+        return ""
+    if lowered.startswith("/approve "):
+        return normalized.split(" ", 1)[1].strip()
+    return ""
+
+
+def _parse_approve_query(query: str) -> tuple[str, str | None, str]:
+    normalized = query.strip()
+    if not normalized:
+        return "", None, ""
+    parts = normalized.split(None, 2)
+    approval_id = parts[0].strip()
+    if len(parts) < 2:
+        return approval_id, None, ""
+    action = parts[1].strip().lower()
+    if action not in {"approve", "reject"}:
+        return approval_id, None, ""
+    note = parts[2].strip() if len(parts) > 2 else ""
+    return approval_id, action, note
+
+
+def _extract_skill_query(text: str) -> str:
+    normalized = text.strip()
+    lowered = normalized.lower()
+    if lowered == "/skills":
+        return ""
+    if lowered.startswith("/skills "):
+        return normalized.split(" ", 1)[1].strip()
+    return ""
+
+
+def _resolve_telegram_session_identity(
+    *,
+    extracted: dict[str, Any],
+    telegram_settings,
+    openclaw_service: OpenClawCompatService,
+) -> TelegramSessionIdentityRead:
+    base_identity = build_telegram_session_identity(extracted, telegram_settings)
+    if base_identity.chat_context.chat_type != ChatType.PRIVATE:
+        return base_identity
+    preferred_scope = _resolve_private_scope_preference(
+        openclaw_service=openclaw_service,
+        chat_id=base_identity.chat_context.chat_id,
+        actor_user_id=base_identity.actor.user_id,
+    )
+    if preferred_scope is None or preferred_scope == base_identity.scope:
+        return base_identity
+    return build_telegram_session_identity(
+        extracted,
+        telegram_settings,
+        scope_override=preferred_scope,
+    )
+
+
+def _resolve_private_scope_preference(
+    *,
+    openclaw_service: OpenClawCompatService,
+    chat_id: str | None,
+    actor_user_id: str | None,
+) -> AssistantScope | None:
+    candidates: list[OpenClawSessionRead] = []
+    for session in openclaw_service.list_sessions():
+        if session.channel != "telegram":
+            continue
+        chat_context = session.chat_context
+        if chat_context is None or chat_context.chat_type != ChatType.PRIVATE:
+            continue
+        if chat_id and session.external_id != chat_id:
+            continue
+        if actor_user_id and session.actor is not None and session.actor.user_id not in {None, actor_user_id}:
+            continue
+        preference = str(session.metadata.get("telegram_mode_preference") or "").strip().lower()
+        if preference not in {AssistantScope.PERSONAL.value, AssistantScope.SHARED.value}:
+            continue
+        candidates.append(session)
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: item.updated_at, reverse=True)
+    return AssistantScope(str(candidates[0].metadata["telegram_mode_preference"]))
+
+
+def _session_matches_identity(
+    session: OpenClawSessionRead,
+    session_identity: TelegramSessionIdentityRead,
+) -> bool:
+    if session.scope != session_identity.scope:
+        return False
+    if session.assistant_id and session.assistant_id != session_identity.assistant_id:
+        return False
+    if session.session_key and session.session_key != session_identity.session_key:
+        return False
+    return True
+
+
+def _find_existing_telegram_session(
+    *,
+    openclaw_service: OpenClawCompatService,
+    chat_id: str,
+    session_identity: TelegramSessionIdentityRead,
+) -> OpenClawSessionRead | None:
+    session = openclaw_service.find_session_by_key(channel="telegram", session_key=session_identity.session_key)
+    if session is not None:
+        return session
+    legacy_session = openclaw_service.find_session(channel="telegram", external_id=chat_id)
+    if legacy_session is not None and _session_matches_identity(legacy_session, session_identity):
+        return legacy_session
+    return None
 
 
 def _resolve_mini_app_url(
@@ -714,12 +1525,18 @@ def _build_status_summary_lines(
     session: OpenClawSessionRead | None,
     runs: list[Any],
     session_identity: TelegramSessionIdentityRead,
+    memory_bundle: OpenClawMemoryBundleRead | None,
+    capability_registry: CapabilityProviderRegistry,
 ) -> list[str]:
+    descriptors = capability_registry.list_descriptors()
+    skill_provider_count = len([item for item in descriptors if item.domain == CapabilityDomain.SKILL])
     if session is None:
         return [
             f"chat_id: {chat_id}",
             f"scope: {session_identity.scope.value}",
             f"session_key: {session_identity.session_key}",
+            f"providers: {len(descriptors)}",
+            f"skill_providers: {skill_provider_count}",
             "当前没有历史会话。",
             "发送任务文本后系统会自动创建会话并执行。",
         ]
@@ -731,7 +1548,12 @@ def _build_status_summary_lines(
         f"session: {session.session_id}",
         f"session_status: {session.status.value}",
         f"active_runs: {sum(1 for run in runs if run.status.value in {'queued', 'running'})}",
+        f"providers: {len(descriptors)}",
+        f"skill_providers: {skill_provider_count}",
     ]
+    if memory_bundle is not None:
+        lines.append(f"personal_memories: {len(memory_bundle.personal_memories)}")
+        lines.append(f"shared_memories: {len(memory_bundle.shared_memories)}")
     if session.actor is not None:
         lines.append(f"actor_role: {session.actor.role.value}")
     if not runs:
@@ -741,6 +1563,191 @@ def _build_status_summary_lines(
     lines.append("最近任务:")
     for run in runs[:3]:
         lines.append(f"- {run.agent_run_id} | {run.status.value} | {run.task_name}")
+    return lines
+
+
+def _build_help_message(*, session_identity: TelegramSessionIdentityRead) -> str:
+    chat_type = session_identity.chat_context.chat_type
+    lines = [
+        "[Telegram Commands]",
+        "/status 查看当前会话、任务和能力摘要",
+        "/approve 查看待审批列表",
+        "/approve <approval_id> 查看待审批详情",
+        "/approve <approval_id> approve [备注] 批准待审批事项",
+        "/approve <approval_id> reject [备注] 拒绝待审批事项",
+        "/memory 查看长期记忆摘要",
+        "/memory <内容> 写入长期记忆",
+        "/skills 查看可用 skills",
+        "/skills <skill_key> 查看 skill 详情",
+        "/reset 重置当前会话",
+    ]
+    if chat_type == ChatType.PRIVATE:
+        lines.extend(
+            [
+                "/mode 查看当前模式",
+                "/mode personal 切到 personal",
+                "/mode shared 切到 shared",
+            ]
+        )
+    else:
+        lines.append("/mode 群组固定为 shared，仅用于查看说明")
+    lines.append("/help 查看本帮助")
+    return "\n".join(lines)
+
+
+def _build_approval_list_message(approvals: list[Any]) -> str:
+    if not approvals:
+        return "当前没有待审批事项。"
+    lines = [
+        "[Pending Approvals]",
+        f"count: {len(approvals)}",
+        "",
+    ]
+    for item in approvals[:10]:
+        lines.append(f"- {item.approval_id} | {item.risk.value} | {item.title}")
+    lines.extend(
+        [
+            "",
+            "发送 /approve <approval_id> 查看详情。",
+            "发送 /approve <approval_id> approve [备注] 或 /approve <approval_id> reject [备注] 执行决策。",
+        ]
+    )
+    return "\n".join(lines).strip()
+
+
+def _build_approval_detail_message(approval: Any) -> str:
+    lines = [
+        "[Approval Detail]",
+        f"id: {approval.approval_id}",
+        f"status: {approval.status.value}",
+        f"risk: {approval.risk.value}",
+        f"title: {approval.title}",
+        f"source: {approval.source}",
+    ]
+    if approval.summary:
+        lines.append(f"summary: {approval.summary}")
+    if approval.session_id:
+        lines.append(f"session: {approval.session_id}")
+    if approval.agent_run_id:
+        lines.append(f"agent_run: {approval.agent_run_id}")
+    if approval.expires_at is not None:
+        lines.append(f"expires_at: {approval.expires_at.isoformat()}")
+    if approval.status == ApprovalStatus.PENDING:
+        lines.extend(
+            [
+                "",
+                f"/approve {approval.approval_id} approve [备注]",
+                f"/approve {approval.approval_id} reject [备注]",
+            ]
+        )
+    return "\n".join(lines).strip()
+
+
+def _build_approval_decision_message(approval: Any) -> str:
+    lines = [
+        "[Approval Decision]",
+        f"id: {approval.approval_id}",
+        f"status: {approval.status.value}",
+        f"title: {approval.title}",
+    ]
+    if approval.decided_by:
+        lines.append(f"decided_by: {approval.decided_by}")
+    if approval.decision_note:
+        lines.append(f"note: {approval.decision_note}")
+    return "\n".join(lines).strip()
+
+
+def _list_skill_providers(
+    capability_registry: CapabilityProviderRegistry,
+) -> list[tuple[str, SkillProvider]]:
+    providers: list[tuple[str, SkillProvider]] = []
+    for descriptor in capability_registry.list_descriptors(domain=CapabilityDomain.SKILL):
+        provider = capability_registry.get(descriptor.provider_id)
+        if provider is not None and isinstance(provider, SkillProvider):
+            providers.append((descriptor.provider_id, provider))
+    return providers
+
+
+def _find_skill_detail(
+    *,
+    skill_query: str,
+    skill_providers: list[tuple[str, SkillProvider]],
+):
+    normalized = skill_query.strip().lower()
+    if not normalized:
+        return None
+    for provider_id, provider in skill_providers:
+        detail = provider.get_skill(skill_query)
+        if detail is not None:
+            return provider_id, detail
+        catalog = provider.list_skills()
+        for skill in catalog.skills:
+            if skill.skill_key.lower() == normalized or skill.name.lower() == normalized:
+                detail = provider.get_skill(skill.skill_key) or provider.get_skill(skill.name)
+                if detail is not None:
+                    return provider_id, detail
+    return None
+
+
+def _build_skills_catalog_message(catalogs: list[tuple[str, Any]]) -> str:
+    skill_lines: list[str] = []
+    total_skills = 0
+    for provider_id, catalog in catalogs:
+        skill_count = len(catalog.skills)
+        total_skills += skill_count
+        skill_lines.append(f"[{provider_id}] {skill_count} skills")
+        for skill in catalog.skills[:8]:
+            skill_lines.append(f"- {skill.skill_key} | {skill.name}")
+    if not skill_lines:
+        return "当前没有可用 skills。"
+    lines = [
+        "[Skills]",
+        f"providers: {len(catalogs)}",
+        f"total_skills: {total_skills}",
+        "",
+        *skill_lines[:30],
+        "",
+        "发送 /skills <skill_key> 查看详情。",
+    ]
+    return "\n".join(lines).strip()
+
+
+def _build_skill_detail_message(*, provider_id: str, skill: Any) -> str:
+    lines = [
+        "[Skill Detail]",
+        f"provider: {provider_id}",
+        f"name: {skill.name}",
+        f"skill_key: {skill.skill_key}",
+        f"source: {skill.source}",
+        f"file: {skill.file_path}",
+    ]
+    if skill.description:
+        lines.append(f"description: {skill.description}")
+    content = (getattr(skill, "content", "") or "").strip()
+    if content:
+        preview = content[:1200]
+        if len(content) > 1200:
+            preview += "\n...[truncated]"
+        lines.extend(["", preview])
+    return "\n".join(lines).strip()
+
+
+def _build_memory_summary_lines(bundle: OpenClawMemoryBundleRead) -> list[str]:
+    lines = [
+        f"session: {bundle.session_id}",
+        f"scope: {bundle.session_scope.value}",
+        f"session_events: {len(bundle.session_events)}",
+        f"personal_memories: {len(bundle.personal_memories)}",
+        f"shared_memories: {len(bundle.shared_memories)}",
+    ]
+    if bundle.personal_memories:
+        lines.append("最近 personal:")
+        for item in bundle.personal_memories[:3]:
+            lines.append(f"- {item.content[:80]}")
+    if bundle.shared_memories:
+        lines.append("最近 shared:")
+        for item in bundle.shared_memories[:3]:
+            lines.append(f"- {item.content[:80]}")
     return lines
 
 
