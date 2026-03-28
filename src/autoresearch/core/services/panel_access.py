@@ -96,6 +96,14 @@ class PanelAccessService:
     def enabled(self) -> bool:
         return bool(self._secret)
 
+    @property
+    def base_url(self) -> str:
+        return self._base_url
+
+    @property
+    def allowed_uids(self) -> tuple[str, ...]:
+        return tuple(sorted(self._allowed_uids))
+
     def create_magic_link(self, telegram_uid: str, ttl_seconds: int | None = None) -> PanelMagicLinkRead:
         if not self.enabled:
             raise RuntimeError("panel magic-link signing secret is not configured")
@@ -454,4 +462,3 @@ class PanelAccessService:
         except (error.URLError, error.HTTPError, TimeoutError, json.JSONDecodeError) as e:
             logger.warning(f"Failed to verify membership: {e}")
             return False  # Deny on error (fail-safe)
-

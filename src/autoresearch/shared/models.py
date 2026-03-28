@@ -932,6 +932,39 @@ class AdminCapabilitySnapshotRead(StrictModel):
     issued_at: datetime
 
 
+class AdminManagedSkillStatusGroupRead(StrictModel):
+    status: ManagedSkillInstallStatus
+    installs: list[ManagedSkillInstallRead] = Field(default_factory=list)
+
+
+class AdminManagedSkillStatusSnapshotRead(StrictModel):
+    groups: list[AdminManagedSkillStatusGroupRead] = Field(default_factory=list)
+    issued_at: datetime
+
+
+class AdminManagedSkillPromotionRequest(StrictModel):
+    telegram_uid: str | None = None
+    note: str | None = None
+    expires_in_seconds: int = Field(default=3600, ge=60, le=604800)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class AdminManagedSkillPromotionRequestRead(StrictModel):
+    install: ManagedSkillInstallRead
+    approval: ApprovalRequestRead
+    mini_app_url: str | None = None
+    notification_sent: bool = False
+
+
+class AdminManagedSkillPromotionExecuteRequest(StrictModel):
+    approval_id: str = Field(..., min_length=1)
+    action_nonce: str = Field(..., min_length=1)
+    action_hash: str = Field(..., min_length=64, max_length=64)
+    action_issued_at: str = Field(..., min_length=1)
+    note: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class PanelStateRead(StrictModel):
     telegram_uid: str
     sessions: list[OpenClawSessionRead] = Field(default_factory=list)

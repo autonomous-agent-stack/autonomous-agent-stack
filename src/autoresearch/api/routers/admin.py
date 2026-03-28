@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from typing import Literal
+import hashlib
+import hmac
+from typing import Any, Literal
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse
@@ -11,16 +14,24 @@ from autoresearch.api.dependencies import (
     get_approval_store_service,
     get_capability_provider_registry,
     get_claude_agent_service,
+    get_managed_skill_registry_service,
+    get_panel_access_service,
+    get_telegram_notifier_service,
 )
 from autoresearch.core.adapters import CalendarAdapter, CapabilityProviderRegistry, GitHubAdapter, MCPProvider, SkillProvider
 from autoresearch.core.services.admin_auth import AdminAccessClaims, AdminAuthService
 from autoresearch.core.services.admin_config import AdminConfigService
 from autoresearch.core.services.approval_store import ApprovalStoreService
 from autoresearch.core.services.claude_agents import ClaudeAgentService
+from autoresearch.core.services.managed_skill_registry import ManagedSkillRegistryService
+from autoresearch.core.services.panel_access import PanelAccessService
+from autoresearch.core.services.telegram_notify import TelegramNotifierService
 from autoresearch.shared.models import (
     ApprovalDecisionRequest,
     ApprovalNoteRequest,
+    ApprovalRequestCreateRequest,
     ApprovalRequestRead,
+    ApprovalRisk,
     ApprovalStatus,
     AdminCapabilityProviderInventoryRead,
     AdminCapabilitySnapshotRead,
@@ -35,13 +46,21 @@ from autoresearch.shared.models import (
     AdminConfigRevisionRead,
     AdminConfigRollbackRequest,
     AdminConfigStatusChangeRequest,
+    AdminManagedSkillPromotionExecuteRequest,
+    AdminManagedSkillPromotionRequest,
+    AdminManagedSkillPromotionRequestRead,
+    AdminManagedSkillStatusGroupRead,
+    AdminManagedSkillStatusSnapshotRead,
     AdminTokenIssueRequest,
     AdminTokenRead,
     CapabilityProviderSummaryRead,
     ClaudeAgentCreateRequest,
     ClaudeAgentRunRead,
+    ManagedSkillInstallRead,
+    ManagedSkillInstallStatus,
     utc_now,
 )
+from autoresearch.shared.store import create_resource_id
 
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin-config"])
@@ -49,6 +68,13 @@ router = APIRouter(prefix="/api/v1/admin", tags=["admin-config"])
 _ADMIN_READ_ROLES = {"viewer", "editor", "admin", "owner"}
 _ADMIN_WRITE_ROLES = {"editor", "admin", "owner"}
 _ADMIN_HIGH_ROLES = {"admin", "owner"}
+_MANAGED_SKILL_GROUP_ORDER = (
+    ManagedSkillInstallStatus.PENDING,
+    ManagedSkillInstallStatus.QUARANTINED,
+    ManagedSkillInstallStatus.COLD_VALIDATED,
+    ManagedSkillInstallStatus.PROMOTED,
+    ManagedSkillInstallStatus.REJECTED,
+)
 
 
 def _extract_bearer_token(request: Request) -> str:
@@ -92,6 +118,170 @@ def _require_admin_high_risk(
     auth_service: AdminAuthService = Depends(get_admin_auth_service),
 ) -> AdminAccessClaims:
     return _require_admin_roles(request, required_roles=_ADMIN_HIGH_ROLES, auth_service=auth_service)
+
+
+def _extract_telegram_init_data(request: Request) -> str:
+    header_value = request.headers.get("x-telegram-init-data", "").strip()
+    if header_value:
+        return header_value
+    query_value = request.query_params.get("initData")
+    if query_value:
+        return query_value.strip()
+    telegram_query_value = request.query_params.get("tgWebAppData")
+    if telegram_query_value:
+        return telegram_query_value.strip()
+    return ""
+
+
+def _require_managed_skill_install(
+    registry: ManagedSkillRegistryService,
+    install_id: str,
+) -> ManagedSkillInstallRead:
+    install = registry.get_install(install_id)
+    if install is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="managed skill install not found")
+    return install
+
+
+def _group_managed_skill_installs(installs: list[ManagedSkillInstallRead]) -> list[AdminManagedSkillStatusGroupRead]:
+    grouped: dict[ManagedSkillInstallStatus, list[ManagedSkillInstallRead]] = {
+        state: [] for state in _MANAGED_SKILL_GROUP_ORDER
+    }
+    for item in sorted(installs, key=lambda entry: entry.updated_at, reverse=True):
+        grouped.setdefault(item.status, []).append(item)
+    return [
+        AdminManagedSkillStatusGroupRead(status=state, installs=grouped.get(state, []))
+        for state in _MANAGED_SKILL_GROUP_ORDER
+    ]
+
+
+def _select_skill_promotion_uid(
+    payload: AdminManagedSkillPromotionRequest,
+    *,
+    panel_access_service: PanelAccessService,
+) -> str:
+    candidate = (payload.telegram_uid or "").strip()
+    allowed_uids = panel_access_service.allowed_uids
+    if candidate:
+        if allowed_uids and candidate not in allowed_uids:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="telegram uid is not allowed for panel access",
+            )
+        return candidate
+    if len(allowed_uids) == 1:
+        return allowed_uids[0]
+    if not allowed_uids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="telegram uid is required because no allowed panel uids are configured",
+        )
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="telegram uid is required because multiple panel uids are configured",
+    )
+
+
+def _build_panel_action_url(
+    *,
+    panel_access_service: PanelAccessService,
+    install_id: str,
+    approval_id: str,
+    action_nonce: str,
+    action_hash: str,
+    action_issued_at: str,
+) -> str:
+    parsed = urlparse(panel_access_service.base_url)
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    query.update(
+        {
+            "action": "managed-skill-promote",
+            "installId": install_id,
+            "approvalId": approval_id,
+            "actionNonce": action_nonce,
+            "actionHash": action_hash,
+            "actionIssuedAt": action_issued_at,
+        }
+    )
+    return urlunparse(parsed._replace(query=urlencode(query)))
+
+
+def _compute_managed_skill_action_hash(
+    *,
+    approval_id: str,
+    install_id: str,
+    telegram_uid: str,
+    action_nonce: str,
+    action_issued_at: str,
+) -> str:
+    digest = hashlib.sha256()
+    digest.update(
+        "|".join(
+            [
+                "managed_skill_promote",
+                approval_id,
+                install_id,
+                telegram_uid,
+                action_nonce,
+                action_issued_at,
+            ]
+        ).encode("utf-8")
+    )
+    return digest.hexdigest()
+
+
+def _issue_managed_skill_action_binding(
+    *,
+    approval_id: str,
+    install_id: str,
+    telegram_uid: str,
+) -> dict[str, str]:
+    action_nonce = create_resource_id("nonce")
+    action_issued_at = utc_now().isoformat()
+    action_hash = _compute_managed_skill_action_hash(
+        approval_id=approval_id,
+        install_id=install_id,
+        telegram_uid=telegram_uid,
+        action_nonce=action_nonce,
+        action_issued_at=action_issued_at,
+    )
+    return {
+        "action_nonce": action_nonce,
+        "action_hash": action_hash,
+        "action_issued_at": action_issued_at,
+    }
+
+
+def _require_valid_managed_skill_action_binding(
+    *,
+    approval: ApprovalRequestRead,
+    install_id: str,
+    telegram_uid: str,
+    payload: AdminManagedSkillPromotionExecuteRequest,
+) -> None:
+    action_nonce = str(approval.metadata.get("action_nonce", "")).strip()
+    action_hash = str(approval.metadata.get("action_hash", "")).strip().lower()
+    action_issued_at = str(approval.metadata.get("action_issued_at", "")).strip()
+    if not action_nonce or not action_hash or not action_issued_at:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="approval action binding is missing")
+    if approval.metadata.get("action_consumed_at"):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="approval action binding already consumed")
+    if not hmac.compare_digest(payload.action_nonce.strip(), action_nonce):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="action nonce mismatch")
+    if not hmac.compare_digest(payload.action_issued_at.strip(), action_issued_at):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="action issued_at mismatch")
+
+    expected_hash = _compute_managed_skill_action_hash(
+        approval_id=approval.approval_id,
+        install_id=install_id,
+        telegram_uid=telegram_uid,
+        action_nonce=action_nonce,
+        action_issued_at=action_issued_at,
+    )
+    if not hmac.compare_digest(payload.action_hash.strip().lower(), action_hash):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="action hash mismatch")
+    if not hmac.compare_digest(action_hash, expected_hash):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="action hash verification failed")
 
 
 @router.get("/health")
@@ -204,6 +394,204 @@ def admin_reject_request(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="approval not found") from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.get("/skills/status", response_model=AdminManagedSkillStatusSnapshotRead)
+def admin_managed_skill_status(
+    access: AdminAccessClaims = Depends(_require_admin_read),
+    registry: ManagedSkillRegistryService = Depends(get_managed_skill_registry_service),
+) -> AdminManagedSkillStatusSnapshotRead:
+    _ = access
+    return AdminManagedSkillStatusSnapshotRead(
+        groups=_group_managed_skill_installs(registry.list_installs()),
+        issued_at=utc_now(),
+    )
+
+
+@router.get("/skills/{install_id}", response_model=ManagedSkillInstallRead)
+def admin_managed_skill_detail(
+    install_id: str,
+    access: AdminAccessClaims = Depends(_require_admin_read),
+    registry: ManagedSkillRegistryService = Depends(get_managed_skill_registry_service),
+) -> ManagedSkillInstallRead:
+    _ = access
+    return _require_managed_skill_install(registry, install_id)
+
+
+@router.post("/skills/{install_id}/validate", response_model=ManagedSkillInstallRead)
+def admin_validate_managed_skill(
+    install_id: str,
+    access: AdminAccessClaims = Depends(_require_admin_write),
+    registry: ManagedSkillRegistryService = Depends(get_managed_skill_registry_service),
+) -> ManagedSkillInstallRead:
+    _ = access
+    _require_managed_skill_install(registry, install_id)
+    try:
+        return registry.run_cold_validation(install_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post("/skills/{install_id}/promote", response_model=AdminManagedSkillPromotionRequestRead)
+def admin_request_managed_skill_promotion(
+    install_id: str,
+    payload: AdminManagedSkillPromotionRequest | None = None,
+    access: AdminAccessClaims = Depends(_require_admin_high_risk),
+    registry: ManagedSkillRegistryService = Depends(get_managed_skill_registry_service),
+    approval_service: ApprovalStoreService = Depends(get_approval_store_service),
+    panel_access_service: PanelAccessService = Depends(get_panel_access_service),
+    notifier: TelegramNotifierService = Depends(get_telegram_notifier_service),
+) -> AdminManagedSkillPromotionRequestRead:
+    request_payload = payload or AdminManagedSkillPromotionRequest()
+    install = _require_managed_skill_install(registry, install_id)
+    if install.status is not ManagedSkillInstallStatus.COLD_VALIDATED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"managed skill is not cold_validated: {install_id}",
+        )
+
+    telegram_uid = _select_skill_promotion_uid(request_payload, panel_access_service=panel_access_service)
+    approval = approval_service.create_request(
+        ApprovalRequestCreateRequest(
+            title=f"Promote managed skill {install.skill_id}@{install.version}",
+            summary=(
+                f"Promote install {install.install_id} from cold_validated to promoted. "
+                "This will expose the skill to the managed capability surface."
+            ),
+            risk=ApprovalRisk.DESTRUCTIVE,
+            source="managed_skill_promotion",
+            telegram_uid=telegram_uid,
+            expires_in_seconds=request_payload.expires_in_seconds,
+            metadata={
+                **dict(request_payload.metadata),
+                "action_type": "managed_skill_promote",
+                "install_id": install.install_id,
+                "skill_id": install.skill_id,
+                "version": install.version,
+                "requested_by": access.subject,
+            },
+        )
+    )
+    action_binding = _issue_managed_skill_action_binding(
+        approval_id=approval.approval_id,
+        install_id=install.install_id,
+        telegram_uid=telegram_uid,
+    )
+    approval = approval_service.update_request_metadata(
+        approval.approval_id,
+        action_binding,
+        require_status=ApprovalStatus.PENDING,
+    )
+
+    mini_app_url = _build_panel_action_url(
+        panel_access_service=panel_access_service,
+        install_id=install.install_id,
+        approval_id=approval.approval_id,
+        action_nonce=action_binding["action_nonce"],
+        action_hash=action_binding["action_hash"],
+        action_issued_at=action_binding["action_issued_at"],
+    )
+    note = (request_payload.note or "").strip()
+    message_lines = [
+        "[技能提权审批]",
+        f"- skill: {install.skill_id}@{install.version}",
+        f"- install: {install.install_id}",
+        f"- status: {install.status.value}",
+        f"- approval_id: {approval.approval_id}",
+    ]
+    if note:
+        message_lines.append(f"- note: {note}")
+    if approval.expires_at is not None:
+        message_lines.append(f"- expires_at: {approval.expires_at.isoformat()}")
+    notification_sent = notifier.send_message(
+        chat_id=telegram_uid,
+        text="\n".join(message_lines),
+        reply_markup={
+            "inline_keyboard": [
+                [
+                    {
+                        "text": "打开 Mini App 审批",
+                        "web_app": {"url": mini_app_url},
+                    }
+                ]
+            ]
+        },
+    )
+    return AdminManagedSkillPromotionRequestRead(
+        install=install,
+        approval=approval,
+        mini_app_url=mini_app_url,
+        notification_sent=notification_sent,
+    )
+
+
+@router.post("/skills/{install_id}/promote/execute", response_model=ManagedSkillInstallRead)
+def admin_execute_managed_skill_promotion(
+    install_id: str,
+    payload: AdminManagedSkillPromotionExecuteRequest,
+    request: Request,
+    registry: ManagedSkillRegistryService = Depends(get_managed_skill_registry_service),
+    approval_service: ApprovalStoreService = Depends(get_approval_store_service),
+    panel_access_service: PanelAccessService = Depends(get_panel_access_service),
+) -> ManagedSkillInstallRead:
+    init_data = _extract_telegram_init_data(request)
+    if not init_data:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="missing telegram initData",
+        )
+    try:
+        claims = panel_access_service.verify_telegram_init_data(init_data)
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+
+    install = _require_managed_skill_install(registry, install_id)
+    approval = approval_service.get_request(payload.approval_id)
+    if approval is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="approval not found")
+    if approval.telegram_uid != claims.telegram_uid:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="forbidden")
+    if approval.status is not ApprovalStatus.APPROVED:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="approval is not approved")
+    if approval.metadata.get("action_type") != "managed_skill_promote":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="approval action_type mismatch")
+    if str(approval.metadata.get("install_id", "")).strip() != install_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="approval install_id mismatch")
+    _require_valid_managed_skill_action_binding(
+        approval=approval,
+        install_id=install_id,
+        telegram_uid=claims.telegram_uid,
+        payload=payload,
+    )
+
+    if install.status is ManagedSkillInstallStatus.PROMOTED:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="managed skill already promoted")
+    if install.status is not ManagedSkillInstallStatus.COLD_VALIDATED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"managed skill is not cold_validated: {install_id}",
+        )
+
+    try:
+        promoted = registry.promote_skill(install_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    if promoted.status is not ManagedSkillInstallStatus.PROMOTED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=promoted.error or "managed skill promotion did not reach promoted state",
+        )
+    approval_service.update_request_metadata(
+        approval.approval_id,
+        {
+            "action_consumed_at": utc_now().isoformat(),
+            "action_consumed_by": claims.telegram_uid,
+            "action_execute_note": (payload.note or "").strip() or None,
+            **dict(payload.metadata),
+        },
+        require_status=ApprovalStatus.APPROVED,
+    )
+    return promoted
 
 
 @router.get("/view", response_class=HTMLResponse, include_in_schema=False)
@@ -847,6 +1235,33 @@ _ADMIN_HTML = """<!doctype html>
         </table>
       </div>
     </section>
+
+    <section class="card">
+      <h2>Managed Skill Queue</h2>
+      <div class="row">
+        <button class="btn-primary" onclick="refreshAll()">刷新</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Install</th>
+              <th>Status</th>
+              <th>Skill</th>
+              <th>Version</th>
+              <th>Requested By</th>
+              <th>Updated</th>
+              <th>Ops</th>
+            </tr>
+          </thead>
+          <tbody id="skills-body"></tbody>
+        </table>
+      </div>
+      <div class="subcard">
+        <h3>Skill Detail</h3>
+        <pre id="skill-detail-pre">{}</pre>
+      </div>
+    </section>
   </section>
 
   <section class="card">
@@ -870,6 +1285,8 @@ const agentsBody = document.getElementById("agents-body");
 const channelsBody = document.getElementById("channels-body");
 const capabilitiesBody = document.getElementById("capabilities-body");
 const approvalsBody = document.getElementById("approvals-body");
+const skillsBody = document.getElementById("skills-body");
+const skillDetailPre = document.getElementById("skill-detail-pre");
 const revisionsPre = document.getElementById("revisions-pre");
 const tokenFromQuery = new URLSearchParams(window.location.search).get("token") || "";
 let adminToken = localStorage.getItem("autoresearch_admin_token") || tokenFromQuery;
@@ -1126,25 +1543,92 @@ function approvalRow(item) {
     </tr>`;
 }
 
+function flattenManagedSkillGroups(snapshot) {
+  return (snapshot.groups || []).flatMap((group) => (group.installs || []).map((item) => ({
+    ...item,
+    status: item.status || group.status || "-"
+  })));
+}
+
+function skillRow(item) {
+  const ops = [
+    `<button onclick='showSkillDetail("${item.install_id}")'>详情</button>`,
+    item.status === "quarantined" ? `<button onclick='validateSkill("${item.install_id}")'>验证</button>` : "",
+    item.status === "cold_validated" ? `<button onclick='requestSkillPromotion("${item.install_id}")'>提权</button>` : "",
+  ].filter(Boolean).join("");
+  return `
+    <tr>
+      <td>${item.install_id}</td>
+      <td><span class="pill ${item.status === "promoted" ? "active" : "inactive"}">${item.status}</span></td>
+      <td>${item.skill_id}</td>
+      <td>${item.version}</td>
+      <td>${item.requested_by || "-"}</td>
+      <td>${fmtDate(item.updated_at)}</td>
+      <td><div class="toolbar">${ops || "-"}</div></td>
+    </tr>`;
+}
+
 async function refreshAll() {
   try {
-    const [agents, channels, capabilitySnapshot, approvals] = await Promise.all([
+    const [agents, channels, capabilitySnapshot, approvals, skillSnapshot] = await Promise.all([
       callApi("/api/v1/admin/agents"),
       callApi("/api/v1/admin/channels"),
       callApi("/api/v1/admin/capabilities"),
       callApi("/api/v1/admin/approvals?status=pending&limit=80"),
+      callApi("/api/v1/admin/skills/status"),
     ]);
+    const skillItems = flattenManagedSkillGroups(skillSnapshot);
     agentsBody.innerHTML = agents.map(agentRow).join("") || "<tr><td colspan='7'>暂无</td></tr>";
     channelsBody.innerHTML = channels.map(channelRow).join("") || "<tr><td colspan='8'>暂无</td></tr>";
     capabilitiesBody.innerHTML = (capabilitySnapshot.providers || []).map(capabilityRow).join("")
       || "<tr><td colspan='7'>暂无</td></tr>";
     approvalsBody.innerHTML = approvals.map(approvalRow).join("") || "<tr><td colspan='8'>暂无</td></tr>";
-    summary.textContent = `Agents: ${agents.length} | Channels: ${channels.length} | Providers: ${(capabilitySnapshot.providers || []).length} | Approvals: ${approvals.length} | API: /api/v1/admin`;
+    skillsBody.innerHTML = skillItems.map(skillRow).join("") || "<tr><td colspan='7'>暂无</td></tr>";
+    summary.textContent = `Agents: ${agents.length} | Channels: ${channels.length} | Providers: ${(capabilitySnapshot.providers || []).length} | Approvals: ${approvals.length} | Skills: ${skillItems.length} | API: /api/v1/admin`;
     await loadRevisions();
   } catch (err) {
     summary.textContent = `加载失败: ${err.message}`;
     capabilitiesBody.innerHTML = "<tr><td colspan='7'>加载失败</td></tr>";
     approvalsBody.innerHTML = "<tr><td colspan='8'>加载失败</td></tr>";
+    skillsBody.innerHTML = "<tr><td colspan='7'>加载失败</td></tr>";
+  }
+}
+
+async function showSkillDetail(installId) {
+  try {
+    const detail = await callApi(`/api/v1/admin/skills/${installId}`);
+    skillDetailPre.textContent = asJSON(detail);
+  } catch (err) {
+    skillDetailPre.textContent = String(err);
+  }
+}
+
+async function validateSkill(installId) {
+  try {
+    const detail = await callApi(`/api/v1/admin/skills/${installId}/validate`, "POST");
+    skillDetailPre.textContent = asJSON(detail);
+    await refreshAll();
+  } catch (err) {
+    alert(`验证失败: ${err.message}`);
+  }
+}
+
+async function requestSkillPromotion(installId) {
+  const telegramUid = prompt("Telegram UID（可空；若只配置了一个 allowed uid，可直接留空）", "");
+  if (telegramUid === null) return;
+  const note = prompt("审批备注（可空）", "");
+  if (note === null) return;
+  try {
+    const result = await callApi(`/api/v1/admin/skills/${installId}/promote`, "POST", {
+      telegram_uid: telegramUid.trim() || null,
+      note: note.trim() || null,
+      metadata: {source: "admin-ui"},
+    });
+    skillDetailPre.textContent = asJSON(result.install);
+    alert(`已创建审批 ${result.approval.approval_id}${result.mini_app_url ? `\nMini App: ${result.mini_app_url}` : ""}`);
+    await refreshAll();
+  } catch (err) {
+    alert(`提权申请失败: ${err.message}`);
   }
 }
 
