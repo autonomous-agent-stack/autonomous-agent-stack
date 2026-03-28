@@ -29,6 +29,7 @@ from autoresearch.core.services.claude_agents import ClaudeAgentService
 from autoresearch.core.services.evaluations import EvaluationService
 from autoresearch.core.services.executions import ExecutionService
 from autoresearch.core.services.mirofish_prediction import MiroFishPredictionService
+from autoresearch.core.services.managed_skill_registry import ManagedSkillRegistryService
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.openclaw_memory import OpenClawMemoryService
 from autoresearch.core.services.openclaw_skills import OpenClawSkillService
@@ -51,6 +52,7 @@ from autoresearch.shared.models import (
     IntegrationDiscoveryRead,
     IntegrationPromotionRead,
     IntegrationPrototypeRead,
+    ManagedSkillInstallRead,
     OpenClawMemoryRecordRead,
     OpenClawSessionRead,
     OptimizationRead,
@@ -153,11 +155,39 @@ def get_openclaw_compat_service() -> OpenClawCompatService:
 @lru_cache(maxsize=1)
 def get_openclaw_skill_service() -> OpenClawSkillService:
     feature_settings = get_feature_settings()
+    managed_registry = get_managed_skill_registry_service()
+    skill_roots = list(feature_settings.openclaw_skill_dirs)
+    managed_root = managed_registry.active_root
+    if skill_roots:
+        if managed_root not in skill_roots:
+            skill_roots.append(managed_root)
     return OpenClawSkillService(
         repo_root=_repo_root(),
-        skill_roots=feature_settings.openclaw_skill_dirs or None,
+        skill_roots=skill_roots or None,
+        managed_skill_roots=[managed_root],
+        managed_skill_install_status_resolver=managed_registry.get_install_status,
+        managed_skill_state_file_name=managed_registry.runtime_state_name,
         max_skill_file_bytes=max(8_192, min(feature_settings.openclaw_skill_max_bytes, 2_000_000)),
         max_skills_per_root=max(1, min(feature_settings.openclaw_skill_max_per_root, 10_000)),
+    )
+
+
+@lru_cache(maxsize=1)
+def get_managed_skill_registry_service() -> ManagedSkillRegistryService:
+    feature_settings = get_feature_settings()
+    return ManagedSkillRegistryService(
+        repo_root=_repo_root(),
+        repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="managed_skill_installs",
+            model_cls=ManagedSkillInstallRead,
+        ),
+        quarantine_root=feature_settings.managed_skill_quarantine_dir,
+        active_root=feature_settings.managed_skill_active_dir,
+        trusted_signers=feature_settings.managed_skill_trusted_signers,
+        allowed_capabilities=feature_settings.managed_skill_allowed_capabilities,
+        manifest_name=feature_settings.managed_skill_manifest_name,
+        max_skill_file_bytes=max(8_192, min(feature_settings.openclaw_skill_max_bytes, 2_000_000)),
     )
 
 
@@ -341,6 +371,7 @@ def clear_dependency_caches() -> None:
     get_openclaw_compat_service.cache_clear()
     get_openclaw_memory_service.cache_clear()
     get_capability_provider_registry.cache_clear()
+    get_managed_skill_registry_service.cache_clear()
     get_openclaw_skill_service.cache_clear()
     get_claude_agent_service.cache_clear()
     get_mirofish_prediction_service.cache_clear()

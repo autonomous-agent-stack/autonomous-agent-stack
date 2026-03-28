@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import json
 import shlex
 from functools import lru_cache
 from pathlib import Path
@@ -70,6 +71,41 @@ def _parse_path(value: Any) -> Path | None:
     if not normalized:
         return None
     return Path(normalized).expanduser().resolve()
+
+
+def _parse_string_dict(value: Any) -> dict[str, str]:
+    if value is None:
+        return {}
+    if isinstance(value, dict):
+        return {
+            str(key).strip(): str(item).strip()
+            for key, item in value.items()
+            if str(key).strip() and str(item).strip()
+        }
+    raw = str(value).strip()
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        parsed = None
+    if isinstance(parsed, dict):
+        return {
+            str(key).strip(): str(item).strip()
+            for key, item in parsed.items()
+            if str(key).strip() and str(item).strip()
+        }
+
+    mapping: dict[str, str] = {}
+    for item in raw.split(","):
+        left, separator, right = item.partition("=")
+        if not separator:
+            continue
+        key = left.strip()
+        candidate = right.strip()
+        if key and candidate:
+            mapping[key] = candidate
+    return mapping
 
 
 class _BaseApiSettings(BaseSettings):
@@ -218,6 +254,33 @@ class FeatureSettings(_BaseApiSettings):
         default=300,
         validation_alias="AUTORESEARCH_OPENCLAW_SKILLS_MAX_PER_ROOT",
     )
+    managed_skill_active_dir: Path = Field(
+        default=(_REPO_ROOT / "artifacts" / "managed_skills" / "active").resolve(),
+        validation_alias="AUTORESEARCH_MANAGED_SKILL_ACTIVE_DIR",
+    )
+    managed_skill_quarantine_dir: Path = Field(
+        default=(_REPO_ROOT / "artifacts" / "managed_skills" / "quarantine").resolve(),
+        validation_alias="AUTORESEARCH_MANAGED_SKILL_QUARANTINE_DIR",
+    )
+    managed_skill_manifest_name: str = Field(
+        default="managed-skill.json",
+        validation_alias="AUTORESEARCH_MANAGED_SKILL_MANIFEST_NAME",
+    )
+    managed_skill_trusted_signers: dict[str, str] = Field(
+        default_factory=dict,
+        validation_alias="AUTORESEARCH_MANAGED_SKILL_TRUSTED_SIGNERS",
+    )
+    managed_skill_allowed_capabilities: set[str] = Field(
+        default_factory=lambda: {
+            "prompt",
+            "filesystem_read",
+            "filesystem_write",
+            "shell",
+            "browser",
+            "network",
+        },
+        validation_alias="AUTORESEARCH_MANAGED_SKILL_ALLOWED_CAPABILITIES",
+    )
     agent_max_concurrency: int = Field(default=20, validation_alias="AUTORESEARCH_AGENT_MAX_CONCURRENCY")
     agent_max_depth: int = Field(default=3, validation_alias="AUTORESEARCH_AGENT_MAX_DEPTH")
 
@@ -225,6 +288,24 @@ class FeatureSettings(_BaseApiSettings):
     @classmethod
     def _normalize_skill_dirs(cls, value: Any) -> list[Path]:
         return _parse_path_list(value)
+
+    @field_validator("managed_skill_active_dir", "managed_skill_quarantine_dir", mode="before")
+    @classmethod
+    def _normalize_managed_skill_dirs(cls, value: Any) -> Path:
+        path = _parse_path(value)
+        if path is None:
+            raise ValueError("managed skill directory is required")
+        return path
+
+    @field_validator("managed_skill_trusted_signers", mode="before")
+    @classmethod
+    def _normalize_managed_skill_trusted_signers(cls, value: Any) -> dict[str, str]:
+        return _parse_string_dict(value)
+
+    @field_validator("managed_skill_allowed_capabilities", mode="before")
+    @classmethod
+    def _normalize_managed_skill_capabilities(cls, value: Any) -> set[str]:
+        return _parse_csv_set(value)
 
 
 class AdminSettings(_BaseApiSettings):
