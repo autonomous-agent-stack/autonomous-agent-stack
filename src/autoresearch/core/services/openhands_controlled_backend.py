@@ -208,8 +208,13 @@ class OpenHandsControlledBackendService:
         exit_code: int,
         artifacts_dir: Path,
     ):
+        pipeline_target = str(
+            request.metadata.get("pipeline_target")
+            or request.metadata.get("promotion_mode")
+            or GitPromotionMode.PATCH.value
+        )
         preferred_mode = GitPromotionMode(
-            str(request.metadata.get("promotion_mode") or GitPromotionMode.PATCH.value)
+            pipeline_target
         )
         checks = [
             PromotionGateCheck(
@@ -240,6 +245,8 @@ class OpenHandsControlledBackendService:
                 "commit_message": str(request.metadata.get("commit_message") or f"Promotion for {run_id}"),
                 "pr_title": str(request.metadata.get("pr_title") or f"Promotion for {run_id}"),
                 "pr_body": str(request.metadata.get("pr_body") or "Automated promotion draft PR."),
+                "worker_output_mode": str(request.metadata.get("worker_output_mode") or "patch"),
+                "pipeline_target": pipeline_target,
                 "validator_commands": [shlex.join(request.validation_command)]
                 if request.validation_command
                 else [],

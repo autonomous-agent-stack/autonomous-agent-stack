@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import subprocess
 from pathlib import Path
 
@@ -405,6 +406,33 @@ def test_finalize_allows_only_one_result_per_run(tmp_path: Path) -> None:
     assert result.success is True
     with pytest.raises(ValueError, match="already finalized"):
         service.finalize(intent=intent, artifacts_dir=artifacts_dir)
+
+
+def test_worktree_paths_include_repo_hash_salt_for_same_named_repositories(tmp_path: Path) -> None:
+    repo_root_a = tmp_path / "alpha" / "repo"
+    repo_root_b = tmp_path / "beta" / "repo"
+    repo_root_a.mkdir(parents=True)
+    repo_root_b.mkdir(parents=True)
+
+    gate_a = GitPromotionGateService(repo_root=repo_root_a)
+    gate_b = GitPromotionGateService(repo_root=repo_root_b)
+    promotion_a = GitPromotionService(repo_root=repo_root_a, runtime_root=tmp_path / "runtime-a")
+    promotion_b = GitPromotionService(repo_root=repo_root_b, runtime_root=tmp_path / "runtime-b")
+
+    expected_hash_a = hashlib.sha256(str(repo_root_a.resolve()).encode("utf-8")).hexdigest()[:8]
+    expected_hash_b = hashlib.sha256(str(repo_root_b.resolve()).encode("utf-8")).hexdigest()[:8]
+
+    gate_path_a = gate_a._worktree_path("run-demo")
+    gate_path_b = gate_b._worktree_path("run-demo")
+    assert gate_path_a != gate_path_b
+    assert gate_path_a.parts[:4] == ("/", "tmp", f"repo-{expected_hash_a}", "promotion-worktrees")
+    assert gate_path_b.parts[:4] == ("/", "tmp", f"repo-{expected_hash_b}", "promotion-worktrees")
+
+    promotion_path_a = promotion_a._promotion_worktree_path("promotion-1")
+    promotion_path_b = promotion_b._promotion_worktree_path("promotion-1")
+    assert promotion_path_a != promotion_path_b
+    assert promotion_path_a.parts[:4] == ("/", "tmp", f"repo-{expected_hash_a}", "promotions")
+    assert promotion_path_b.parts[:4] == ("/", "tmp", f"repo-{expected_hash_b}", "promotions")
 
 
 def test_git_promotion_service_creates_branch_commit_and_draft_pr_payload(tmp_path: Path) -> None:
