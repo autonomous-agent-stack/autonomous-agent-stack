@@ -169,6 +169,79 @@ class ClaudeAgentService:
     def active_count(self) -> int:
         return sum(1 for item in self.list() if item.status in self.ACTIVE_STATUSES)
 
+    def mark_running(
+        self,
+        agent_run_id: str,
+        *,
+        metadata_updates: dict[str, Any] | None = None,
+    ) -> ClaudeAgentRunRead:
+        current = self.get(agent_run_id)
+        if current is None:
+            raise KeyError(f"agent run not found: {agent_run_id}")
+        updated = current.model_copy(
+            update={
+                "status": JobStatus.RUNNING,
+                "updated_at": utc_now(),
+                "error": None,
+                "metadata": {
+                    **current.metadata,
+                    **(metadata_updates or {}),
+                },
+            }
+        )
+        self._repository.save(updated.agent_run_id, updated)
+        if updated.session_id is not None:
+            self._openclaw_service.append_event(
+                session_id=updated.session_id,
+                request=OpenClawSessionEventAppendRequest(
+                    role="status",
+                    content=f"agent running: {updated.agent_run_id}",
+                    metadata={
+                        "agent_run_id": updated.agent_run_id,
+                        "external_execution": True,
+                    },
+                ),
+            )
+            self._openclaw_service.set_status(
+                session_id=updated.session_id,
+                status=JobStatus.RUNNING,
+            )
+        return updated
+
+    def finalize_external_run(
+        self,
+        agent_run_id: str,
+        *,
+        status: JobStatus,
+        returncode: int | None,
+        stdout_preview: str | None = None,
+        stderr_preview: str | None = None,
+        duration_seconds: float | None = None,
+        error: str | None = None,
+        metadata_updates: dict[str, Any] | None = None,
+    ) -> ClaudeAgentRunRead:
+        current = self.get(agent_run_id)
+        if current is None:
+            raise KeyError(f"agent run not found: {agent_run_id}")
+        finalized = current.model_copy(
+            update={
+                "status": status,
+                "returncode": returncode,
+                "stdout_preview": stdout_preview,
+                "stderr_preview": stderr_preview,
+                "duration_seconds": duration_seconds,
+                "updated_at": utc_now(),
+                "error": error,
+                "metadata": {
+                    **current.metadata,
+                    **(metadata_updates or {}),
+                },
+            }
+        )
+        self._repository.save(finalized.agent_run_id, finalized)
+        self._finalize_openclaw_session(finalized)
+        return finalized
+
     def execute(self, agent_run_id: str, request: ClaudeAgentCreateRequest) -> None:
         current = self.get(agent_run_id)
         if current is None:

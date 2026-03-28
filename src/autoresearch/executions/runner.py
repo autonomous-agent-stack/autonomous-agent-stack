@@ -179,8 +179,6 @@ class AgentExecutionRunner:
                 driver_result = driver_result.model_copy(
                     update={"changed_paths": patch_filtered_paths}
                 )
-            last_patch_filtered_paths = patch_filtered_paths
-
             if self._has_policy_violation(validation):
                 driver_result = driver_result.model_copy(
                     update={

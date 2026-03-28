@@ -1,0 +1,33 @@
+{
+  "id": "autoresearch",
+  "kind": "process",
+  "entrypoint": "drivers/autoresearch_adapter.sh",
+  "version": "0.1",
+  "capabilities": [
+    "read_repo",
+    "produce_patchable_suggestions",
+    "produce_execution_plan",
+    "produce_test_plan",
+    "produce_risk_summary"
+  ],
+  "default_mode": "patch_only",
+  "policy_defaults": {
+    "timeout_sec": 120,
+    "max_steps": 1,
+    "network": "disabled",
+    "network_allowlist": [],
+    "tool_allowlist": ["read", "write", "bash"],
+    "allowed_paths": ["src/**", "tests/**", "docs/**"],
+    "forbidden_paths": [
+      ".git/**",
+      "logs/**",
+      ".masfactory_runtime/**",
+      "memory/**"
+    ],
+    "max_changed_files": 10,
+    "max_patch_lines": 300,
+    "allow_binary_changes": false,
+    "cleanup_on_success": true,
+    "retain_workspace_on_failure": true
+  }
+}

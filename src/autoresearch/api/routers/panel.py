@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse
 
+from autoresearch.api.worker_orchestration_runtime import maybe_resume_approved_worker_run
 from autoresearch.api.dependencies import (
     get_approval_store_service,
     get_capability_provider_registry,
@@ -13,6 +14,7 @@ from autoresearch.api.dependencies import (
     get_panel_access_service,
     get_panel_audit_service,
     get_telegram_notifier_service,
+    get_worker_orchestrator_service,
 )
 from autoresearch.core.adapters import CapabilityProviderRegistry
 from autoresearch.core.services.approval_store import ApprovalStoreService
@@ -21,6 +23,7 @@ from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.panel_access import PanelAccessService
 from autoresearch.core.services.panel_audit import PanelAuditService
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
+from autoresearch.core.services.worker_orchestrator import WorkerOrchestratorService
 from autoresearch.shared.models import (
     ApprovalDecisionRequest,
     ApprovalNoteRequest,
@@ -185,6 +188,7 @@ def approve_panel_approval(
     approval_service: ApprovalStoreService = Depends(get_approval_store_service),
     audit_service: PanelAuditService = Depends(get_panel_audit_service),
     notifier: TelegramNotifierService = Depends(get_telegram_notifier_service),
+    worker_orchestrator: WorkerOrchestratorService = Depends(get_worker_orchestrator_service),
 ) -> ApprovalRequestRead:
     approval = _authorized_approval(
         approval_id=approval_id,
@@ -204,6 +208,12 @@ def approve_panel_approval(
             },
         ),
     )
+    resumed = maybe_resume_approved_worker_run(
+        background_tasks=background_tasks,
+        approval=resolved,
+        worker_orchestrator=worker_orchestrator,
+        notifier=notifier,
+    )
     entry = audit_service.log_action(
         telegram_uid=access.telegram_uid,
         action="approve",
@@ -217,6 +227,7 @@ def approve_panel_approval(
             "approval_title": approval.title,
             "session_id": approval.session_id,
             "agent_run_id": approval.agent_run_id,
+            "replay_agent_run_id": resumed.agent_run_id if resumed is not None else None,
             "auth_method": access.auth_method,
             "token_id": access.token_id,
         },
@@ -314,12 +325,17 @@ def cancel_panel_agent(
     audit_service: PanelAuditService = Depends(get_panel_audit_service),
     notifier: TelegramNotifierService = Depends(get_telegram_notifier_service),
 ) -> ClaudeAgentRunRead:
-    _authorized_agent_run(
+    run = _authorized_agent_run(
         agent_run_id=agent_run_id,
         telegram_uid=access.telegram_uid,
         openclaw_service=openclaw_service,
         agent_service=agent_service,
     )
+    if _is_orchestrated_worker_run(run):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="orchestrated worker runs are immutable from panel; inspect the run metadata instead",
+        )
     run = agent_service.cancel(agent_run_id=agent_run_id, request=payload)
     entry = audit_service.log_action(
         telegram_uid=access.telegram_uid,
@@ -361,12 +377,17 @@ def retry_panel_agent(
     audit_service: PanelAuditService = Depends(get_panel_audit_service),
     notifier: TelegramNotifierService = Depends(get_telegram_notifier_service),
 ) -> ClaudeAgentRunRead:
-    _authorized_agent_run(
+    current_run = _authorized_agent_run(
         agent_run_id=agent_run_id,
         telegram_uid=access.telegram_uid,
         openclaw_service=openclaw_service,
         agent_service=agent_service,
     )
+    if _is_orchestrated_worker_run(current_run):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="orchestrated worker runs must be re-issued from Telegram after review",
+        )
     replay_run, replay_request = agent_service.retry(agent_run_id=agent_run_id, request=payload)
     background_tasks.add_task(agent_service.execute, replay_run.agent_run_id, replay_request)
 
@@ -447,6 +468,11 @@ def _request_ip(request: Request) -> str | None:
     if request.client is None:
         return None
     return request.client.host
+
+
+def _is_orchestrated_worker_run(run: ClaudeAgentRunRead) -> bool:
+    orchestration = run.metadata.get("orchestration")
+    return isinstance(orchestration, dict) and bool(orchestration.get("route"))
 
 
 _PANEL_HTML = """<!doctype html>
@@ -548,18 +574,32 @@ async function callApi(path, method="GET", body=null) {
 }
 
 function runRow(run) {
-  const safeReason = "manual via panel";
+  const orchestration = run.metadata && run.metadata.orchestration ? run.metadata.orchestration : null;
+  const requestedMode = orchestration ? (orchestration.promotion_requested_mode || orchestration.pipeline_target || "-") : "-";
+  const effectiveMode = orchestration ? (orchestration.promotion_effective_mode || orchestration.promotion_mode || "-") : "-";
+  const approvalHint = orchestration && orchestration.approval_id
+    ? ` | approval=${orchestration.approval_id}/${orchestration.approval_status || "-"}`
+    : "";
+  const gateHint = orchestration && orchestration.promotion_preflight_reason
+    ? ` | gate=${orchestration.promotion_preflight_reason}`
+    : "";
+  const hint = orchestration
+    ? `${orchestration.selected_worker || "-"} | ${orchestration.selection_reason || "-"} | requested=${requestedMode} | effective=${effectiveMode}${approvalHint}${gateHint}`
+    : "manual via panel";
+  const actions = orchestration
+    ? "<span class='muted'>worker-managed</span>"
+    : `
+        <button class="btn-cancel" data-id="${run.agent_run_id}" data-op="cancel">Cancel</button>
+        <button class="btn-retry" data-id="${run.agent_run_id}" data-op="retry">Retry</button>
+      `;
   return `
     <tr>
       <td>${run.agent_run_id}</td>
       <td>${run.status}</td>
       <td>${run.task_name}</td>
       <td>${run.updated_at}</td>
-      <td>
-        <button class="btn-cancel" data-id="${run.agent_run_id}" data-op="cancel">Cancel</button>
-        <button class="btn-retry" data-id="${run.agent_run_id}" data-op="retry">Retry</button>
-      </td>
-      <td class="muted">${safeReason}</td>
+      <td>${actions}</td>
+      <td class="muted">${hint}</td>
     </tr>
   `;
 }
@@ -577,12 +617,20 @@ function capabilityRow(item) {
 }
 
 function approvalRow(item) {
+  const orchestration = item.metadata && item.metadata.orchestration ? item.metadata.orchestration : null;
+  const source = orchestration
+    ? `${item.source || "-"} | ${orchestration.selected_worker || "-"} | target=${orchestration.pipeline_target || "-"} | state=${orchestration.resume_state || orchestration.state || "-"}`
+    : (item.source || "-");
+  const detail = orchestration
+    ? `${orchestration.selection_reason || "-"}${orchestration.approval_reason ? ` | hold=${orchestration.approval_reason}` : ""}`
+    : "-";
   return `
     <tr>
       <td>${item.approval_id}</td>
       <td>${item.risk}</td>
       <td>${item.title}</td>
-      <td>${item.source || "-"}</td>
+      <td>${source}</td>
+      <td class="muted">${detail}</td>
       <td>${item.expires_at || "-"}</td>
       <td>
         <button class="btn-retry" data-approval-id="${item.approval_id}" data-approval-op="approve">Approve</button>
@@ -663,7 +711,7 @@ async function refresh() {
     const capabilityRows = (state.capability_providers || []).map(capabilityRow).join("");
     capabilitiesEl.innerHTML = `<table><thead><tr><th>Provider</th><th>Domain</th><th>Status</th><th>Capabilities</th></tr></thead><tbody>${capabilityRows || "<tr><td colspan='4'>暂无</td></tr>"}</tbody></table>`;
     const approvalRows = (state.pending_approvals || []).map(approvalRow).join("");
-    approvalsEl.innerHTML = `<table><thead><tr><th>ID</th><th>Risk</th><th>Title</th><th>Source</th><th>Expires</th><th>Decision</th></tr></thead><tbody>${approvalRows || "<tr><td colspan='6'>暂无</td></tr>"}</tbody></table>`;
+    approvalsEl.innerHTML = `<table><thead><tr><th>ID</th><th>Risk</th><th>Title</th><th>Source</th><th>Why/Blocker</th><th>Expires</th><th>Decision</th></tr></thead><tbody>${approvalRows || "<tr><td colspan='7'>暂无</td></tr>"}</tbody></table>`;
     auditEl.textContent = JSON.stringify(state.audit_logs, null, 2);
   } catch (err) {
     summary.textContent = `加载失败: ${err.message}`;

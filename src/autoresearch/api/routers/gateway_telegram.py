@@ -8,6 +8,10 @@ from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 
+from autoresearch.api.worker_orchestration_runtime import (
+    execute_orchestrated_run_and_notify,
+    maybe_resume_approved_worker_run,
+)
 from autoresearch.api.dependencies import (
     get_admin_config_service,
     get_approval_store_service,
@@ -17,6 +21,7 @@ from autoresearch.api.dependencies import (
     get_openclaw_memory_service,
     get_panel_access_service,
     get_telegram_notifier_service,
+    get_worker_orchestrator_service,
 )
 from autoresearch.api.settings import load_panel_settings, load_runtime_settings, load_telegram_settings
 from autoresearch.core.adapters import CapabilityDomain, CapabilityProviderRegistry, SkillProvider
@@ -32,6 +37,7 @@ from autoresearch.core.services.telegram_identity import (
     build_telegram_session_identity,
 )
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
+from autoresearch.core.services.worker_orchestrator import WorkerOrchestratorService
 from autoresearch.shared.models import (
     AdminChannelConfigCreateRequest,
     AdminChannelConfigUpdateRequest,
@@ -84,6 +90,7 @@ def telegram_webhook(
     panel_access_service: PanelAccessService = Depends(get_panel_access_service),
     notifier: TelegramNotifierService = Depends(get_telegram_notifier_service),
     admin_config_service: AdminConfigService = Depends(get_admin_config_service),
+    worker_orchestrator: WorkerOrchestratorService = Depends(get_worker_orchestrator_service),
 ) -> TelegramWebhookAck:
     return _handle_telegram_webhook(
         update=update,
@@ -97,6 +104,7 @@ def telegram_webhook(
         panel_access_service=panel_access_service,
         notifier=notifier,
         admin_config_service=admin_config_service,
+        worker_orchestrator=worker_orchestrator,
     )
 
 
@@ -117,6 +125,7 @@ def legacy_telegram_webhook(
     panel_access_service: PanelAccessService = Depends(get_panel_access_service),
     notifier: TelegramNotifierService = Depends(get_telegram_notifier_service),
     admin_config_service: AdminConfigService = Depends(get_admin_config_service),
+    worker_orchestrator: WorkerOrchestratorService = Depends(get_worker_orchestrator_service),
 ) -> TelegramWebhookAck:
     return _handle_telegram_webhook(
         update=update,
@@ -130,6 +139,7 @@ def legacy_telegram_webhook(
         panel_access_service=panel_access_service,
         notifier=notifier,
         admin_config_service=admin_config_service,
+        worker_orchestrator=worker_orchestrator,
     )
 
 
@@ -146,6 +156,7 @@ def _handle_telegram_webhook(
     panel_access_service: PanelAccessService,
     notifier: TelegramNotifierService,
     admin_config_service: AdminConfigService,
+    worker_orchestrator: WorkerOrchestratorService,
 ) -> TelegramWebhookAck:
     _validate_secret_token(raw_request)
     _guard_webhook_replay_and_rate(update)
@@ -237,6 +248,7 @@ def _handle_telegram_webhook(
             approval_service=approval_service,
             notifier=notifier,
             session_identity=session_identity,
+            worker_orchestrator=worker_orchestrator,
         )
 
     if _is_mode_command(text):
@@ -326,51 +338,125 @@ def _handle_telegram_webhook(
             "actor_user_id": session_identity.actor.user_id,
         },
     )
+    routing_decision, orchestrated_run, pending_approval = worker_orchestrator.queue_for_telegram(
+        request=request_payload
+    )
 
-    try:
-        agent_run = agent_service.create(request_payload)
-    except ValueError as exc:
-        return TelegramWebhookAck(
-            accepted=False,
-            update_id=_safe_int(update.get("update_id")),
+    if routing_decision.route == "claude_direct":
+        try:
+            agent_run = agent_service.create(request_payload)
+        except ValueError as exc:
+            return TelegramWebhookAck(
+                accepted=False,
+                update_id=_safe_int(update.get("update_id")),
+                chat_id=chat_id,
+                session_id=session.session_id,
+                reason=str(exc),
+            )
+        except RuntimeError as exc:
+            return TelegramWebhookAck(
+                accepted=False,
+                update_id=_safe_int(update.get("update_id")),
+                chat_id=chat_id,
+                session_id=session.session_id,
+                reason=str(exc),
+            )
+
+        if notifier.enabled:
+            background_tasks.add_task(
+                notifier.send_message,
+                chat_id=chat_id,
+                text=f"已接收，开始处理：{request_payload.task_name}",
+            )
+
+        background_tasks.add_task(
+            _execute_agent_and_notify,
+            agent_service=agent_service,
+            notifier=notifier,
             chat_id=chat_id,
-            session_id=session.session_id,
-            reason=str(exc),
+            agent_run_id=agent_run.agent_run_id,
+            request_payload=request_payload,
         )
-    except RuntimeError as exc:
+        return TelegramWebhookAck(
+            accepted=True,
+            update_id=_safe_int(update.get("update_id")),
+            chat_id=chat_id,
+            session_id=session.session_id,
+            agent_run_id=agent_run.agent_run_id,
+            metadata={
+                "task_name": request_payload.task_name,
+                "generation_depth": request_payload.generation_depth,
+                "timeout_seconds": request_payload.timeout_seconds,
+                "worker_route": routing_decision.route,
+            },
+        )
+
+    if pending_approval is not None:
+        if notifier.enabled:
+            background_tasks.add_task(
+                notifier.send_message,
+                chat_id=chat_id,
+                text=(
+                    "任务已识别为高风险写操作，已挂起等待审批。\n"
+                    f"worker: {routing_decision.selected_worker}\n"
+                    f"reason: {routing_decision.approval_reason}\n"
+                    f"approval: {pending_approval.approval_id}"
+                ),
+            )
+        return TelegramWebhookAck(
+            accepted=True,
+            update_id=_safe_int(update.get("update_id")),
+            chat_id=chat_id,
+            session_id=session.session_id,
+            reason="approval required before worker execution",
+            metadata={
+                "worker_route": routing_decision.route,
+                "selected_worker": routing_decision.selected_worker,
+                "selection_reason": routing_decision.selection_reason,
+                "approval_id": pending_approval.approval_id,
+            },
+        )
+
+    if orchestrated_run is None:
         return TelegramWebhookAck(
             accepted=False,
             update_id=_safe_int(update.get("update_id")),
             chat_id=chat_id,
             session_id=session.session_id,
-            reason=str(exc),
+            reason="worker orchestration failed to queue",
         )
 
     if notifier.enabled:
         background_tasks.add_task(
             notifier.send_message,
             chat_id=chat_id,
-            text=f"已接收，开始处理：{request_payload.task_name}",
+            text=(
+                f"已接收，进入 worker pipeline：{request_payload.task_name}\n"
+                f"worker: {routing_decision.selected_worker}\n"
+                f"reason: {routing_decision.selection_reason}"
+            ),
         )
 
     background_tasks.add_task(
-        _execute_agent_and_notify,
-        agent_service=agent_service,
+        execute_orchestrated_run_and_notify,
+        worker_orchestrator=worker_orchestrator,
         notifier=notifier,
         chat_id=chat_id,
-        agent_run_id=agent_run.agent_run_id,
+        agent_run_id=orchestrated_run.agent_run_id,
         request_payload=request_payload,
+        decision_payload=routing_decision.model_dump(mode="json"),
     )
     return TelegramWebhookAck(
         accepted=True,
         update_id=_safe_int(update.get("update_id")),
         chat_id=chat_id,
         session_id=session.session_id,
-        agent_run_id=agent_run.agent_run_id,
+        agent_run_id=orchestrated_run.agent_run_id,
         metadata={
             "task_name": request_payload.task_name,
-            "generation_depth": request_payload.generation_depth,
-            "timeout_seconds": request_payload.timeout_seconds,
+            "worker_route": routing_decision.route,
+            "selected_worker": routing_decision.selected_worker,
+            "selection_reason": routing_decision.selection_reason,
         },
     )
 
@@ -981,11 +1067,14 @@ def _handle_approve_command(
     approval_service: ApprovalStoreService,
     notifier: TelegramNotifierService,
     session_identity: TelegramSessionIdentityRead,
+    worker_orchestrator: WorkerOrchestratorService,
 ) -> TelegramWebhookAck:
     approval_query = _extract_approve_query(extracted["text"])
     approval_id, approval_action, approval_note = _parse_approve_query(approval_query)
     approval_uid = session_identity.actor.user_id or chat_id
     message_source = "telegram_approve_query"
+    resumed_bundle = None
+    resumed_run_id: str | None = None
     if approval_action is not None and approval_id:
         approval = approval_service.get_request(approval_id)
         if approval is None or approval.telegram_uid != approval_uid:
@@ -1006,7 +1095,26 @@ def _handle_approve_command(
                         },
                     ),
                 )
+                resumed_bundle = maybe_resume_approved_worker_run(
+                    background_tasks=background_tasks,
+                    approval=approval,
+                    worker_orchestrator=worker_orchestrator,
+                    notifier=notifier,
+                    announce_start=False,
+                    schedule_execution=False,
+                )
+                resumed_run_id = resumed_bundle.agent_run_id if resumed_bundle is not None else None
                 message_text = _build_approval_decision_message(approval)
+                if resumed_run_id:
+                    message_text = "\n".join(
+                        [
+                            message_text,
+                            "",
+                            "[Worker Resume]",
+                            f"run: {resumed_run_id}",
+                            f"worker: {approval.metadata.get('orchestration', {}).get('selected_worker') or '-'}",
+                        ]
+                    )
                 message_source = "telegram_approve_decision"
                 approval_query = approval.approval_id
             except ValueError as exc:
@@ -1033,6 +1141,16 @@ def _handle_approve_command(
             chat_id=chat_id,
             text=message_text,
         )
+    if resumed_bundle is not None:
+        background_tasks.add_task(
+            execute_orchestrated_run_and_notify,
+            worker_orchestrator=worker_orchestrator,
+            notifier=notifier,
+            chat_id=chat_id,
+            agent_run_id=resumed_bundle.agent_run_id,
+            request_payload=resumed_bundle.request,
+            decision_payload=resumed_bundle.decision.model_dump(mode="json"),
+        )
     return TelegramWebhookAck(
         accepted=True,
         update_id=_safe_int(update.get("update_id")),
@@ -1041,6 +1159,7 @@ def _handle_approve_command(
             "source": message_source,
             "approval_id": approval_query or None,
             "decision": approval_action or None,
+            "resumed_agent_run_id": resumed_run_id,
             "scope": session_identity.scope.value,
         },
     )

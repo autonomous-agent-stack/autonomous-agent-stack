@@ -8,6 +8,7 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse
 
+from autoresearch.api.worker_orchestration_runtime import maybe_resume_approved_worker_run
 from autoresearch.api.dependencies import (
     get_admin_auth_service,
     get_admin_config_service,
@@ -17,6 +18,7 @@ from autoresearch.api.dependencies import (
     get_managed_skill_registry_service,
     get_panel_access_service,
     get_telegram_notifier_service,
+    get_worker_orchestrator_service,
 )
 from autoresearch.core.adapters import CalendarAdapter, CapabilityProviderRegistry, GitHubAdapter, MCPProvider, SkillProvider
 from autoresearch.core.services.admin_auth import AdminAccessClaims, AdminAuthService
@@ -26,6 +28,7 @@ from autoresearch.core.services.claude_agents import ClaudeAgentService
 from autoresearch.core.services.managed_skill_registry import ManagedSkillRegistryService
 from autoresearch.core.services.panel_access import PanelAccessService
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
+from autoresearch.core.services.worker_orchestrator import WorkerOrchestratorService
 from autoresearch.shared.models import (
     ApprovalDecisionRequest,
     ApprovalNoteRequest,
@@ -346,11 +349,14 @@ def admin_list_approvals(
 def admin_approve_request(
     approval_id: str,
     payload: ApprovalNoteRequest,
+    background_tasks: BackgroundTasks,
     access: AdminAccessClaims = Depends(_require_admin_high_risk),
     approval_service: ApprovalStoreService = Depends(get_approval_store_service),
+    notifier: TelegramNotifierService = Depends(get_telegram_notifier_service),
+    worker_orchestrator: WorkerOrchestratorService = Depends(get_worker_orchestrator_service),
 ) -> ApprovalRequestRead:
     try:
-        return approval_service.resolve_request(
+        resolved = approval_service.resolve_request(
             approval_id,
             ApprovalDecisionRequest(
                 decision="approved",
@@ -363,6 +369,13 @@ def admin_approve_request(
                 },
             ),
         )
+        maybe_resume_approved_worker_run(
+            background_tasks=background_tasks,
+            approval=resolved,
+            worker_orchestrator=worker_orchestrator,
+            notifier=notifier,
+        )
+        return resolved
     except KeyError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="approval not found") from exc
     except ValueError as exc:
@@ -1227,6 +1240,7 @@ _ADMIN_HTML = """<!doctype html>
               <th>Title</th>
               <th>UID</th>
               <th>Source</th>
+              <th>Why/State</th>
               <th>Expires</th>
               <th>Ops</th>
             </tr>
@@ -1525,6 +1539,13 @@ function capabilityRow(item) {
 }
 
 function approvalRow(item) {
+  const orchestration = item.metadata && item.metadata.orchestration ? item.metadata.orchestration : null;
+  const source = orchestration
+    ? `${item.source || "-"} | ${orchestration.selected_worker || "-"} | target=${orchestration.pipeline_target || "-"}`
+    : (item.source || "-");
+  const blocker = orchestration
+    ? `${orchestration.selection_reason || "-"} | state=${orchestration.resume_state || orchestration.state || "-"}${orchestration.promotion_preflight_reason ? ` | gate=${orchestration.promotion_preflight_reason}` : ""}`
+    : "-";
   return `
     <tr>
       <td>${item.approval_id}</td>
@@ -1532,7 +1553,8 @@ function approvalRow(item) {
       <td>${item.risk}</td>
       <td>${item.title}</td>
       <td>${item.telegram_uid || "-"}</td>
-      <td>${item.source || "-"}</td>
+      <td>${source}</td>
+      <td class="muted">${blocker}</td>
       <td>${fmtDate(item.expires_at)}</td>
       <td>
         <div class="toolbar">
@@ -1582,14 +1604,14 @@ async function refreshAll() {
     channelsBody.innerHTML = channels.map(channelRow).join("") || "<tr><td colspan='8'>暂无</td></tr>";
     capabilitiesBody.innerHTML = (capabilitySnapshot.providers || []).map(capabilityRow).join("")
       || "<tr><td colspan='7'>暂无</td></tr>";
-    approvalsBody.innerHTML = approvals.map(approvalRow).join("") || "<tr><td colspan='8'>暂无</td></tr>";
+    approvalsBody.innerHTML = approvals.map(approvalRow).join("") || "<tr><td colspan='9'>暂无</td></tr>";
     skillsBody.innerHTML = skillItems.map(skillRow).join("") || "<tr><td colspan='7'>暂无</td></tr>";
     summary.textContent = `Agents: ${agents.length} | Channels: ${channels.length} | Providers: ${(capabilitySnapshot.providers || []).length} | Approvals: ${approvals.length} | Skills: ${skillItems.length} | API: /api/v1/admin`;
     await loadRevisions();
   } catch (err) {
     summary.textContent = `加载失败: ${err.message}`;
     capabilitiesBody.innerHTML = "<tr><td colspan='7'>加载失败</td></tr>";
-    approvalsBody.innerHTML = "<tr><td colspan='8'>加载失败</td></tr>";
+    approvalsBody.innerHTML = "<tr><td colspan='9'>加载失败</td></tr>";
     skillsBody.innerHTML = "<tr><td colspan='7'>加载失败</td></tr>";
   }
 }
