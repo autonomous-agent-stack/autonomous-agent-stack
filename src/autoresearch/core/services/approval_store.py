@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+from autoresearch.core.services.writer_lease import WriterLeaseService
 from autoresearch.shared.models import (
     ApprovalDecisionRequest,
     ApprovalRequestCreateRequest,
@@ -19,31 +20,37 @@ class ApprovalStoreService:
     Decision actions can be layered on top later without changing the storage contract.
     """
 
-    def __init__(self, repository: Repository[ApprovalRequestRead]) -> None:
+    def __init__(
+        self,
+        repository: Repository[ApprovalRequestRead],
+        writer_lease: WriterLeaseService | None = None,
+    ) -> None:
         self._repository = repository
+        self._writer_lease = writer_lease or WriterLeaseService()
 
     def create_request(self, request: ApprovalRequestCreateRequest) -> ApprovalRequestRead:
-        now = utc_now()
-        approval = ApprovalRequestRead(
-            approval_id=create_resource_id("apr"),
-            title=request.title.strip(),
-            summary=request.summary.strip(),
-            status=ApprovalStatus.PENDING,
-            risk=request.risk,
-            source=request.source.strip() or "manual",
-            telegram_uid=(request.telegram_uid or "").strip() or None,
-            session_id=(request.session_id or "").strip() or None,
-            agent_run_id=(request.agent_run_id or "").strip() or None,
-            assistant_scope=request.assistant_scope,
-            metadata=dict(request.metadata),
-            created_at=now,
-            updated_at=now,
-            expires_at=now + timedelta(seconds=request.expires_in_seconds),
-            resolved_at=None,
-            decided_by=None,
-            decision_note=None,
-        )
-        return self._repository.save(approval.approval_id, approval)
+        with self._writer_lease.acquire("approval:create"):
+            now = utc_now()
+            approval = ApprovalRequestRead(
+                approval_id=create_resource_id("apr"),
+                title=request.title.strip(),
+                summary=request.summary.strip(),
+                status=ApprovalStatus.PENDING,
+                risk=request.risk,
+                source=request.source.strip() or "manual",
+                telegram_uid=(request.telegram_uid or "").strip() or None,
+                session_id=(request.session_id or "").strip() or None,
+                agent_run_id=(request.agent_run_id or "").strip() or None,
+                assistant_scope=request.assistant_scope,
+                metadata=dict(request.metadata),
+                created_at=now,
+                updated_at=now,
+                expires_at=now + timedelta(seconds=request.expires_in_seconds),
+                resolved_at=None,
+                decided_by=None,
+                decision_note=None,
+            )
+            return self._repository.save(approval.approval_id, approval)
 
     def get_request(self, approval_id: str) -> ApprovalRequestRead | None:
         item = self._repository.get(approval_id)
@@ -79,28 +86,29 @@ class ApprovalStoreService:
         approval_id: str,
         request: ApprovalDecisionRequest,
     ) -> ApprovalRequestRead:
-        item = self.get_request(approval_id)
-        if item is None:
-            raise KeyError(f"approval not found: {approval_id}")
-        if item.status != ApprovalStatus.PENDING:
-            raise ValueError(f"approval is not pending: {approval_id}")
+        with self._writer_lease.acquire(f"approval:{approval_id}"):
+            item = self.get_request(approval_id)
+            if item is None:
+                raise KeyError(f"approval not found: {approval_id}")
+            if item.status != ApprovalStatus.PENDING:
+                raise ValueError(f"approval is not pending: {approval_id}")
 
-        status = ApprovalStatus.APPROVED if request.decision == "approved" else ApprovalStatus.REJECTED
-        now = utc_now()
-        updated = item.model_copy(
-            update={
-                "status": status,
-                "updated_at": now,
-                "resolved_at": now,
-                "decided_by": request.decided_by.strip(),
-                "decision_note": (request.note or "").strip() or None,
-                "metadata": {
-                    **item.metadata,
-                    **request.metadata,
-                },
-            }
-        )
-        return self._repository.save(updated.approval_id, updated)
+            status = ApprovalStatus.APPROVED if request.decision == "approved" else ApprovalStatus.REJECTED
+            now = utc_now()
+            updated = item.model_copy(
+                update={
+                    "status": status,
+                    "updated_at": now,
+                    "resolved_at": now,
+                    "decided_by": request.decided_by.strip(),
+                    "decision_note": (request.note or "").strip() or None,
+                    "metadata": {
+                        **item.metadata,
+                        **request.metadata,
+                    },
+                }
+            )
+            return self._repository.save(updated.approval_id, updated)
 
     def _normalize_expiration(self, item: ApprovalRequestRead) -> ApprovalRequestRead:
         if item.status != ApprovalStatus.PENDING:

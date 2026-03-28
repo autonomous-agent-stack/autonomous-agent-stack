@@ -6,7 +6,7 @@ from typing import Any, Literal
 
 from pydantic import Field
 
-from autoresearch.shared.models import StrictModel
+from autoresearch.shared.models import PromotionPreflight, PromotionResult, StrictModel
 
 
 class ControlledBackend(str, Enum):
@@ -70,3 +70,5 @@ class ControlledExecutionRead(StrictModel):
     updated_at: datetime
     metadata: dict[str, Any] = Field(default_factory=dict)
     error: str | None = None
+    promotion_preflight: PromotionPreflight | None = None
+    promotion: PromotionResult | None = None

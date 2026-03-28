@@ -4,6 +4,7 @@ import difflib
 import fnmatch
 import json
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -20,6 +21,9 @@ from autoresearch.agent_protocol.models import (
 from autoresearch.agent_protocol.decision import attempt_succeeded, derive_terminal_status
 from autoresearch.agent_protocol.policy import EffectivePolicy, build_effective_policy
 from autoresearch.agent_protocol.registry import AgentRegistry
+from autoresearch.core.services.git_promotion_gate import GitPromotionGateService
+from autoresearch.core.services.writer_lease import WriterLeaseService
+from autoresearch.shared.models import GitPromotionMode, PromotionActorRole, PromotionIntent
 
 _RUNTIME_DENY_PREFIXES = (
     "logs/",
@@ -35,6 +39,7 @@ class AgentExecutionRunner:
         repo_root: Path | None = None,
         runtime_root: Path | None = None,
         manifests_dir: Path | None = None,
+        promotion_gate: GitPromotionGateService | None = None,
     ) -> None:
         self._repo_root = (repo_root or Path(__file__).resolve().parents[3]).resolve()
         self._runtime_root = (
@@ -42,6 +47,10 @@ class AgentExecutionRunner:
         ).resolve()
         self._manifests_dir = (manifests_dir or (self._repo_root / "configs" / "agents")).resolve()
         self._registry = AgentRegistry(self._manifests_dir)
+        self._promotion_gate = promotion_gate or GitPromotionGateService(
+            self._repo_root,
+            writer_lease=WriterLeaseService(),
+        )
 
     def run_job(self, job: JobSpec) -> RunSummary:
         manifest = self._registry.load(job.agent_id)
@@ -90,6 +99,7 @@ class AgentExecutionRunner:
             message="no attempt executed",
         )
         last_validation = ValidationReport(run_id=job.run_id, passed=False, checks=[])
+        last_patch_filtered_paths: list[str] = []
 
         while True:
             if pending_attempts <= 0:
@@ -151,6 +161,7 @@ class AgentExecutionRunner:
                 baseline_dir=baseline_dir,
                 workspace_dir=workspace_dir,
                 changed_paths=changed_paths,
+                driver_result=driver_result,
                 policy=effective_policy,
             )
             patch_path.write_text(patch_text, encoding="utf-8")
@@ -168,6 +179,7 @@ class AgentExecutionRunner:
                 driver_result = driver_result.model_copy(
                     update={"changed_paths": patch_filtered_paths}
                 )
+            last_patch_filtered_paths = patch_filtered_paths
 
             last_result = driver_result
             last_validation = validation
@@ -184,12 +196,26 @@ class AgentExecutionRunner:
             )
 
             if attempt_succeeded(driver_result=driver_result, validation=validation):
+                promotion_preflight, promotion = self._finalize_promotion(
+                    job=job,
+                    agent_id=current_agent,
+                    patch_path=patch_path,
+                    changed_files=patch_filtered_paths,
+                    validation=validation,
+                    policy=effective_policy,
+                    artifacts_dir=artifacts_dir,
+                )
+                final_status = "promoted" if promotion.mode is GitPromotionMode.DRAFT_PR else "ready_for_promotion"
+                if not promotion.success:
+                    final_status = "blocked"
                 summary = RunSummary(
                     run_id=job.run_id,
-                    final_status="ready_for_promotion",
+                    final_status=final_status,
                     driver_result=driver_result,
                     validation=validation,
                     promotion_patch_uri=str(patch_path),
+                    promotion_preflight=promotion_preflight,
+                    promotion=promotion,
                 )
                 summary_path.write_text(
                     json.dumps(summary.model_dump(mode="json"), ensure_ascii=False, indent=2),
@@ -203,12 +229,23 @@ class AgentExecutionRunner:
                 return summary
 
         final_status = forced_final_status or derive_terminal_status(last_result, last_validation)
+        promotion_preflight, promotion = self._finalize_promotion(
+            job=job,
+            agent_id=current_agent,
+            patch_path=patch_path,
+            changed_files=last_patch_filtered_paths,
+            validation=last_validation,
+            policy=effective_policy,
+            artifacts_dir=artifacts_dir,
+        )
         summary = RunSummary(
             run_id=job.run_id,
             final_status=final_status,
             driver_result=last_result,
             validation=last_validation,
             promotion_patch_uri=str(patch_path) if patch_path.exists() else None,
+            promotion_preflight=promotion_preflight,
+            promotion=promotion,
         )
         summary_path.write_text(
             json.dumps(summary.model_dump(mode="json"), ensure_ascii=False, indent=2),
@@ -368,9 +405,18 @@ class AgentExecutionRunner:
         baseline_dir: Path,
         workspace_dir: Path,
         changed_paths: list[str],
+        driver_result: DriverResult,
         policy: EffectivePolicy,
     ) -> tuple[str, list[str], list[ValidationCheck]]:
         checks: list[ValidationCheck] = []
+        driver_succeeded = driver_result.status in {"succeeded", "partial"}
+        checks.append(
+            ValidationCheck(
+                id="builtin.driver_success",
+                passed=driver_succeeded,
+                detail=driver_result.status,
+            )
+        )
 
         forbidden_changed = [
             path for path in changed_paths if self._matches_any(path, policy.merged.forbidden_paths)
@@ -460,6 +506,19 @@ class AgentExecutionRunner:
         )
 
         patch_text = "".join(patch_chunks)
+        requires_source_change = driver_succeeded and driver_result.recommended_action == "promote"
+        has_source_change = bool(patch_text.strip())
+        checks.append(
+            ValidationCheck(
+                id="builtin.nonempty_change_for_promote",
+                passed=(not requires_source_change) or has_source_change,
+                detail=(
+                    "ok"
+                    if (not requires_source_change) or has_source_change
+                    else "driver requested promotion without source changes"
+                ),
+            )
+        )
         return patch_text, allowed_changed, checks
 
     def _run_validators(
@@ -555,6 +614,57 @@ class AgentExecutionRunner:
             error=message,
         )
 
+    def _finalize_promotion(
+        self,
+        *,
+        job: JobSpec,
+        agent_id: str,
+        patch_path: Path,
+        changed_files: list[str],
+        validation: ValidationReport,
+        policy: EffectivePolicy,
+        artifacts_dir: Path,
+    ):
+        preferred_mode = GitPromotionMode(
+            str(job.metadata.get("promotion_mode") or GitPromotionMode.PATCH.value)
+        )
+        base_branch = str(job.metadata.get("base_branch") or "main")
+        intent = PromotionIntent(
+            run_id=job.run_id,
+            actor_role=PromotionActorRole.AGGREGATOR,
+            actor_id="aggregator",
+            writer_id=agent_id,
+            writer_lease_key=f"writer:{job.run_id}",
+            patch_uri=str(patch_path),
+            changed_files=changed_files,
+            base_ref=self._git_ref(["rev-parse", "HEAD"], default="nogit"),
+            preferred_mode=preferred_mode,
+            target_base_branch=base_branch,
+            approval_granted=bool(job.metadata.get("approval_granted", False)),
+            metadata={
+                "branch_name": self._sanitize_branch_name(
+                    str(job.metadata.get("branch_name") or f"autoprom/{job.run_id}")
+                ),
+                "commit_message": str(job.metadata.get("commit_message") or f"Promotion for {job.run_id}"),
+                "pr_title": str(job.metadata.get("pr_title") or f"Promotion for {job.run_id}"),
+                "pr_body": str(job.metadata.get("pr_body") or "Automated promotion draft PR."),
+                "validator_commands": [
+                    str(spec.command).strip()
+                    for spec in job.validators
+                    if getattr(spec, "kind", None) == "command" and (spec.command or "").strip()
+                ],
+                "forbidden_paths": list(policy.merged.forbidden_paths),
+                "max_changed_files": policy.merged.max_changed_files,
+                "max_patch_lines": policy.merged.max_patch_lines,
+                "allow_binary_changes": policy.merged.allow_binary_changes,
+            },
+        )
+        return self._promotion_gate.finalize(
+            intent=intent,
+            artifacts_dir=artifacts_dir,
+            validation_checks=validation.checks,
+        )
+
     @staticmethod
     def _matches_any(path: str, patterns: list[str]) -> bool:
         normalized = path.replace("\\", "/")
@@ -615,6 +725,23 @@ class AgentExecutionRunner:
         events_path.parent.mkdir(parents=True, exist_ok=True)
         with events_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+
+    def _git_ref(self, args: list[str], *, default: str) -> str:
+        completed = subprocess.run(
+            ["git", *args],
+            cwd=self._repo_root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if completed.returncode != 0:
+            return default
+        return (completed.stdout or "").strip() or default
+
+    @staticmethod
+    def _sanitize_branch_name(value: str) -> str:
+        normalized = re.sub(r"[^a-zA-Z0-9._/-]+", "-", value.strip()).strip("-./")
+        return normalized or "autoprom/run"
 
     @staticmethod
     def _cleanup_workspace(*, workspace_dir: Path, success: bool, policy: EffectivePolicy) -> None:

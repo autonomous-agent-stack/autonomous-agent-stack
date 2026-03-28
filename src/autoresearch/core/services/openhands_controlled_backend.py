@@ -2,11 +2,20 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
 from pathlib import Path
 
-from autoresearch.shared.models import utc_now
+from autoresearch.core.services.git_promotion_gate import GitPromotionGateService
+from autoresearch.core.services.writer_lease import WriterLeaseService
+from autoresearch.shared.models import (
+    GitPromotionMode,
+    PromotionActorRole,
+    PromotionGateCheck,
+    PromotionIntent,
+    utc_now,
+)
 from autoresearch.shared.openhands_controlled_contract import (
     ControlledBackend,
     ControlledExecutionArtifact,
@@ -34,10 +43,19 @@ class OpenHandsControlledBackendService:
         "logs/audit/openhands/jobs",
     )
 
-    def __init__(self, repo_root: Path | None = None, run_root: Path | None = None) -> None:
+    def __init__(
+        self,
+        repo_root: Path | None = None,
+        run_root: Path | None = None,
+        promotion_gate: GitPromotionGateService | None = None,
+    ) -> None:
         self._repo_root = (repo_root or Path(__file__).resolve().parents[4]).resolve()
         default_run_root = Path("/tmp") / "autonomous-agent-stack" / "openhands-controlled"
         self._run_root = (run_root or default_run_root).resolve()
+        self._promotion_gate = promotion_gate or GitPromotionGateService(
+            self._repo_root,
+            writer_lease=WriterLeaseService(),
+        )
 
     def run(self, request: ControlledExecutionRequest) -> ControlledExecutionRead:
         run_id = create_resource_id("ohrun")
@@ -118,6 +136,18 @@ class OpenHandsControlledBackendService:
 
         changed_files = self._collect_changed_files(base=baseline, workspace=workspace)
         self._write_patch(base=baseline, workspace=workspace, patch_file=patch_file)
+        promotion_preflight, promotion = self._finalize_promotion(
+            run_id=run_id,
+            patch_file=patch_file,
+            changed_files=changed_files,
+            request=request,
+            validation_status=validation_status,
+            exit_code=exit_code,
+            artifacts_dir=artifacts_dir,
+        )
+        if status is ControlledRunStatus.READY_FOR_PROMOTION and not promotion.success:
+            status = ControlledRunStatus.NEEDS_HUMAN_REVIEW
+            error = promotion.reason or error
 
         workspace_retained = True
         if status is ControlledRunStatus.READY_FOR_PROMOTION and request.cleanup_workspace_on_success:
@@ -159,11 +189,67 @@ class OpenHandsControlledBackendService:
             updated_at=now,
             metadata=request.metadata,
             error=error,
+            promotion_preflight=promotion_preflight,
+            promotion=promotion,
         )
 
         summary_payload = result.model_dump(mode="json")
         summary_file.write_text(json.dumps(summary_payload, ensure_ascii=False, indent=2), encoding="utf-8")
         return result
+
+    def _finalize_promotion(
+        self,
+        *,
+        run_id: str,
+        patch_file: Path,
+        changed_files: list[str],
+        request: ControlledExecutionRequest,
+        validation_status: ValidationStatus,
+        exit_code: int,
+        artifacts_dir: Path,
+    ):
+        preferred_mode = GitPromotionMode(
+            str(request.metadata.get("promotion_mode") or GitPromotionMode.PATCH.value)
+        )
+        checks = [
+            PromotionGateCheck(
+                id="controlled.exit_code",
+                passed=exit_code == 0,
+                detail=f"exit_code={exit_code}",
+            ),
+            PromotionGateCheck(
+                id="controlled.validation_status",
+                passed=validation_status in {ValidationStatus.PASSED, ValidationStatus.SKIPPED},
+                detail=validation_status.value,
+            ),
+        ]
+        intent = PromotionIntent(
+            run_id=run_id,
+            actor_role=PromotionActorRole.AGGREGATOR,
+            actor_id="aggregator",
+            writer_id=request.backend.value,
+            writer_lease_key=f"writer:{run_id}",
+            patch_uri=str(patch_file),
+            changed_files=changed_files,
+            base_ref=self._git_ref(["rev-parse", "HEAD"], default="nogit"),
+            preferred_mode=preferred_mode,
+            target_base_branch=str(request.metadata.get("base_branch") or "main"),
+            approval_granted=bool(request.metadata.get("approval_granted", False)),
+            metadata={
+                "branch_name": str(request.metadata.get("branch_name") or f"autoprom/{run_id}"),
+                "commit_message": str(request.metadata.get("commit_message") or f"Promotion for {run_id}"),
+                "pr_title": str(request.metadata.get("pr_title") or f"Promotion for {run_id}"),
+                "pr_body": str(request.metadata.get("pr_body") or "Automated promotion draft PR."),
+                "validator_commands": [shlex.join(request.validation_command)]
+                if request.validation_command
+                else [],
+            },
+        )
+        return self._promotion_gate.finalize(
+            intent=intent,
+            artifacts_dir=artifacts_dir,
+            validation_checks=checks,
+        )
 
     def _sync_directory(self, *, source: Path, target: Path, apply_excludes: bool) -> None:
         if target.exists():
@@ -362,3 +448,15 @@ class OpenHandsControlledBackendService:
         log_file.parent.mkdir(parents=True, exist_ok=True)
         with log_file.open("a", encoding="utf-8") as handle:
             handle.write(text)
+
+    def _git_ref(self, args: list[str], *, default: str) -> str:
+        completed = subprocess.run(
+            ["git", *args],
+            cwd=self._repo_root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if completed.returncode != 0:
+            return default
+        return (completed.stdout or "").strip() or default

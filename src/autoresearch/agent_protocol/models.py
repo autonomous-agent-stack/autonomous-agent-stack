@@ -4,7 +4,7 @@ from typing import Any, Literal
 
 from pydantic import Field
 
-from autoresearch.shared.models import StrictModel
+from autoresearch.shared.models import PromotionPreflight, PromotionResult, StrictModel
 
 
 class ArtifactRef(StrictModel):
@@ -140,6 +140,8 @@ class RunSummary(StrictModel):
     driver_result: DriverResult
     validation: ValidationReport
     promotion_patch_uri: str | None = None
+    promotion_preflight: PromotionPreflight | None = None
+    promotion: PromotionResult | None = None
 
 
 class AgentManifest(StrictModel):

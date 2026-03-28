@@ -137,9 +137,18 @@ if compliance.exists():
         }
     )
 
-status = "succeeded" if exit_code == 0 else "failed"
-recommended = "promote" if exit_code == 0 else "fallback"
-summary = "OpenHands adapter finished" if exit_code == 0 else f"OpenHands adapter exited with {exit_code}"
+if exit_code == 0:
+    status = "succeeded"
+    recommended = "promote"
+    summary = "OpenHands adapter finished"
+elif exit_code in {40, 127}:
+    status = "contract_error"
+    recommended = "reject"
+    summary = f"OpenHands adapter contract failed with {exit_code}"
+else:
+    status = "failed"
+    recommended = "fallback"
+    summary = f"OpenHands adapter exited with {exit_code}"
 
 payload = {
     "protocol_version": "aep/v0",
@@ -165,6 +174,9 @@ result_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encodi
 PY
 
 if [[ ${OPENHANDS_EXIT_CODE} -eq 0 ]]; then
-  exit 0
+    exit 0
+fi
+if [[ ${OPENHANDS_EXIT_CODE} -eq 40 || ${OPENHANDS_EXIT_CODE} -eq 127 ]]; then
+    exit 40
 fi
 exit 20

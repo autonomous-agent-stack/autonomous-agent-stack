@@ -76,6 +76,90 @@ class ApprovalStatus(str, Enum):
     EXPIRED = "expired"
 
 
+class ManagedSkillInstallStatus(str, Enum):
+    PENDING = "pending"
+    QUARANTINED = "quarantined"
+    PROMOTED = "promoted"
+    REJECTED = "rejected"
+
+
+class GitPromotionMode(str, Enum):
+    PATCH = "patch"
+    DRAFT_PR = "draft_pr"
+
+
+class PromotionActorRole(str, Enum):
+    AGGREGATOR = "aggregator"
+    WORKER = "worker"
+
+
+class PromotionGateCheck(StrictModel):
+    id: str
+    passed: bool
+    detail: str = ""
+
+
+class PromotionDiffStats(StrictModel):
+    files_changed: int = 0
+    insertions: int = 0
+    deletions: int = 0
+    patch_lines: int = 0
+
+
+class GitRemoteProbe(StrictModel):
+    remote_name: str | None = None
+    remote_url: str | None = None
+    healthy: bool = False
+    credentials_available: bool = False
+    base_branch_exists: bool = False
+    reason: str | None = None
+
+
+class PromotionIntent(StrictModel):
+    run_id: str = Field(..., min_length=1)
+    actor_role: PromotionActorRole = PromotionActorRole.AGGREGATOR
+    actor_id: str = "aggregator"
+    writer_id: str | None = None
+    writer_lease_key: str | None = None
+    patch_uri: str = Field(..., min_length=1)
+    changed_files: list[str] = Field(default_factory=list)
+    base_ref: str | None = None
+    preferred_mode: GitPromotionMode = GitPromotionMode.PATCH
+    target_base_branch: str = "main"
+    approval_granted: bool = False
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class PromotionPreflight(StrictModel):
+    run_id: str
+    requested_mode: GitPromotionMode
+    effective_mode: GitPromotionMode | None = None
+    allowed: bool = False
+    remote_probe: GitRemoteProbe = Field(default_factory=GitRemoteProbe)
+    checks: list[PromotionGateCheck] = Field(default_factory=list)
+    reason: str | None = None
+
+
+class PromotionResult(StrictModel):
+    run_id: str
+    success: bool = False
+    mode: GitPromotionMode | None = None
+    patch_uri: str | None = None
+    branch_name: str | None = None
+    commit_sha: str | None = None
+    pr_url: str | None = None
+    base_ref: str | None = None
+    target_base_branch: str | None = None
+    changed_files: list[str] = Field(default_factory=list)
+    diff_stats: PromotionDiffStats = Field(default_factory=PromotionDiffStats)
+    finalized_by: str = "aggregator"
+    checks: list[PromotionGateCheck] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+    reason: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class OpenClawSessionActorRead(StrictModel):
     user_id: str | None = None
     username: str | None = None
@@ -289,6 +373,117 @@ class OpenClawSkillRead(StrictModel):
 
 class OpenClawSkillDetailRead(OpenClawSkillRead):
     content: str
+
+
+class ManagedSkillCheck(StrictModel):
+    id: str
+    passed: bool
+    detail: str = ""
+
+
+class ManagedSkillManifestFileRead(StrictModel):
+    path: str = Field(..., min_length=1)
+    sha256: str = Field(..., min_length=64, max_length=64)
+
+    @field_validator("path")
+    @classmethod
+    def _validate_relative_path(cls, value: str) -> str:
+        normalized = value.strip().replace("\\", "/")
+        if not normalized or normalized.startswith("/") or normalized.startswith("../") or "/../" in normalized:
+            raise ValueError("managed skill file paths must be relative to the bundle root")
+        return normalized
+
+    @field_validator("sha256")
+    @classmethod
+    def _validate_sha256(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if not re.fullmatch(r"[0-9a-f]{64}", normalized):
+            raise ValueError("managed skill file sha256 must be 64 lowercase hex characters")
+        return normalized
+
+
+class ManagedSkillManifestRead(StrictModel):
+    schema_version: Literal["managed-skill/v1"] = "managed-skill/v1"
+    skill_id: str = Field(..., min_length=1)
+    version: str = Field(..., min_length=1)
+    name: str = Field(..., min_length=1)
+    description: str = ""
+    entrypoint: str = "SKILL.md"
+    signer_id: str = Field(..., min_length=1)
+    signature: str = Field(..., min_length=1)
+    capabilities: list[str] = Field(default_factory=list)
+    files: list[ManagedSkillManifestFileRead] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("skill_id")
+    @classmethod
+    def _validate_skill_id(cls, value: str) -> str:
+        normalized = value.strip()
+        if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,63}", normalized):
+            raise ValueError("managed skill_id must use lowercase letters, digits, dot, underscore, or hyphen")
+        return normalized
+
+    @field_validator("version")
+    @classmethod
+    def _validate_version(cls, value: str) -> str:
+        normalized = value.strip()
+        if not re.fullmatch(r"\d+\.\d+\.\d+(?:[-+][A-Za-z0-9._-]+)?", normalized):
+            raise ValueError("managed skill version must be semver-like, for example 1.2.3")
+        return normalized
+
+    @field_validator("entrypoint")
+    @classmethod
+    def _validate_entrypoint(cls, value: str) -> str:
+        normalized = value.strip().replace("\\", "/")
+        if normalized != "SKILL.md":
+            raise ValueError("managed skill entrypoint must be SKILL.md")
+        return normalized
+
+    @field_validator("capabilities")
+    @classmethod
+    def _dedupe_capabilities(cls, value: list[str]) -> list[str]:
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for item in value:
+            candidate = item.strip()
+            if not candidate:
+                continue
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+            normalized.append(candidate)
+        return normalized
+
+
+class ManagedSkillInstallRequest(StrictModel):
+    bundle_dir: str = Field(..., min_length=1)
+    requested_by: str = Field(default="manual", min_length=1)
+    allow_update: bool = True
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ManagedSkillAuditEventRead(StrictModel):
+    stage: str
+    status: Literal["ok", "failed", "skipped"] = "ok"
+    message: str = ""
+    created_at: datetime
+
+
+class ManagedSkillInstallRead(StrictModel):
+    install_id: str
+    status: ManagedSkillInstallStatus = ManagedSkillInstallStatus.PENDING
+    skill_id: str
+    version: str
+    requested_by: str = "manual"
+    manifest: ManagedSkillManifestRead
+    quarantine_dir: str | None = None
+    active_dir: str | None = None
+    checks: list[ManagedSkillCheck] = Field(default_factory=list)
+    audit_events: list[ManagedSkillAuditEventRead] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    error: str | None = None
 
 
 class IntegrationDiscoverRequest(StrictModel):

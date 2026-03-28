@@ -14,6 +14,14 @@ def _default_run_id(agent: str) -> str:
     return f"aep-{agent}-{ts}"
 
 
+def _default_fallback_agent(agent: str, configured: str | None) -> str | None:
+    if configured:
+        return configured
+    if agent == "openhands":
+        return "mock"
+    return None
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run AEP v0 job with a registered agent adapter")
     parser.add_argument("--agent", required=True, help="agent id from configs/agents/<id>.yaml")
@@ -35,6 +43,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     run_id = args.run_id or _default_run_id(args.agent)
+    fallback_agent = _default_fallback_agent(args.agent, args.fallback_agent)
 
     validators = [
         ValidatorSpec(id=f"cmd_{idx+1}", kind="command", command=command)
@@ -44,9 +53,9 @@ def main() -> int:
     fallback: list[FallbackStep] = []
     if args.retry > 0:
         fallback.append(FallbackStep(action="retry", max_attempts=args.retry))
-    if args.fallback_agent:
+    if fallback_agent:
         fallback.append(
-            FallbackStep(action="fallback_agent", agent_id=args.fallback_agent, max_attempts=1)
+            FallbackStep(action="fallback_agent", agent_id=fallback_agent, max_attempts=1)
         )
     if not args.no_human_review:
         fallback.append(FallbackStep(action="human_review", max_attempts=1))
@@ -66,7 +75,7 @@ def main() -> int:
     summary = runner.run_job(job)
     print(json.dumps(summary.model_dump(mode="json"), ensure_ascii=False, indent=2))
 
-    if summary.final_status == "ready_for_promotion":
+    if summary.final_status in {"ready_for_promotion", "promoted"}:
         return 0
     return 2
 
