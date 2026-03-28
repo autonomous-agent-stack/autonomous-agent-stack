@@ -68,9 +68,9 @@ class OpenHandsWorkerService:
                 **dict(spec.metadata),
                 "worker_contract": spec.protocol_version,
                 "sandbox_runtime": spec.sandbox_runtime,
-                "output_mode": spec.output_mode,
+                "worker_output_mode": spec.worker_output_mode,
+                "pipeline_target": spec.pipeline_target,
                 "target_base_branch": spec.target_base_branch,
-                "promotion_mode": "patch",
             },
         )
 
@@ -92,10 +92,10 @@ class OpenHandsWorkerService:
                 **dict(spec.metadata),
                 "worker_contract": spec.protocol_version,
                 "sandbox_runtime": spec.sandbox_runtime,
-                "output_mode": spec.output_mode,
+                "worker_output_mode": spec.worker_output_mode,
+                "pipeline_target": spec.pipeline_target,
                 "allowed_paths": list(spec.allowed_paths),
                 "forbidden_paths": list(spec.forbidden_paths),
                 "base_branch": spec.target_base_branch,
-                "promotion_mode": "patch",
             },
         )

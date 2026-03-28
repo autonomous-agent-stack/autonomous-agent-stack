@@ -24,7 +24,8 @@ class OpenHandsWorkerJobSpec(StrictModel):
     )
     test_command: str = Field(..., min_length=1)
     sandbox_runtime: Literal["ai-lab"] = "ai-lab"
-    output_mode: Literal["patch_only"] = "patch_only"
+    worker_output_mode: Literal["patch"] = "patch"
+    pipeline_target: Literal["patch", "draft_pr"] = "draft_pr"
     target_base_branch: str = "main"
     max_retries: int = Field(default=0, ge=0, le=3)
     use_mock_fallback: bool = True
@@ -57,6 +58,14 @@ class OpenHandsWorkerJobSpec(StrictModel):
         normalized = value.strip()
         if not normalized:
             raise ValueError("target_base_branch is required")
+        return normalized
+
+    @field_validator("pipeline_target")
+    @classmethod
+    def _normalize_pipeline_target(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized not in {"patch", "draft_pr"}:
+            raise ValueError("pipeline_target must be patch or draft_pr")
         return normalized
 
     @field_validator("test_command")

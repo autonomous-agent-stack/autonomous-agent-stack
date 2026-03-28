@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import fnmatch
+import hashlib
 import json
 import re
 import shlex
@@ -654,8 +655,11 @@ class GitPromotionGateService:
         return [line for line in (completed.stdout or "").splitlines() if line.strip()]
 
     def _worktree_path(self, run_id: str) -> Path:
-        base = Path("/tmp") / self._repo_root.name / "promotion-worktrees"
+        base = Path("/tmp") / f"{self._repo_root.name}-{self._repo_root_hash()}" / "promotion-worktrees"
         return base / self._sanitize_branch_name(run_id)
+
+    def _repo_root_hash(self) -> str:
+        return hashlib.sha256(str(self._repo_root).encode("utf-8")).hexdigest()[:8]
 
     @staticmethod
     def _draft_pr_requirement_label(check_id: str) -> str:
@@ -932,7 +936,16 @@ class GitPromotionService:
         return [line for line in (completed.stdout or "").splitlines() if line.strip()]
 
     def _promotion_worktree_path(self, promotion_id: str) -> Path:
-        return Path("/tmp") / self._repo_root.name / "promotions" / promotion_id / "worktree"
+        return (
+            Path("/tmp")
+            / f"{self._repo_root.name}-{self._repo_root_hash()}"
+            / "promotions"
+            / promotion_id
+            / "worktree"
+        )
+
+    def _repo_root_hash(self) -> str:
+        return hashlib.sha256(str(self._repo_root).encode("utf-8")).hexdigest()[:8]
 
     def _cleanup_worktree(self, worktree_dir: Path) -> None:
         if not worktree_dir.exists():
