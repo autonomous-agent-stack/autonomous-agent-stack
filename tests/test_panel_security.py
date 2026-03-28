@@ -309,6 +309,54 @@ def test_panel_cancel_retry_writes_audit_and_pushes_notify(panel_client: TestCli
     assert {event["action"] for event in notifier.manual_events} >= {"cancel", "retry"}
 
 
+def test_panel_blocks_cancel_retry_for_orchestrated_worker_runs(panel_client: TestClient) -> None:
+    openclaw = getattr(panel_client, "_openclaw")
+    claude = getattr(panel_client, "_claude")
+    panel_access = getattr(panel_client, "_panel_access")
+
+    session = openclaw.create_session(
+        OpenClawSessionCreateRequest(channel="telegram", external_id="9527", title="worker-orchestrated")
+    )
+    run = claude.create(
+        ClaudeAgentCreateRequest(
+            task_name="orchestrated-run",
+            prompt="fix src/demo_fix.py",
+            session_id=session.session_id,
+            command_override=["orchestrated-worker", "openhands"],
+            append_prompt=False,
+            metadata={
+                "orchestration": {
+                    "route": "openhands",
+                    "selected_worker": "openhands",
+                    "selection_reason": "code-change task",
+                    "promotion_mode": "patch",
+                }
+            },
+        )
+    )
+    token = _token_from_magic_link(panel_access.create_magic_link("9527").url)
+    headers = {"x-autoresearch-panel-token": token}
+
+    state = panel_client.get("/api/v1/panel/state", headers=headers)
+    assert state.status_code == 200
+    payload = state.json()
+    assert payload["agent_runs"][0]["metadata"]["orchestration"]["selected_worker"] == "openhands"
+
+    cancelled = panel_client.post(
+        f"/api/v1/panel/agents/{run.agent_run_id}/cancel",
+        headers=headers,
+        json={"reason": "manual-stop"},
+    )
+    assert cancelled.status_code == 409
+
+    retried = panel_client.post(
+        f"/api/v1/panel/agents/{run.agent_run_id}/retry",
+        headers=headers,
+        json={"reason": "manual-retry", "metadata_updates": {}},
+    )
+    assert retried.status_code == 409
+
+
 def test_panel_approval_actions_are_scoped_and_audited(panel_client: TestClient) -> None:
     panel_access = getattr(panel_client, "_panel_access")
     approval_store = getattr(panel_client, "_approval_store")

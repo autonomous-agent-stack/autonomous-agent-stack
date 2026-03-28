@@ -314,12 +314,17 @@ def cancel_panel_agent(
     audit_service: PanelAuditService = Depends(get_panel_audit_service),
     notifier: TelegramNotifierService = Depends(get_telegram_notifier_service),
 ) -> ClaudeAgentRunRead:
-    _authorized_agent_run(
+    run = _authorized_agent_run(
         agent_run_id=agent_run_id,
         telegram_uid=access.telegram_uid,
         openclaw_service=openclaw_service,
         agent_service=agent_service,
     )
+    if _is_orchestrated_worker_run(run):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="orchestrated worker runs are immutable from panel; inspect the run metadata instead",
+        )
     run = agent_service.cancel(agent_run_id=agent_run_id, request=payload)
     entry = audit_service.log_action(
         telegram_uid=access.telegram_uid,
@@ -361,12 +366,17 @@ def retry_panel_agent(
     audit_service: PanelAuditService = Depends(get_panel_audit_service),
     notifier: TelegramNotifierService = Depends(get_telegram_notifier_service),
 ) -> ClaudeAgentRunRead:
-    _authorized_agent_run(
+    current_run = _authorized_agent_run(
         agent_run_id=agent_run_id,
         telegram_uid=access.telegram_uid,
         openclaw_service=openclaw_service,
         agent_service=agent_service,
     )
+    if _is_orchestrated_worker_run(current_run):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="orchestrated worker runs must be re-issued from Telegram after review",
+        )
     replay_run, replay_request = agent_service.retry(agent_run_id=agent_run_id, request=payload)
     background_tasks.add_task(agent_service.execute, replay_run.agent_run_id, replay_request)
 
@@ -447,6 +457,11 @@ def _request_ip(request: Request) -> str | None:
     if request.client is None:
         return None
     return request.client.host
+
+
+def _is_orchestrated_worker_run(run: ClaudeAgentRunRead) -> bool:
+    orchestration = run.metadata.get("orchestration")
+    return isinstance(orchestration, dict) and bool(orchestration.get("route"))
 
 
 _PANEL_HTML = """<!doctype html>
@@ -548,18 +563,24 @@ async function callApi(path, method="GET", body=null) {
 }
 
 function runRow(run) {
-  const safeReason = "manual via panel";
+  const orchestration = run.metadata && run.metadata.orchestration ? run.metadata.orchestration : null;
+  const hint = orchestration
+    ? `${orchestration.selected_worker || "-"} | ${orchestration.selection_reason || "-"} | promotion=${orchestration.promotion_mode || "-"}`
+    : "manual via panel";
+  const actions = orchestration
+    ? "<span class='muted'>worker-managed</span>"
+    : `
+        <button class="btn-cancel" data-id="${run.agent_run_id}" data-op="cancel">Cancel</button>
+        <button class="btn-retry" data-id="${run.agent_run_id}" data-op="retry">Retry</button>
+      `;
   return `
     <tr>
       <td>${run.agent_run_id}</td>
       <td>${run.status}</td>
       <td>${run.task_name}</td>
       <td>${run.updated_at}</td>
-      <td>
-        <button class="btn-cancel" data-id="${run.agent_run_id}" data-op="cancel">Cancel</button>
-        <button class="btn-retry" data-id="${run.agent_run_id}" data-op="retry">Retry</button>
-      </td>
-      <td class="muted">${safeReason}</td>
+      <td>${actions}</td>
+      <td class="muted">${hint}</td>
     </tr>
   `;
 }
@@ -577,12 +598,16 @@ function capabilityRow(item) {
 }
 
 function approvalRow(item) {
+  const orchestration = item.metadata && item.metadata.orchestration ? item.metadata.orchestration : null;
+  const source = orchestration
+    ? `${item.source || "-"} | ${orchestration.selected_worker || "-"}`
+    : (item.source || "-");
   return `
     <tr>
       <td>${item.approval_id}</td>
       <td>${item.risk}</td>
       <td>${item.title}</td>
-      <td>${item.source || "-"}</td>
+      <td>${source}</td>
       <td>${item.expires_at || "-"}</td>
       <td>
         <button class="btn-retry" data-approval-id="${item.approval_id}" data-approval-op="approve">Approve</button>

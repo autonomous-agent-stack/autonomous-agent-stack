@@ -40,6 +40,7 @@ from autoresearch.core.services.reports import ReportService
 from autoresearch.core.services.self_integration import SelfIntegrationService
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
 from autoresearch.core.services.variants import VariantService
+from autoresearch.core.services.worker_orchestrator import WorkerOrchestratorService
 from autoresearch.shared.models import (
     ClaudeAgentRunRead,
     AdminAgentConfigRead,
@@ -205,6 +206,14 @@ def get_claude_agent_service() -> ClaudeAgentService:
         max_agents=feature_settings.agent_max_concurrency,
         max_depth=feature_settings.agent_max_depth,
         openclaw_skill_service=get_openclaw_skill_service(),
+    )
+
+
+@lru_cache(maxsize=1)
+def get_worker_orchestrator_service() -> WorkerOrchestratorService:
+    return WorkerOrchestratorService(
+        agent_service=get_claude_agent_service(),
+        approval_service=get_approval_store_service(),
     )
 
 
