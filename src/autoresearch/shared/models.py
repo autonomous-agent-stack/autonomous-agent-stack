@@ -79,6 +79,7 @@ class ApprovalStatus(str, Enum):
 class ManagedSkillInstallStatus(str, Enum):
     PENDING = "pending"
     QUARANTINED = "quarantined"
+    COLD_VALIDATED = "cold_validated"
     PROMOTED = "promoted"
     REJECTED = "rejected"
 
@@ -467,6 +468,14 @@ class ManagedSkillAuditEventRead(StrictModel):
     status: Literal["ok", "failed", "skipped"] = "ok"
     message: str = ""
     created_at: datetime
+
+
+class ManagedSkillRuntimeStateRead(StrictModel):
+    install_id: str = Field(..., min_length=1)
+    skill_id: str = Field(..., min_length=1)
+    version: str = Field(..., min_length=1)
+    status: ManagedSkillInstallStatus
+    updated_at: datetime
 
 
 class ManagedSkillInstallRead(StrictModel):

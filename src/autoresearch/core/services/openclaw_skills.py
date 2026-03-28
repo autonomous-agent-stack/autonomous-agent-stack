@@ -1,11 +1,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
+import logging
 from pathlib import Path
 import re
-from typing import Any
+from typing import Any, Callable
 
-from autoresearch.shared.models import OpenClawSkillDetailRead, OpenClawSkillRead
+from autoresearch.shared.models import (
+    ManagedSkillInstallStatus,
+    ManagedSkillRuntimeStateRead,
+    OpenClawSkillDetailRead,
+    OpenClawSkillRead,
+)
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -29,11 +38,17 @@ class OpenClawSkillService:
         *,
         repo_root: Path,
         skill_roots: list[Path] | None = None,
+        managed_skill_roots: list[Path] | None = None,
+        managed_skill_install_status_resolver: Callable[[str], ManagedSkillInstallStatus | None] | None = None,
+        managed_skill_state_file_name: str = "managed-skill-state.json",
         max_skill_file_bytes: int = 256_000,
         max_skills_per_root: int = 300,
     ) -> None:
         self._repo_root = repo_root.resolve()
         self._skill_roots = self._resolve_skill_roots(skill_roots)
+        self._managed_skill_roots = self._resolve_managed_skill_roots(managed_skill_roots)
+        self._managed_skill_install_status_resolver = managed_skill_install_status_resolver
+        self._managed_skill_state_file_name = managed_skill_state_file_name.strip() or "managed-skill-state.json"
         self._max_skill_file_bytes = max(8_192, max_skill_file_bytes)
         self._max_skills_per_root = max(1, max_skills_per_root)
 
@@ -145,6 +160,36 @@ class OpenClawSkillService:
         skill_dir: Path,
         skill_file: Path,
     ) -> _LoadedSkill | None:
+        runtime_metadata: dict[str, Any] = {}
+        if self._is_managed_root(root_dir):
+            state = self._load_managed_runtime_state(skill_dir)
+            if state is None:
+                return None
+            if state.status is not ManagedSkillInstallStatus.PROMOTED:
+                _LOGGER.warning(
+                    "Skipping managed skill %s because runtime state is %s, not promoted",
+                    skill_dir,
+                    state.status.value,
+                )
+                return None
+            if self._managed_skill_install_status_resolver is not None:
+                resolved = self._managed_skill_install_status_resolver(state.install_id)
+                if resolved is not ManagedSkillInstallStatus.PROMOTED:
+                    _LOGGER.warning(
+                        "Skipping managed skill %s because install %s resolved to status=%s",
+                        skill_dir,
+                        state.install_id,
+                        resolved.value if resolved is not None else "missing",
+                    )
+                    return None
+            runtime_metadata = {
+                "managed_skill": {
+                    "install_id": state.install_id,
+                    "status": state.status.value,
+                    "version": state.version,
+                }
+            }
+
         content = self._read_skill_content(skill_file)
         frontmatter = self._parse_frontmatter(content)
 
@@ -155,7 +200,8 @@ class OpenClawSkillService:
 
         description = self._string_value(frontmatter.get("description")) or ""
         metadata = frontmatter.get("metadata")
-        metadata_map = metadata if isinstance(metadata, dict) else {}
+        metadata_map = dict(metadata) if isinstance(metadata, dict) else {}
+        metadata_map.update(runtime_metadata)
         openclaw_metadata = metadata_map.get("openclaw")
         openclaw_map = openclaw_metadata if isinstance(openclaw_metadata, dict) else {}
         skill_key = self._string_value(openclaw_map.get("skillKey")) or name
@@ -171,6 +217,17 @@ class OpenClawSkillService:
         )
         aliases = {name.lower(), skill_key.lower()}
         return _LoadedSkill(summary=summary, content=content, aliases=aliases)
+
+    def _load_managed_runtime_state(self, skill_dir: Path) -> ManagedSkillRuntimeStateRead | None:
+        state_path = skill_dir / self._managed_skill_state_file_name
+        if not state_path.is_file():
+            _LOGGER.warning("Skipping managed skill %s because %s is missing", skill_dir, state_path.name)
+            return None
+        try:
+            return ManagedSkillRuntimeStateRead.model_validate_json(state_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            _LOGGER.warning("Skipping managed skill %s because runtime state is invalid: %s", skill_dir, exc)
+            return None
 
     def _read_skill_content(self, path: Path) -> str:
         try:
@@ -222,17 +279,28 @@ class OpenClawSkillService:
             return [path.expanduser().resolve() for path in skill_roots]
         return [
             (self._repo_root / "skills").resolve(),
+            *self._resolve_managed_skill_roots(None),
             (self._repo_root.parent / "openclaw" / "skills").resolve(),
         ]
+
+    def _resolve_managed_skill_roots(self, managed_skill_roots: list[Path] | None) -> list[Path]:
+        if managed_skill_roots is not None:
+            return [path.expanduser().resolve() for path in managed_skill_roots]
+        return [(self._repo_root / "artifacts" / "managed_skills" / "active").resolve()]
 
     def _resolve_source(self, root_dir: Path) -> str:
         workspace_skills = (self._repo_root / "skills").resolve()
         sibling_openclaw = (self._repo_root.parent / "openclaw" / "skills").resolve()
         if root_dir.resolve() == workspace_skills:
             return "workspace"
+        if self._is_managed_root(root_dir):
+            return "managed"
         if root_dir.resolve() == sibling_openclaw:
             return "openclaw"
         return str(root_dir.resolve())
+
+    def _is_managed_root(self, root_dir: Path) -> bool:
+        return root_dir.resolve() in self._managed_skill_roots
 
     def _string_value(self, raw: Any) -> str | None:
         if isinstance(raw, str):
