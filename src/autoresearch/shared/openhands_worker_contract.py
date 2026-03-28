@@ -27,7 +27,7 @@ class OpenHandsWorkerJobSpec(StrictModel):
     worker_output_mode: Literal["patch"] = "patch"
     pipeline_target: Literal["patch", "draft_pr"] = "draft_pr"
     target_base_branch: str = "main"
-    max_retries: int = Field(default=0, ge=0, le=3)
+    max_iterations: int = Field(default=1, ge=1, le=5)
     use_mock_fallback: bool = True
     metadata: dict[str, Any] = Field(default_factory=dict)
 

@@ -1,0 +1,41 @@
+# Core
+masfactory>=0.1.0
+pydantic>=2.0.0
+pydantic-settings>=2.2.1
+
+# API & Server
+fastapi>=0.115.0
+uvicorn>=0.32.0
+
+# Sandbox
+docker>=7.0.0
+
+# Monitoring
+# sqlite3 is part of Python stdlib (no pip package required)
+websockets>=14.0
+
+# MCP Integration
+mcp>=1.0.0
+litellm>=1.74.0
+
+# Utils
+python-dotenv>=1.0.0
+PyYAML>=6.0
+cryptography>=43.0.0
+
+# Vision
+Pillow>=10.0.0
+numpy>=1.24.0
+
+# Test
+pytest>=8.3.0
+pytest-asyncio>=0.24.0
+httpx>=0.28.0
+
+# Caching
+redis>=5.0.0
+
+# Google Workspace integrations
+google-auth>=2.37.0
+google-auth-oauthlib>=1.2.1
+google-api-python-client>=2.154.0

@@ -181,6 +181,15 @@ class AgentExecutionRunner:
                 )
             last_patch_filtered_paths = patch_filtered_paths
 
+            if self._has_policy_violation(validation):
+                driver_result = driver_result.model_copy(
+                    update={
+                        "status": "policy_blocked",
+                        "recommended_action": "reject",
+                        "error": "execution produced out-of-scope or forbidden changes",
+                    }
+                )
+
             last_result = driver_result
             last_validation = validation
 
@@ -228,24 +237,18 @@ class AgentExecutionRunner:
                 )
                 return summary
 
+            if driver_result.status == "policy_blocked":
+                break
+
         final_status = forced_final_status or derive_terminal_status(last_result, last_validation)
-        promotion_preflight, promotion = self._finalize_promotion(
-            job=job,
-            agent_id=current_agent,
-            patch_path=patch_path,
-            changed_files=last_patch_filtered_paths,
-            validation=last_validation,
-            policy=effective_policy,
-            artifacts_dir=artifacts_dir,
-        )
         summary = RunSummary(
             run_id=job.run_id,
             final_status=final_status,
             driver_result=last_result,
             validation=last_validation,
             promotion_patch_uri=str(patch_path) if patch_path.exists() else None,
-            promotion_preflight=promotion_preflight,
-            promotion=promotion,
+            promotion_preflight=None,
+            promotion=None,
         )
         summary_path.write_text(
             json.dumps(summary.model_dump(mode="json"), ensure_ascii=False, indent=2),
@@ -257,6 +260,15 @@ class AgentExecutionRunner:
             policy=effective_policy,
         )
         return summary
+
+    @staticmethod
+    def _has_policy_violation(validation: ValidationReport) -> bool:
+        blocked_checks = {
+            "builtin.allowed_paths",
+            "builtin.forbidden_paths",
+            "builtin.no_runtime_artifacts",
+        }
+        return any(check.id in blocked_checks and not check.passed for check in validation.checks)
 
     def _snapshot_repo_to_baseline(self, baseline_dir: Path) -> None:
         ignore = shutil.ignore_patterns(
@@ -626,7 +638,11 @@ class AgentExecutionRunner:
         artifacts_dir: Path,
     ):
         preferred_mode = GitPromotionMode(
-            str(job.metadata.get("promotion_mode") or GitPromotionMode.PATCH.value)
+            str(
+                job.metadata.get("pipeline_target")
+                or job.metadata.get("promotion_mode")
+                or GitPromotionMode.PATCH.value
+            )
         )
         base_branch = str(job.metadata.get("base_branch") or "main")
         intent = PromotionIntent(
@@ -653,6 +669,7 @@ class AgentExecutionRunner:
                     for spec in job.validators
                     if getattr(spec, "kind", None) == "command" and (spec.command or "").strip()
                 ],
+                "allowed_paths": list(policy.merged.allowed_paths),
                 "forbidden_paths": list(policy.merged.forbidden_paths),
                 "max_changed_files": policy.merged.max_changed_files,
                 "max_patch_lines": policy.merged.max_patch_lines,

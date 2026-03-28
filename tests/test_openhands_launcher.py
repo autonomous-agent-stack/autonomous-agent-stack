@@ -32,3 +32,29 @@ def test_openhands_start_dry_run_prints_ai_lab_command() -> None:
     assert "launch_ai_lab.sh" in completed.stdout
     assert "/opt/workspace" in completed.stdout
     assert "EXTRA_VOLUME=" in completed.stdout
+
+
+def test_openhands_start_defaults_audit_path_to_workspace_for_ai_lab(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    workspace = tmp_path / "worktree"
+    workspace.mkdir()
+    env = os.environ.copy()
+    env.update(
+        {
+            "OPENHANDS_DRY_RUN": "1",
+            "OPENHANDS_CMD": "openhands",
+            "OPENHANDS_WORKSPACE": str(workspace),
+        }
+    )
+
+    completed = subprocess.run(
+        ["bash", str(repo_root / "scripts" / "openhands_start.sh"), "Touch README.md."],
+        cwd=repo_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0
+    assert "/opt/workspace/.openhands-audit" in completed.stdout

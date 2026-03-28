@@ -8,7 +8,13 @@ PROMPT="${*:-${OPENHANDS_TASK:-}}"
 RUNTIME="${OPENHANDS_RUNTIME:-ai-lab}"
 DRY_RUN="${OPENHANDS_DRY_RUN:-0}"
 WORKSPACE="${OPENHANDS_WORKSPACE:-${REPO_ROOT}}"
-AUDIT_DIR="${OPENHANDS_AUDIT_DIR:-${REPO_ROOT}/logs/audit/openhands/manual}"
+if [[ -n "${OPENHANDS_AUDIT_DIR:-}" ]]; then
+  AUDIT_DIR="${OPENHANDS_AUDIT_DIR}"
+elif [[ "${RUNTIME}" == "ai-lab" ]]; then
+  AUDIT_DIR="${WORKSPACE}/.openhands-audit"
+else
+  AUDIT_DIR="${REPO_ROOT}/logs/audit/openhands/manual"
+fi
 AUDIT_FILE="${OPENHANDS_AUDIT_FILE:-${AUDIT_DIR}/compliance.json}"
 MAX_FILES_PER_STEP="${OPENHANDS_MAX_FILES_PER_STEP:-3}"
 OPENHANDS_CMD="${OPENHANDS_CMD:-}"
@@ -44,19 +50,60 @@ print(" ".join(shlex.quote(item) for item in sys.argv[1:]))
 PY
 }
 
-repo_relative_path() {
+resolve_host_path() {
+  local host_path="$1"
+  python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).resolve())' "${host_path}"
+}
+
+container_path_for_host_path() {
   local host_path="$1"
   local absolute
-  absolute="$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).resolve())' "${host_path}")"
+  local repo_root
+  local workspace_root
+
+  absolute="$(resolve_host_path "${host_path}")"
+  repo_root="$(resolve_host_path "${REPO_ROOT}")"
+  workspace_root="$(resolve_host_path "${WORKSPACE}")"
+
   case "${absolute}" in
-    "${REPO_ROOT}")
+    "${workspace_root}")
+      printf '/opt/workspace'
+      ;;
+    "${workspace_root}"/*)
+      printf '/opt/workspace/%s' "${absolute#${workspace_root}/}"
+      ;;
+    "${repo_root}")
       printf '/workspace'
       ;;
-    "${REPO_ROOT}"/*)
-      printf '/workspace/%s' "${absolute#${REPO_ROOT}/}"
+    "${repo_root}"/*)
+      printf '/workspace/%s' "${absolute#${repo_root}/}"
       ;;
     *)
-      echo "[openhands] path is outside repo root and cannot be mounted into ai-lab: ${absolute}" >&2
+      echo "[openhands] path is outside supported mount roots and cannot be mounted into ai-lab: ${absolute}" >&2
+      exit 40
+      ;;
+  esac
+}
+
+host_mount_root_for_path() {
+  local host_path="$1"
+  local absolute
+  local repo_root
+  local workspace_root
+
+  absolute="$(resolve_host_path "${host_path}")"
+  repo_root="$(resolve_host_path "${REPO_ROOT}")"
+  workspace_root="$(resolve_host_path "${WORKSPACE}")"
+
+  case "${absolute}" in
+    "${workspace_root}"|"${workspace_root}"/*)
+      printf '%s' "${workspace_root}"
+      ;;
+    "${repo_root}"|"${repo_root}"/*)
+      printf '%s' "${repo_root}"
+      ;;
+    *)
+      echo "[openhands] path is outside supported mount roots and cannot be mounted into ai-lab: ${absolute}" >&2
       exit 40
       ;;
   esac
@@ -91,15 +138,19 @@ run_ai_lab() {
   local container_audit_file
   local container_prompt_file
   local extra_volume
+  local host_mount_root
   local shell_cmd
 
-  container_audit_dir="$(repo_relative_path "${AUDIT_DIR}")"
-  container_audit_file="$(repo_relative_path "${AUDIT_FILE}")"
-  container_prompt_file="$(repo_relative_path "${PROMPT_FILE}")"
+  container_audit_dir="$(container_path_for_host_path "${AUDIT_DIR}")"
+  container_audit_file="$(container_path_for_host_path "${AUDIT_FILE}")"
+  container_prompt_file="$(container_path_for_host_path "${PROMPT_FILE}")"
+  host_mount_root="$(host_mount_root_for_path "${PROMPT_FILE}")"
   extra_volume="${WORKSPACE}:/opt/workspace:rw"
   shell_cmd='mkdir -p "${OPENHANDS_AUDIT_DIR}" && eval "${OPENHANDS_CMD_TEMPLATE}"'
 
   local -a cmd=(
+    env
+    "AI_LAB_HOST_MOUNT_ROOT=${host_mount_root}"
     "${REPO_ROOT}/scripts/launch_ai_lab.sh"
     run
     env
