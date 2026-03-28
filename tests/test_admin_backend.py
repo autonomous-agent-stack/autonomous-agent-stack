@@ -224,8 +224,10 @@ def test_admin_view_contains_capability_inventory_section(admin_client: TestClie
     assert response.status_code == 200
     assert "Capability Inventory" in response.text
     assert "Approval Queue" in response.text
+    assert "Managed Skill Queue" in response.text
     assert "/api/v1/admin/capabilities" in response.text
     assert "/api/v1/admin/approvals" in response.text
+    assert "/api/v1/admin/skills/status" in response.text
 
 
 def test_admin_capability_snapshot_lists_provider_inventory(admin_client: TestClient) -> None:

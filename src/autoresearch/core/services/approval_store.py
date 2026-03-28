@@ -110,6 +110,31 @@ class ApprovalStoreService:
             )
             return self._repository.save(updated.approval_id, updated)
 
+    def update_request_metadata(
+        self,
+        approval_id: str,
+        metadata_updates: dict[str, object],
+        *,
+        require_status: ApprovalStatus | None = None,
+    ) -> ApprovalRequestRead:
+        with self._writer_lease.acquire(f"approval:{approval_id}"):
+            item = self.get_request(approval_id)
+            if item is None:
+                raise KeyError(f"approval not found: {approval_id}")
+            if require_status is not None and item.status != require_status:
+                raise ValueError(f"approval is not {require_status.value}: {approval_id}")
+
+            updated = item.model_copy(
+                update={
+                    "metadata": {
+                        **item.metadata,
+                        **metadata_updates,
+                    },
+                    "updated_at": utc_now(),
+                }
+            )
+            return self._repository.save(updated.approval_id, updated)
+
     def _normalize_expiration(self, item: ApprovalRequestRead) -> ApprovalRequestRead:
         if item.status != ApprovalStatus.PENDING:
             return item

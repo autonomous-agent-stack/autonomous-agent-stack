@@ -479,6 +479,14 @@ _PANEL_HTML = """<!doctype html>
     <h1>Autoresearch 控制面板</h1>
     <p class="muted" id="summary">加载中...</p>
   </section>
+  <section class="card" id="promotion-card" style="display:none;">
+    <h2>技能提权审批</h2>
+    <p class="muted" id="promotion-summary">等待动作...</p>
+    <div id="promotion-actions">
+      <button class="btn-retry" id="promotion-approve-btn">批准并提权</button>
+      <button class="btn-cancel" id="promotion-reject-btn">拒绝申请</button>
+    </div>
+  </section>
   <section class="card">
     <h2>任务列表</h2>
     <div id="runs"></div>
@@ -497,10 +505,23 @@ _PANEL_HTML = """<!doctype html>
   </section>
 </main>
 <script>
-const token = new URLSearchParams(window.location.search).get("token") || "";
+const viewParams = new URLSearchParams(window.location.search);
+const token = viewParams.get("token") || "";
+const pendingPromotionAction = {
+  action: viewParams.get("action") || "",
+  installId: viewParams.get("installId") || viewParams.get("install_id") || "",
+  approvalId: viewParams.get("approvalId") || viewParams.get("approval_id") || "",
+  actionNonce: viewParams.get("actionNonce") || viewParams.get("action_nonce") || "",
+  actionHash: viewParams.get("actionHash") || viewParams.get("action_hash") || "",
+  actionIssuedAt: viewParams.get("actionIssuedAt") || viewParams.get("action_issued_at") || "",
+};
 const tgWebApp = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
 const telegramInitData = tgWebApp && tgWebApp.initData ? tgWebApp.initData : "";
 const summary = document.getElementById("summary");
+const promotionCard = document.getElementById("promotion-card");
+const promotionSummary = document.getElementById("promotion-summary");
+const promotionApproveBtn = document.getElementById("promotion-approve-btn");
+const promotionRejectBtn = document.getElementById("promotion-reject-btn");
 const runsEl = document.getElementById("runs");
 const capabilitiesEl = document.getElementById("capabilities");
 const approvalsEl = document.getElementById("approvals");
@@ -571,6 +592,63 @@ function approvalRow(item) {
   `;
 }
 
+function renderPromotionCard() {
+  const isSkillPromotion = pendingPromotionAction.action === "managed-skill-promote"
+    && pendingPromotionAction.installId
+    && pendingPromotionAction.approvalId
+    && pendingPromotionAction.actionNonce
+    && pendingPromotionAction.actionHash
+    && pendingPromotionAction.actionIssuedAt;
+  if (!isSkillPromotion) {
+    promotionCard.style.display = "none";
+    return;
+  }
+  promotionCard.style.display = "block";
+  if (!telegramInitData) {
+    promotionSummary.textContent = `approval=${pendingPromotionAction.approvalId} | install=${pendingPromotionAction.installId} | 需要从 Telegram Mini App 打开才能执行提权。`;
+    promotionApproveBtn.disabled = true;
+    promotionRejectBtn.disabled = true;
+    return;
+  }
+  promotionSummary.textContent = `approval=${pendingPromotionAction.approvalId} | install=${pendingPromotionAction.installId} | 将先批准审批单，再执行受控 promotion。`;
+  promotionApproveBtn.disabled = false;
+  promotionRejectBtn.disabled = false;
+}
+
+async function approvePromotionAndExecute() {
+  const note = prompt("批准备注（可空）", "approved via telegram mini app") || "";
+  await callApi(
+    `/api/v1/panel/approvals/${pendingPromotionAction.approvalId}/approve`,
+    "POST",
+    {note, metadata: {action: "managed_skill_promote"}},
+  );
+  await callApi(
+    `/api/v1/admin/skills/${pendingPromotionAction.installId}/promote/execute`,
+    "POST",
+    {
+      approval_id: pendingPromotionAction.approvalId,
+      action_nonce: pendingPromotionAction.actionNonce,
+      action_hash: pendingPromotionAction.actionHash,
+      action_issued_at: pendingPromotionAction.actionIssuedAt,
+      note,
+      metadata: {action: "managed_skill_promote"},
+    },
+  );
+  promotionSummary.textContent = `promotion 已执行: approval=${pendingPromotionAction.approvalId}`;
+  await refresh();
+}
+
+async function rejectPromotionAction() {
+  const note = prompt("拒绝备注（可空）", "rejected via telegram mini app") || "";
+  await callApi(
+    `/api/v1/panel/approvals/${pendingPromotionAction.approvalId}/reject`,
+    "POST",
+    {note, metadata: {action: "managed_skill_promote"}},
+  );
+  promotionSummary.textContent = `promotion 已拒绝: approval=${pendingPromotionAction.approvalId}`;
+  await refresh();
+}
+
 async function refresh() {
   if (!token && !telegramInitData) {
     summary.textContent = "缺少访问凭证，请使用 Telegram /status 魔法链接或 Mini App 打开。";
@@ -627,6 +705,23 @@ approvalsEl.addEventListener("click", async (event) => {
   }
 });
 
+promotionApproveBtn.addEventListener("click", async () => {
+  try {
+    await approvePromotionAndExecute();
+  } catch (err) {
+    alert(`提权失败: ${err.message}`);
+  }
+});
+
+promotionRejectBtn.addEventListener("click", async () => {
+  try {
+    await rejectPromotionAction();
+  } catch (err) {
+    alert(`拒绝失败: ${err.message}`);
+  }
+});
+
+renderPromotionCard();
 refresh();
 setInterval(refresh, 8000);
 </script>
