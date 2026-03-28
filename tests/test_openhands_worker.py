@@ -28,6 +28,7 @@ def test_openhands_worker_builds_patch_only_agent_job_spec() -> None:
     assert job.metadata["pipeline_target"] == "draft_pr"
     assert "Do not run git add, git commit, git push" in job.task
     assert "allowed_paths:" in job.task
+    assert "test_command:" in job.task
 
 
 def test_openhands_worker_builds_controlled_request_with_mock_fallback() -> None:
@@ -37,7 +38,7 @@ def test_openhands_worker_builds_controlled_request_with_mock_fallback() -> None
         problem_statement="Update the OpenHands adapter without touching control-plane routes.",
         allowed_paths=["src/autoresearch/core/services/openhands_worker.py"],
         test_command="python -m py_compile src/autoresearch/core/services/openhands_worker.py",
-        max_retries=1,
+        max_iterations=2,
     )
 
     request = service.build_controlled_request(spec)
@@ -45,15 +46,16 @@ def test_openhands_worker_builds_controlled_request_with_mock_fallback() -> None
     assert request.backend is ControlledBackend.OPENHANDS_CLI
     assert request.fallback_backend is ControlledBackend.MOCK
     assert request.failure_strategy is FailureStrategy.FALLBACK
-    assert request.validation_command == [
+    assert request.allowed_paths == ["src/autoresearch/core/services/openhands_worker.py"]
+    assert request.test_command == [
         "python",
         "-m",
         "py_compile",
         "src/autoresearch/core/services/openhands_worker.py",
     ]
-    assert request.metadata["allowed_paths"] == ["src/autoresearch/core/services/openhands_worker.py"]
-    assert request.metadata["worker_output_mode"] == "patch"
-    assert request.metadata["pipeline_target"] == "draft_pr"
+    assert request.worker_output_mode == "patch"
+    assert request.pipeline_target.value == "draft_pr"
+    assert request.max_iterations == 2
 
 
 def test_openhands_worker_rejects_absolute_allowed_paths() -> None:
@@ -78,5 +80,5 @@ def test_openhands_worker_can_target_patch_pipeline_explicitly() -> None:
 
     request = service.build_controlled_request(spec)
 
-    assert request.metadata["worker_output_mode"] == "patch"
-    assert request.metadata["pipeline_target"] == "patch"
+    assert request.worker_output_mode == "patch"
+    assert request.pipeline_target.value == "patch"

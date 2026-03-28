@@ -70,9 +70,11 @@ JSON
         )
     )
 
-    assert summary.final_status == "human_review"
+    assert summary.final_status == "blocked"
     checks = {item.id: item for item in summary.validation.checks}
     assert checks["builtin.forbidden_paths"].passed is False
+    assert summary.promotion is None
+    assert summary.promotion_preflight is None
 
     assert summary.promotion_patch_uri is not None
     patch_text = Path(summary.promotion_patch_uri).read_text(encoding="utf-8")

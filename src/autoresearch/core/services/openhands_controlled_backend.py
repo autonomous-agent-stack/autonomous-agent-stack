@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+import fnmatch
 import json
 import os
 import shlex
@@ -10,7 +12,6 @@ from pathlib import Path
 from autoresearch.core.services.git_promotion_gate import GitPromotionGateService
 from autoresearch.core.services.writer_lease import WriterLeaseService
 from autoresearch.shared.models import (
-    GitPromotionMode,
     PromotionActorRole,
     PromotionGateCheck,
     PromotionIntent,
@@ -22,14 +23,22 @@ from autoresearch.shared.openhands_controlled_contract import (
     ControlledExecutionRead,
     ControlledExecutionRequest,
     ControlledRunStatus,
-    FailureStrategy,
+    PatchResult,
     ValidationStatus,
 )
 from autoresearch.shared.store import create_resource_id
 
 
+@dataclass(slots=True)
+class _BackendExecutionOutcome:
+    exit_code: int
+    error: str | None = None
+    stdout: str = ""
+    stderr: str = ""
+
+
 class OpenHandsControlledBackendService:
-    """Run a minimal controlled AAS -> OpenHands -> AAS execution loop."""
+    """Run a constrained OpenHands worker and hand patch results to the promotion gate."""
 
     _SYNC_EXCLUDES = (
         ".git",
@@ -42,6 +51,26 @@ class OpenHandsControlledBackendService:
         ".masfactory_runtime",
         "logs/audit/openhands/jobs",
     )
+    _GIT_ENV_KEYS = {
+        "GIT_ASKPASS",
+        "GIT_AUTHOR_EMAIL",
+        "GIT_AUTHOR_NAME",
+        "GIT_COMMITTER_EMAIL",
+        "GIT_COMMITTER_NAME",
+        "GIT_CONFIG",
+        "GIT_CONFIG_COUNT",
+        "GIT_CONFIG_GLOBAL",
+        "GIT_CONFIG_SYSTEM",
+        "GIT_SSH",
+        "GIT_SSH_COMMAND",
+        "GIT_SSH_VARIANT",
+        "GITHUB_TOKEN",
+        "GH_TOKEN",
+        "SSH_AGENT_PID",
+        "SSH_AUTH_SOCK",
+        "SSH_ASKPASS",
+    }
+    _GIT_ENV_PREFIXES = ("GITHUB_", "GH_", "GIT_AUTHOR_", "GIT_COMMITTER_", "SSH_")
 
     def __init__(
         self,
@@ -68,86 +97,145 @@ class OpenHandsControlledBackendService:
         summary_file = artifacts_dir / "summary.json"
 
         artifacts_dir.mkdir(parents=True, exist_ok=True)
+        created_at = utc_now()
+
+        if request.backend is ControlledBackend.OPENHANDS_CLI and self._repo_has_uncommitted_changes():
+            result = self._build_result(
+                run_id=run_id,
+                request=request,
+                workspace=workspace,
+                workspace_retained=False,
+                log_file=log_file,
+                artifacts_dir=artifacts_dir,
+                summary_file=summary_file,
+                created_at=created_at,
+                changed_files=[],
+                exit_code=1,
+                validation_status=ValidationStatus.SKIPPED,
+                validation_exit_code=None,
+                status=ControlledRunStatus.POLICY_BLOCKED,
+                iterations_used=0,
+                backend_used=request.backend,
+                error="repo root has uncommitted changes; controlled worker requires a clean git checkout",
+                patch_result=None,
+                promotion_preflight=None,
+                promotion=None,
+            )
+            return result
+
         self._sync_directory(source=self._repo_root, target=baseline, apply_excludes=True)
 
-        created_at = utc_now()
         backend = request.backend
-        retries_used = 0
-        attempts = 0
-        fallback_budget = 0
-        if (
-            request.failure_strategy is FailureStrategy.FALLBACK
-            and request.fallback_backend is not None
-            and request.fallback_backend != request.backend
-        ):
-            fallback_budget = 1
-        max_attempts = request.max_retries + 1 + fallback_budget
+        fallback_used = False
+        current_backend_attempts = 0
+        total_attempts = 0
 
+        changed_files: list[str] = []
         exit_code = 1
         validation_exit_code: int | None = None
         validation_status = ValidationStatus.PENDING
-        status = ControlledRunStatus.REJECTED
-        error: str | None = None
+        status = ControlledRunStatus.FAILED
+        error: str | None = "worker did not execute"
+        patch_result: PatchResult | None = None
+        execution_outcome = _BackendExecutionOutcome(exit_code=1, error=error)
+        promotion_preflight = None
+        promotion = None
 
-        while attempts < max_attempts:
-            attempts += 1
+        while True:
+            backend_limit = request.max_iterations if backend is request.backend else 1
+            if current_backend_attempts >= backend_limit:
+                if self._can_fallback(request=request, backend=backend, fallback_used=fallback_used):
+                    backend = request.fallback_backend or backend
+                    fallback_used = True
+                    current_backend_attempts = 0
+                    continue
+                break
+
+            current_backend_attempts += 1
+            total_attempts += 1
             self._sync_directory(source=baseline, target=workspace, apply_excludes=False)
-            self._append_log(log_file, f"\n=== attempt {attempts} backend={backend.value} ===\n")
+            self._append_log(
+                log_file,
+                f"\n=== attempt {total_attempts} backend={backend.value} iteration={current_backend_attempts}/{backend_limit} ===\n",
+            )
 
-            exit_code, execution_error = self._execute_backend(
+            execution_outcome = self._execute_backend(
                 backend=backend,
                 prompt=request.prompt,
                 workspace=workspace,
                 artifacts_dir=artifacts_dir,
                 log_file=log_file,
+                allowed_paths=request.allowed_paths,
+            )
+            exit_code = execution_outcome.exit_code
+
+            changed_files = self._collect_changed_files(base=baseline, workspace=workspace)
+            self._write_patch(base=baseline, workspace=workspace, patch_file=patch_file)
+            patch_result = PatchResult(
+                patch_path=str(patch_file),
+                patch_text=patch_file.read_text(encoding="utf-8") if patch_file.exists() else "",
+                changed_files=changed_files,
+                stdout=execution_outcome.stdout,
+                stderr=execution_outcome.stderr,
             )
 
-            validation_exit_code, validation_status = self._run_validation(
-                command=request.validation_command,
-                workspace=workspace,
-                log_file=log_file,
+            scope_error = self._detect_scope_violation(
+                changed_files=changed_files,
+                allowed_paths=request.allowed_paths,
+                forbidden_paths=request.forbidden_paths,
             )
+            if scope_error is not None:
+                status = ControlledRunStatus.POLICY_BLOCKED
+                error = scope_error
+                self._append_log(log_file, f"[policy] blocked: {scope_error}\n")
+                validation_status = ValidationStatus.SKIPPED
+                validation_exit_code = None
+                break
 
-            if exit_code == 0 and validation_status in {ValidationStatus.PASSED, ValidationStatus.SKIPPED}:
+            if not changed_files:
+                error = execution_outcome.error or "worker did not produce a patch candidate"
+                validation_status = ValidationStatus.SKIPPED
+                validation_exit_code = None
+            else:
+                validation_exit_code, validation_status = self._run_validation(
+                    command=request.test_command,
+                    workspace=workspace,
+                    log_file=log_file,
+                )
+                error = execution_outcome.error or (
+                    None
+                    if validation_status is ValidationStatus.PASSED
+                    else f"test_command failed with status={validation_status.value}"
+                )
+
+            if exit_code == 0 and validation_status is ValidationStatus.PASSED and changed_files:
                 status = ControlledRunStatus.READY_FOR_PROMOTION
                 error = None
                 break
 
-            error = execution_error or f"validation failed with status={validation_status.value}"
-
-            if request.failure_strategy is FailureStrategy.RETRY and attempts < max_attempts:
-                retries_used += 1
+            if current_backend_attempts < backend_limit:
                 continue
 
-            if (
-                request.failure_strategy is FailureStrategy.FALLBACK
-                and request.fallback_backend is not None
-                and request.fallback_backend != backend
-            ):
-                backend = request.fallback_backend
-                retries_used += 1
+            if self._can_fallback(request=request, backend=backend, fallback_used=fallback_used):
+                backend = request.fallback_backend or backend
+                fallback_used = True
+                current_backend_attempts = 0
                 continue
-
-            if request.failure_strategy is FailureStrategy.HUMAN_IN_LOOP:
-                status = ControlledRunStatus.NEEDS_HUMAN_REVIEW
-            else:
-                status = ControlledRunStatus.REJECTED
             break
 
-        changed_files = self._collect_changed_files(base=baseline, workspace=workspace)
-        self._write_patch(base=baseline, workspace=workspace, patch_file=patch_file)
-        promotion_preflight, promotion = self._finalize_promotion(
-            run_id=run_id,
-            patch_file=patch_file,
-            changed_files=changed_files,
-            request=request,
-            validation_status=validation_status,
-            exit_code=exit_code,
-            artifacts_dir=artifacts_dir,
-        )
-        if status is ControlledRunStatus.READY_FOR_PROMOTION and not promotion.success:
-            status = ControlledRunStatus.NEEDS_HUMAN_REVIEW
-            error = promotion.reason or error
+        if status is ControlledRunStatus.READY_FOR_PROMOTION and patch_result is not None:
+            promotion_preflight, promotion = self._finalize_promotion(
+                run_id=run_id,
+                patch_file=patch_file,
+                changed_files=changed_files,
+                request=request,
+                validation_status=validation_status,
+                exit_code=exit_code,
+                artifacts_dir=artifacts_dir,
+            )
+            if not promotion.success:
+                status = ControlledRunStatus.NEEDS_HUMAN_REVIEW
+                error = promotion.reason or "promotion gate rejected the patch candidate"
 
         workspace_retained = True
         if status is ControlledRunStatus.READY_FOR_PROMOTION and request.cleanup_workspace_on_success:
@@ -157,10 +245,54 @@ class OpenHandsControlledBackendService:
             shutil.rmtree(workspace, ignore_errors=True)
             workspace_retained = False
 
-        artifacts = [
-            ControlledExecutionArtifact(kind="log", path=str(log_file)),
-            ControlledExecutionArtifact(kind="patch", path=str(patch_file)),
-        ]
+        return self._build_result(
+            run_id=run_id,
+            request=request,
+            workspace=workspace,
+            workspace_retained=workspace_retained,
+            log_file=log_file,
+            artifacts_dir=artifacts_dir,
+            summary_file=summary_file,
+            created_at=created_at,
+            changed_files=changed_files,
+            exit_code=exit_code,
+            validation_status=validation_status,
+            validation_exit_code=validation_exit_code,
+            status=status,
+            iterations_used=max(total_attempts - 1, 0),
+            backend_used=backend,
+            error=error,
+            patch_result=patch_result,
+            promotion_preflight=promotion_preflight,
+            promotion=promotion,
+        )
+
+    def _build_result(
+        self,
+        *,
+        run_id: str,
+        request: ControlledExecutionRequest,
+        workspace: Path,
+        workspace_retained: bool,
+        log_file: Path,
+        artifacts_dir: Path,
+        summary_file: Path,
+        created_at,
+        changed_files: list[str],
+        exit_code: int,
+        validation_status: ValidationStatus,
+        validation_exit_code: int | None,
+        status: ControlledRunStatus,
+        iterations_used: int,
+        backend_used: ControlledBackend,
+        error: str | None,
+        patch_result: PatchResult | None,
+        promotion_preflight,
+        promotion,
+    ) -> ControlledExecutionRead:
+        artifacts = [ControlledExecutionArtifact(kind="log", path=str(log_file))]
+        if patch_result is not None:
+            artifacts.append(ControlledExecutionArtifact(kind="patch", path=patch_result.patch_path))
         compliance_file = artifacts_dir / "openhands_compliance.json"
         if compliance_file.exists():
             artifacts.append(ControlledExecutionArtifact(kind="compliance", path=str(compliance_file)))
@@ -183,19 +315,34 @@ class OpenHandsControlledBackendService:
             validation_status=validation_status,
             validation_exit_code=validation_exit_code,
             status=status,
-            retries_used=retries_used,
-            backend_used=backend,
+            iterations_used=iterations_used,
+            backend_used=backend_used,
             created_at=created_at,
             updated_at=now,
             metadata=request.metadata,
             error=error,
+            patch_result=patch_result,
             promotion_preflight=promotion_preflight,
             promotion=promotion,
         )
-
-        summary_payload = result.model_dump(mode="json")
-        summary_file.write_text(json.dumps(summary_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        summary_file.write_text(
+            json.dumps(result.model_dump(mode="json"), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
         return result
+
+    @staticmethod
+    def _can_fallback(
+        *,
+        request: ControlledExecutionRequest,
+        backend: ControlledBackend,
+        fallback_used: bool,
+    ) -> bool:
+        return (
+            not fallback_used
+            and request.fallback_backend is not None
+            and request.fallback_backend != backend
+        )
 
     def _finalize_promotion(
         self,
@@ -208,14 +355,6 @@ class OpenHandsControlledBackendService:
         exit_code: int,
         artifacts_dir: Path,
     ):
-        pipeline_target = str(
-            request.metadata.get("pipeline_target")
-            or request.metadata.get("promotion_mode")
-            or GitPromotionMode.PATCH.value
-        )
-        preferred_mode = GitPromotionMode(
-            pipeline_target
-        )
         checks = [
             PromotionGateCheck(
                 id="controlled.exit_code",
@@ -224,7 +363,7 @@ class OpenHandsControlledBackendService:
             ),
             PromotionGateCheck(
                 id="controlled.validation_status",
-                passed=validation_status in {ValidationStatus.PASSED, ValidationStatus.SKIPPED},
+                passed=validation_status is ValidationStatus.PASSED,
                 detail=validation_status.value,
             ),
         ]
@@ -237,7 +376,7 @@ class OpenHandsControlledBackendService:
             patch_uri=str(patch_file),
             changed_files=changed_files,
             base_ref=self._git_ref(["rev-parse", "HEAD"], default="nogit"),
-            preferred_mode=preferred_mode,
+            preferred_mode=request.pipeline_target,
             target_base_branch=str(request.metadata.get("base_branch") or "main"),
             approval_granted=bool(request.metadata.get("approval_granted", False)),
             metadata={
@@ -245,11 +384,11 @@ class OpenHandsControlledBackendService:
                 "commit_message": str(request.metadata.get("commit_message") or f"Promotion for {run_id}"),
                 "pr_title": str(request.metadata.get("pr_title") or f"Promotion for {run_id}"),
                 "pr_body": str(request.metadata.get("pr_body") or "Automated promotion draft PR."),
-                "worker_output_mode": str(request.metadata.get("worker_output_mode") or "patch"),
-                "pipeline_target": pipeline_target,
-                "validator_commands": [shlex.join(request.validation_command)]
-                if request.validation_command
-                else [],
+                "worker_output_mode": request.worker_output_mode,
+                "pipeline_target": request.pipeline_target.value,
+                "validator_commands": [shlex.join(request.test_command)],
+                "allowed_paths": list(request.allowed_paths),
+                "forbidden_paths": list(request.forbidden_paths),
             },
         )
         return self._promotion_gate.finalize(
@@ -288,29 +427,40 @@ class OpenHandsControlledBackendService:
         workspace: Path,
         artifacts_dir: Path,
         log_file: Path,
-    ) -> tuple[int, str | None]:
+        allowed_paths: list[str],
+    ) -> _BackendExecutionOutcome:
         if backend is ControlledBackend.MOCK:
-            return self._run_mock_backend(prompt=prompt, workspace=workspace, log_file=log_file)
+            return self._run_mock_backend(
+                prompt=prompt,
+                workspace=workspace,
+                log_file=log_file,
+                allowed_paths=allowed_paths,
+            )
 
         return self._run_openhands_cli(
             prompt=prompt,
             workspace=workspace,
             artifacts_dir=artifacts_dir,
             log_file=log_file,
+            allowed_paths=allowed_paths,
         )
 
-    def _run_mock_backend(self, *, prompt: str, workspace: Path, log_file: Path) -> tuple[int, str | None]:
-        demo_file = workspace / "src" / "openhands_demo_task.py"
-        demo_file.parent.mkdir(parents=True, exist_ok=True)
-        safe_prompt = prompt.strip().replace('"""', "'''")
-        content = (
-            '"""Autogenerated by controlled OpenHands demo backend."""\n\n'
-            "def run() -> dict[str, str]:\n"
-            f'    return {{"task": "{safe_prompt}", "status": "completed"}}\n'
+    def _run_mock_backend(
+        self,
+        *,
+        prompt: str,
+        workspace: Path,
+        log_file: Path,
+        allowed_paths: list[str],
+    ) -> _BackendExecutionOutcome:
+        demo_file = self._materialize_mock_patch(
+            workspace=workspace,
+            allowed_paths=allowed_paths,
+            prompt=prompt,
         )
-        demo_file.write_text(content, encoding="utf-8")
-        self._append_log(log_file, f"[mock-backend] wrote {demo_file}\n")
-        return 0, None
+        stdout = f"[mock-backend] wrote {demo_file}\n"
+        self._append_log(log_file, stdout)
+        return _BackendExecutionOutcome(exit_code=0, stdout=stdout, stderr="")
 
     def _run_openhands_cli(
         self,
@@ -319,10 +469,15 @@ class OpenHandsControlledBackendService:
         workspace: Path,
         artifacts_dir: Path,
         log_file: Path,
-    ) -> tuple[int, str | None]:
+        allowed_paths: list[str],
+    ) -> _BackendExecutionOutcome:
         launcher = self._repo_root / "scripts" / "openhands_start.sh"
         if not launcher.exists():
-            return 127, f"launcher not found: {launcher}"
+            return _BackendExecutionOutcome(
+                exit_code=127,
+                error=f"launcher not found: {launcher}",
+                stderr=f"launcher not found: {launcher}\n",
+            )
 
         guarded_prompt = (
             f"{prompt}\n\n"
@@ -333,31 +488,92 @@ class OpenHandsControlledBackendService:
             "- Return changed files and executed commands in final summary.\n"
         )
 
-        env = dict(os.environ)
-        env["OPENHANDS_WORKSPACE"] = str(workspace)
-        env["OPENHANDS_AUDIT_DIR"] = str(artifacts_dir)
-        env["OPENHANDS_AUDIT_FILE"] = str(artifacts_dir / "openhands_compliance.json")
-
+        env = self._build_openhands_env(workspace=workspace, artifacts_dir=artifacts_dir)
         completed = subprocess.run(
             ["bash", str(launcher), guarded_prompt],
             cwd=self._repo_root,
             env=env,
             capture_output=True,
             text=True,
+            check=False,
         )
 
-        output = (
+        stdout = completed.stdout or ""
+        stderr = completed.stderr or ""
+        self._append_log(
+            log_file,
             "[openhands-cli] stdout:\n"
-            f"{completed.stdout}\n"
+            f"{stdout}\n"
             "[openhands-cli] stderr:\n"
-            f"{completed.stderr}\n"
+            f"{stderr}\n",
         )
-        self._append_log(log_file, output)
 
         if completed.returncode != 0:
-            return completed.returncode, f"openhands_cli exited with code {completed.returncode}"
+            return _BackendExecutionOutcome(
+                exit_code=completed.returncode,
+                error=f"openhands_cli exited with code {completed.returncode}",
+                stdout=stdout,
+                stderr=stderr,
+            )
 
-        return 0, None
+        if env.get("OPENHANDS_DRY_RUN") == "1":
+            demo_file = self._materialize_mock_patch(
+                workspace=workspace,
+                allowed_paths=allowed_paths,
+                prompt=prompt,
+            )
+            self._append_log(log_file, f"[openhands-cli] dry-run materialized {demo_file}\n")
+
+        return _BackendExecutionOutcome(exit_code=0, stdout=stdout, stderr=stderr)
+
+    def _build_openhands_env(self, *, workspace: Path, artifacts_dir: Path) -> dict[str, str]:
+        env = {
+            key: value
+            for key, value in os.environ.items()
+            if key not in self._GIT_ENV_KEYS
+            and not any(key.startswith(prefix) for prefix in self._GIT_ENV_PREFIXES)
+        }
+        env["GIT_TERMINAL_PROMPT"] = "0"
+        env["OPENHANDS_WORKSPACE"] = str(workspace)
+        env["OPENHANDS_AUDIT_DIR"] = str(artifacts_dir)
+        env["OPENHANDS_AUDIT_FILE"] = str(artifacts_dir / "openhands_compliance.json")
+        if env.get("OPENHANDS_DRY_RUN") == "1" and "OPENHANDS_RUNTIME" not in env:
+            env["OPENHANDS_RUNTIME"] = "host"
+        return env
+
+    def _materialize_mock_patch(
+        self,
+        *,
+        workspace: Path,
+        allowed_paths: list[str],
+        prompt: str,
+    ) -> Path:
+        target = self._select_mock_target(workspace=workspace, allowed_paths=allowed_paths)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        safe_prompt = prompt.strip().replace('"""', "'''")
+        target.write_text(
+            (
+                '"""Autogenerated by constrained OpenHands worker."""\n\n'
+                "def run() -> dict[str, str]:\n"
+                f'    return {{"task": "{safe_prompt}", "status": "completed"}}\n'
+            ),
+            encoding="utf-8",
+        )
+        return target
+
+    def _select_mock_target(self, *, workspace: Path, allowed_paths: list[str]) -> Path:
+        for pattern in allowed_paths:
+            if not any(char in pattern for char in "*?["):
+                return workspace / pattern
+
+        for pattern in allowed_paths:
+            prefix = pattern.split("*", 1)[0].split("?", 1)[0].split("[", 1)[0].rstrip("/")
+            if prefix:
+                if "." in Path(prefix).name:
+                    return workspace / prefix
+                return workspace / prefix / "openhands_mock_worker.py"
+
+        return workspace / "src" / "openhands_mock_worker.py"
 
     def _run_validation(
         self,
@@ -366,10 +582,6 @@ class OpenHandsControlledBackendService:
         workspace: Path,
         log_file: Path,
     ) -> tuple[int | None, ValidationStatus]:
-        if not command:
-            self._append_log(log_file, "[validation] skipped (empty command)\n")
-            return None, ValidationStatus.SKIPPED
-
         validation_dir = workspace.parent / "artifacts" / "validation"
         validation_dir.mkdir(parents=True, exist_ok=True)
 
@@ -378,6 +590,7 @@ class OpenHandsControlledBackendService:
             cwd=workspace,
             capture_output=True,
             text=True,
+            check=False,
         )
 
         validation_log = validation_dir / "validation.log"
@@ -398,6 +611,30 @@ class OpenHandsControlledBackendService:
             return 0, ValidationStatus.PASSED
         return completed.returncode, ValidationStatus.FAILED
 
+    def _detect_scope_violation(
+        self,
+        *,
+        changed_files: list[str],
+        allowed_paths: list[str],
+        forbidden_paths: list[str],
+    ) -> str | None:
+        blocked: list[str] = []
+        for path in changed_files:
+            if self._matches_any(path, forbidden_paths):
+                blocked.append(f"{path} (forbidden)")
+                continue
+            if not self._matches_any(path, allowed_paths):
+                blocked.append(f"{path} (outside allowed_paths)")
+        if blocked:
+            return "patch touched disallowed files: " + "; ".join(blocked)
+        return None
+
+    @staticmethod
+    def _matches_any(path: str, patterns: list[str]) -> bool:
+        normalized = path.replace("\\", "/")
+        pure = Path(normalized).as_posix()
+        return any(fnmatch.fnmatch(pure, pattern) for pattern in patterns)
+
     def _collect_changed_files(self, *, base: Path, workspace: Path) -> list[str]:
         cmd = [
             "git",
@@ -409,7 +646,7 @@ class OpenHandsControlledBackendService:
             str(base),
             str(workspace),
         ]
-        completed = subprocess.run(cmd, capture_output=True, text=True)
+        completed = subprocess.run(cmd, capture_output=True, text=True, check=False)
         if completed.returncode not in {0, 1}:
             return []
 
@@ -444,7 +681,7 @@ class OpenHandsControlledBackendService:
             str(base),
             str(workspace),
         ]
-        completed = subprocess.run(cmd, capture_output=True, text=True)
+        completed = subprocess.run(cmd, capture_output=True, text=True, check=False)
         if completed.returncode not in {0, 1}:
             patch_file.write_text("", encoding="utf-8")
             return
@@ -455,6 +692,20 @@ class OpenHandsControlledBackendService:
         log_file.parent.mkdir(parents=True, exist_ok=True)
         with log_file.open("a", encoding="utf-8") as handle:
             handle.write(text)
+
+    def _repo_has_uncommitted_changes(self) -> bool:
+        if not (self._repo_root / ".git").exists():
+            return False
+        completed = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=self._repo_root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if completed.returncode != 0:
+            return False
+        return bool((completed.stdout or "").strip())
 
     def _git_ref(self, args: list[str], *, default: str) -> str:
         completed = subprocess.run(

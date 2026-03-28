@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import fnmatch
 
 from autoresearch.agent_protocol.models import ExecutionPolicy
 
@@ -22,8 +23,52 @@ def _dedupe(values: list[str]) -> list[str]:
 
 
 def _intersect(left: list[str], right: list[str]) -> list[str]:
-    right_set = set(right)
-    return [item for item in left if item in right_set]
+    seen: set[str] = set()
+    output: list[str] = []
+    for left_item in left:
+        for right_item in right:
+            narrowed = _narrow_pattern(left_item, right_item)
+            if narrowed is None or narrowed in seen:
+                continue
+            seen.add(narrowed)
+            output.append(narrowed)
+    return output
+
+
+def _narrow_pattern(left: str, right: str) -> str | None:
+    if left == right:
+        return left
+
+    left_glob = _is_glob(left)
+    right_glob = _is_glob(right)
+
+    if left_glob and not right_glob:
+        return right if fnmatch.fnmatch(right, left) else None
+    if right_glob and not left_glob:
+        return left if fnmatch.fnmatch(left, right) else None
+
+    if left_glob and right_glob:
+        left_prefix = _glob_prefix(left)
+        right_prefix = _glob_prefix(right)
+        if left_prefix and right_prefix:
+            if right_prefix.startswith(left_prefix):
+                return right
+            if left_prefix.startswith(right_prefix):
+                return left
+    return None
+
+
+def _is_glob(value: str) -> bool:
+    return any(token in value for token in "*?[")
+
+
+def _glob_prefix(value: str) -> str:
+    prefix: list[str] = []
+    for char in value:
+        if char in "*?[":
+            break
+        prefix.append(char)
+    return "".join(prefix).rstrip("/")
 
 
 def merge_policy(*policies: ExecutionPolicy) -> ExecutionPolicy:

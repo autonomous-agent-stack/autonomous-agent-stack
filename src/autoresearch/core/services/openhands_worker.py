@@ -3,6 +3,7 @@ from __future__ import annotations
 import shlex
 
 from autoresearch.agent_protocol.models import ExecutionPolicy, FallbackStep, JobSpec, ValidatorSpec
+from autoresearch.shared.models import GitPromotionMode
 from autoresearch.shared.openhands_controlled_contract import (
     ControlledBackend,
     ControlledExecutionRequest,
@@ -32,14 +33,15 @@ class OpenHandsWorkerService:
             f"{allowed_paths}\n\n"
             "forbidden_paths:\n"
             f"{forbidden_paths}\n\n"
-            "validation_command:\n"
+            "test_command:\n"
             f"- {spec.test_command}\n"
         )
 
     def build_agent_job_spec(self, spec: OpenHandsWorkerJobSpec) -> JobSpec:
         fallback: list[FallbackStep] = []
-        if spec.max_retries > 0:
-            fallback.append(FallbackStep(action="retry", max_attempts=spec.max_retries))
+        retry_attempts = max(spec.max_iterations - 1, 0)
+        if retry_attempts > 0:
+            fallback.append(FallbackStep(action="retry", max_attempts=retry_attempts))
         if spec.use_mock_fallback:
             fallback.append(FallbackStep(action="fallback_agent", agent_id="mock", max_attempts=1))
         fallback.append(FallbackStep(action="human_review", max_attempts=1))
@@ -75,25 +77,26 @@ class OpenHandsWorkerService:
         )
 
     def build_controlled_request(self, spec: OpenHandsWorkerJobSpec) -> ControlledExecutionRequest:
-        validation_command = shlex.split(spec.test_command)
         fallback_backend = ControlledBackend.MOCK if spec.use_mock_fallback else None
         failure_strategy = FailureStrategy.FALLBACK if fallback_backend is not None else FailureStrategy.HUMAN_IN_LOOP
         return ControlledExecutionRequest(
             task_id=spec.job_id,
             prompt=self.build_prompt(spec),
+            allowed_paths=list(spec.allowed_paths),
+            forbidden_paths=list(spec.forbidden_paths),
+            test_command=shlex.split(spec.test_command),
             backend=ControlledBackend.OPENHANDS_CLI,
             fallback_backend=fallback_backend,
-            validation_command=validation_command,
+            worker_output_mode=spec.worker_output_mode,
+            pipeline_target=GitPromotionMode(spec.pipeline_target),
             failure_strategy=failure_strategy,
-            max_retries=spec.max_retries,
+            max_iterations=spec.max_iterations,
             cleanup_workspace_on_success=True,
             keep_workspace_on_failure=True,
             metadata={
                 **dict(spec.metadata),
                 "worker_contract": spec.protocol_version,
                 "sandbox_runtime": spec.sandbox_runtime,
-                "worker_output_mode": spec.worker_output_mode,
-                "pipeline_target": spec.pipeline_target,
                 "allowed_paths": list(spec.allowed_paths),
                 "forbidden_paths": list(spec.forbidden_paths),
                 "base_branch": spec.target_base_branch,

@@ -36,3 +36,12 @@ def test_policy_merge_deny_wins() -> None:
     assert effective.max_changed_files == 20
     assert effective.max_patch_lines == 500
     assert effective.allow_binary_changes is False
+
+
+def test_policy_merge_preserves_more_specific_file_scope() -> None:
+    manifest_policy = ExecutionPolicy(allowed_paths=["src/**", "tests/**"])
+    job_policy = ExecutionPolicy(allowed_paths=["src/generated_worker.py"])
+
+    effective = build_effective_policy(manifest_policy, job_policy).merged
+
+    assert effective.allowed_paths == ["src/generated_worker.py"]
