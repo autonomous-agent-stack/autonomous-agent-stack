@@ -88,6 +88,74 @@ PORT=8010 make start
 - 扫描并执行本地技能
 - 运行零信任加固脚本和相关验证脚本
 
+## Telegram Worker Orchestration：怎么用
+
+现在 Telegram 入口已经接上 deterministic worker routing，可以直接把自然语言任务交给系统，由它决定走哪条最窄执行链路。
+
+### 任务会怎么路由
+
+| 你发的任务类型 | 实际路由 |
+| --- | --- |
+| 普通聊天、闲聊、非执行问题 | `claude_direct` |
+| 分析、调研、方案、风险评估 | `autoresearch` |
+| 明确代码修改、补测试、修 bug | `openhands` |
+| 先分析再改代码的混合任务 | `autoresearch -> openhands` |
+| 带 `main` / `merge` / `delete` / 高风险写意图 | 先挂 approval，再 resume worker |
+
+### 最常见的用法
+
+```text
+请分析 src/autoresearch/core/services/worker_orchestrator.py 的风险和边界
+```
+
+- 会走 `autoresearch`
+
+```text
+请修复 src/autoresearch/api/routers/panel.py 的 bug 并补测试
+```
+
+- 会走 `openhands`
+
+```text
+先分析 src/autoresearch/api/routers/gateway_telegram.py 的问题，再修复这个 bug 并补测试
+```
+
+- 会走 `autoresearch -> openhands`
+
+```text
+请修复 src/demo_fix.py 并直接合并到 main
+```
+
+- 不会直接进 worker
+- 系统会先创建 approval
+- approval 通过后，自动恢复同一条 orchestration run
+
+### approval 怎么批
+
+- Telegram：`/approve`、`/approve <approval_id>`、`/approve <approval_id> approve [备注]`
+- Panel：待审批列表里直接点 `Approve`
+- Admin：Approval Queue 里直接批准
+- API：`POST /api/v1/approvals/{approval_id}/decision`
+
+## Worker Orchestration：实现了什么
+
+- deterministic routing：同类任务稳定走同一类 worker，不靠随机 prompt 漂移
+- approval replay payload：高风险任务在 approval 里持久化恢复所需上下文
+- unified resume path：Telegram / panel / admin / approvals API 批准后统一回到同一条 resume 路径
+- async approval UX：Telegram `/approve` 先回执，再异步恢复 worker 执行
+- artifact-only analysis stage：`autoresearch -> openhands` 第一段只产出 plan / risk / test artifacts，不额外 finalize promotion
+- observability：panel/admin 可以看到 selected worker、route reason、requested/effective promotion mode、approval/resume state、blocker
+
+## Worker Orchestration 最佳实践
+
+1. 分析任务和修改任务分开写，除非你明确想要 `autoresearch -> openhands` 链路。
+2. 代码修改类任务尽量带明确文件路径，例如 `src/...py`，这样 allowed paths 会更窄。
+3. 在 prompt 里直接写成功条件，例如“补测试”“通过 py_compile”“给出 risk summary”。
+4. 不要让 worker 直接承担 merge / main / delete 之类高风险意图；让 approval gate 做唯一出口。
+5. 如果你需要“先分析，再执行”，就明确写出“先分析…再修复…”，不要让模型自己猜。
+6. 排障先看 panel/admin 的 route reason、promotion requested/effective mode、approval/resume state，再决定是不是 worker 问题。
+7. 对链式任务，把第一段当成 artifact producer，不要期待它直接完成 promotion。
+
 ## OpenHands 接入边界（重要）
 
 - “更容易上手”指 AAS 的统一启动和排错流程：`make setup -> make doctor -> make start`。
