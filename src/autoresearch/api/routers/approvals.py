@@ -1,10 +1,18 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
 
-from autoresearch.api.dependencies import get_admin_auth_service, get_approval_store_service
+from autoresearch.api.worker_orchestration_runtime import maybe_resume_approved_worker_run
+from autoresearch.api.dependencies import (
+    get_admin_auth_service,
+    get_approval_store_service,
+    get_telegram_notifier_service,
+    get_worker_orchestrator_service,
+)
 from autoresearch.core.services.admin_auth import AdminAccessClaims, AdminAuthService
 from autoresearch.core.services.approval_store import ApprovalStoreService
+from autoresearch.core.services.telegram_notify import TelegramNotifierService
+from autoresearch.core.services.worker_orchestrator import WorkerOrchestratorService
 from autoresearch.shared.models import ApprovalDecisionRequest, ApprovalRequestRead, ApprovalStatus
 
 
@@ -87,12 +95,22 @@ def get_approval(
 def resolve_approval(
     approval_id: str,
     payload: ApprovalDecisionRequest,
+    background_tasks: BackgroundTasks,
     access: AdminAccessClaims = Depends(_require_approval_write),
     approval_service: ApprovalStoreService = Depends(get_approval_store_service),
+    notifier: TelegramNotifierService = Depends(get_telegram_notifier_service),
+    worker_orchestrator: WorkerOrchestratorService = Depends(get_worker_orchestrator_service),
 ) -> ApprovalRequestRead:
     _ = access
     try:
-        return approval_service.resolve_request(approval_id, payload)
+        resolved = approval_service.resolve_request(approval_id, payload)
+        maybe_resume_approved_worker_run(
+            background_tasks=background_tasks,
+            approval=resolved,
+            worker_orchestrator=worker_orchestrator,
+            notifier=notifier,
+        )
+        return resolved
     except KeyError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="approval not found") from exc
     except ValueError as exc:

@@ -334,6 +334,47 @@ def test_telegram_webhook_routes_code_fix_to_openhands_worker(
     assert "src/demo_fix.py" in orchestration["changed_files"]
 
 
+def test_telegram_webhook_executes_autoresearch_then_openhands_chain(
+    telegram_client: TestClient,
+) -> None:
+    response = telegram_client.post(
+        "/api/v1/gateway/telegram/webhook",
+        json={
+            "update_id": 2014,
+            "message": {
+                "message_id": 92,
+                "text": "先分析 src/demo_fix.py 的问题，再修复这个 bug 并补测试",
+                "chat": {"id": 9527, "type": "private"},
+                "from": {"id": 9527, "username": "alice"},
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["accepted"] is True
+    assert payload["metadata"]["worker_route"] == "autoresearch_then_openhands"
+    assert payload["metadata"]["selected_worker"] == "autoresearch"
+
+    finalized = None
+    for _ in range(40):
+        fetched = telegram_client.get(f"/api/v1/openclaw/agents/{payload['agent_run_id']}")
+        assert fetched.status_code == 200
+        finalized = fetched.json()
+        if finalized["status"] in {"completed", "failed"}:
+            break
+        time.sleep(0.05)
+
+    assert finalized is not None
+    assert finalized["status"] == "completed"
+    orchestration = finalized["metadata"]["orchestration"]
+    assert orchestration["route"] == "autoresearch_then_openhands"
+    assert orchestration["analysis_promotion_finalize_skipped"] is True
+    assert orchestration["analysis_run_id"]
+    assert orchestration["execution_run_id"]
+    assert "execution_plan" in orchestration["analysis_deliverables"]
+
+
 def test_telegram_webhook_creates_approval_for_high_risk_write(
     telegram_client: TestClient,
 ) -> None:
@@ -365,6 +406,71 @@ def test_telegram_webhook_creates_approval_for_high_risk_write(
     assert approval.risk.value == "destructive"
     assert approval.metadata["orchestration"]["route"] == "openhands"
     assert approval.metadata["orchestration"]["requires_approval"] is True
+    assert approval.metadata["orchestration"]["resume_state"] == "pending_approval"
+    assert approval.metadata["worker_orchestration_replay"]["request"]["prompt"].startswith("请删除")
+
+
+def test_telegram_approve_command_resumes_worker_after_orchestration_approval(
+    telegram_client: TestClient,
+) -> None:
+    notifier = _StubTelegramNotifier()
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+
+    try:
+        pending_response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 2012,
+                "message": {
+                    "message_id": 90,
+                    "text": "请修复 src/demo_fix.py 并直接合并到 main",
+                    "chat": {"id": 9527, "type": "private"},
+                    "from": {"id": 9527, "username": "alice"},
+                },
+            },
+        )
+        assert pending_response.status_code == 200
+        approval_id = pending_response.json()["metadata"]["approval_id"]
+
+        approve_response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 2013,
+                "message": {
+                    "message_id": 91,
+                    "text": f"/approve {approval_id} approve approved for execution",
+                    "chat": {"id": 9527, "type": "private"},
+                    "from": {"id": 9527, "username": "alice"},
+                },
+            },
+        )
+        assert approve_response.status_code == 200
+        approve_payload = approve_response.json()
+        resumed_agent_run_id = approve_payload["metadata"]["resumed_agent_run_id"]
+        assert resumed_agent_run_id is not None
+
+        finalized = None
+        for _ in range(40):
+            fetched = telegram_client.get(f"/api/v1/openclaw/agents/{resumed_agent_run_id}")
+            assert fetched.status_code == 200
+            finalized = fetched.json()
+            if finalized["status"] in {"completed", "failed"}:
+                break
+            time.sleep(0.05)
+
+        assert finalized is not None
+        assert finalized["status"] == "completed"
+        orchestration = finalized["metadata"]["orchestration"]
+        assert orchestration["approval_id"] == approval_id
+        assert orchestration["approval_status"] == "approved"
+        assert orchestration["resume_state"] == "completed"
+
+        assert len(notifier.messages) >= 3
+        assert "高风险写操作" in notifier.messages[0]["text"]
+        assert "[Approval Decision]" in notifier.messages[-2]["text"]
+        assert "[Worker 结果]" in notifier.messages[-1]["text"]
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
 
 
 def test_telegram_webhook_separates_private_and_group_sessions(

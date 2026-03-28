@@ -19,15 +19,19 @@ from autoresearch.api.dependencies import (
     get_panel_access_service,
     get_panel_audit_service,
     get_telegram_notifier_service,
+    get_worker_orchestrator_service,
 )
 from autoresearch.api.main import app
 from autoresearch.core.adapters import CapabilityProviderDescriptorRead, CapabilityProviderRegistry
 from autoresearch.core.adapters.contracts import CapabilityDomain
 from autoresearch.core.services.approval_store import ApprovalStoreService
+from autoresearch.core.services.autoresearch_controlled_backend import AutoResearchControlledBackendService
 from autoresearch.core.services.claude_agents import ClaudeAgentService
+from autoresearch.core.services.openhands_controlled_backend import OpenHandsControlledBackendService
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.panel_access import PanelAccessService, assert_safe_bind_host
 from autoresearch.core.services.panel_audit import PanelAuditService
+from autoresearch.core.services.worker_orchestrator import WorkerOrchestratorService
 from autoresearch.shared.models import (
     ApprovalRequestCreateRequest,
     ApprovalRequestRead,
@@ -44,6 +48,7 @@ class StubTelegramNotifier:
     def __init__(self) -> None:
         self.manual_events: list[dict[str, str]] = []
         self.status_events: list[dict[str, str]] = []
+        self.messages: list[dict[str, str]] = []
 
     @property
     def enabled(self) -> bool:
@@ -80,6 +85,18 @@ class StubTelegramNotifier:
                 "mini_app_url": mini_app_url or "",
             }
         )
+        return True
+
+    def send_message(
+        self,
+        *,
+        chat_id: str,
+        text: str,
+        disable_web_page_preview: bool = True,
+        reply_markup: dict[str, object] | None = None,
+    ) -> bool:
+        _ = disable_web_page_preview, reply_markup
+        self.messages.append({"chat_id": chat_id, "text": text})
         return True
 
 
@@ -138,6 +155,12 @@ def panel_client(tmp_path: Path) -> TestClient:
             model_cls=ApprovalRequestRead,
         )
     )
+    worker_orchestrator = WorkerOrchestratorService(
+        agent_service=claude_service,
+        approval_service=approval_service,
+        openhands_backend=OpenHandsControlledBackendService(repo_root=tmp_path, run_root=tmp_path / "oh-runs"),
+        autoresearch_backend=AutoResearchControlledBackendService(repo_root=tmp_path, run_root=tmp_path / "ar-runs"),
+    )
     capability_registry = CapabilityProviderRegistry()
     capability_registry.register(_StubCapabilityProvider("apple-calendar", CapabilityDomain.CALENDAR, "Apple Calendar"))
     capability_registry.register(_StubCapabilityProvider("openclaw-skills", CapabilityDomain.SKILL, "OpenClaw Skills"))
@@ -150,6 +173,7 @@ def panel_client(tmp_path: Path) -> TestClient:
     app.dependency_overrides[get_approval_store_service] = lambda: approval_service
     app.dependency_overrides[get_capability_provider_registry] = lambda: capability_registry
     app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+    app.dependency_overrides[get_worker_orchestrator_service] = lambda: worker_orchestrator
 
     with TestClient(app) as client:
         setattr(client, "_openclaw", openclaw_service)
@@ -158,6 +182,7 @@ def panel_client(tmp_path: Path) -> TestClient:
         setattr(client, "_approval_store", approval_service)
         setattr(client, "_capability_registry", capability_registry)
         setattr(client, "_notifier", notifier)
+        setattr(client, "_worker_orchestrator", worker_orchestrator)
         yield client
 
     app.dependency_overrides.clear()

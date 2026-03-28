@@ -8,6 +8,10 @@ from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 
+from autoresearch.api.worker_orchestration_runtime import (
+    execute_orchestrated_run_and_notify,
+    maybe_resume_approved_worker_run,
+)
 from autoresearch.api.dependencies import (
     get_admin_config_service,
     get_approval_store_service,
@@ -244,6 +248,7 @@ def _handle_telegram_webhook(
             approval_service=approval_service,
             notifier=notifier,
             session_identity=session_identity,
+            worker_orchestrator=worker_orchestrator,
         )
 
     if _is_mode_command(text):
@@ -433,7 +438,7 @@ def _handle_telegram_webhook(
         )
 
     background_tasks.add_task(
-        _execute_orchestrated_run_and_notify,
+        execute_orchestrated_run_and_notify,
         worker_orchestrator=worker_orchestrator,
         notifier=notifier,
         chat_id=chat_id,
@@ -1062,11 +1067,14 @@ def _handle_approve_command(
     approval_service: ApprovalStoreService,
     notifier: TelegramNotifierService,
     session_identity: TelegramSessionIdentityRead,
+    worker_orchestrator: WorkerOrchestratorService,
 ) -> TelegramWebhookAck:
     approval_query = _extract_approve_query(extracted["text"])
     approval_id, approval_action, approval_note = _parse_approve_query(approval_query)
     approval_uid = session_identity.actor.user_id or chat_id
     message_source = "telegram_approve_query"
+    resumed_bundle = None
+    resumed_run_id: str | None = None
     if approval_action is not None and approval_id:
         approval = approval_service.get_request(approval_id)
         if approval is None or approval.telegram_uid != approval_uid:
@@ -1087,7 +1095,26 @@ def _handle_approve_command(
                         },
                     ),
                 )
+                resumed_bundle = maybe_resume_approved_worker_run(
+                    background_tasks=background_tasks,
+                    approval=approval,
+                    worker_orchestrator=worker_orchestrator,
+                    notifier=notifier,
+                    announce_start=False,
+                    schedule_execution=False,
+                )
+                resumed_run_id = resumed_bundle.agent_run_id if resumed_bundle is not None else None
                 message_text = _build_approval_decision_message(approval)
+                if resumed_run_id:
+                    message_text = "\n".join(
+                        [
+                            message_text,
+                            "",
+                            "[Worker Resume]",
+                            f"run: {resumed_run_id}",
+                            f"worker: {approval.metadata.get('orchestration', {}).get('selected_worker') or '-'}",
+                        ]
+                    )
                 message_source = "telegram_approve_decision"
                 approval_query = approval.approval_id
             except ValueError as exc:
@@ -1114,6 +1141,16 @@ def _handle_approve_command(
             chat_id=chat_id,
             text=message_text,
         )
+    if resumed_bundle is not None:
+        background_tasks.add_task(
+            execute_orchestrated_run_and_notify,
+            worker_orchestrator=worker_orchestrator,
+            notifier=notifier,
+            chat_id=chat_id,
+            agent_run_id=resumed_bundle.agent_run_id,
+            request_payload=resumed_bundle.request,
+            decision_payload=resumed_bundle.decision.model_dump(mode="json"),
+        )
     return TelegramWebhookAck(
         accepted=True,
         update_id=_safe_int(update.get("update_id")),
@@ -1122,6 +1159,7 @@ def _handle_approve_command(
             "source": message_source,
             "approval_id": approval_query or None,
             "decision": approval_action or None,
+            "resumed_agent_run_id": resumed_run_id,
             "scope": session_identity.scope.value,
         },
     )
@@ -1214,42 +1252,6 @@ def _execute_agent_and_notify(
     if run is None:
         return
     notifier.send_message(chat_id=chat_id, text=_build_agent_result_message(run))
-
-
-def _execute_orchestrated_run_and_notify(
-    *,
-    worker_orchestrator: WorkerOrchestratorService,
-    notifier: TelegramNotifierService,
-    chat_id: str,
-    agent_run_id: str,
-    request_payload: ClaudeAgentCreateRequest,
-    decision_payload: dict[str, Any],
-) -> None:
-    summary = worker_orchestrator.execute_telegram_run(
-        agent_run_id=agent_run_id,
-        request=request_payload,
-        decision=worker_orchestrator.decide(
-            prompt=request_payload.prompt,
-            metadata={
-                **request_payload.metadata,
-                **decision_payload.get("metadata", {}),
-                "pipeline_target": decision_payload.get("pipeline_target"),
-            },
-        ),
-    )
-    if not notifier.enabled:
-        return
-    lines = [
-        f"[Worker 结果] {request_payload.task_name}",
-        f"route: {summary.route}",
-        f"worker: {summary.selected_worker}",
-        f"status: {summary.status}",
-        "",
-        summary.summary_text,
-    ]
-    if summary.error_text:
-        lines.extend(["", f"error: {summary.error_text}"])
-    notifier.send_message(chat_id=chat_id, text="\n".join(lines)[:3900])
 
 
 def _build_agent_result_message(run: ClaudeAgentRunRead) -> str:

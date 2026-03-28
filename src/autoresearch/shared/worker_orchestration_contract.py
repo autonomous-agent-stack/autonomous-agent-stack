@@ -4,7 +4,7 @@ from typing import Any
 
 from pydantic import Field
 
-from autoresearch.shared.models import ApprovalRisk, GitPromotionMode, StrictModel
+from autoresearch.shared.models import ApprovalRisk, ClaudeAgentCreateRequest, GitPromotionMode, StrictModel
 
 
 class WorkerRoute(str):
@@ -42,3 +42,16 @@ class WorkerExecutionSummary(StrictModel):
     promotion_success: bool | None = None
     promotion_reason: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class WorkerOrchestrationReplayPayload(StrictModel):
+    request: ClaudeAgentCreateRequest
+    decision: WorkerRoutingDecision
+
+
+class WorkerApprovalResumeRead(StrictModel):
+    approval_id: str
+    chat_id: str | None = None
+    agent_run_id: str
+    request: ClaudeAgentCreateRequest
+    decision: WorkerRoutingDecision

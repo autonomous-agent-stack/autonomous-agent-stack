@@ -14,6 +14,8 @@ from autoresearch.api.dependencies import (
     get_capability_provider_registry,
     get_claude_agent_service,
     get_openclaw_compat_service,
+    get_telegram_notifier_service,
+    get_worker_orchestrator_service,
 )
 from autoresearch.api.main import app
 from autoresearch.core.adapters import CapabilityProviderDescriptorRead, CapabilityProviderRegistry
@@ -22,8 +24,11 @@ from autoresearch.core.services.admin_auth import AdminAuthService
 from autoresearch.core.services.admin_config import AdminConfigService
 from autoresearch.core.services.admin_secrets import AdminSecretCipher
 from autoresearch.core.services.approval_store import ApprovalStoreService
+from autoresearch.core.services.autoresearch_controlled_backend import AutoResearchControlledBackendService
 from autoresearch.core.services.claude_agents import ClaudeAgentService
+from autoresearch.core.services.openhands_controlled_backend import OpenHandsControlledBackendService
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
+from autoresearch.core.services.worker_orchestrator import WorkerOrchestratorService
 from autoresearch.shared.models import (
     AdminAgentConfigRead,
     AdminChannelConfigRead,
@@ -112,6 +117,30 @@ class _StubCalendarProvider(_StubCapabilityProvider):
         return {}
 
 
+class _StubTelegramNotifier:
+    def __init__(self) -> None:
+        self.messages: list[dict[str, str]] = []
+
+    @property
+    def enabled(self) -> bool:
+        return True
+
+    def send_message(
+        self,
+        *,
+        chat_id: str,
+        text: str,
+        disable_web_page_preview: bool = True,
+        reply_markup: dict[str, object] | None = None,
+    ) -> bool:
+        _ = disable_web_page_preview, reply_markup
+        self.messages.append({"chat_id": chat_id, "text": text})
+        return True
+
+    def notify_manual_action(self, *, chat_id: str, entry: object, run_status: str) -> bool:
+        return True
+
+
 @pytest.fixture
 def admin_client(tmp_path: Path) -> TestClient:
     db_path = tmp_path / "admin.sqlite3"
@@ -167,10 +196,17 @@ def admin_client(tmp_path: Path) -> TestClient:
             model_cls=ApprovalRequestRead,
         )
     )
+    worker_orchestrator = WorkerOrchestratorService(
+        agent_service=claude_service,
+        approval_service=approval_store,
+        openhands_backend=OpenHandsControlledBackendService(repo_root=tmp_path, run_root=tmp_path / "oh-runs"),
+        autoresearch_backend=AutoResearchControlledBackendService(repo_root=tmp_path, run_root=tmp_path / "ar-runs"),
+    )
     capability_registry = CapabilityProviderRegistry()
     capability_registry.register(_StubCalendarProvider())
     capability_registry.register(_StubSkillProvider())
     capability_registry.register(_StubMCPProvider())
+    notifier = _StubTelegramNotifier()
 
     app.dependency_overrides[get_openclaw_compat_service] = lambda: openclaw_service
     app.dependency_overrides[get_claude_agent_service] = lambda: claude_service
@@ -178,6 +214,8 @@ def admin_client(tmp_path: Path) -> TestClient:
     app.dependency_overrides[get_admin_auth_service] = lambda: auth_service
     app.dependency_overrides[get_approval_store_service] = lambda: approval_store
     app.dependency_overrides[get_capability_provider_registry] = lambda: capability_registry
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+    app.dependency_overrides[get_worker_orchestrator_service] = lambda: worker_orchestrator
 
     with TestClient(app) as client:
         token_response = client.post(
@@ -190,6 +228,7 @@ def admin_client(tmp_path: Path) -> TestClient:
         client.headers.update({"authorization": f"Bearer {token}"})
         setattr(client, "_admin_service", admin_service)
         setattr(client, "_approval_store", approval_store)
+        setattr(client, "_worker_orchestrator", worker_orchestrator)
         yield client
 
     app.dependency_overrides.clear()

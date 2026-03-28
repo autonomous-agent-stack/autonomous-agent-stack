@@ -144,18 +144,21 @@ class AutoResearchControlledBackendService:
                 break
 
         if status is AutoResearchRunStatus.READY_FOR_PROMOTION and patch_result is not None:
-            promotion_preflight, promotion = self._finalize_promotion(
-                run_id=run_id,
-                patch_file=Path(patch_result.patch_path),
-                changed_files=changed_files,
-                request=request,
-                validation_status=validation_status,
-                exit_code=exit_code,
-                artifacts_dir=artifacts_dir,
-            )
-            if not promotion.success:
-                status = AutoResearchRunStatus.NEEDS_HUMAN_REVIEW
-                error = promotion.reason or "promotion gate rejected the patch candidate"
+            if bool(request.metadata.get("skip_promotion_finalize", False)):
+                self._append_log(log_file, "[promotion] finalize skipped; analysis stage is artifact-only\n")
+            else:
+                promotion_preflight, promotion = self._finalize_promotion(
+                    run_id=run_id,
+                    patch_file=Path(patch_result.patch_path),
+                    changed_files=changed_files,
+                    request=request,
+                    validation_status=validation_status,
+                    exit_code=exit_code,
+                    artifacts_dir=artifacts_dir,
+                )
+                if not promotion.success:
+                    status = AutoResearchRunStatus.NEEDS_HUMAN_REVIEW
+                    error = promotion.reason or "promotion gate rejected the patch candidate"
 
         workspace_retained = True
         if status is AutoResearchRunStatus.READY_FOR_PROMOTION and request.cleanup_workspace_on_success:
