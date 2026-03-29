@@ -375,12 +375,12 @@ class AgentExecutionRunner:
             candidate = workspace_dir / prefix
             if candidate.exists():
                 return {candidate}
-            return {self._nearest_existing_ancestor(workspace_dir, candidate)}
+            return {candidate}
 
         candidate = workspace_dir / normalized
         if candidate.exists():
             return {candidate}
-        return {self._nearest_existing_ancestor(workspace_dir, candidate.parent)}
+        return {candidate}
 
     def _resolve_matching_paths(self, workspace_dir: Path, pattern: str) -> set[Path]:
         normalized = pattern.replace("\\", "/").strip("/")
@@ -424,8 +424,36 @@ class AgentExecutionRunner:
                 self._chmod_path(target.parent, 0o777)
             return
 
+        self._ensure_writable_path_chain(workspace_dir=workspace_dir, target=target)
+        if not target.suffix:
+            try:
+                target.mkdir(parents=True, exist_ok=True)
+            except OSError:
+                pass
+            if target.exists() and target.is_dir():
+                self._apply_mode_tree(target, file_mode=0o666, dir_mode=0o777)
+                return
+
         if target.parent.exists():
             self._chmod_path(target.parent, 0o777)
+
+    def _ensure_writable_path_chain(self, *, workspace_dir: Path, target: Path) -> None:
+        self._chmod_path(workspace_dir, 0o777)
+        try:
+            relative_target = target.relative_to(workspace_dir)
+        except ValueError:
+            return
+
+        chain_parts = relative_target.parts if not target.suffix else relative_target.parts[:-1]
+        current = workspace_dir
+        for part in chain_parts:
+            current = current / part
+            if not current.exists():
+                try:
+                    current.mkdir(exist_ok=True)
+                except OSError:
+                    return
+            self._chmod_path(current, 0o777)
 
     def _make_target_read_only(self, target: Path) -> None:
         if target.is_dir():

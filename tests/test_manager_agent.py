@@ -151,12 +151,13 @@ def test_manager_agent_routes_issue_style_landing_page_prompt_to_business_dag(tm
     assert dispatch.execution_plan is not None
     assert dispatch.execution_plan.strategy is ManagerPlanStrategy.TASK_DAG
     backend_task, tests_task, frontend_task = dispatch.execution_plan.tasks
-    assert any(path.startswith("src/autoresearch/api/") for path in backend_task.worker_spec.allowed_paths)
-    assert tests_task.worker_spec.allowed_paths == [
-        "tests/test_panel_security.py",
-        "tests/test_admin_backend.py",
-    ]
-    assert "panel/**" in frontend_task.worker_spec.allowed_paths
+    assert dispatch.selected_intent.metadata["surface_slug"] == "malu"
+    assert dispatch.selected_intent.metadata["surface_root"] == "apps/malu"
+    assert backend_task.worker_spec.allowed_paths == ["apps/malu/**"]
+    assert backend_task.worker_spec.test_command == "python -m py_compile apps/malu/lead_capture.py"
+    assert tests_task.worker_spec.allowed_paths == ["tests/apps/test_malu_landing_page.py"]
+    assert tests_task.worker_spec.test_command == "pytest -q tests/apps/test_malu_landing_page.py"
+    assert frontend_task.worker_spec.allowed_paths == ["apps/malu/**"]
     assert frontend_task.worker_spec.metadata["manager_intent_label"] == "product_landing_page"
 
 
@@ -181,7 +182,10 @@ def test_manager_agent_routes_direct_malu_landing_page_prompt_to_product_intent(
     assert dispatch.execution_plan is not None
     assert dispatch.execution_plan.strategy is ManagerPlanStrategy.TASK_DAG
     assert dispatch.execution_plan.tasks[0].worker_spec.metadata["manager_intent_label"] == "product_landing_page"
-    assert "panel/**" in dispatch.execution_plan.tasks[2].worker_spec.allowed_paths
+    assert dispatch.selected_intent.metadata["surface_root"] == "apps/malu"
+    assert dispatch.execution_plan.tasks[0].worker_spec.allowed_paths == ["apps/malu/**"]
+    assert dispatch.execution_plan.tasks[1].worker_spec.allowed_paths == ["tests/apps/test_malu_landing_page.py"]
+    assert dispatch.execution_plan.tasks[2].worker_spec.allowed_paths == ["apps/malu/**"]
 
 
 def test_manager_agent_api_dispatch_executes_background_plan(tmp_path: Path) -> None:

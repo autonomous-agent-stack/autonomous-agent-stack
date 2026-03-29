@@ -59,3 +59,17 @@ def test_policy_merge_allows_script_targets_when_manifest_and_job_both_allow_the
         "tests/test_check_prompt_hygiene.py",
         "scripts/check_prompt_hygiene.py",
     ]
+
+
+def test_policy_merge_allows_isolated_apps_targets_when_job_requests_business_surface() -> None:
+    manifest_policy = ExecutionPolicy(allowed_paths=["src/**", "tests/**", "apps/**"])
+    job_policy = ExecutionPolicy(
+        allowed_paths=["apps/malu/**", "tests/apps/test_malu_landing_page.py"]
+    )
+
+    effective = build_effective_policy(manifest_policy, job_policy).merged
+
+    assert effective.allowed_paths == [
+        "tests/apps/test_malu_landing_page.py",
+        "apps/malu/**",
+    ]

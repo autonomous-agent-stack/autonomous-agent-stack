@@ -276,6 +276,90 @@ result_path.write_text(json.dumps(payload), encoding="utf-8")
     assert repeated.driver_result.status == "succeeded"
 
 
+def test_runner_shadow_workspace_allows_creating_new_scoped_app_directory_without_unlocking_repo(
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    (repo_root / "src").mkdir(parents=True, exist_ok=True)
+    (repo_root / "src" / "__init__.py").write_text("", encoding="utf-8")
+    (repo_root / "src" / "forbidden.py").write_text("SECRET = 1\n", encoding="utf-8")
+    _write_adapter(
+        repo_root,
+        "drivers/new_surface_probe.py",
+        """#!/usr/bin/env python3
+import json
+import os
+from pathlib import Path
+
+workspace = Path(os.environ["AEP_WORKSPACE"])
+result_path = Path(os.environ["AEP_RESULT_PATH"])
+allowed = workspace / "apps" / "malu" / "lead_capture.py"
+forbidden = workspace / "src" / "forbidden.py"
+
+allowed.parent.mkdir(parents=True, exist_ok=True)
+allowed.write_text("PHONE_PATTERN = r'^1[3-9]\\\\d{9}$'\\n", encoding="utf-8")
+
+error = "missing denial"
+try:
+    forbidden.write_text("SECRET = 2\\n", encoding="utf-8")
+except Exception as exc:  # pragma: no cover - exercised via runner integration
+    error = f"{type(exc).__name__}: {exc}"
+
+payload = {
+    "protocol_version": "aep/v0",
+    "run_id": "run-new-surface-probe",
+    "agent_id": "openhands",
+    "attempt": 1,
+    "status": "succeeded",
+    "summary": error,
+    "changed_paths": ["apps/malu/lead_capture.py"],
+    "output_artifacts": [],
+    "metrics": {"duration_ms": 0, "steps": 0, "commands": 0, "prompt_tokens": None, "completion_tokens": None},
+    "recommended_action": "promote",
+    "error": None,
+}
+result_path.write_text(json.dumps(payload), encoding="utf-8")
+""",
+    )
+    _write_manifest(repo_root, "drivers/new_surface_probe.py")
+
+    runner = AgentExecutionRunner(
+        repo_root=repo_root,
+        runtime_root=tmp_path / "runtime",
+        manifests_dir=repo_root / "configs" / "agents",
+    )
+
+    summary = runner.run_job(
+        JobSpec(
+            run_id="run-new-surface-probe",
+            agent_id="openhands",
+            task="Create apps/malu/lead_capture.py without touching src/forbidden.py.",
+            validators=[
+                ValidatorSpec(
+                    id="worker.test_command",
+                    kind="command",
+                    command=f"{sys.executable} -m py_compile apps/malu/lead_capture.py",
+                )
+            ],
+            policy=ExecutionPolicy(
+                allowed_paths=["apps/malu/**"],
+                forbidden_paths=["src/forbidden.py", ".git/**", "logs/**", ".masfactory_runtime/**", "memory/**"],
+                cleanup_on_success=False,
+            ),
+            metadata={"pipeline_target": "patch"},
+        )
+    )
+
+    assert summary.driver_result.status == "succeeded"
+    assert summary.driver_result.changed_paths == ["apps/malu/lead_capture.py"]
+    assert "PermissionError" in summary.driver_result.summary
+    assert (repo_root / "src" / "forbidden.py").read_text(encoding="utf-8") == "SECRET = 1\n"
+    patch_text = Path(summary.promotion_patch_uri or "").read_text(encoding="utf-8")
+    assert "apps/malu/lead_capture.py" in patch_text
+    assert "PHONE_PATTERN = r'^1[3-9]\\d{9}$'" in patch_text
+
+
 def test_runner_fast_fail_aborts_long_running_syntax_breakage(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()

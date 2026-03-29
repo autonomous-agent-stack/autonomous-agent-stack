@@ -41,6 +41,7 @@ class OpenHandsWorkerService:
             "- Only modify files that match allowed_paths.\n"
             "- Never modify forbidden_paths.\n"
             "- The workspace is physically permission-scoped; out-of-scope writes will fail at the filesystem layer.\n"
+            "- If an allowed business surface directory does not exist yet, you may create it inside allowed_paths.\n"
             "- Do not run git add, git commit, git push, git merge, git rebase, git reset, or git checkout.\n"
             "- Do not create product-facing entrypoints or change approval/promotion policy.\n"
             "- Produce the smallest patch that can satisfy the validation command.\n"

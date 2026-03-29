@@ -79,6 +79,26 @@ _INFRA_MARKERS = (
     "调度",
 )
 
+_PRODUCT_SLUG_ALIASES = {
+    "玛露": "malu",
+}
+
+_PRODUCT_SLUG_STOPWORDS = {
+    "landing",
+    "page",
+    "product",
+    "brand",
+    "lead",
+    "capture",
+    "frontend",
+    "backend",
+    "page",
+    "panel",
+    "admin",
+    "openclaw",
+    "autoresearch",
+}
+
 
 @dataclass(frozen=True, slots=True)
 class _IntentRule:
@@ -115,15 +135,10 @@ _INTENT_RULES = (
             "产品页",
         ),
         preferred_paths=(
-            "src/autoresearch/api/routers/panel.py",
-            "src/autoresearch/api/routers/openclaw.py",
-            "src/autoresearch/api/**",
-            "src/autoresearch/core/services/**",
-            "panel/**",
-            "tests/test_panel_security.py",
-            "tests/test_admin_backend.py",
+            "apps/**",
+            "tests/apps/**",
         ),
-        preferred_tests=("tests/test_panel_security.py", "tests/test_admin_backend.py"),
+        preferred_tests=("tests/apps/**",),
         goal_template="Build a bounded landing-page style product surface for: {prompt}",
     ),
     _IntentRule(
@@ -522,11 +537,19 @@ class ManagerAgentService:
                 best_rule = rule
                 best_keywords = matched
                 best_score = score
-        allowed_paths = self._resolve_existing_paths(best_rule.preferred_paths)
-        suggested_tests = self._resolve_existing_paths(best_rule.preferred_tests)
-        if not allowed_paths:
-            allowed_paths = ["src/autoresearch/api/**", "src/autoresearch/core/services/**", "tests/**"]
         normalized_goal = best_rule.goal_template.format(prompt=normalized_prompt)
+        intent_metadata: dict[str, str] = {"normalized_goal": normalized_goal}
+
+        if best_rule.intent_id == "product_landing_page":
+            surface_scope = self._build_product_surface_scope(normalized_prompt)
+            allowed_paths = surface_scope["allowed_paths"]
+            suggested_tests = surface_scope["suggested_tests"]
+            intent_metadata.update(surface_scope["metadata"])
+        else:
+            allowed_paths = self._resolve_existing_paths(best_rule.preferred_paths)
+            suggested_tests = self._resolve_existing_paths(best_rule.preferred_tests)
+            if not allowed_paths:
+                allowed_paths = ["src/autoresearch/api/**", "src/autoresearch/core/services/**", "tests/**"]
         return ManagerIntentRead(
             intent_id=best_rule.intent_id,
             label=best_rule.label,
@@ -534,7 +557,7 @@ class ManagerAgentService:
             matched_keywords=best_keywords,
             allowed_paths=allowed_paths,
             suggested_test_paths=suggested_tests,
-            metadata={"normalized_goal": normalized_goal},
+            metadata=intent_metadata,
         )
 
     def _score_intent_rule(
@@ -562,6 +585,9 @@ class ManagerAgentService:
         return score
 
     def _bucket_backend_paths(self, intent: ManagerIntentRead) -> list[str]:
+        if intent.intent_id == "product_landing_page":
+            surface_root = str(intent.metadata.get("surface_root") or "apps/brand-site")
+            return [f"{surface_root}/**"]
         candidates = [
             path
             for path in intent.allowed_paths
@@ -575,6 +601,9 @@ class ManagerAgentService:
         )
 
     def _bucket_test_paths(self, intent: ManagerIntentRead) -> list[str]:
+        if intent.intent_id == "product_landing_page":
+            surface_test_path = str(intent.metadata.get("surface_test_path") or "tests/apps/test_brand_site_landing_page.py")
+            return [surface_test_path]
         candidates = [
             *intent.suggested_test_paths,
             *[path for path in intent.allowed_paths if path.startswith("tests/")],
@@ -582,11 +611,49 @@ class ManagerAgentService:
         return self._normalize_scope(candidates, fallback=["tests/test_autoresearch_planner.py"])
 
     def _bucket_frontend_paths(self, intent: ManagerIntentRead) -> list[str]:
+        if intent.intent_id == "product_landing_page":
+            surface_root = str(intent.metadata.get("surface_root") or "apps/brand-site")
+            return [f"{surface_root}/**"]
         candidates = [path for path in intent.allowed_paths if self._is_frontend_path(path)]
         return self._normalize_scope(
             candidates,
             fallback=["panel/**", "src/autoresearch/api/routers/panel.py"],
         )
+
+    def _build_product_surface_scope(self, prompt: str) -> dict[str, object]:
+        surface_slug = self._extract_product_surface_slug(prompt)
+        surface_root = f"apps/{surface_slug}"
+        surface_test_path = f"tests/apps/test_{surface_slug}_landing_page.py"
+        surface_backend_entry = f"{surface_root}/lead_capture.py"
+        surface_frontend_entry = f"{surface_root}/landing_page.html"
+        return {
+            "allowed_paths": [f"{surface_root}/**", surface_test_path],
+            "suggested_tests": [surface_test_path],
+            "metadata": {
+                "surface_slug": surface_slug,
+                "surface_root": surface_root,
+                "surface_test_path": surface_test_path,
+                "surface_backend_entry": surface_backend_entry,
+                "surface_frontend_entry": surface_frontend_entry,
+            },
+        }
+
+    def _extract_product_surface_slug(self, prompt: str) -> str:
+        explicit_match = re.search(r"apps[/ ]([a-z0-9][a-z0-9_-]*)", prompt.casefold())
+        if explicit_match is not None:
+            return explicit_match.group(1)
+
+        for marker, slug in _PRODUCT_SLUG_ALIASES.items():
+            if marker in prompt:
+                return slug
+
+        ascii_candidates = re.findall(r"[A-Za-z][A-Za-z0-9_-]{1,31}", prompt)
+        for candidate in ascii_candidates:
+            folded = candidate.casefold()
+            if folded not in _PRODUCT_SLUG_STOPWORDS:
+                return self._slugify(folded)
+
+        return "brand-site"
 
     def _resolve_existing_paths(self, patterns: tuple[str, ...]) -> list[str]:
         resolved: list[str] = []
@@ -634,7 +701,11 @@ class ManagerAgentService:
         test_paths: list[str],
     ) -> OpenHandsWorkerJobSpec:
         slug = self._slugify(f"{intent.label}-{task_stage.value}")
-        test_command = "pytest -q " + " ".join(test_paths) if test_paths else "pytest -q tests/test_autoresearch_planner.py"
+        test_command = self._task_test_command(
+            intent=intent,
+            task_stage=task_stage,
+            test_paths=test_paths,
+        )
         dependency_text = ", ".join(depends_on) if depends_on else "none"
         problem_statement = (
             "Manager agent execution plan task.\n\n"
@@ -647,6 +718,16 @@ class ManagerAgentService:
             f"Dependencies: {dependency_text}\n"
             "Stay inside the scoped files and deliver the smallest useful patch for this stage only."
         )
+        if intent.intent_id == "product_landing_page":
+            problem_statement += (
+                "\n"
+                f"Business surface root: {intent.metadata.get('surface_root', 'apps/brand-site')}\n"
+                f"Suggested backend entry: {intent.metadata.get('surface_backend_entry', 'apps/brand-site/lead_capture.py')}\n"
+                f"Suggested frontend entry: {intent.metadata.get('surface_frontend_entry', 'apps/brand-site/landing_page.html')}\n"
+                f"Suggested regression test: {intent.metadata.get('surface_test_path', 'tests/apps/test_brand_site_landing_page.py')}\n"
+                "This is a business-surface task. Do not route it through src/autoresearch or compatibility routers unless the scope explicitly allows it.\n"
+                "If the isolated apps surface does not exist yet, create it inside allowed_paths."
+            )
         return OpenHandsWorkerJobSpec(
             job_id=task_id,
             problem_statement=problem_statement,
@@ -674,6 +755,28 @@ class ManagerAgentService:
                 "base_branch": request.target_base_branch,
             },
         )
+
+    def _task_test_command(
+        self,
+        *,
+        intent: ManagerIntentRead,
+        task_stage: ManagerTaskStage,
+        test_paths: list[str],
+    ) -> str:
+        if intent.intent_id == "product_landing_page":
+            backend_entry = str(
+                intent.metadata.get("surface_backend_entry") or "apps/brand-site/lead_capture.py"
+            )
+            surface_test_path = str(
+                intent.metadata.get("surface_test_path") or "tests/apps/test_brand_site_landing_page.py"
+            )
+            if task_stage is ManagerTaskStage.BACKEND:
+                return f"python -m py_compile {backend_entry}"
+            if task_stage in {ManagerTaskStage.TESTS, ManagerTaskStage.FRONTEND}:
+                return f"pytest -q {surface_test_path}"
+        if test_paths:
+            return "pytest -q " + " ".join(test_paths)
+        return "pytest -q tests/test_autoresearch_planner.py"
 
     def _save_dispatch(
         self,
