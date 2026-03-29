@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -68,7 +69,7 @@ class AgentExecutionRunner:
         patch_path = artifacts_dir / "promotion.patch"
 
         if run_dir.exists():
-            shutil.rmtree(run_dir)
+            self._rmtree_force(run_dir)
         artifacts_dir.mkdir(parents=True, exist_ok=True)
 
         job_path.write_text(
@@ -127,6 +128,7 @@ class AgentExecutionRunner:
             pending_attempts -= 1
 
             self._snapshot_baseline_to_workspace(baseline_dir, workspace_dir)
+            self._prepare_shadow_workspace(workspace_dir, effective_policy)
             self._append_event(
                 events_path,
                 {
@@ -150,6 +152,7 @@ class AgentExecutionRunner:
                 agent_id=current_agent,
                 attempt=attempt,
                 timeout_sec=effective_policy.merged.timeout_sec,
+                policy=effective_policy,
             )
             result_path.write_text(
                 json.dumps(driver_result.model_dump(mode="json"), ensure_ascii=False, indent=2),
@@ -285,8 +288,123 @@ class AgentExecutionRunner:
 
     def _snapshot_baseline_to_workspace(self, baseline_dir: Path, workspace_dir: Path) -> None:
         if workspace_dir.exists():
-            shutil.rmtree(workspace_dir)
+            self._rmtree_force(workspace_dir)
         shutil.copytree(baseline_dir, workspace_dir, dirs_exist_ok=True)
+
+    def _prepare_shadow_workspace(self, workspace_dir: Path, policy: EffectivePolicy) -> None:
+        if not workspace_dir.exists():
+            return
+
+        self._apply_mode_tree(workspace_dir, file_mode=0o444, dir_mode=0o555)
+
+        writable_paths: set[Path] = set()
+        for pattern in policy.merged.allowed_paths:
+            writable_paths.update(self._resolve_writable_targets(workspace_dir, pattern))
+
+        for target in sorted(writable_paths, key=lambda item: (len(item.parts), str(item))):
+            self._make_target_writable(workspace_dir, target)
+
+        locked_paths: set[Path] = set()
+        for pattern in policy.merged.forbidden_paths:
+            locked_paths.update(self._resolve_matching_paths(workspace_dir, pattern))
+
+        for target in sorted(locked_paths, key=lambda item: len(item.parts), reverse=True):
+            self._make_target_read_only(target)
+
+    def _resolve_writable_targets(self, workspace_dir: Path, pattern: str) -> set[Path]:
+        normalized = pattern.replace("\\", "/").strip("/")
+        if not normalized:
+            return set()
+
+        targets = self._resolve_matching_paths(workspace_dir, normalized)
+        if targets:
+            return targets
+
+        prefix = self._glob_prefix(normalized)
+        if prefix:
+            candidate = workspace_dir / prefix
+            if candidate.exists():
+                return {candidate}
+            return {self._nearest_existing_ancestor(workspace_dir, candidate)}
+
+        candidate = workspace_dir / normalized
+        if candidate.exists():
+            return {candidate}
+        return {self._nearest_existing_ancestor(workspace_dir, candidate.parent)}
+
+    def _resolve_matching_paths(self, workspace_dir: Path, pattern: str) -> set[Path]:
+        normalized = pattern.replace("\\", "/").strip("/")
+        if not normalized:
+            return set()
+
+        matched: set[Path] = set()
+        for path in [workspace_dir, *workspace_dir.rglob("*")]:
+            rel = path.relative_to(workspace_dir).as_posix() if path != workspace_dir else "."
+            if rel == ".":
+                continue
+            if self._matches_any(rel, [normalized]):
+                matched.add(path)
+        return matched
+
+    @staticmethod
+    def _nearest_existing_ancestor(workspace_dir: Path, candidate: Path) -> Path:
+        probe = candidate
+        while probe != workspace_dir and not probe.exists():
+            probe = probe.parent
+        if probe.exists():
+            return probe
+        return workspace_dir
+
+    def _make_target_writable(self, workspace_dir: Path, target: Path) -> None:
+        for ancestor in reversed(target.parents):
+            if ancestor == workspace_dir.parent or ancestor == target:
+                continue
+            if workspace_dir not in ancestor.parents and ancestor != workspace_dir:
+                continue
+            if ancestor.exists():
+                self._chmod_path(ancestor, 0o777)
+
+        if target.is_dir():
+            self._apply_mode_tree(target, file_mode=0o666, dir_mode=0o777)
+            return
+
+        if target.exists():
+            self._chmod_path(target, 0o666)
+            if target.parent.exists():
+                self._chmod_path(target.parent, 0o777)
+            return
+
+        if target.parent.exists():
+            self._chmod_path(target.parent, 0o777)
+
+    def _make_target_read_only(self, target: Path) -> None:
+        if target.is_dir():
+            self._apply_mode_tree(target, file_mode=0o444, dir_mode=0o555)
+            return
+        if target.exists():
+            self._chmod_path(target, 0o444)
+            if target.parent.exists():
+                self._chmod_path(target.parent, 0o555)
+
+    def _apply_mode_tree(self, root: Path, *, file_mode: int, dir_mode: int) -> None:
+        if not root.exists():
+            return
+        if root.is_dir():
+            self._chmod_path(root, dir_mode)
+            for path in root.rglob("*"):
+                if path.is_dir():
+                    self._chmod_path(path, dir_mode)
+                else:
+                    self._chmod_path(path, file_mode)
+            return
+        self._chmod_path(root, file_mode)
+
+    @staticmethod
+    def _chmod_path(path: Path, mode: int) -> None:
+        try:
+            path.chmod(mode)
+        except OSError:
+            return
 
     def _invoke_adapter(
         self,
@@ -303,6 +421,7 @@ class AgentExecutionRunner:
         agent_id: str,
         attempt: int,
         timeout_sec: int,
+        policy: EffectivePolicy,
     ) -> DriverResult:
         if result_path.exists():
             result_path.unlink()
@@ -334,33 +453,143 @@ class AgentExecutionRunner:
         stderr_log = artifacts_dir / "stderr.log"
 
         started = time.perf_counter()
-        try:
-            completed = subprocess.run(
+        completed: subprocess.CompletedProcess[str] | None = None
+        probe_signature: tuple[tuple[str, int, int], ...] | None = None
+        last_probed_signature: tuple[tuple[str, int, int], ...] | None = None
+        stable_polls = 0
+        stall_timeout_sec = self._stall_progress_timeout_sec(timeout_sec)
+        last_progress_signature = self._meaningful_progress_signature(
+            baseline_dir=baseline_dir,
+            workspace_dir=workspace_dir,
+            allowed_paths=policy.merged.allowed_paths,
+        )
+        last_progress_at = started
+
+        with stdout_log.open("a", encoding="utf-8") as stdout_handle, stderr_log.open(
+            "a", encoding="utf-8"
+        ) as stderr_handle:
+            stdout_handle.write(f"\n=== attempt {attempt} ({agent_id}) ===\n")
+            stderr_handle.write(f"\n=== attempt {attempt} ({agent_id}) ===\n")
+            stdout_handle.flush()
+            stderr_handle.flush()
+
+            process = subprocess.Popen(
                 [str(entrypoint)],
                 cwd=self._repo_root,
                 env=env,
-                capture_output=True,
+                stdout=stdout_handle,
+                stderr=stderr_handle,
                 text=True,
-                timeout=timeout_sec,
             )
-            duration_ms = int((time.perf_counter() - started) * 1000)
-        except subprocess.TimeoutExpired:
-            return DriverResult(
+
+            while True:
+                returncode = process.poll()
+                now = time.perf_counter()
+                duration_ms = int((now - started) * 1000)
+                if returncode is not None:
+                    completed = subprocess.CompletedProcess(
+                        args=[str(entrypoint)],
+                        returncode=returncode,
+                        stdout="",
+                        stderr="",
+                    )
+                    break
+
+                if duration_ms >= timeout_sec * 1000:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait(timeout=5)
+                    return DriverResult(
+                        run_id=run_id,
+                        agent_id=agent_id,
+                        attempt=attempt,
+                        status="timed_out",
+                        summary=f"adapter timed out after {timeout_sec}s",
+                        recommended_action="fallback",
+                        error=f"timeout after {timeout_sec}s",
+                    )
+
+                current_progress_signature = self._meaningful_progress_signature(
+                    baseline_dir=baseline_dir,
+                    workspace_dir=workspace_dir,
+                    allowed_paths=policy.merged.allowed_paths,
+                )
+                if current_progress_signature != last_progress_signature:
+                    last_progress_signature = current_progress_signature
+                    last_progress_at = now
+                elif (now - last_progress_at) >= stall_timeout_sec:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait(timeout=5)
+                    stall_error = f"no workspace progress for {stall_timeout_sec}s"
+                    return DriverResult(
+                        run_id=run_id,
+                        agent_id=agent_id,
+                        attempt=attempt,
+                        status="timed_out",
+                        summary=f"adapter stalled after {stall_timeout_sec}s without workspace progress",
+                        recommended_action="fallback",
+                        error=stall_error,
+                    )
+
+                current_signature, current_paths = self._changed_python_signature(
+                    baseline_dir=baseline_dir,
+                    workspace_dir=workspace_dir,
+                    allowed_paths=policy.merged.allowed_paths,
+                )
+                if current_signature and current_signature == probe_signature:
+                    stable_polls += 1
+                elif current_signature:
+                    probe_signature = current_signature
+                    stable_polls = 1
+                else:
+                    probe_signature = None
+                    stable_polls = 0
+
+                if (
+                    current_signature
+                    and stable_polls >= 2
+                    and current_signature != last_probed_signature
+                ):
+                    probe_failure = self._run_fast_fail_probe(
+                        workspace_dir=workspace_dir,
+                        changed_python_paths=current_paths,
+                    )
+                    last_probed_signature = current_signature
+                    if probe_failure is not None:
+                        process.terminate()
+                        try:
+                            process.wait(timeout=5)
+                        except subprocess.TimeoutExpired:
+                            process.kill()
+                            process.wait(timeout=5)
+                        return DriverResult(
+                            run_id=run_id,
+                            agent_id=agent_id,
+                            attempt=attempt,
+                            status="failed",
+                            summary="adapter aborted by fast-fail probe",
+                            changed_paths=self._collect_changed_paths(baseline_dir, workspace_dir),
+                            recommended_action="fallback",
+                            error=probe_failure,
+                        )
+
+                time.sleep(2)
+
+        duration_ms = int((time.perf_counter() - started) * 1000)
+        if completed is None:
+            return self._contract_error_result(
                 run_id=run_id,
                 agent_id=agent_id,
                 attempt=attempt,
-                status="timed_out",
-                summary=f"adapter timed out after {timeout_sec}s",
-                recommended_action="fallback",
-                error=f"timeout after {timeout_sec}s",
+                message="adapter process exited without completion record",
             )
-
-        with stdout_log.open("a", encoding="utf-8") as handle:
-            handle.write(f"\n=== attempt {attempt} ({agent_id}) ===\n")
-            handle.write(completed.stdout or "")
-        with stderr_log.open("a", encoding="utf-8") as handle:
-            handle.write(f"\n=== attempt {attempt} ({agent_id}) ===\n")
-            handle.write(completed.stderr or "")
 
         if not result_path.exists():
             return self._contract_error_result(
@@ -533,6 +762,132 @@ class AgentExecutionRunner:
         )
         return patch_text, allowed_changed, checks
 
+    def _meaningful_progress_signature(
+        self,
+        *,
+        baseline_dir: Path,
+        workspace_dir: Path,
+        allowed_paths: list[str],
+    ) -> tuple[tuple[str, int, int], ...]:
+        items: list[tuple[str, int, int]] = []
+        changed_paths = self._collect_changed_paths(baseline_dir, workspace_dir)
+        for rel in sorted(changed_paths):
+            if not self._matches_any(rel, allowed_paths):
+                continue
+            path = workspace_dir / rel
+            if not path.exists():
+                items.append((f"delete:{rel}", 0, 0))
+                continue
+            stat = path.stat()
+            items.append((f"change:{rel}", stat.st_mtime_ns, stat.st_size))
+
+        state_root = workspace_dir / ".openhands-state"
+        if state_root.exists():
+            for path in sorted(candidate for candidate in state_root.rglob("*") if candidate.is_file()):
+                stat = path.stat()
+                items.append(
+                    (
+                        f"state:{path.relative_to(workspace_dir).as_posix()}",
+                        stat.st_mtime_ns,
+                        stat.st_size,
+                    )
+                )
+        return tuple(items)
+
+    def _changed_python_signature(
+        self,
+        *,
+        baseline_dir: Path,
+        workspace_dir: Path,
+        allowed_paths: list[str],
+    ) -> tuple[tuple[tuple[str, int, int], ...] | None, list[str]]:
+        changed_paths = self._collect_changed_paths(baseline_dir, workspace_dir)
+        python_paths = [
+            path
+            for path in changed_paths
+            if path.endswith(".py")
+            and path.startswith(("src/", "tests/"))
+            and self._matches_any(path, allowed_paths)
+        ]
+        if not python_paths:
+            return None, []
+
+        signature_items: list[tuple[str, int, int]] = []
+        for rel in sorted(python_paths):
+            path = workspace_dir / rel
+            if not path.exists():
+                continue
+            stat = path.stat()
+            signature_items.append((rel, stat.st_mtime_ns, stat.st_size))
+        if not signature_items:
+            return None, []
+        return tuple(signature_items), [item[0] for item in signature_items]
+
+    def _run_fast_fail_probe(
+        self,
+        *,
+        workspace_dir: Path,
+        changed_python_paths: list[str],
+    ) -> str | None:
+        if not changed_python_paths:
+            return None
+
+        compile_probe = subprocess.run(
+            [sys.executable, "-m", "py_compile", *changed_python_paths],
+            cwd=workspace_dir,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        compile_detail = (compile_probe.stderr or compile_probe.stdout or "").strip()
+        if compile_probe.returncode != 0 and "SyntaxError" in compile_detail:
+            return compile_detail[:2000]
+
+        importable_modules: list[str] = []
+        for rel in changed_python_paths:
+            if not rel.startswith("src/"):
+                continue
+            module_parts = list(Path(rel).with_suffix("").parts[1:])
+            if module_parts and module_parts[-1] == "__init__":
+                module_parts = module_parts[:-1]
+            if module_parts:
+                importable_modules.append(".".join(module_parts))
+
+        if not importable_modules:
+            return None
+
+        import_probe = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import importlib, sys; "
+                    "mods = sys.argv[1:]; "
+                    "[(importlib.import_module(name), None) for name in mods]"
+                ),
+                *importable_modules,
+            ],
+            cwd=workspace_dir,
+            env={
+                **os.environ,
+                "PYTHONPATH": str(workspace_dir / "src"),
+                "PYTHONDONTWRITEBYTECODE": "1",
+            },
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        import_detail = (import_probe.stderr or import_probe.stdout or "").strip()
+        if import_probe.returncode != 0 and any(
+            token in import_detail for token in ("ModuleNotFoundError", "ImportError", "SyntaxError")
+        ):
+            return import_detail[:2000]
+        return None
+
+    @staticmethod
+    def _stall_progress_timeout_sec(timeout_sec: int) -> int:
+        return min(timeout_sec, min(180, max(60, max(1, timeout_sec // 4))))
+
     def _run_validators(
         self,
         *,
@@ -692,6 +1047,15 @@ class AgentExecutionRunner:
         return False
 
     @staticmethod
+    def _glob_prefix(value: str) -> str:
+        prefix: list[str] = []
+        for char in value:
+            if char in "*?[":
+                break
+            prefix.append(char)
+        return "".join(prefix).rstrip("/")
+
+    @staticmethod
     def _collect_files(root: Path) -> list[str]:
         files: list[str] = []
         if not root.exists():
@@ -743,6 +1107,24 @@ class AgentExecutionRunner:
         with events_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
+    @staticmethod
+    def _rmtree_force(path: Path) -> None:
+        if not path.exists():
+            return
+
+        def onexc(func, failed_path, excinfo) -> None:
+            _ = excinfo
+            try:
+                os.chmod(failed_path, 0o777)
+            except OSError:
+                pass
+            try:
+                func(failed_path)
+            except OSError:
+                pass
+
+        shutil.rmtree(path, onexc=onexc)
+
     def _git_ref(self, args: list[str], *, default: str) -> str:
         completed = subprocess.run(
             ["git", *args],
@@ -763,7 +1145,7 @@ class AgentExecutionRunner:
     @staticmethod
     def _cleanup_workspace(*, workspace_dir: Path, success: bool, policy: EffectivePolicy) -> None:
         if success and policy.merged.cleanup_on_success:
-            shutil.rmtree(workspace_dir, ignore_errors=True)
+            AgentExecutionRunner._rmtree_force(workspace_dir)
             return
         if not success and not policy.merged.retain_workspace_on_failure:
-            shutil.rmtree(workspace_dir, ignore_errors=True)
+            AgentExecutionRunner._rmtree_force(workspace_dir)

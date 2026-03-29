@@ -36,6 +36,13 @@ case "${cmd} ${sub}" in
   "context show")
     printf '%s\n' "${FAKE_DOCKER_CONTEXT:-desktop-linux}"
     ;;
+  "version --format")
+    if [[ "${FAKE_DOCKER_INFO_OK:-0}" == "1" ]] || [[ "${DOCKER_HOST:-}" == "${FAKE_REPO_DOCKER_HOST:-}" ]]; then
+      printf '%s\n' "27.0.0"
+      exit 0
+    fi
+    exit 1
+    ;;
   "info ")
     if [[ "${FAKE_DOCKER_INFO_OK:-0}" == "1" ]] || [[ "${DOCKER_HOST:-}" == "${FAKE_REPO_DOCKER_HOST:-}" ]]; then
       exit 0

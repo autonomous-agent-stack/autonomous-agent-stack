@@ -53,6 +53,7 @@ def _seed_admin_dashboard_repo(repo_root: Path) -> None:
         "def collect_metrics() -> dict[str, int]:\n    return {'cpu': 1}\n",
     )
     _write(repo_root / "tests" / "test_admin_managed_skills.py", "def test_admin_ok():\n    assert True\n")
+    _write(repo_root / "tests" / "test_admin_backend.py", "def test_admin_backend_ok():\n    assert True\n")
 
 
 def test_manager_agent_translates_fuzzy_game_prompt_into_worker_contract(tmp_path: Path) -> None:
@@ -118,6 +119,45 @@ def test_manager_agent_decomposes_complex_prompt_into_task_dag(tmp_path: Path) -
     ]
     assert "panel/**" in frontend_task.worker_spec.allowed_paths
     assert frontend_task.worker_spec.metadata["manager_task_stage"] == "frontend"
+
+
+def test_manager_agent_routes_issue_style_landing_page_prompt_to_business_dag(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    _seed_admin_dashboard_repo(repo_root)
+
+    service = ManagerAgentService(
+        repository=InMemoryRepository(),
+        repo_root=repo_root,
+    )
+
+    dispatch = service.create_dispatch(
+        ManagerDispatchRequest(
+            prompt=(
+                "Resolve the following GitHub issue in the current repository through the existing patch-only "
+                "manager pipeline.\n\n"
+                "Title: Chaos Run: 玛露遮瑕膏落地页商业化压力测试\n"
+                "Issue body:\n"
+                "1. 为玛露 6g 罐装遮瑕膏设计一个最小可用的高端浅色风落地页。\n"
+                "2. 提供预约/留资后端接口。\n"
+                "3. 补齐至少一组边界测试。\n"
+                "Deliver the smallest useful fix, stay within scoped files, update tests when needed."
+            ),
+            auto_dispatch=False,
+        )
+    )
+
+    assert dispatch.selected_intent is not None
+    assert dispatch.selected_intent.intent_id == "product_landing_page"
+    assert dispatch.execution_plan is not None
+    assert dispatch.execution_plan.strategy is ManagerPlanStrategy.TASK_DAG
+    backend_task, tests_task, frontend_task = dispatch.execution_plan.tasks
+    assert any(path.startswith("src/autoresearch/api/") for path in backend_task.worker_spec.allowed_paths)
+    assert tests_task.worker_spec.allowed_paths == [
+        "tests/test_panel_security.py",
+        "tests/test_admin_backend.py",
+    ]
+    assert "panel/**" in frontend_task.worker_spec.allowed_paths
+    assert frontend_task.worker_spec.metadata["manager_intent_label"] == "product_landing_page"
 
 
 def test_manager_agent_api_dispatch_executes_background_plan(tmp_path: Path) -> None:

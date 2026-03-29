@@ -164,7 +164,7 @@ import sys
 
 try:
     completed = subprocess.run(
-        ["docker", "info"],
+        ["docker", "version", "--format", "{{.Server.Version}}"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         timeout=3,

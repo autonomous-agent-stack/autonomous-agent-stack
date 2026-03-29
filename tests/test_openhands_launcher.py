@@ -35,6 +35,9 @@ def test_openhands_start_dry_run_prints_ai_lab_command() -> None:
     assert "--exp" in completed.stdout
     assert "--headless" in completed.stdout
     assert ' -t ' in completed.stdout
+    assert "runuser -u " in completed.stdout
+    assert "nobody" in completed.stdout
+    assert "/tmp/openhands-home/.openhands/agent_settings.json" in completed.stdout
 
 
 def test_openhands_start_defaults_audit_path_to_workspace_for_ai_lab(tmp_path: Path) -> None:
@@ -61,6 +64,7 @@ def test_openhands_start_defaults_audit_path_to_workspace_for_ai_lab(tmp_path: P
 
     assert completed.returncode == 0
     assert "/opt/workspace/.openhands-audit" in completed.stdout
+    assert "OPENHANDS_PERSISTENCE_DIR=/opt/workspace/.openhands-state/" in completed.stdout
 
 
 def test_openhands_start_legacy_template_can_be_restored_explicitly(tmp_path: Path) -> None:

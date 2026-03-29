@@ -32,6 +32,7 @@ from autoresearch.core.services.autoresearch_planner import AutoResearchPlannerS
 from autoresearch.core.services.claude_agents import ClaudeAgentService
 from autoresearch.core.services.evaluations import EvaluationService
 from autoresearch.core.services.executions import ExecutionService
+from autoresearch.core.services.github_issue_service import GitHubIssueService
 from autoresearch.core.services.mirofish_prediction import MiroFishPredictionService
 from autoresearch.core.services.managed_skill_registry import ManagedSkillRegistryService
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
@@ -171,6 +172,11 @@ def get_manager_agent_service() -> ManagerAgentService:
         ),
         repo_root=_repo_root(),
     )
+
+
+@lru_cache(maxsize=1)
+def get_github_issue_service() -> GitHubIssueService:
+    return GitHubIssueService(repo_root=_repo_root())
 
 
 @lru_cache(maxsize=1)
@@ -422,6 +428,7 @@ def clear_dependency_caches() -> None:
     get_experiment_service.cache_clear()
     get_execution_service.cache_clear()
     get_manager_agent_service.cache_clear()
+    get_github_issue_service.cache_clear()
     get_openclaw_compat_service.cache_clear()
     get_openclaw_memory_service.cache_clear()
     get_capability_provider_registry.cache_clear()

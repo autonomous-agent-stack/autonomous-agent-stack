@@ -56,6 +56,34 @@ class _IntentRule:
 
 _INTENT_RULES = (
     _IntentRule(
+        intent_id="product_landing_page",
+        label="product_landing_page",
+        summary="Build a product or marketing landing page with bounded lead-capture support.",
+        keywords=(
+            "落地页",
+            "landing page",
+            "landing",
+            "预约",
+            "留资",
+            "lead capture",
+            "marketing",
+            "品牌",
+            "美妆",
+            "产品页",
+        ),
+        preferred_paths=(
+            "src/autoresearch/api/routers/panel.py",
+            "src/autoresearch/api/routers/openclaw.py",
+            "src/autoresearch/api/**",
+            "src/autoresearch/core/services/**",
+            "panel/**",
+            "tests/test_panel_security.py",
+            "tests/test_admin_backend.py",
+        ),
+        preferred_tests=("tests/test_panel_security.py", "tests/test_admin_backend.py"),
+        goal_template="Build a bounded landing-page style product surface for: {prompt}",
+    ),
+    _IntentRule(
         intent_id="admin_dashboard",
         label="admin_dashboard",
         summary="Build an admin/panel dashboard feature across API, tests, and UI.",
@@ -502,7 +530,7 @@ class ManagerAgentService:
 
     def _should_decompose(self, prompt: str, intent: ManagerIntentRead) -> bool:
         prompt_folded = prompt.casefold()
-        if intent.intent_id == "admin_dashboard":
+        if intent.intent_id in {"admin_dashboard", "product_landing_page"}:
             return True
         if any(marker.casefold() in prompt_folded for marker in _COMPLEXITY_MARKERS):
             return True

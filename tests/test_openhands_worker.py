@@ -23,6 +23,7 @@ def test_openhands_worker_builds_patch_only_agent_job_spec() -> None:
 
     assert job.agent_id == "openhands"
     assert job.mode == "patch_only"
+    assert job.policy.timeout_sec == 420
     assert job.policy.allowed_paths == ["src/foo.py", "tests/test_foo.py"]
     assert job.validators[0].command == f"{sys.executable} -m pytest tests/test_foo.py -q"
     assert job.metadata["worker_contract"] == "openhands-worker/v1"

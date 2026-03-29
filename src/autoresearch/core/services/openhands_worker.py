@@ -16,6 +16,8 @@ from autoresearch.shared.openhands_worker_contract import OpenHandsWorkerJobSpec
 class OpenHandsWorkerService:
     """Translate a patch-only OpenHands worker contract into existing AEP/backends."""
 
+    DEFAULT_TIMEOUT_SEC = 420
+
     def _execution_test_command_parts(self, raw_command: str) -> list[str]:
         parts = shlex.split(raw_command)
         if not parts:
@@ -38,6 +40,7 @@ class OpenHandsWorkerService:
             "Hard rules:\n"
             "- Only modify files that match allowed_paths.\n"
             "- Never modify forbidden_paths.\n"
+            "- The workspace is physically permission-scoped; out-of-scope writes will fail at the filesystem layer.\n"
             "- Do not run git add, git commit, git push, git merge, git rebase, git reset, or git checkout.\n"
             "- Do not create product-facing entrypoints or change approval/promotion policy.\n"
             "- Produce the smallest patch that can satisfy the validation command.\n"
@@ -67,6 +70,7 @@ class OpenHandsWorkerService:
             mode="patch_only",
             task=self.build_prompt(spec),
             policy=ExecutionPolicy(
+                timeout_sec=self.DEFAULT_TIMEOUT_SEC,
                 allowed_paths=list(spec.allowed_paths),
                 forbidden_paths=list(spec.forbidden_paths),
                 cleanup_on_success=True,
