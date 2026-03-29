@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>玛露 6g 罐装遮瑕膏 - 预约体验</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- 头部 -->
+        <header class="header">
+            <h1 class="logo">玛露 MALU</h1>
+            <p class="tagline">6g 罐装遮瑕膏 | 轻盈遮瑕，持久自然</p>
+        </header>
+
+        <!-- 产品展示 -->
+        <section class="product-showcase">
+            <div class="product-image">
+                <div class="product-placeholder">
+                    <span>6g</span>
+                    <small>轻盈罐装</small>
+                </div>
+            </div>
+            
+            <div class="product-info">
+                <h2>臻选遮瑕，轻若无感</h2>
+                <ul class="features">
+                    <li>✨ 轻薄质地，自然服帖</li>
+                    <li>🎨 多种色号，精准匹配</li>
+                    <li>⏱️ 持久不脱妆，一整天自信</li>
+                    <li>🌿 温和配方，敏感肌适用</li>
+                </ul>
+                
+                <div class="price-info">
+                    <span class="original-price">¥299</span>
+                    <span class="current-price">¥199</span>
+                    <span class="discount">限时体验价</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- 预约表单 -->
+        <section class="reservation-section">
+            <h2>预约体验</h2>
+            <form id="reservationForm" class="reservation-form">
+                <div class="form-group">
+                    <label for="name">姓名 *</label>
+                    <input type="text" id="name" name="name" required 
+                           placeholder="请输入您的姓名"
+                           minlength="2" maxlength="50">
+                </div>
+                
+                <div class="form-group">
+                    <label for="phone">手机号码 *</label>
+                    <input type="tel" id="phone" name="phone" required
+                           placeholder="请输入手机号码"
+                           pattern="^1[3-9]\d{9}$">
+                </div>
+                
+                <div class="form-group">
+                    <label for="email">邮箱</label>
+                    <input type="email" id="email" name="email"
+                           placeholder="选填，用于接收产品信息">
+                </div>
+                
+                <div class="form-group">
+                    <label for="shade">选择色号 *</label>
+                    <select id="shade" name="shade" required>
+                        <option value="">请选择色号</option>
+                        <option value="light">浅色 #01</option>
+                        <option value="medium">中色 #02</option>
+                        <option value="dark">深色 #03</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="message">留言</label>
+                    <textarea id="message" name="message" rows="3"
+                              placeholder="告诉我们您的需求或问题"></textarea>
+                </div>
+                
+                <div class="form-group checkbox-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="agree" name="agree" required>
+                        <span>我已阅读并同意<a href="#" target="_blank">《隐私政策》</a></span>
+                    </label>
+                </div>
+                
+                <button type="submit" class="submit-btn">立即预约</button>
+            </form>
+        </section>
+
+        <!-- 成功提示 -->
+        <div id="successMessage" class="success-message" style="display: none;">
+            <h3>✅ 预约成功！</h3>
+            <p>感谢您的预约，我们会尽快与您联系。</p>
+            <p>预约编号：<span id="reservationId"></span></p>
+        </div>
+
+        <!-- 错误提示 -->
+        <div id="errorMessage" class="error-message" style="display: none;">
+            <h3>❌ 预约失败</h3>
+            <p id="errorText"></p>
+            <button onclick="resetForm()" class="retry-btn">重试</button>
+        </div>
+
+        <!-- 底部 -->
+        <footer class="footer">
+            <p>© 2026 玛露化妆品. All rights reserved.</p>
+            <p>本页面仅为技术演示，非真实商业用途。</p>
+        </footer>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
