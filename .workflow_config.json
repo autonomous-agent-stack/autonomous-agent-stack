@@ -1,0 +1,15 @@
+{
+  "tasks": [
+    {
+      "name": "Git Status Check",
+      "command": "git status --porcelain",
+      "interval_minutes": 60
+    },
+    {
+      "name": "File Count",
+      "command": "find . -type f | wc -l",
+      "interval_minutes": 120
+    }
+  ],
+  "last_run": {}
+}
