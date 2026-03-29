@@ -2,6 +2,12 @@
 
 一个面向多智能体编排、工作流触发、自集成验证和零信任加固的工程化仓库。
 
+## 运行时要求
+
+- Python 基线：`3.11+`
+- 本仓库当前在 CI 中验证：`3.11`、`3.12`
+- 如果本机默认 `python3` 低于 3.11，请先安装 3.11+ 再执行 `make setup`
+
 ## 为什么现在更容易上手
 
 参考 ClawX 的使用体验，这个仓库把新手最常见的三个问题做了统一入口。
@@ -16,6 +22,7 @@
 
 ```bash
 cd /Volumes/PS1008/Github/autonomous-agent-stack
+# 确保这里用的是 Python 3.11+
 make setup
 make doctor
 make start
@@ -118,7 +125,7 @@ PORT=8010 make start
 ## 快速排错
 
 1. 先跑 `make doctor`，看是否有 `FAIL`
-2. 如果是依赖问题，执行 `make setup`
+2. 如果提示 Python 版本过低，先切到 Python 3.11+，再执行 `make setup`
 3. 如果是端口问题，执行 `PORT=8010 make start`
 4. 如果是导入问题，确认通过 `make start` 启动（脚本会自动设置 `PYTHONPATH=src`）
 

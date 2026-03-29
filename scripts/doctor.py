@@ -55,11 +55,17 @@ def _fail(name: str, detail: str, hint: str | None = None) -> CheckResult:
 def _check_python() -> CheckResult:
     major, minor = sys.version_info[:2]
     if (major, minor) >= REQUIRED_PYTHON:
-        return _ok("Python version", f"{major}.{minor}")
+        return _ok(
+            "Python version",
+            f"{major}.{minor} (project baseline: {REQUIRED_PYTHON[0]}.{REQUIRED_PYTHON[1]}+)",
+        )
     return _fail(
         "Python version",
-        f"{major}.{minor} is too old",
-        f"Use Python {REQUIRED_PYTHON[0]}.{REQUIRED_PYTHON[1]}+.",
+        f"{major}.{minor} is too old for this repository",
+        (
+            f"Use Python {REQUIRED_PYTHON[0]}.{REQUIRED_PYTHON[1]}+ so packaging, "
+            "README, doctor, and CI stay aligned."
+        ),
     )
 
 
