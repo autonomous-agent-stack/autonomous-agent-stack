@@ -16,7 +16,7 @@
     "network": "disabled",
     "network_allowlist": [],
     "tool_allowlist": ["read", "write", "bash"],
-    "allowed_paths": ["src/**", "tests/**"],
+    "allowed_paths": ["src/**", "tests/**", "scripts/**"],
     "forbidden_paths": [
       ".git/**",
       "logs/**",

@@ -45,3 +45,17 @@ def test_policy_merge_preserves_more_specific_file_scope() -> None:
     effective = build_effective_policy(manifest_policy, job_policy).merged
 
     assert effective.allowed_paths == ["src/generated_worker.py"]
+
+
+def test_policy_merge_allows_script_targets_when_manifest_and_job_both_allow_them() -> None:
+    manifest_policy = ExecutionPolicy(allowed_paths=["src/**", "tests/**", "scripts/**"])
+    job_policy = ExecutionPolicy(
+        allowed_paths=["scripts/check_prompt_hygiene.py", "tests/test_check_prompt_hygiene.py"]
+    )
+
+    effective = build_effective_policy(manifest_policy, job_policy).merged
+
+    assert effective.allowed_paths == [
+        "tests/test_check_prompt_hygiene.py",
+        "scripts/check_prompt_hygiene.py",
+    ]

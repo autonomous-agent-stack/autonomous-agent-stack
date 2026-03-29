@@ -484,7 +484,7 @@ class OpenHandsControlledBackendService:
             "Execution contract:\n"
             "- Single task execution only. Do not start autonomous loops.\n"
             "- Do not commit, push, or edit git config.\n"
-            "- Modify files only under /opt/workspace.\n"
+            "- Modify files only inside the provided workspace root.\n"
             "- Return changed files and executed commands in final summary.\n"
         )
 

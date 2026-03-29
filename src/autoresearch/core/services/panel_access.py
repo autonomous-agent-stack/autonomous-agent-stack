@@ -74,6 +74,7 @@ class PanelAccessService:
         *,
         secret: str | None,
         base_url: str = "http://127.0.0.1:8000/api/v1/panel/view",
+        mini_app_url: str | None = None,
         issuer: str = "autoresearch.telegram",
         audience: str = "autoresearch.panel",
         default_ttl_seconds: int = 300,
@@ -84,6 +85,7 @@ class PanelAccessService:
     ) -> None:
         self._secret = (secret or "").strip()
         self._base_url = base_url.strip() or "http://127.0.0.1:8000/api/v1/panel/view"
+        self._mini_app_url = (mini_app_url or "").strip() or None
         self._issuer = issuer
         self._audience = audience
         self._default_ttl_seconds = max(30, default_ttl_seconds)
@@ -101,8 +103,41 @@ class PanelAccessService:
         return self._base_url
 
     @property
+    def mini_app_url(self) -> str | None:
+        return self._mini_app_url
+
+    @property
     def allowed_uids(self) -> tuple[str, ...]:
         return tuple(sorted(self._allowed_uids))
+
+    def build_action_url(
+        self,
+        *,
+        query_params: dict[str, str],
+        telegram_uid: str | None = None,
+        prefer_mini_app: bool = True,
+    ) -> str:
+        base_candidate = self._base_url
+        if prefer_mini_app and self._mini_app_url:
+            base_candidate = self._mini_app_url
+
+        parsed = urlparse(base_candidate)
+        query_items = dict(parse_qsl(parsed.query, keep_blank_values=True))
+        for key, value in query_params.items():
+            if value is None:
+                continue
+            query_items[key] = value
+
+        normalized_uid = (telegram_uid or "").strip()
+        if normalized_uid and self.enabled:
+            magic_link = self.create_magic_link(normalized_uid)
+            magic_parsed = urlparse(magic_link.url)
+            magic_query = dict(parse_qsl(magic_parsed.query, keep_blank_values=True))
+            token = (magic_query.get("token") or "").strip()
+            if token:
+                query_items["token"] = token
+
+        return urlunparse(parsed._replace(query=urlencode(query_items)))
 
     def create_magic_link(self, telegram_uid: str, ttl_seconds: int | None = None) -> PanelMagicLinkRead:
         if not self.enabled:

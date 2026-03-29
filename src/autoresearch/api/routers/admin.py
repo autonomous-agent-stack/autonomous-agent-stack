@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 from typing import Any, Literal
-from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse
@@ -11,6 +11,7 @@ from fastapi.responses import HTMLResponse
 from autoresearch.api.dependencies import (
     get_admin_auth_service,
     get_admin_config_service,
+    get_agent_audit_trail_service,
     get_approval_store_service,
     get_capability_provider_registry,
     get_claude_agent_service,
@@ -33,6 +34,8 @@ from autoresearch.shared.models import (
     ApprovalRequestRead,
     ApprovalRisk,
     ApprovalStatus,
+    AdminAgentAuditTrailDetailRead,
+    AdminAgentAuditTrailSnapshotRead,
     AdminCapabilityProviderInventoryRead,
     AdminCapabilitySnapshotRead,
     AdminCapabilityToolRead,
@@ -185,25 +188,73 @@ def _select_skill_promotion_uid(
 def _build_panel_action_url(
     *,
     panel_access_service: PanelAccessService,
+    telegram_uid: str,
     install_id: str,
     approval_id: str,
     action_nonce: str,
     action_hash: str,
     action_issued_at: str,
 ) -> str:
-    parsed = urlparse(panel_access_service.base_url)
-    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
-    query.update(
-        {
+    return panel_access_service.build_action_url(
+        query_params={
             "action": "managed-skill-promote",
             "installId": install_id,
             "approvalId": approval_id,
             "actionNonce": action_nonce,
             "actionHash": action_hash,
             "actionIssuedAt": action_issued_at,
-        }
+        },
+        telegram_uid=telegram_uid,
+        prefer_mini_app=True,
     )
-    return urlunparse(parsed._replace(query=urlencode(query)))
+
+
+def _build_panel_action_markup(
+    *,
+    panel_access_service: PanelAccessService,
+    action_url: str,
+) -> dict[str, object] | None:
+    markups = _build_panel_action_markups(
+        panel_access_service=panel_access_service,
+        action_url=action_url,
+    )
+    return markups[0] if markups else None
+
+
+def _build_panel_action_markups(
+    *,
+    panel_access_service: PanelAccessService,
+    action_url: str,
+) -> list[dict[str, object] | None]:
+    parsed = urlparse(action_url)
+    if parsed.scheme != "https":
+        return [None]
+    url_markup = {
+        "inline_keyboard": [
+            [
+                {
+                    "text": "打开 Panel 审批",
+                    "url": action_url,
+                }
+            ]
+        ]
+    }
+    if panel_access_service.mini_app_url:
+        return [
+            {
+                "inline_keyboard": [
+                    [
+                        {
+                            "text": "打开 Mini App 审批",
+                            "web_app": {"url": action_url},
+                        }
+                    ]
+                ]
+            },
+            url_markup,
+            None,
+        ]
+    return [url_markup, None]
 
 
 def _compute_managed_skill_action_hash(
@@ -485,6 +536,7 @@ def admin_request_managed_skill_promotion(
 
     mini_app_url = _build_panel_action_url(
         panel_access_service=panel_access_service,
+        telegram_uid=telegram_uid,
         install_id=install.install_id,
         approval_id=approval.approval_id,
         action_nonce=action_binding["action_nonce"],
@@ -503,20 +555,18 @@ def admin_request_managed_skill_promotion(
         message_lines.append(f"- note: {note}")
     if approval.expires_at is not None:
         message_lines.append(f"- expires_at: {approval.expires_at.isoformat()}")
-    notification_sent = notifier.send_message(
-        chat_id=telegram_uid,
-        text="\n".join(message_lines),
-        reply_markup={
-            "inline_keyboard": [
-                [
-                    {
-                        "text": "打开 Mini App 审批",
-                        "web_app": {"url": mini_app_url},
-                    }
-                ]
-            ]
-        },
-    )
+    notification_sent = False
+    for reply_markup in _build_panel_action_markups(
+        panel_access_service=panel_access_service,
+        action_url=mini_app_url,
+    ):
+        if notifier.send_message(
+            chat_id=telegram_uid,
+            text="\n".join(message_lines),
+            reply_markup=reply_markup,
+        ):
+            notification_sent = True
+            break
     return AdminManagedSkillPromotionRequestRead(
         install=install,
         approval=approval,
@@ -898,6 +948,31 @@ def list_channel_history(
     return service.list_revisions(target_type="channel", target_id=channel_id, limit=limit)
 
 
+@router.get("/audit-trail", response_model=AdminAgentAuditTrailSnapshotRead)
+def get_agent_audit_trail(
+    limit: int = Query(default=20, ge=1, le=200),
+    status_filter: Literal["all", "success", "failed", "pending", "running", "review"] | None = Query(
+        default=None
+    ),
+    agent_role: Literal["all", "manager", "planner", "worker"] | None = Query(default=None),
+    access: AdminAccessClaims = Depends(_require_admin_read),
+    service=Depends(get_agent_audit_trail_service),
+) -> AdminAgentAuditTrailSnapshotRead:
+    return service.snapshot(limit=limit, status_filter=status_filter, agent_role=agent_role)
+
+
+@router.get("/audit-trail/{entry_id}", response_model=AdminAgentAuditTrailDetailRead)
+def get_agent_audit_trail_detail(
+    entry_id: str,
+    access: AdminAccessClaims = Depends(_require_admin_read),
+    service=Depends(get_agent_audit_trail_service),
+) -> AdminAgentAuditTrailDetailRead:
+    try:
+        return service.detail(entry_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="audit trail entry not found") from exc
+
+
 @router.get("/revisions", response_model=list[AdminConfigRevisionRead])
 def list_revisions(
     target_type: Literal["agent", "channel"] | None = None,
@@ -1265,6 +1340,65 @@ _ADMIN_HTML = """<!doctype html>
   </section>
 
   <section class="card">
+    <h2>Agent Audit Trail</h2>
+    <div class="row">
+      <button class="btn-primary" onclick="loadAuditTrail()">刷新</button>
+      <select id="audit-status-filter" onchange="loadAuditTrail()">
+        <option value="all">全部状态</option>
+        <option value="success">Success</option>
+        <option value="failed">Failed</option>
+        <option value="pending">Pending</option>
+        <option value="running">Running</option>
+        <option value="review">Review</option>
+      </select>
+      <select id="audit-role-filter" onchange="loadAuditTrail()">
+        <option value="all">全部角色</option>
+        <option value="manager">Manager</option>
+        <option value="planner">Planner</option>
+        <option value="worker">Worker</option>
+      </select>
+      <span id="audit-trail-summary">最近 20 条执行足迹</span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Role</th>
+            <th>Run</th>
+            <th>Status</th>
+            <th>Duration</th>
+            <th>Files</th>
+            <th>Scope</th>
+            <th>Changed</th>
+            <th>Inspect</th>
+          </tr>
+        </thead>
+        <tbody id="audit-trail-body"></tbody>
+      </table>
+    </div>
+    <div class="subcard">
+      <h3>Audit Detail</h3>
+      <p id="audit-detail-meta" class="muted">点击单条记录查看输入、patch diff 和失败原因。</p>
+      <div class="row">
+        <button onclick="clearAuditDetail()">清空详情</button>
+      </div>
+      <div class="subcard">
+        <h3>Input Context</h3>
+        <pre id="audit-input-pre">暂无</pre>
+      </div>
+      <div class="subcard">
+        <h3>Patch Diff</h3>
+        <pre id="audit-patch-pre">暂无</pre>
+      </div>
+      <div class="subcard">
+        <h3>Failure / Traceback</h3>
+        <pre id="audit-error-pre">暂无</pre>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
     <h2>Revision Timeline</h2>
     <div class="row">
       <select id="rev-type">
@@ -1287,6 +1421,14 @@ const capabilitiesBody = document.getElementById("capabilities-body");
 const approvalsBody = document.getElementById("approvals-body");
 const skillsBody = document.getElementById("skills-body");
 const skillDetailPre = document.getElementById("skill-detail-pre");
+const auditTrailSummary = document.getElementById("audit-trail-summary");
+const auditTrailBody = document.getElementById("audit-trail-body");
+const auditStatusFilter = document.getElementById("audit-status-filter");
+const auditRoleFilter = document.getElementById("audit-role-filter");
+const auditDetailMeta = document.getElementById("audit-detail-meta");
+const auditInputPre = document.getElementById("audit-input-pre");
+const auditPatchPre = document.getElementById("audit-patch-pre");
+const auditErrorPre = document.getElementById("audit-error-pre");
 const revisionsPre = document.getElementById("revisions-pre");
 const tokenFromQuery = new URLSearchParams(window.location.search).get("token") || "";
 let adminToken = localStorage.getItem("autoresearch_admin_token") || tokenFromQuery;
@@ -1296,6 +1438,7 @@ let editingAgentStatus = "active";
 let channelFormMode = "create";
 let editingChannelId = null;
 let editingChannelStatus = "active";
+let selectedAuditEntryId = "";
 
 function setAdminToken() {
   const input = prompt("请输入 Bearer Token（不含 Bearer 前缀）", adminToken || "");
@@ -1335,6 +1478,20 @@ function asJSON(value) {
 function fmtDate(value) {
   if (!value) return "-";
   return new Date(value).toLocaleString("zh-CN");
+}
+
+function fmtDuration(value) {
+  if (value === null || value === undefined) return "-";
+  if (value < 1000) return `${Math.round(value)} ms`;
+  return `${(value / 1000).toFixed(value >= 10000 ? 0 : 1)} s`;
+}
+
+function compactList(values, limit = 2) {
+  const items = (values || []).filter(Boolean);
+  if (!items.length) return "-";
+  const visible = items.slice(0, limit).join(", ");
+  const extra = items.length - limit;
+  return extra > 0 ? `${visible} +${extra}` : visible;
 }
 
 function csvToList(raw) {
@@ -1568,6 +1725,95 @@ function skillRow(item) {
     </tr>`;
 }
 
+function clearAuditDetail() {
+  selectedAuditEntryId = "";
+  auditDetailMeta.textContent = "点击单条记录查看输入、patch diff 和失败原因。";
+  auditInputPre.textContent = "暂无";
+  auditPatchPre.textContent = "暂无";
+  auditErrorPre.textContent = "暂无";
+}
+
+function auditTrailRow(item) {
+  const finalStatus = item.final_status || item.status || "-";
+  const pillClass = ["failed", "blocked", "interrupted", "human_review"].includes(finalStatus) ? "inactive" : "active";
+  return `
+    <tr>
+      <td>${fmtDate(item.recorded_at)}</td>
+      <td>${item.agent_role} / ${item.source}</td>
+      <td title="${item.title || item.run_id}">${item.run_id}</td>
+      <td><span class="pill ${pillClass}">${finalStatus}</span></td>
+      <td>${fmtDuration(item.duration_ms)}</td>
+      <td>${item.files_changed || 0}</td>
+      <td title="${(item.scope_paths || []).join("\\n")}">${compactList(item.scope_paths, 2)}</td>
+      <td title="${(item.changed_paths || []).join("\\n")}">${compactList(item.changed_paths, 2)}</td>
+      <td><button onclick='loadAuditDetail("${item.entry_id}")'>查看</button></td>
+    </tr>`;
+}
+
+async function loadAuditDetail(entryId) {
+  selectedAuditEntryId = entryId;
+  auditDetailMeta.textContent = "加载详情中...";
+  try {
+    const detail = await callApi(`/api/v1/admin/audit-trail/${encodeURIComponent(entryId)}`);
+    const entry = detail.entry || {};
+    const detailLines = [
+      `Role: ${entry.agent_role || "-"}`,
+      `Source: ${entry.source || "-"}`,
+      `Run: ${entry.run_id || "-"}`,
+      `Title: ${entry.title || "-"}`,
+      `Status: ${entry.final_status || entry.status || "-"}`,
+      `Recorded: ${fmtDate(entry.recorded_at)}`,
+      `Patch: ${entry.patch_uri || "-"}`,
+      `Workspace: ${entry.isolated_workspace || "-"}`,
+      detail.patch_truncated ? "Patch preview: truncated" : "Patch preview: full",
+    ];
+    auditDetailMeta.textContent = detailLines.join(" | ");
+    auditInputPre.textContent = asJSON({
+      prompt: detail.input_prompt || null,
+      job_spec: detail.job_spec || {},
+      worker_spec: detail.worker_spec || {},
+      controlled_request: detail.controlled_request || {},
+      raw_record: detail.raw_record || {},
+    });
+    auditPatchPre.textContent = detail.patch_text || (entry.patch_uri ? `Patch file: ${entry.patch_uri}` : "暂无 patch");
+    auditErrorPre.textContent = detail.error_reason || detail.traceback
+      ? [detail.error_reason || "no error reason", detail.traceback || ""].filter(Boolean).join("\\n\\n")
+      : "无失败细节";
+  } catch (err) {
+    auditDetailMeta.textContent = `加载详情失败: ${err.message}`;
+    auditInputPre.textContent = "加载失败";
+    auditPatchPre.textContent = "加载失败";
+    auditErrorPre.textContent = String(err);
+  }
+}
+
+async function loadAuditTrail() {
+  try {
+    const params = new URLSearchParams();
+    params.set("limit", "20");
+    params.set("status_filter", auditStatusFilter.value || "all");
+    params.set("agent_role", auditRoleFilter.value || "all");
+    const snapshot = await callApi(`/api/v1/admin/audit-trail?${params.toString()}`);
+    const items = snapshot.items || [];
+    const stats = snapshot.stats || {};
+    auditTrailBody.innerHTML = items.map(auditTrailRow).join("")
+      || "<tr><td colspan='9'>暂无</td></tr>";
+    auditTrailSummary.textContent =
+      `Recent: ${items.length} | Success: ${stats.succeeded || 0} | Failed: ${stats.failed || 0} | Running: ${stats.running || 0} | Queued: ${stats.queued || 0} | Filter: ${(auditStatusFilter.value || "all")}/${(auditRoleFilter.value || "all")}`;
+    if (selectedAuditEntryId && items.some((item) => item.entry_id === selectedAuditEntryId)) {
+      await loadAuditDetail(selectedAuditEntryId);
+    } else if (!selectedAuditEntryId) {
+      clearAuditDetail();
+    } else {
+      clearAuditDetail();
+      auditDetailMeta.textContent = "当前筛选结果不包含已选记录。";
+    }
+  } catch (err) {
+    auditTrailSummary.textContent = `加载失败: ${err.message}`;
+    auditTrailBody.innerHTML = "<tr><td colspan='9'>加载失败</td></tr>";
+  }
+}
+
 async function refreshAll() {
   try {
     const [agents, channels, capabilitySnapshot, approvals, skillSnapshot] = await Promise.all([
@@ -1585,12 +1831,16 @@ async function refreshAll() {
     approvalsBody.innerHTML = approvals.map(approvalRow).join("") || "<tr><td colspan='8'>暂无</td></tr>";
     skillsBody.innerHTML = skillItems.map(skillRow).join("") || "<tr><td colspan='7'>暂无</td></tr>";
     summary.textContent = `Agents: ${agents.length} | Channels: ${channels.length} | Providers: ${(capabilitySnapshot.providers || []).length} | Approvals: ${approvals.length} | Skills: ${skillItems.length} | API: /api/v1/admin`;
+    await loadAuditTrail();
     await loadRevisions();
   } catch (err) {
     summary.textContent = `加载失败: ${err.message}`;
     capabilitiesBody.innerHTML = "<tr><td colspan='7'>加载失败</td></tr>";
     approvalsBody.innerHTML = "<tr><td colspan='8'>加载失败</td></tr>";
     skillsBody.innerHTML = "<tr><td colspan='7'>加载失败</td></tr>";
+    auditTrailSummary.textContent = `加载失败: ${err.message}`;
+    auditTrailBody.innerHTML = "<tr><td colspan='9'>加载失败</td></tr>";
+    clearAuditDetail();
   }
 }
 
