@@ -115,6 +115,7 @@ openhands --exp --headless -t "你的任务"
   - 检查项：`mypy + bandit + semgrep`（工具版本固定在 `requirements-review.lock`）
   - 包含 `merge_group` 触发，兼容 merge queue
 - 仓库 required checks 建议：`CI / lint-test-audit` + `Quality Gates / reviewer-gates`
+- 试运行与反馈闭环：见 [PR Review Hardening](./docs/pr-review-hardening.md) 里的 `Trial Rubric` 与 `Feedback Loop`
 
 完整落地说明见：[PR Review Hardening](./docs/pr-review-hardening.md)
 
