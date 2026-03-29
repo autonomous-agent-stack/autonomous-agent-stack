@@ -1,5 +1,9 @@
 """
-Telegram Webhook Handler - 指令拦截与工作流触发
+Legacy Telegram webhook compatibility handler.
+
+This module exists only for backward compatibility with the old
+workflow-driven `/telegram/webhook` path. New Telegram integration work
+must target `autoresearch.api.routers.gateway_telegram`.
 """
 
 import asyncio
@@ -20,7 +24,12 @@ router = APIRouter()
 
 @router.post("/telegram/webhook")
 async def telegram_webhook(request: Request):
-    """Telegram Webhook 处理器"""
+    """Legacy Telegram webhook handler.
+
+    Deprecated: keep this path stable for existing callers, but do not
+    extend it with new product behavior. The mainline Telegram entrypoint
+    lives under `/api/v1/gateway/telegram/webhook`.
+    """
     try:
         data = await request.json()
 
@@ -28,8 +37,10 @@ async def telegram_webhook(request: Request):
         message = data.get("message", {})
         chat_id = message.get("chat", {}).get("id")
         text = message.get("text", "")
-        user_id = message.get("from", {}).get("id")
 
+        logger.warning(
+            "[Legacy Telegram Webhook] compatibility path hit; prefer /api/v1/gateway/telegram/webhook"
+        )
         logger.info(f"[Webhook] 收到消息: {text[:50]}...")
 
         # 指令拦截：GitHub 深度审查

@@ -152,7 +152,8 @@ PORT=8010 make start
 
 - [API 主入口](./src/autoresearch/api/main.py)
 - [工作流引擎](./src/workflow/workflow_engine.py)
-- [Telegram Webhook](./src/gateway/telegram_webhook.py)
+- [Telegram Gateway（主线）](./src/autoresearch/api/routers/gateway_telegram.py)
+- [Telegram Webhook（legacy compatibility only）](./src/gateway/telegram_webhook.py)
 - [自集成服务](./src/autoresearch/core/services/self_integration.py)
 - [自集成路由](./src/autoresearch/api/routers/integrations.py)
 - [技能注册表](./src/opensage/skill_registry.py)
