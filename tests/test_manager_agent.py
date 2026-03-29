@@ -160,6 +160,30 @@ def test_manager_agent_routes_issue_style_landing_page_prompt_to_business_dag(tm
     assert frontend_task.worker_spec.metadata["manager_intent_label"] == "product_landing_page"
 
 
+def test_manager_agent_routes_direct_malu_landing_page_prompt_to_product_intent(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    _seed_admin_dashboard_repo(repo_root)
+
+    service = ManagerAgentService(
+        repository=InMemoryRepository(),
+        repo_root=repo_root,
+    )
+
+    dispatch = service.create_dispatch(
+        ManagerDispatchRequest(
+            prompt="给我做一个玛露 6g 遮瑕膏落地页，带浅色品牌 UI、预约留资接口和基础测试。",
+            auto_dispatch=False,
+        )
+    )
+
+    assert dispatch.selected_intent is not None
+    assert dispatch.selected_intent.intent_id == "product_landing_page"
+    assert dispatch.execution_plan is not None
+    assert dispatch.execution_plan.strategy is ManagerPlanStrategy.TASK_DAG
+    assert dispatch.execution_plan.tasks[0].worker_spec.metadata["manager_intent_label"] == "product_landing_page"
+    assert "panel/**" in dispatch.execution_plan.tasks[2].worker_spec.allowed_paths
+
+
 def test_manager_agent_api_dispatch_executes_background_plan(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     _seed_admin_dashboard_repo(repo_root)

@@ -8,7 +8,7 @@ def attempt_succeeded(driver_result: DriverResult, validation: ValidationReport)
 
 
 def derive_terminal_status(driver_result: DriverResult, validation: ValidationReport) -> str:
-    if driver_result.status in {"contract_error", "failed", "timed_out"}:
+    if driver_result.status in {"contract_error", "failed", "timed_out", "stalled_no_progress"}:
         return "failed"
     if driver_result.status == "policy_blocked":
         return "blocked"

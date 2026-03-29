@@ -1735,7 +1735,7 @@ function clearAuditDetail() {
 
 function auditTrailRow(item) {
   const finalStatus = item.final_status || item.status || "-";
-  const pillClass = ["failed", "blocked", "interrupted", "human_review"].includes(finalStatus) ? "inactive" : "active";
+  const pillClass = ["failed", "blocked", "interrupted", "human_review", "stalled_no_progress"].includes(finalStatus) ? "inactive" : "active";
   return `
     <tr>
       <td>${fmtDate(item.recorded_at)}</td>
@@ -1762,7 +1762,11 @@ async function loadAuditDetail(entryId) {
       `Run: ${entry.run_id || "-"}`,
       `Title: ${entry.title || "-"}`,
       `Status: ${entry.final_status || entry.status || "-"}`,
+      `Raw: ${entry.status || "-"}`,
       `Recorded: ${fmtDate(entry.recorded_at)}`,
+      `First progress: ${fmtDuration(entry.first_progress_ms)}`,
+      `First write: ${fmtDuration(entry.first_scoped_write_ms)}`,
+      `First state: ${fmtDuration(entry.first_state_heartbeat_ms)}`,
       `Patch: ${entry.patch_uri || "-"}`,
       `Workspace: ${entry.isolated_workspace || "-"}`,
       detail.patch_truncated ? "Patch preview: truncated" : "Patch preview: full",

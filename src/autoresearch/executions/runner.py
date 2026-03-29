@@ -13,6 +13,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from autoresearch.agent_protocol.models import (
+    DriverMetrics,
     DriverResult,
     JobSpec,
     RunSummary,
@@ -110,6 +111,19 @@ class AgentExecutionRunner:
                 fallback_index += 1
 
                 if step.action == "retry":
+                    skip_retry_reason = self._retry_skip_reason(last_result)
+                    if skip_retry_reason is not None:
+                        self._append_event(
+                            events_path,
+                            {
+                                "type": "fallback_skipped",
+                                "attempt": attempt,
+                                "agent_id": current_agent,
+                                "action": "retry",
+                                "reason": skip_retry_reason,
+                            },
+                        )
+                        continue
                     pending_attempts = step.max_attempts
                     continue
                 if step.action == "fallback_agent":
@@ -127,6 +141,43 @@ class AgentExecutionRunner:
             attempt += 1
             pending_attempts -= 1
 
+            active_manifest = self._registry.load(current_agent)
+            preflight_error = self._preflight_agent_environment(
+                agent_id=current_agent,
+                manifest_entrypoint=active_manifest.entrypoint,
+            )
+            if preflight_error is not None:
+                driver_result = self._contract_error_result(
+                    run_id=job.run_id,
+                    agent_id=current_agent,
+                    attempt=attempt,
+                    message=preflight_error,
+                    recommended_action="fallback",
+                )
+                last_result = driver_result
+                last_validation = ValidationReport(run_id=job.run_id, passed=False, checks=[])
+                self._append_event(
+                    events_path,
+                    {
+                        "type": "attempt_blocked",
+                        "attempt": attempt,
+                        "agent_id": current_agent,
+                        "reason": "environment_preflight_failed",
+                        "detail": preflight_error,
+                    },
+                )
+                self._append_event(
+                    events_path,
+                    {
+                        "type": "attempt_completed",
+                        "attempt": attempt,
+                        "agent_id": current_agent,
+                        "driver_status": driver_result.status,
+                        "validation_passed": False,
+                    },
+                )
+                continue
+
             self._snapshot_baseline_to_workspace(baseline_dir, workspace_dir)
             self._prepare_shadow_workspace(workspace_dir, effective_policy)
             self._append_event(
@@ -138,7 +189,6 @@ class AgentExecutionRunner:
                 },
             )
 
-            active_manifest = self._registry.load(current_agent)
             driver_result = self._invoke_adapter(
                 manifest_entrypoint=active_manifest.entrypoint,
                 run_dir=run_dir,
@@ -458,12 +508,16 @@ class AgentExecutionRunner:
         last_probed_signature: tuple[tuple[str, int, int], ...] | None = None
         stable_polls = 0
         stall_timeout_sec = self._stall_progress_timeout_sec(timeout_sec)
-        last_progress_signature = self._meaningful_progress_signature(
+        last_scoped_progress_signature = self._scoped_progress_signature(
             baseline_dir=baseline_dir,
             workspace_dir=workspace_dir,
             allowed_paths=policy.merged.allowed_paths,
         )
+        last_state_progress_signature = self._state_heartbeat_signature(workspace_dir=workspace_dir)
         last_progress_at = started
+        first_progress_ms: int | None = None
+        first_scoped_write_ms: int | None = None
+        first_state_heartbeat_ms: int | None = None
 
         with stdout_log.open("a", encoding="utf-8") as stdout_handle, stderr_log.open(
             "a", encoding="utf-8"
@@ -508,17 +562,56 @@ class AgentExecutionRunner:
                         attempt=attempt,
                         status="timed_out",
                         summary=f"adapter timed out after {timeout_sec}s",
+                        metrics=DriverMetrics(
+                            duration_ms=duration_ms,
+                            first_progress_ms=first_progress_ms,
+                            first_scoped_write_ms=first_scoped_write_ms,
+                            first_state_heartbeat_ms=first_state_heartbeat_ms,
+                        ),
                         recommended_action="fallback",
                         error=f"timeout after {timeout_sec}s",
                     )
 
-                current_progress_signature = self._meaningful_progress_signature(
+                current_scoped_progress_signature = self._scoped_progress_signature(
                     baseline_dir=baseline_dir,
                     workspace_dir=workspace_dir,
                     allowed_paths=policy.merged.allowed_paths,
                 )
-                if current_progress_signature != last_progress_signature:
-                    last_progress_signature = current_progress_signature
+                current_state_progress_signature = self._state_heartbeat_signature(
+                    workspace_dir=workspace_dir
+                )
+                scoped_progress_changed = (
+                    current_scoped_progress_signature != last_scoped_progress_signature
+                )
+                state_progress_changed = (
+                    current_state_progress_signature != last_state_progress_signature
+                )
+                if scoped_progress_changed or state_progress_changed:
+                    if (
+                        scoped_progress_changed
+                        and first_scoped_write_ms is None
+                        and current_scoped_progress_signature
+                    ):
+                        first_scoped_write_ms = duration_ms
+                    if (
+                        state_progress_changed
+                        and first_state_heartbeat_ms is None
+                        and current_state_progress_signature
+                    ):
+                        first_state_heartbeat_ms = duration_ms
+                    if first_progress_ms is None:
+                        first_candidates = [
+                            value
+                            for value in (
+                                first_scoped_write_ms,
+                                first_state_heartbeat_ms,
+                            )
+                            if value is not None
+                        ]
+                        if first_candidates:
+                            first_progress_ms = min(first_candidates)
+                    last_scoped_progress_signature = current_scoped_progress_signature
+                    last_state_progress_signature = current_state_progress_signature
                     last_progress_at = now
                 elif (now - last_progress_at) >= stall_timeout_sec:
                     process.terminate()
@@ -532,8 +625,14 @@ class AgentExecutionRunner:
                         run_id=run_id,
                         agent_id=agent_id,
                         attempt=attempt,
-                        status="timed_out",
+                        status="stalled_no_progress",
                         summary=f"adapter stalled after {stall_timeout_sec}s without workspace progress",
+                        metrics=DriverMetrics(
+                            duration_ms=duration_ms,
+                            first_progress_ms=first_progress_ms,
+                            first_scoped_write_ms=first_scoped_write_ms,
+                            first_state_heartbeat_ms=first_state_heartbeat_ms,
+                        ),
                         recommended_action="fallback",
                         error=stall_error,
                     )
@@ -576,6 +675,12 @@ class AgentExecutionRunner:
                             status="failed",
                             summary="adapter aborted by fast-fail probe",
                             changed_paths=self._collect_changed_paths(baseline_dir, workspace_dir),
+                            metrics=DriverMetrics(
+                                duration_ms=duration_ms,
+                                first_progress_ms=first_progress_ms,
+                                first_scoped_write_ms=first_scoped_write_ms,
+                                first_state_heartbeat_ms=first_state_heartbeat_ms,
+                            ),
                             recommended_action="fallback",
                             error=probe_failure,
                         )
@@ -610,7 +715,26 @@ class AgentExecutionRunner:
                 message=f"invalid driver_result.json: {exc}",
             )
 
-        merged_metrics = result.metrics.model_copy(update={"duration_ms": duration_ms})
+        merged_metrics = result.metrics.model_copy(
+            update={
+                "duration_ms": duration_ms,
+                "first_progress_ms": (
+                    result.metrics.first_progress_ms
+                    if result.metrics.first_progress_ms is not None
+                    else first_progress_ms
+                ),
+                "first_scoped_write_ms": (
+                    result.metrics.first_scoped_write_ms
+                    if result.metrics.first_scoped_write_ms is not None
+                    else first_scoped_write_ms
+                ),
+                "first_state_heartbeat_ms": (
+                    result.metrics.first_state_heartbeat_ms
+                    if result.metrics.first_state_heartbeat_ms is not None
+                    else first_state_heartbeat_ms
+                ),
+            }
+        )
         result = result.model_copy(
             update={"metrics": merged_metrics, "attempt": attempt, "agent_id": agent_id}
         )
@@ -769,6 +893,19 @@ class AgentExecutionRunner:
         workspace_dir: Path,
         allowed_paths: list[str],
     ) -> tuple[tuple[str, int, int], ...]:
+        return self._scoped_progress_signature(
+            baseline_dir=baseline_dir,
+            workspace_dir=workspace_dir,
+            allowed_paths=allowed_paths,
+        ) + self._state_heartbeat_signature(workspace_dir=workspace_dir)
+
+    def _scoped_progress_signature(
+        self,
+        *,
+        baseline_dir: Path,
+        workspace_dir: Path,
+        allowed_paths: list[str],
+    ) -> tuple[tuple[str, int, int], ...]:
         items: list[tuple[str, int, int]] = []
         changed_paths = self._collect_changed_paths(baseline_dir, workspace_dir)
         for rel in sorted(changed_paths):
@@ -780,7 +917,14 @@ class AgentExecutionRunner:
                 continue
             stat = path.stat()
             items.append((f"change:{rel}", stat.st_mtime_ns, stat.st_size))
+        return tuple(items)
 
+    def _state_heartbeat_signature(
+        self,
+        *,
+        workspace_dir: Path,
+    ) -> tuple[tuple[str, int, int], ...]:
+        items: list[tuple[str, int, int]] = []
         state_root = workspace_dir / ".openhands-state"
         if state_root.exists():
             for path in sorted(candidate for candidate in state_root.rglob("*") if candidate.is_file()):
@@ -888,6 +1032,58 @@ class AgentExecutionRunner:
     def _stall_progress_timeout_sec(timeout_sec: int) -> int:
         return min(timeout_sec, min(180, max(60, max(1, timeout_sec // 4))))
 
+    def _preflight_agent_environment(self, *, agent_id: str, manifest_entrypoint: str) -> str | None:
+        if agent_id != "openhands":
+            return None
+        if Path(manifest_entrypoint).name != "openhands_adapter.sh":
+            return None
+        if str(os.environ.get("OPENHANDS_DRY_RUN") or "0").strip() == "1":
+            return None
+
+        runtime = str(os.environ.get("OPENHANDS_RUNTIME") or "ai-lab").strip().lower()
+        if runtime != "ai-lab":
+            return None
+
+        override_command = str(os.environ.get("OPENHANDS_PREFLIGHT_CMD") or "").strip()
+        if override_command:
+            completed = subprocess.run(
+                override_command,
+                cwd=self._repo_root,
+                shell=True,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        else:
+            script = self._repo_root / "scripts" / "launch_ai_lab.sh"
+            if not script.exists():
+                return f"EnvironmentCheckFailed: launch_ai_lab.sh not found at {script}"
+            completed = subprocess.run(
+                ["bash", str(script), "status"],
+                cwd=self._repo_root,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        if completed.returncode == 0:
+            return None
+
+        detail = (completed.stderr or completed.stdout or "").strip()
+        if not detail:
+            detail = f"preflight exited with code {completed.returncode}"
+        collapsed = re.sub(r"\s+", " ", detail)[:400]
+        return f"EnvironmentCheckFailed: {collapsed}"
+
+    @staticmethod
+    def _retry_skip_reason(result: DriverResult) -> str | None:
+        if result.status == "stalled_no_progress":
+            return "stalled_no_progress"
+        error_text = str(result.error or result.summary or "").strip()
+        if result.status == "contract_error" and error_text.startswith("EnvironmentCheckFailed:"):
+            return "environment_preflight_failed"
+        return None
+
     def _run_validators(
         self,
         *,
@@ -970,6 +1166,7 @@ class AgentExecutionRunner:
         agent_id: str,
         attempt: int,
         message: str,
+        recommended_action: str = "reject",
     ) -> DriverResult:
         return DriverResult(
             run_id=run_id,
@@ -977,7 +1174,7 @@ class AgentExecutionRunner:
             attempt=attempt,
             status="contract_error",
             summary=message,
-            recommended_action="reject",
+            recommended_action=recommended_action,
             error=message,
         )
 

@@ -26,6 +26,7 @@ _FAILED_STATUSES = {
     "blocked",
     "interrupted",
     "timed_out",
+    "stalled_no_progress",
     "policy_blocked",
     "contract_error",
     "rejected",
@@ -156,6 +157,9 @@ class AgentAuditTrailService:
                             final_status=run_summary.final_status if run_summary is not None else None,
                             recorded_at=dispatch.updated_at,
                             duration_ms=self._extract_duration_ms(run_summary),
+                            first_progress_ms=self._extract_metric(run_summary, "first_progress_ms"),
+                            first_scoped_write_ms=self._extract_metric(run_summary, "first_scoped_write_ms"),
+                            first_state_heartbeat_ms=self._extract_metric(run_summary, "first_state_heartbeat_ms"),
                             files_changed=len(changed_paths),
                             changed_paths=changed_paths,
                             scope_paths=list(task.worker_spec.allowed_paths) if task.worker_spec is not None else [],
@@ -202,6 +206,9 @@ class AgentAuditTrailService:
                         final_status=run_summary.final_status if run_summary is not None else None,
                         recorded_at=plan.dispatch_completed_at or plan.updated_at,
                         duration_ms=self._extract_duration_ms(run_summary),
+                        first_progress_ms=self._extract_metric(run_summary, "first_progress_ms"),
+                        first_scoped_write_ms=self._extract_metric(run_summary, "first_scoped_write_ms"),
+                        first_state_heartbeat_ms=self._extract_metric(run_summary, "first_state_heartbeat_ms"),
                         files_changed=len(changed_paths),
                         changed_paths=changed_paths,
                         scope_paths=list(plan.worker_spec.allowed_paths) if plan.worker_spec is not None else [],
@@ -254,6 +261,9 @@ class AgentAuditTrailService:
                         ),
                         recorded_at=run.updated_at,
                         duration_ms=int(run.duration_seconds * 1000) if run.duration_seconds is not None else None,
+                        first_progress_ms=None,
+                        first_scoped_write_ms=None,
+                        first_state_heartbeat_ms=None,
                         files_changed=0,
                         changed_paths=[],
                         scope_paths=[],
@@ -300,6 +310,9 @@ class AgentAuditTrailService:
                         final_status=str(payload.get("final_status") or payload.get("status") or "").strip() or None,
                         recorded_at=datetime.fromtimestamp(path.stat().st_mtime, tz=utc_now().tzinfo),
                         duration_ms=self._runtime_duration_ms(payload),
+                        first_progress_ms=self._runtime_metric_ms(payload, "first_progress_ms"),
+                        first_scoped_write_ms=self._runtime_metric_ms(payload, "first_scoped_write_ms"),
+                        first_state_heartbeat_ms=self._runtime_metric_ms(payload, "first_state_heartbeat_ms"),
                         files_changed=self._runtime_files_changed(payload, changed_paths),
                         changed_paths=changed_paths,
                         scope_paths=[],
@@ -348,7 +361,22 @@ class AgentAuditTrailService:
         return _AuditEntryContext(
             entry=existing.entry.model_copy(
                 update={
-                    "duration_ms": existing.entry.duration_ms or incoming.entry.duration_ms,
+                    "duration_ms": self._prefer_metric(
+                        existing.entry.duration_ms,
+                        incoming.entry.duration_ms,
+                    ),
+                    "first_progress_ms": self._prefer_metric(
+                        existing.entry.first_progress_ms,
+                        incoming.entry.first_progress_ms,
+                    ),
+                    "first_scoped_write_ms": self._prefer_metric(
+                        existing.entry.first_scoped_write_ms,
+                        incoming.entry.first_scoped_write_ms,
+                    ),
+                    "first_state_heartbeat_ms": self._prefer_metric(
+                        existing.entry.first_state_heartbeat_ms,
+                        incoming.entry.first_state_heartbeat_ms,
+                    ),
                     "files_changed": max(existing.entry.files_changed, incoming.entry.files_changed),
                     "changed_paths": existing.entry.changed_paths or incoming.entry.changed_paths,
                     "patch_uri": existing.entry.patch_uri or incoming.entry.patch_uri,
@@ -423,6 +451,10 @@ class AgentAuditTrailService:
         return None if normalized in {"", "all"} else normalized
 
     @staticmethod
+    def _prefer_metric(primary: int | None, secondary: int | None) -> int | None:
+        return primary if primary is not None else secondary
+
+    @staticmethod
     def _matches_role_filter(entry: AdminAgentAuditTrailEntryRead, agent_role: str | None) -> bool:
         if agent_role is None:
             return True
@@ -466,6 +498,13 @@ class AgentAuditTrailService:
         if run_summary is None:
             return None
         return run_summary.driver_result.metrics.duration_ms
+
+    @staticmethod
+    def _extract_metric(run_summary: Any, metric_name: str) -> int | None:
+        if run_summary is None:
+            return None
+        value = getattr(run_summary.driver_result.metrics, metric_name, None)
+        return int(value) if isinstance(value, (int, float)) else None
 
     @staticmethod
     def _extract_run_summary_error(run_summary: Any) -> str | None:
@@ -525,13 +564,17 @@ class AgentAuditTrailService:
 
     @staticmethod
     def _runtime_duration_ms(payload: dict[str, Any]) -> int | None:
+        return AgentAuditTrailService._runtime_metric_ms(payload, "duration_ms")
+
+    @staticmethod
+    def _runtime_metric_ms(payload: dict[str, Any], metric_name: str) -> int | None:
         driver_result = payload.get("driver_result")
         if not isinstance(driver_result, dict):
             return None
         metrics = driver_result.get("metrics")
         if not isinstance(metrics, dict):
             return None
-        value = metrics.get("duration_ms")
+        value = metrics.get(metric_name)
         return int(value) if isinstance(value, (int, float)) else None
 
     @staticmethod

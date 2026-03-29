@@ -982,6 +982,9 @@ class AdminAgentAuditTrailEntryRead(StrictModel):
     final_status: str | None = None
     recorded_at: datetime
     duration_ms: int | None = None
+    first_progress_ms: int | None = None
+    first_scoped_write_ms: int | None = None
+    first_state_heartbeat_ms: int | None = None
     files_changed: int = 0
     changed_paths: list[str] = Field(default_factory=list)
     scope_paths: list[str] = Field(default_factory=list)

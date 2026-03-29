@@ -384,6 +384,88 @@ time.sleep(30)
 
     assert duration < 10
     assert summary.final_status == "failed"
-    assert summary.driver_result.status == "timed_out"
+    assert summary.driver_result.status == "stalled_no_progress"
     assert summary.driver_result.summary == "adapter stalled after 2s without workspace progress"
     assert summary.driver_result.error == "no workspace progress for 2s"
+    assert summary.driver_result.metrics.first_progress_ms is None
+    assert summary.driver_result.metrics.first_scoped_write_ms is None
+    assert summary.driver_result.metrics.first_state_heartbeat_ms is None
+
+
+def test_runner_records_first_progress_metrics_for_state_and_scoped_write(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    (repo_root / "src").mkdir(parents=True, exist_ok=True)
+    (repo_root / "src" / "__init__.py").write_text("", encoding="utf-8")
+    (repo_root / "src" / "active_worker.py").write_text("VALUE = 1\n", encoding="utf-8")
+    _write_adapter(
+        repo_root,
+        "drivers/progress_probe.py",
+        """#!/usr/bin/env python3
+import json
+import os
+import time
+from pathlib import Path
+
+workspace = Path(os.environ["AEP_WORKSPACE"])
+result_path = Path(os.environ["AEP_RESULT_PATH"])
+state_dir = workspace / ".openhands-state"
+target = workspace / "src" / "active_worker.py"
+
+time.sleep(1)
+state_dir.mkdir(parents=True, exist_ok=True)
+(state_dir / "heartbeat.json").write_text("{\\"ok\\": true}\\n", encoding="utf-8")
+time.sleep(1.5)
+target.write_text("VALUE = 2\\n", encoding="utf-8")
+time.sleep(2.5)
+payload = {
+    "protocol_version": "aep/v0",
+    "run_id": "run-progress-probe",
+    "agent_id": "openhands",
+    "attempt": 1,
+    "status": "succeeded",
+    "summary": "progress recorded",
+    "changed_paths": ["src/active_worker.py"],
+    "output_artifacts": [],
+    "metrics": {"duration_ms": 0, "steps": 1, "commands": 1, "prompt_tokens": None, "completion_tokens": None},
+    "recommended_action": "promote",
+    "error": None,
+}
+result_path.write_text(json.dumps(payload), encoding="utf-8")
+""",
+    )
+    _write_manifest(repo_root, "drivers/progress_probe.py")
+
+    runner = AgentExecutionRunner(
+        repo_root=repo_root,
+        runtime_root=tmp_path / "runtime",
+        manifests_dir=repo_root / "configs" / "agents",
+    )
+
+    summary = runner.run_job(
+        JobSpec(
+            run_id="run-progress-probe",
+            agent_id="openhands",
+            task="Touch .openhands-state first, then update src/active_worker.py.",
+            validators=[
+                ValidatorSpec(
+                    id="worker.test_command",
+                    kind="command",
+                    command=f"{sys.executable} -m py_compile src/active_worker.py",
+                )
+            ],
+            policy=ExecutionPolicy(
+                timeout_sec=60,
+                allowed_paths=["src/active_worker.py"],
+                cleanup_on_success=False,
+            ),
+        )
+    )
+
+    assert summary.final_status == "blocked"
+    assert summary.driver_result.status == "policy_blocked"
+    assert summary.driver_result.metrics.first_progress_ms is not None
+    assert summary.driver_result.metrics.first_scoped_write_ms is not None
+    assert summary.driver_result.metrics.first_state_heartbeat_ms is not None
+    assert summary.driver_result.metrics.first_progress_ms <= summary.driver_result.metrics.first_state_heartbeat_ms
+    assert summary.driver_result.metrics.first_state_heartbeat_ms < summary.driver_result.metrics.first_scoped_write_ms

@@ -152,7 +152,14 @@ def _successful_run_summary(job: JobSpec) -> RunSummary:
             status="succeeded",
             summary="admin audit flow completed successfully",
             changed_paths=list(job.policy.allowed_paths),
-            metrics=DriverMetrics(duration_ms=1800, steps=3, commands=2),
+            metrics=DriverMetrics(
+                duration_ms=1800,
+                steps=3,
+                commands=2,
+                first_progress_ms=300,
+                first_scoped_write_ms=900,
+                first_state_heartbeat_ms=300,
+            ),
             recommended_action="promote",
         ),
         validation=ValidationReport(run_id=job.run_id, passed=True),
@@ -399,7 +406,12 @@ def test_admin_audit_trail_lists_recent_worker_activity(admin_client: TestClient
                     "agent_id": "openhands",
                     "summary": "runtime artifact captured successfully",
                     "changed_paths": ["src/autoresearch/api/routers/admin.py"],
-                    "metrics": {"duration_ms": 2400},
+                    "metrics": {
+                        "duration_ms": 2400,
+                        "first_progress_ms": 700,
+                        "first_scoped_write_ms": 1100,
+                        "first_state_heartbeat_ms": 700,
+                    },
                 },
                 "promotion": {
                     "changed_files": ["src/autoresearch/api/routers/admin.py"],
@@ -442,7 +454,12 @@ def test_admin_audit_trail_lists_recent_worker_activity(admin_client: TestClient
                     "agent_id": "openhands",
                     "summary": "worker failed during validation",
                     "changed_paths": ["src/autoresearch/core/services/agent_audit_trail.py"],
-                    "metrics": {"duration_ms": 3200},
+                    "metrics": {
+                        "duration_ms": 3200,
+                        "first_progress_ms": 600,
+                        "first_scoped_write_ms": 1600,
+                        "first_state_heartbeat_ms": 600,
+                    },
                     "error": "pytest exited with code 1",
                 },
             }
@@ -465,6 +482,9 @@ def test_admin_audit_trail_lists_recent_worker_activity(admin_client: TestClient
     assert planner_item["final_status"] == "ready_for_promotion"
     assert planner_item["status"] == "dispatched"
     assert "tests/test_audit_target.py" in planner_item["scope_paths"]
+    assert planner_item["first_progress_ms"] == 300
+    assert planner_item["first_scoped_write_ms"] == 900
+    assert planner_item["first_state_heartbeat_ms"] == 300
 
     manager_backend = next(
         item
@@ -482,6 +502,9 @@ def test_admin_audit_trail_lists_recent_worker_activity(admin_client: TestClient
     assert runtime_item["isolated_workspace"] == "/tmp/audit-runtime"
     assert runtime_item["patch_uri"] == str(runtime_patch_path)
     assert runtime_item["agent_role"] == "worker"
+    assert runtime_item["first_progress_ms"] == 700
+    assert runtime_item["first_scoped_write_ms"] == 1100
+    assert runtime_item["first_state_heartbeat_ms"] == 700
 
     detail_response = admin_client.get(f"/api/v1/admin/audit-trail/{planner_item['entry_id']}")
     assert detail_response.status_code == 200
@@ -490,6 +513,7 @@ def test_admin_audit_trail_lists_recent_worker_activity(admin_client: TestClient
     assert detail_payload["job_spec"]["task"] != ""
     assert "diff --git" in detail_payload["patch_text"]
     assert detail_payload["patch_truncated"] is False
+    assert detail_payload["entry"]["first_progress_ms"] == 300
 
     failed_response = admin_client.get("/api/v1/admin/audit-trail?limit=20&status_filter=failed&agent_role=worker")
     assert failed_response.status_code == 200
@@ -503,6 +527,7 @@ def test_admin_audit_trail_lists_recent_worker_activity(admin_client: TestClient
     assert failed_detail_payload["error_reason"] == "validation command failed"
     assert "Traceback" in (failed_detail_payload["traceback"] or "")
     assert "diff --git" in failed_detail_payload["patch_text"]
+    assert failed_detail_payload["entry"]["first_progress_ms"] == 600
 
 
 def test_admin_approvals_list_and_resolve(admin_client: TestClient) -> None:

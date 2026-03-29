@@ -80,6 +80,9 @@ class DriverMetrics(StrictModel):
     commands: int = 0
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
+    first_progress_ms: int | None = None
+    first_scoped_write_ms: int | None = None
+    first_state_heartbeat_ms: int | None = None
 
 
 class DriverResult(StrictModel):
@@ -94,6 +97,7 @@ class DriverResult(StrictModel):
         "partial",
         "failed",
         "timed_out",
+        "stalled_no_progress",
         "policy_blocked",
         "contract_error",
     ]

@@ -42,6 +42,43 @@ _COMPLEXITY_MARKERS = (
     "端到端",
 )
 
+_BUSINESS_MARKERS = (
+    "落地页",
+    "landing page",
+    "landing",
+    "产品",
+    "product",
+    "品牌",
+    "brand",
+    "前端",
+    "ui",
+    "页面",
+    "page",
+    "预约",
+    "留资",
+    "lead capture",
+    "marketing",
+    "美妆",
+)
+
+_INFRA_MARKERS = (
+    "openhands",
+    "worker",
+    "runner",
+    "sandbox",
+    "promotion gate",
+    "writerlease",
+    "writer lease",
+    "patch-only",
+    "pipeline",
+    "preflight",
+    "docker_host",
+    "socket",
+    "执行链",
+    "基建",
+    "调度",
+)
+
 
 @dataclass(frozen=True, slots=True)
 class _IntentRule:
@@ -63,11 +100,17 @@ _INTENT_RULES = (
             "落地页",
             "landing page",
             "landing",
+            "页面",
+            "page",
             "预约",
             "留资",
             "lead capture",
             "marketing",
             "品牌",
+            "product",
+            "产品",
+            "前端",
+            "ui",
             "美妆",
             "产品页",
         ),
@@ -146,7 +189,19 @@ _INTENT_RULES = (
         intent_id="worker_execution",
         label="worker_execution",
         summary="Improve planner, worker, or execution infrastructure.",
-        keywords=("openhands", "worker", "patch", "修复", "自动化"),
+        keywords=(
+            "openhands",
+            "worker",
+            "runner",
+            "sandbox",
+            "promotion gate",
+            "patch-only",
+            "writer lease",
+            "preflight",
+            "socket",
+            "docker_host",
+            "pipeline",
+        ),
         preferred_paths=(
             "src/autoresearch/core/services/openhands_worker.py",
             "src/autoresearch/core/services/autoresearch_planner.py",
@@ -458,7 +513,11 @@ class ManagerAgentService:
         best_score = -1
         for rule in _INTENT_RULES:
             matched = [keyword for keyword in rule.keywords if keyword.casefold() in prompt_folded]
-            score = len(matched)
+            score = self._score_intent_rule(
+                rule=rule,
+                prompt_folded=prompt_folded,
+                matched_keywords=matched,
+            )
             if score > best_score:
                 best_rule = rule
                 best_keywords = matched
@@ -477,6 +536,30 @@ class ManagerAgentService:
             suggested_test_paths=suggested_tests,
             metadata={"normalized_goal": normalized_goal},
         )
+
+    def _score_intent_rule(
+        self,
+        *,
+        rule: _IntentRule,
+        prompt_folded: str,
+        matched_keywords: list[str],
+    ) -> int:
+        score = len(matched_keywords) * 100
+        business_hits = sum(1 for marker in _BUSINESS_MARKERS if marker.casefold() in prompt_folded)
+        infra_hits = sum(1 for marker in _INFRA_MARKERS if marker.casefold() in prompt_folded)
+
+        if rule.intent_id == "product_landing_page":
+            score += business_hits * 15
+            if any(marker.casefold() in prompt_folded for marker in ("落地页", "landing page", "留资", "预约")):
+                score += 40
+            score -= infra_hits * 10
+        elif rule.intent_id == "worker_execution":
+            score += infra_hits * 15
+            score -= business_hits * 25
+        elif rule.intent_id in {"admin_dashboard", "game_prototype", "generic_product"}:
+            score += business_hits * 5
+
+        return score
 
     def _bucket_backend_paths(self, intent: ManagerIntentRead) -> list[str]:
         candidates = [
