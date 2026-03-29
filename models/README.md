@@ -1,16 +1,12 @@
 # Models
 
-AI 模型相关。
+AI 模型相关代码。
 
 ## 内容
 
-- LLM 模型
-- 多模态模型
-- 模型对比
+- __pycache__: Python 缓存
 
-## 模型
+## 用途
 
-- GPT-4
-- Claude 3.5
-- GLM-5
-- Gemini
+- 模型实现
+- 模型工具
