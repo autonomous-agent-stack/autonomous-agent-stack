@@ -633,3 +633,72 @@ result_path.write_text(json.dumps(payload), encoding="utf-8")
     assert summary.driver_result.status == "succeeded"
     assert summary.driver_result.metrics.first_state_heartbeat_ms is not None
     assert summary.driver_result.metrics.first_scoped_write_ms is not None
+
+
+def test_runner_ignores_log_heartbeat_after_first_scoped_write(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    (repo_root / "src").mkdir(parents=True, exist_ok=True)
+    (repo_root / "src" / "__init__.py").write_text("", encoding="utf-8")
+    (repo_root / "src" / "chatty_worker.py").write_text("VALUE = 1\n", encoding="utf-8")
+    _write_adapter(
+        repo_root,
+        "drivers/output_then_spin_probe.py",
+        """#!/usr/bin/env python3
+import os
+import time
+from pathlib import Path
+
+workspace = Path(os.environ["AEP_WORKSPACE"])
+target = workspace / "src" / "chatty_worker.py"
+
+for step in range(3):
+    print(f"warmup heartbeat {step}", flush=True)
+    time.sleep(1)
+
+target.write_text("VALUE = 2\\n", encoding="utf-8")
+
+for step in range(6):
+    print(f"post-write heartbeat {step}", flush=True)
+    time.sleep(1)
+""",
+    )
+    _write_manifest(repo_root, "drivers/output_then_spin_probe.py")
+
+    runner = AgentExecutionRunner(
+        repo_root=repo_root,
+        runtime_root=tmp_path / "runtime",
+        manifests_dir=repo_root / "configs" / "agents",
+    )
+    monkeypatch.setattr(runner, "_stall_progress_timeout_sec", lambda timeout_sec: 2)
+
+    started = time.perf_counter()
+    summary = runner.run_job(
+        JobSpec(
+            run_id="run-output-then-spin-probe",
+            agent_id="openhands",
+            task="Emit stdout heartbeats, write once, then spin forever without state updates.",
+            validators=[
+                ValidatorSpec(
+                    id="worker.test_command",
+                    kind="command",
+                    command=f"{sys.executable} -m py_compile src/chatty_worker.py",
+                )
+            ],
+            policy=ExecutionPolicy(
+                timeout_sec=60,
+                allowed_paths=["src/chatty_worker.py"],
+                cleanup_on_success=False,
+            ),
+        )
+    )
+    duration = time.perf_counter() - started
+
+    assert duration < 12
+    assert summary.final_status == "failed"
+    assert summary.driver_result.status == "stalled_no_progress"
+    assert summary.driver_result.metrics.first_state_heartbeat_ms is not None
+    assert summary.driver_result.metrics.first_scoped_write_ms is not None
