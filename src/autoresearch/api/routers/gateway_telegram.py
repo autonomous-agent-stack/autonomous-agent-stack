@@ -1780,7 +1780,7 @@ def _is_status_query(text: str) -> bool:
 
 def _is_help_command(text: str) -> bool:
     normalized = text.strip().lower()
-    return normalized in {"/help", "help", "帮助"}
+    return normalized in {"/help", "/start", "help", "帮助"}
 
 
 def _is_task_command(text: str) -> bool:
@@ -2104,6 +2104,7 @@ def _build_help_message(*, session_identity: TelegramSessionIdentityRead) -> str
     chat_type = session_identity.chat_context.chat_type
     lines = [
         "[Telegram Commands]",
+        "/start 查看欢迎信息和命令列表",
         "/status 查看当前会话、任务和能力摘要",
         "/task <需求> 走 Manager Agent DAG 执行任务",
         "/task --approve <需求> owner/partner 直通 Draft PR 审批上下文",

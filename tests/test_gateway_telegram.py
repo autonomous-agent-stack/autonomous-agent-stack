@@ -806,6 +806,41 @@ def test_telegram_help_command_returns_available_commands(
         app.dependency_overrides.pop(get_telegram_notifier_service, None)
 
 
+def test_telegram_start_command_returns_available_commands(
+    telegram_client: TestClient,
+) -> None:
+    notifier = _StubTelegramNotifier()
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+
+    try:
+        response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 3152,
+                "message": {
+                    "message_id": 151,
+                    "text": "/start",
+                    "chat": {"id": 9535, "type": "private"},
+                    "from": {"id": 9535, "username": "start-user"},
+                },
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["accepted"] is True
+        assert payload["agent_run_id"] is None
+        assert payload["metadata"]["source"] == "telegram_help"
+
+        assert len(notifier.messages) == 1
+        help_text = notifier.messages[0]["text"]
+        assert "[Telegram Commands]" in help_text
+        assert "/start 查看欢迎信息和命令列表" in help_text
+        assert "/status" in help_text
+        assert "/help" in help_text
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+
+
 def test_telegram_task_issue_dispatches_manager_and_queues_issue_reply_approval(
     telegram_client: TestClient,
     tmp_path: Path,
