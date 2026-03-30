@@ -172,6 +172,7 @@ def get_manager_agent_service() -> ManagerAgentService:
             model_cls=ManagerDispatchRead,
         ),
         repo_root=_repo_root(),
+        promotion_service=get_git_promotion_service(),
     )
 
 
@@ -357,6 +358,7 @@ def get_agent_audit_trail_service() -> AgentAuditTrailService:
         planner_service=get_autoresearch_planner_service(),
         manager_service=get_manager_agent_service(),
         agent_service=get_claude_agent_service(),
+        promotion_service=get_git_promotion_service(),
     )
 
 

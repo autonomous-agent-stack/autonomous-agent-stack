@@ -17,6 +17,7 @@ from autoresearch.api.dependencies import (
     get_autoresearch_planner_service,
     get_capability_provider_registry,
     get_claude_agent_service,
+    get_git_promotion_service,
     get_manager_agent_service,
     get_openclaw_compat_service,
 )
@@ -30,6 +31,7 @@ from autoresearch.core.services.agent_audit_trail import AgentAuditTrailService
 from autoresearch.core.services.approval_store import ApprovalStoreService
 from autoresearch.core.services.autoresearch_planner import AutoResearchPlannerService
 from autoresearch.core.services.claude_agents import ClaudeAgentService
+from autoresearch.core.services.git_promotion_gate import GitPromotionRead
 from autoresearch.agents.manager_agent import ManagerAgentService
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.shared.autoresearch_planner_contract import AutoResearchPlannerRequest
@@ -43,6 +45,7 @@ from autoresearch.shared.models import (
     ApprovalRequestRead,
     ClaudeAgentCreateRequest,
     ClaudeAgentRunRead,
+    JobStatus,
     OpenClawSessionRead,
 )
 from autoresearch.shared.store import InMemoryRepository, SQLiteModelRepository
@@ -123,6 +126,25 @@ class _StubCalendarProvider(_StubCapabilityProvider):
         return {}
 
 
+class _StubPromotionLookupService:
+    def __init__(self) -> None:
+        self.promotions: dict[str, GitPromotionRead] = {}
+
+    def register(self, promotion: GitPromotionRead) -> GitPromotionRead:
+        self.promotions[promotion.promotion_id] = promotion
+        return promotion
+
+    def get_promotion(self, promotion_id: str) -> GitPromotionRead | None:
+        return self.promotions.get(promotion_id)
+
+    def find_latest_promotion_for_run(self, run_id: str) -> GitPromotionRead | None:
+        matches = [item for item in self.promotions.values() if item.run_id == run_id]
+        if not matches:
+            return None
+        matches.sort(key=lambda item: item.updated_at, reverse=True)
+        return matches[0]
+
+
 def _write(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
@@ -170,6 +192,7 @@ def _successful_run_summary(job: JobSpec) -> RunSummary:
 @pytest.fixture
 def admin_client(tmp_path: Path) -> TestClient:
     db_path = tmp_path / "admin.sqlite3"
+    promotion_service = _StubPromotionLookupService()
     openclaw_service = OpenClawCompatService(
         repository=SQLiteModelRepository(
             db_path=db_path,
@@ -197,12 +220,14 @@ def admin_client(tmp_path: Path) -> TestClient:
         repository=InMemoryRepository(),
         repo_root=tmp_path,
         dispatch_runner=_successful_run_summary,
+        promotion_service=promotion_service,
     )
     audit_trail_service = AgentAuditTrailService(
         repo_root=tmp_path,
         planner_service=planner_service,
         manager_service=manager_service,
         agent_service=claude_service,
+        promotion_service=promotion_service,
     )
     admin_service = AdminConfigService(
         agent_repository=SQLiteModelRepository(
@@ -252,6 +277,7 @@ def admin_client(tmp_path: Path) -> TestClient:
     app.dependency_overrides[get_admin_auth_service] = lambda: auth_service
     app.dependency_overrides[get_approval_store_service] = lambda: approval_store
     app.dependency_overrides[get_capability_provider_registry] = lambda: capability_registry
+    app.dependency_overrides[get_git_promotion_service] = lambda: promotion_service
 
     with TestClient(app) as client:
         token_response = client.post(
@@ -267,6 +293,7 @@ def admin_client(tmp_path: Path) -> TestClient:
         setattr(client, "_planner_service", planner_service)
         setattr(client, "_manager_service", manager_service)
         setattr(client, "_claude_service", claude_service)
+        setattr(client, "_promotion_service", promotion_service)
         setattr(client, "_repo_root", tmp_path)
         yield client
 
@@ -528,6 +555,62 @@ def test_admin_audit_trail_lists_recent_worker_activity(admin_client: TestClient
     assert "Traceback" in (failed_detail_payload["traceback"] or "")
     assert "diff --git" in failed_detail_payload["patch_text"]
     assert failed_detail_payload["entry"]["first_progress_ms"] == 600
+
+
+def test_admin_audit_trail_projects_manager_promotion_state(admin_client: TestClient) -> None:
+    manager_service: ManagerAgentService = getattr(admin_client, "_manager_service")
+    promotion_service = getattr(admin_client, "_promotion_service")
+
+    dispatch = manager_service.create_dispatch(
+        ManagerDispatchRequest(
+            prompt="收紧 promotion state consistency",
+            auto_dispatch=False,
+        )
+    )
+    dispatch = manager_service.execute_dispatch(dispatch.dispatch_id)
+    assert dispatch.run_summary is not None
+    manager_service.record_promotion_approval(dispatch.dispatch_id, approval_id="apr_manager_promote_1")
+    promotion = promotion_service.register(
+        GitPromotionRead(
+            promotion_id="gpr_manager_promote_1",
+            run_id=dispatch.run_summary.run_id,
+            status=JobStatus.COMPLETED,
+            base_ref="main",
+            branch_name="codex/test/promotion-state",
+            commit_sha="abc123def456",
+            patch_path=f"/tmp/{dispatch.run_summary.run_id}.patch",
+            worktree_path=f"/tmp/{dispatch.run_summary.run_id}",
+            draft_pr_command="gh pr create --draft",
+            pr_url="https://github.com/owner/repo/pull/321",
+            validator_commands=[],
+            created_at=dispatch.updated_at,
+            updated_at=dispatch.updated_at,
+            metadata={"open_draft_pr": True},
+            error=None,
+        )
+    )
+    manager_service.record_promotion_result(
+        dispatch.dispatch_id,
+        approval_id="apr_manager_promote_1",
+        promotion=promotion,
+    )
+
+    response = admin_client.get("/api/v1/admin/audit-trail?limit=20")
+    assert response.status_code == 200
+    payload = response.json()
+    item = next(item for item in payload["items"] if item["run_id"] == dispatch.run_summary.run_id)
+    assert item["source"] == "manager_task"
+    assert item["final_status"] == "promoted"
+    assert item["metadata"]["promotion_phase"] == "draft_pr_created"
+    assert item["metadata"]["promotion_id"] == "gpr_manager_promote_1"
+    assert item["metadata"]["promotion_pr_url"] == "https://github.com/owner/repo/pull/321"
+
+    detail = admin_client.get(f"/api/v1/admin/audit-trail/{item['entry_id']}")
+    assert detail.status_code == 200
+    detail_payload = detail.json()
+    assert detail_payload["entry"]["final_status"] == "promoted"
+    assert detail_payload["raw_record"]["promotion_state"]["phase"] == "draft_pr_created"
+    assert detail_payload["raw_record"]["promotion_state"]["pr_url"] == "https://github.com/owner/repo/pull/321"
 
 
 def test_admin_approvals_list_and_resolve(admin_client: TestClient) -> None:

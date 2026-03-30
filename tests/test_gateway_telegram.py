@@ -169,10 +169,50 @@ class _StubGitHubIssueService:
 class _StubPromotionService:
     def __init__(self) -> None:
         self.requests: list[object] = []
+        self.promotions: dict[str, GitPromotionRead] = {}
+        self.failures: dict[str, str] = {}
+
+    def fail_for_run(self, run_id: str, *, error: str) -> None:
+        self.failures[run_id] = error
+
+    def get_promotion(self, promotion_id: str) -> GitPromotionRead | None:
+        return self.promotions.get(promotion_id)
+
+    def find_latest_promotion_for_run(self, run_id: str) -> GitPromotionRead | None:
+        matches = [item for item in self.promotions.values() if item.run_id == run_id]
+        if not matches:
+            return None
+        matches.sort(key=lambda item: item.updated_at, reverse=True)
+        return matches[0]
 
     def promote(self, request) -> GitPromotionRead:
         self.requests.append(request)
-        return GitPromotionRead(
+        if request.run_id in self.failures:
+            failed = GitPromotionRead(
+                promotion_id=f"gpr_{request.run_id[-6:]}",
+                run_id=request.run_id,
+                status=JobStatus.FAILED,
+                base_ref=request.base_ref,
+                branch_name=f"codex/test/{request.run_id[-6:]}",
+                commit_sha=None,
+                patch_path=f"/tmp/{request.run_id}.patch",
+                worktree_path=f"/tmp/{request.run_id}",
+                draft_pr_command="gh pr create --draft",
+                pr_url=None,
+                validator_commands=[],
+                created_at=utc_now(),
+                updated_at=utc_now(),
+                metadata={
+                    **dict(request.metadata),
+                    "open_draft_pr": request.open_draft_pr,
+                    "push_branch": request.push_branch,
+                },
+                error=self.failures[request.run_id],
+            )
+            self.promotions[failed.promotion_id] = failed
+            raise RuntimeError(self.failures[request.run_id])
+
+        promotion = GitPromotionRead(
             promotion_id=f"gpr_{request.run_id[-6:]}",
             run_id=request.run_id,
             status=JobStatus.COMPLETED,
@@ -186,12 +226,23 @@ class _StubPromotionService:
             validator_commands=[],
             created_at=utc_now(),
             updated_at=utc_now(),
-            metadata=dict(request.metadata),
+            metadata={
+                **dict(request.metadata),
+                "open_draft_pr": request.open_draft_pr,
+                "push_branch": request.push_branch,
+            },
             error=None,
         )
+        self.promotions[promotion.promotion_id] = promotion
+        return promotion
 
 
-def _build_manager_service(db_path: Path, *, include_draft_pr: bool = True) -> ManagerAgentService:
+def _build_manager_service(
+    db_path: Path,
+    *,
+    include_draft_pr: bool = True,
+    promotion_service: _StubPromotionService | None = None,
+) -> ManagerAgentService:
     repository = SQLiteModelRepository(
         db_path=db_path,
         table_name="manager_agent_dispatches_gateway_it",
@@ -235,6 +286,7 @@ def _build_manager_service(db_path: Path, *, include_draft_pr: bool = True) -> M
         repository=repository,
         repo_root=Path(__file__).resolve().parents[1],
         dispatch_runner=_dispatch_runner,
+        promotion_service=promotion_service,
     )
 
 
@@ -996,12 +1048,13 @@ def test_telegram_approve_command_executes_manager_dispatch_promotion(
     tmp_path: Path,
 ) -> None:
     notifier = _StubTelegramNotifier()
+    promotion_service = getattr(telegram_client, "_promotion_service")
     manager_service = _build_manager_service(
         tmp_path / "manager-promote.sqlite3",
         include_draft_pr=False,
+        promotion_service=promotion_service,
     )
     approval_service = getattr(telegram_client, "_approval_store")
-    promotion_service = getattr(telegram_client, "_promotion_service")
     app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
     app.dependency_overrides[get_manager_agent_service] = lambda: manager_service
 
@@ -1044,9 +1097,217 @@ def test_telegram_approve_command_executes_manager_dispatch_promotion(
         assert resolved.metadata["promotion_pr_url"].startswith("https://github.com/owner/repo/pull/")
         assert len(promotion_service.requests) == 1
         assert promotion_service.requests[0].run_id == approval.metadata["run_id"]
+        dispatch = manager_service.get_dispatch(task_response.json()["metadata"]["dispatch_id"])
+        assert dispatch is not None
+        assert dispatch.metadata["promotion_id"] == resolved.metadata["promotion_id"]
+        assert dispatch.metadata["promotion_pr_url"] == resolved.metadata["promotion_pr_url"]
+        assert dispatch.run_summary is not None
+        assert dispatch.run_summary.final_status == "promoted"
+        assert dispatch.run_summary.promotion is not None
+        assert dispatch.run_summary.promotion.pr_url == resolved.metadata["promotion_pr_url"]
 
         assert any("[Task Promotion Executed]" in item["text"] for item in notifier.messages)
         assert any("draft_pr:" in item["text"] for item in notifier.messages)
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+        app.dependency_overrides.pop(get_manager_agent_service, None)
+
+
+def test_telegram_approve_command_is_idempotent_for_manager_dispatch_promotion(
+    telegram_client: TestClient,
+    tmp_path: Path,
+) -> None:
+    notifier = _StubTelegramNotifier()
+    promotion_service = getattr(telegram_client, "_promotion_service")
+    manager_service = _build_manager_service(
+        tmp_path / "manager-promote-idempotent.sqlite3",
+        include_draft_pr=False,
+        promotion_service=promotion_service,
+    )
+    approval_service = getattr(telegram_client, "_approval_store")
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+    app.dependency_overrides[get_manager_agent_service] = lambda: manager_service
+
+    try:
+        task_response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 31617,
+                "message": {
+                    "message_id": 1538,
+                    "text": "/task 给我做一个玛露 6g 遮瑕膏落地页，准备好后走 Draft PR。",
+                    "chat": {"id": 9544, "type": "private"},
+                    "from": {"id": 9544, "username": "promote-user-idempotent"},
+                },
+            },
+        )
+        assert task_response.status_code == 200
+        approval = approval_service.list_requests(telegram_uid="9544", limit=10)[0]
+
+        first = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 31618,
+                "message": {
+                    "message_id": 1539,
+                    "text": f"/approve {approval.approval_id} approve ship it",
+                    "chat": {"id": 9544, "type": "private"},
+                    "from": {"id": 9544, "username": "promote-user-idempotent"},
+                },
+            },
+        )
+        assert first.status_code == 200
+
+        second = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 31619,
+                "message": {
+                    "message_id": 1540,
+                    "text": f"/approve {approval.approval_id} approve 再来一次",
+                    "chat": {"id": 9544, "type": "private"},
+                    "from": {"id": 9544, "username": "promote-user-idempotent"},
+                },
+            },
+        )
+        assert second.status_code == 200
+        assert second.json()["accepted"] is True
+
+        resolved = approval_service.get_request(approval.approval_id)
+        assert resolved is not None
+        assert resolved.status.value == "approved"
+        assert len(promotion_service.requests) == 1
+        assert any(
+            item["text"].startswith("[Task Promotion Executed]") and "draft_pr:" in item["text"]
+            for item in notifier.messages
+        )
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+        app.dependency_overrides.pop(get_manager_agent_service, None)
+
+
+def test_telegram_approve_command_records_failed_manager_dispatch_promotion_state(
+    telegram_client: TestClient,
+    tmp_path: Path,
+) -> None:
+    notifier = _StubTelegramNotifier()
+    promotion_service = getattr(telegram_client, "_promotion_service")
+    manager_service = _build_manager_service(
+        tmp_path / "manager-promote-failed.sqlite3",
+        include_draft_pr=False,
+        promotion_service=promotion_service,
+    )
+    approval_service = getattr(telegram_client, "_approval_store")
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+    app.dependency_overrides[get_manager_agent_service] = lambda: manager_service
+
+    try:
+        task_response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 31620,
+                "message": {
+                    "message_id": 1541,
+                    "text": "/task 给我做一个玛露 6g 遮瑕膏落地页，准备好后走 Draft PR。",
+                    "chat": {"id": 9545, "type": "private"},
+                    "from": {"id": 9545, "username": "promote-user-failed"},
+                },
+            },
+        )
+        assert task_response.status_code == 200
+        approval = approval_service.list_requests(telegram_uid="9545", limit=10)[0]
+        promotion_service.fail_for_run(
+            approval.metadata["run_id"],
+            error="draft pr creation failed",
+        )
+
+        approve_response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 31621,
+                "message": {
+                    "message_id": 1542,
+                    "text": f"/approve {approval.approval_id} approve ship it",
+                    "chat": {"id": 9545, "type": "private"},
+                    "from": {"id": 9545, "username": "promote-user-failed"},
+                },
+            },
+        )
+        assert approve_response.status_code == 200
+        assert approve_response.json()["accepted"] is True
+
+        resolved = approval_service.get_request(approval.approval_id)
+        assert resolved is not None
+        assert resolved.status.value == "approved"
+        assert resolved.metadata["promotion_status"] == "failed"
+        assert resolved.metadata["promotion_error"] == "draft pr creation failed"
+        dispatch = manager_service.get_dispatch(task_response.json()["metadata"]["dispatch_id"])
+        assert dispatch is not None
+        assert dispatch.metadata["promotion_status"] == "failed"
+        assert dispatch.metadata["promotion_error"] == "draft pr creation failed"
+        assert dispatch.run_summary is not None
+        assert dispatch.run_summary.promotion is not None
+        assert dispatch.run_summary.promotion.reason == "draft pr creation failed"
+        assert any("[Task Promotion Failed]" in item["text"] for item in notifier.messages)
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+        app.dependency_overrides.pop(get_manager_agent_service, None)
+
+
+def test_telegram_reject_command_marks_manager_dispatch_patch_only_after_promotion_rejection(
+    telegram_client: TestClient,
+    tmp_path: Path,
+) -> None:
+    notifier = _StubTelegramNotifier()
+    promotion_service = getattr(telegram_client, "_promotion_service")
+    manager_service = _build_manager_service(
+        tmp_path / "manager-promote-rejected.sqlite3",
+        include_draft_pr=False,
+        promotion_service=promotion_service,
+    )
+    approval_service = getattr(telegram_client, "_approval_store")
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+    app.dependency_overrides[get_manager_agent_service] = lambda: manager_service
+
+    try:
+        task_response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 31622,
+                "message": {
+                    "message_id": 1543,
+                    "text": "/task 给我做一个玛露 6g 遮瑕膏落地页，准备好后走 Draft PR。",
+                    "chat": {"id": 9546, "type": "private"},
+                    "from": {"id": 9546, "username": "promote-user-rejected"},
+                },
+            },
+        )
+        assert task_response.status_code == 200
+        approval = approval_service.list_requests(telegram_uid="9546", limit=10)[0]
+
+        reject_response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 31623,
+                "message": {
+                    "message_id": 1544,
+                    "text": f"/approve {approval.approval_id} reject 先别发 PR",
+                    "chat": {"id": 9546, "type": "private"},
+                    "from": {"id": 9546, "username": "promote-user-rejected"},
+                },
+            },
+        )
+        assert reject_response.status_code == 200
+        assert reject_response.json()["accepted"] is True
+
+        resolved = approval_service.get_request(approval.approval_id)
+        assert resolved is not None
+        assert resolved.status.value == "rejected"
+        dispatch = manager_service.get_dispatch(task_response.json()["metadata"]["dispatch_id"])
+        assert dispatch is not None
+        assert dispatch.metadata["promotion_status"] == "rejected"
+        assert gateway_telegram._manager_dispatch_phase(dispatch) == "patch_only_execution"
+        assert any("[Task Promotion Skipped]" in item["text"] for item in notifier.messages)
     finally:
         app.dependency_overrides.pop(get_telegram_notifier_service, None)
         app.dependency_overrides.pop(get_manager_agent_service, None)

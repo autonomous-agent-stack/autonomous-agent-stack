@@ -769,6 +769,16 @@ class GitPromotionService:
     def list_promotions(self) -> list[GitPromotionRead]:
         return self._repository.list()
 
+    def find_latest_promotion_for_run(self, run_id: str) -> GitPromotionRead | None:
+        normalized_run_id = run_id.strip()
+        if not normalized_run_id:
+            return None
+        matches = [item for item in self._repository.list() if item.run_id == normalized_run_id]
+        if not matches:
+            return None
+        matches.sort(key=lambda item: item.updated_at, reverse=True)
+        return matches[0]
+
     def promote(self, request: GitPromotionCreateRequest) -> GitPromotionRead:
         run_dir = self._runs_root / request.run_id
         summary_path = run_dir / "summary.json"

@@ -29,6 +29,11 @@ from autoresearch.core.services.claude_agents import ClaudeAgentService
 from autoresearch.core.services.github_issue_service import GitHubIssueRead, GitHubIssueService
 from autoresearch.core.services.git_promotion_gate import GitPromotionCreateRequest, GitPromotionService
 from autoresearch.core.services.group_access import GroupAccessManager
+from autoresearch.core.services.manager_promotion_state import (
+    hydrate_manager_dispatch_promotion,
+    manager_dispatch_requests_draft_pr,
+    resolve_manager_dispatch_promotion_state,
+)
 from autoresearch.agents.manager_agent import ManagerAgentService
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.openclaw_memory import OpenClawMemoryService
@@ -1219,63 +1224,81 @@ def _handle_approve_command(
         else:
             decision = "approved" if approval_action == "approve" else "rejected"
             try:
-                approval = approval_service.resolve_request(
-                    approval.approval_id,
-                    ApprovalDecisionRequest(
-                        decision=decision,
-                        decided_by=approval_uid,
-                        note=approval_note or None,
-                        metadata={
-                            "resolved_via": "telegram_command",
-                            "chat_id": chat_id,
-                            "scope": session_identity.scope.value,
-                        },
-                    ),
-                )
-                message_text = _build_approval_decision_message(approval)
-                message_source = "telegram_approve_decision"
-                approval_query = approval.approval_id
-                if decision == "approved" and approval.metadata.get("action_type") == "github_issue_comment":
-                    comment_output = _post_github_issue_comment_for_approval(
-                        approval=approval,
-                        approval_service=approval_service,
-                        github_issue_service=github_issue_service,
-                        chat_id=chat_id,
-                        scope=session_identity.scope.value,
+                if approval.status != ApprovalStatus.PENDING:
+                    if approval.metadata.get("action_type") == "manager_dispatch_promote":
+                        message_text = _build_existing_manager_promotion_message(
+                            approval=approval,
+                            manager_service=manager_service,
+                            promotion_service=promotion_service,
+                        )
+                    else:
+                        message_text = _build_approval_decision_message(approval)
+                    message_source = "telegram_approve_decision"
+                    approval_query = approval.approval_id
+                else:
+                    approval = approval_service.resolve_request(
+                        approval.approval_id,
+                        ApprovalDecisionRequest(
+                            decision=decision,
+                            decided_by=approval_uid,
+                            note=approval_note or None,
+                            metadata={
+                                "resolved_via": "telegram_command",
+                                "chat_id": chat_id,
+                                "scope": session_identity.scope.value,
+                            },
+                        ),
                     )
-                    message_text = "\n\n".join(
-                        [
-                            message_text,
-                            _build_github_issue_comment_posted_message(
+                    message_text = _build_approval_decision_message(approval)
+                    message_source = "telegram_approve_decision"
+                    approval_query = approval.approval_id
+                    if decision == "approved" and approval.metadata.get("action_type") == "github_issue_comment":
+                        comment_output = _post_github_issue_comment_for_approval(
+                            approval=approval,
+                            approval_service=approval_service,
+                            github_issue_service=github_issue_service,
+                            chat_id=chat_id,
+                            scope=session_identity.scope.value,
+                        )
+                        message_text = "\n\n".join(
+                            [
+                                message_text,
+                                _build_github_issue_comment_posted_message(
+                                    approval_id=approval.approval_id,
+                                    issue_reference=str(approval.metadata.get("issue_reference") or "unknown"),
+                                    output=comment_output or None,
+                                ),
+                            ]
+                        ).strip()
+                    elif decision == "approved" and approval.metadata.get("action_type") == "manager_dispatch_promote":
+                        promotion_message = _execute_manager_promotion_for_approval(
+                            approval=approval,
+                            approval_service=approval_service,
+                            promotion_service=promotion_service,
+                            manager_service=manager_service,
+                            openclaw_service=openclaw_service,
+                            chat_id=chat_id,
+                            scope=session_identity.scope.value,
+                        )
+                        message_text = "\n\n".join(
+                            [
+                                message_text,
+                                promotion_message,
+                            ]
+                        ).strip()
+                    elif decision == "rejected" and approval.metadata.get("action_type") == "manager_dispatch_promote":
+                        dispatch_id = str(approval.metadata.get("dispatch_id") or "").strip() or None
+                        if dispatch_id is not None:
+                            manager_service.record_promotion_rejection(
+                                dispatch_id,
                                 approval_id=approval.approval_id,
-                                issue_reference=str(approval.metadata.get("issue_reference") or "unknown"),
-                                output=comment_output or None,
-                            ),
-                        ]
-                    ).strip()
-                elif decision == "approved" and approval.metadata.get("action_type") == "manager_dispatch_promote":
-                    promotion_message = _execute_manager_promotion_for_approval(
-                        approval=approval,
-                        approval_service=approval_service,
-                        promotion_service=promotion_service,
-                        manager_service=manager_service,
-                        openclaw_service=openclaw_service,
-                        chat_id=chat_id,
-                        scope=session_identity.scope.value,
-                    )
-                    message_text = "\n\n".join(
-                        [
-                            message_text,
-                            promotion_message,
-                        ]
-                    ).strip()
-                elif decision == "rejected" and approval.metadata.get("action_type") == "manager_dispatch_promote":
-                    message_text = "\n\n".join(
-                        [
-                            message_text,
-                            "[Task Promotion Skipped]\n保留当前 patch-only 结果，不继续创建 Draft PR。",
-                        ]
-                    ).strip()
+                            )
+                        message_text = "\n\n".join(
+                            [
+                                message_text,
+                                "[Task Promotion Skipped]\n保留当前 patch-only 结果，不继续创建 Draft PR。",
+                            ]
+                        ).strip()
             except ValueError as exc:
                 message_text = str(exc)
                 message_source = "telegram_approve_decision"
@@ -1489,10 +1512,12 @@ def _execute_manager_dispatch_and_notify(
         issue_url=issue_url,
         issue_title=issue_title,
     )
-    final_phase = _manager_dispatch_phase(
-        dispatch,
-        promotion_approval_id=promotion_approval.approval_id if promotion_approval is not None else None,
-    )
+    if promotion_approval is not None:
+        dispatch = manager_service.record_promotion_approval(
+            dispatch.dispatch_id,
+            approval_id=promotion_approval.approval_id,
+        )
+    final_phase = _manager_dispatch_phase(dispatch)
     openclaw_service.append_event(
         session_id=session_id,
         request=OpenClawSessionEventAppendRequest(
@@ -1528,7 +1553,6 @@ def _execute_manager_dispatch_and_notify(
                 dispatch,
                 issue_reference=issue_reference,
                 issue_url=issue_url,
-                promotion_approval_id=promotion_approval.approval_id if promotion_approval is not None else None,
             ),
         )
         if promotion_approval is not None:
@@ -1602,7 +1626,6 @@ def _build_manager_dispatch_result_message(
     *,
     issue_reference: str | None,
     issue_url: str | None,
-    promotion_approval_id: str | None = None,
 ) -> str:
     task_count = len(dispatch.execution_plan.tasks) if dispatch.execution_plan is not None else 0
     completed_count = (
@@ -1610,10 +1633,11 @@ def _build_manager_dispatch_result_message(
         if dispatch.execution_plan is not None
         else 0
     )
+    promotion_state = resolve_manager_dispatch_promotion_state(dispatch)
     lines = [
         "[Manager Task]",
         f"dispatch: {dispatch.dispatch_id}",
-        f"phase: {_manager_dispatch_phase(dispatch, promotion_approval_id=promotion_approval_id)}",
+        f"phase: {promotion_state.phase}",
         f"lane: {str(dispatch.metadata.get('task_lane') or 'patch_only')}",
         f"status: {dispatch.status.value}",
         f"tasks: {completed_count}/{task_count}",
@@ -1625,16 +1649,16 @@ def _build_manager_dispatch_result_message(
     if dispatch.summary:
         lines.extend(["", dispatch.summary])
 
-    promotion = dispatch.run_summary.promotion if dispatch.run_summary is not None else None
-    if promotion is not None and promotion.pr_url:
-        lines.append(f"draft_pr: {promotion.pr_url}")
-    elif promotion_approval_id:
-        lines.append(f"approval: {promotion_approval_id}")
+    if promotion_state.pr_url:
+        lines.append(f"draft_pr: {promotion_state.pr_url}")
+    elif promotion_state.approval_id:
+        lines.append(f"approval: {promotion_state.approval_id}")
     elif dispatch.run_summary is not None and dispatch.run_summary.promotion_patch_uri:
         lines.append(f"patch: {dispatch.run_summary.promotion_patch_uri}")
 
     error_text = (
-        dispatch.error
+        promotion_state.error
+        or dispatch.error
         or (
             dispatch.run_summary.driver_result.error
             if dispatch.run_summary is not None and dispatch.run_summary.driver_result.error
@@ -1664,28 +1688,13 @@ def _resolve_task_execution_mode(task_query: str) -> tuple[str, str, bool]:
 
 
 def _manager_dispatch_requests_draft_pr(dispatch: ManagerDispatchRead) -> bool:
-    return str(dispatch.metadata.get("pipeline_target") or "").strip().lower() == "draft_pr"
+    return manager_dispatch_requests_draft_pr(dispatch)
 
 
 def _manager_dispatch_phase(
     dispatch: ManagerDispatchRead,
-    *,
-    promotion_approval_id: str | None = None,
 ) -> str:
-    if promotion_approval_id:
-        return "awaiting_approval"
-    promotion = dispatch.run_summary.promotion if dispatch.run_summary is not None else None
-    if promotion is not None and promotion.pr_url:
-        return "draft_pr_created"
-    if dispatch.status == JobStatus.QUEUED:
-        return "task_accepted"
-    if dispatch.status == JobStatus.RUNNING:
-        return "running"
-    if dispatch.run_summary is not None and dispatch.run_summary.final_status == "ready_for_promotion":
-        return "patch_only_execution"
-    if dispatch.status == JobStatus.FAILED:
-        return "terminal_failed"
-    return dispatch.status.value
+    return resolve_manager_dispatch_promotion_state(dispatch).phase
 
 
 def _queue_manager_dispatch_promotion_approval(
@@ -1751,6 +1760,83 @@ def _build_manager_promotion_approval_message(
     return _truncate_telegram_text("\n".join(lines))
 
 
+def _build_manager_promotion_status_message(
+    *,
+    approval: Any,
+    dispatch: ManagerDispatchRead | None,
+) -> str:
+    promotion_state = (
+        resolve_manager_dispatch_promotion_state(dispatch)
+        if dispatch is not None
+        else None
+    )
+    approval_id = approval.approval_id
+    run_id = str(approval.metadata.get("run_id") or "").strip() or None
+
+    if approval.status == ApprovalStatus.REJECTED:
+        return "\n\n".join(
+            [
+                _build_approval_decision_message(approval),
+                "[Task Promotion Skipped]\n保留当前 patch-only 结果，不继续创建 Draft PR。",
+            ]
+        ).strip()
+
+    title = "[Task Promotion Executed]"
+    if promotion_state is not None and promotion_state.phase == "promotion_failed":
+        title = "[Task Promotion Failed]"
+    elif promotion_state is not None and promotion_state.phase == "promotion_in_progress":
+        title = "[Task Promotion In Progress]"
+
+    lines = [
+        title,
+        f"approval: {approval_id}",
+    ]
+    if run_id:
+        lines.append(f"run: {run_id}")
+    if dispatch is not None:
+        lines.append(f"dispatch: {dispatch.dispatch_id}")
+    if promotion_state is not None and promotion_state.promotion_status:
+        lines.append(f"status: {promotion_state.promotion_status}")
+    elif approval.metadata.get("promotion_status"):
+        lines.append(f"status: {approval.metadata['promotion_status']}")
+    if promotion_state is not None and promotion_state.branch_name:
+        lines.append(f"branch: {promotion_state.branch_name}")
+    elif approval.metadata.get("promotion_branch_name"):
+        lines.append(f"branch: {approval.metadata['promotion_branch_name']}")
+    if promotion_state is not None and promotion_state.pr_url:
+        lines.append(f"draft_pr: {promotion_state.pr_url}")
+    elif approval.metadata.get("promotion_pr_url"):
+        lines.append(f"draft_pr: {approval.metadata['promotion_pr_url']}")
+    if promotion_state is not None and promotion_state.error:
+        lines.extend(["", promotion_state.error.strip()])
+    elif approval.metadata.get("promotion_error"):
+        lines.extend(["", str(approval.metadata["promotion_error"]).strip()])
+    return _truncate_telegram_text("\n".join(lines))
+
+
+def _build_existing_manager_promotion_message(
+    *,
+    approval: Any,
+    manager_service: ManagerAgentService,
+    promotion_service: GitPromotionService,
+) -> str:
+    dispatch_id = str(approval.metadata.get("dispatch_id") or "").strip() or None
+    dispatch = manager_service.get_dispatch(dispatch_id) if dispatch_id is not None else None
+    if dispatch is None:
+        return _build_manager_promotion_status_message(
+            approval=approval,
+            dispatch=None,
+        )
+    dispatch = hydrate_manager_dispatch_promotion(
+        manager_service.get_dispatch(dispatch.dispatch_id) or dispatch,
+        promotion_service=promotion_service,
+    )
+    return _build_manager_promotion_status_message(
+        approval=approval,
+        dispatch=dispatch,
+    )
+
+
 def _execute_manager_promotion_for_approval(
     *,
     approval: Any,
@@ -1766,20 +1852,65 @@ def _execute_manager_promotion_for_approval(
         raise RuntimeError("approval is missing run_id for promotion")
 
     base_ref = str(approval.metadata.get("base_ref") or "main").strip() or "main"
-    promotion = promotion_service.promote(
-        GitPromotionCreateRequest(
-            run_id=run_id,
-            base_ref=base_ref,
-            push_branch=True,
-            open_draft_pr=True,
-            metadata={
-                "approved_via": "telegram_command",
-                "approval_id": approval.approval_id,
-                "dispatch_id": approval.metadata.get("dispatch_id"),
-            },
+    session_id = str(approval.session_id or "").strip() or None
+    dispatch_id = str(approval.metadata.get("dispatch_id") or "").strip() or None
+    try:
+        promotion = promotion_service.promote(
+            GitPromotionCreateRequest(
+                run_id=run_id,
+                base_ref=base_ref,
+                push_branch=True,
+                open_draft_pr=True,
+                metadata={
+                    "approved_via": "telegram_command",
+                    "approval_id": approval.approval_id,
+                    "dispatch_id": approval.metadata.get("dispatch_id"),
+                },
+            )
         )
-    )
-    approval_service.update_request_metadata(
+    except Exception as exc:
+        error_text = str(exc).strip() or "promotion failed"
+        latest_promotion = promotion_service.find_latest_promotion_for_run(run_id)
+        metadata_updates: dict[str, object] = {
+            "promotion_status": JobStatus.FAILED.value,
+            "promotion_error": error_text,
+        }
+        if latest_promotion is not None:
+            metadata_updates.update(
+                {
+                    "promotion_id": latest_promotion.promotion_id,
+                    "promotion_status": latest_promotion.status.value,
+                    "promotion_pr_url": latest_promotion.pr_url,
+                    "promotion_branch_name": latest_promotion.branch_name,
+                    "promotion_commit_sha": latest_promotion.commit_sha,
+                    "promotion_error": latest_promotion.error or error_text,
+                }
+            )
+        approval_service.update_request_metadata(
+            approval.approval_id,
+            metadata_updates,
+            require_status=ApprovalStatus.APPROVED,
+        )
+        if dispatch_id is not None:
+            manager_service.record_promotion_failure(
+                dispatch_id,
+                approval_id=approval.approval_id,
+                error=str(metadata_updates["promotion_error"]),
+                promotion=latest_promotion,
+            )
+        if session_id is not None:
+            openclaw_service.set_status(
+                session_id=session_id,
+                status=JobStatus.FAILED,
+                metadata_updates={
+                    "latest_manager_dispatch_phase": "promotion_failed",
+                    "latest_manager_dispatch_approval_id": approval.approval_id,
+                    "latest_manager_draft_pr_url": None,
+                },
+            )
+        raise RuntimeError(str(metadata_updates["promotion_error"])) from exc
+
+    approval = approval_service.update_request_metadata(
         approval.approval_id,
         {
             "promotion_id": promotion.promotion_id,
@@ -1787,11 +1918,17 @@ def _execute_manager_promotion_for_approval(
             "promotion_pr_url": promotion.pr_url,
             "promotion_branch_name": promotion.branch_name,
             "promotion_commit_sha": promotion.commit_sha,
+            "promotion_error": promotion.error,
         },
         require_status=ApprovalStatus.APPROVED,
     )
-    session_id = str(approval.session_id or "").strip() or None
-    dispatch_id = str(approval.metadata.get("dispatch_id") or "").strip() or None
+    dispatch = None
+    if dispatch_id is not None:
+        dispatch = manager_service.record_promotion_result(
+            dispatch_id,
+            approval_id=approval.approval_id,
+            promotion=promotion,
+        )
     if session_id is not None and dispatch_id is not None:
         openclaw_service.append_event(
             session_id=session_id,
@@ -1818,21 +1955,12 @@ def _execute_manager_promotion_for_approval(
                 "latest_manager_draft_pr_url": promotion.pr_url,
             },
         )
-
-    dispatch = manager_service.get_dispatch(dispatch_id) if dispatch_id is not None else None
-    lines = [
-        "[Task Promotion Executed]",
-        f"approval: {approval.approval_id}",
-        f"run: {run_id}",
-        f"status: {promotion.status.value}",
-    ]
-    if dispatch is not None:
-        lines.append(f"dispatch: {dispatch.dispatch_id}")
-    if promotion.branch_name:
-        lines.append(f"branch: {promotion.branch_name}")
-    if promotion.pr_url:
-        lines.append(f"draft_pr: {promotion.pr_url}")
-    return _truncate_telegram_text("\n".join(lines))
+    if dispatch is None and dispatch_id is not None:
+        dispatch = manager_service.get_dispatch(dispatch_id)
+    return _build_manager_promotion_status_message(
+        approval=approval,
+        dispatch=dispatch,
+    )
 
 
 def _queue_github_issue_reply_approval(

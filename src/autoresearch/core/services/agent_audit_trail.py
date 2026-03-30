@@ -9,6 +9,11 @@ from typing import Any
 from autoresearch.agents.manager_agent import ManagerAgentService
 from autoresearch.core.services.autoresearch_planner import AutoResearchPlannerService
 from autoresearch.core.services.claude_agents import ClaudeAgentService
+from autoresearch.core.services.git_promotion_gate import GitPromotionService
+from autoresearch.core.services.manager_promotion_state import (
+    hydrate_manager_dispatch_promotion,
+    resolve_manager_dispatch_promotion_state,
+)
 from autoresearch.shared.models import (
     AdminAgentAuditRole,
     AdminAgentAuditTrailDetailRead,
@@ -60,11 +65,13 @@ class AgentAuditTrailService:
         planner_service: AutoResearchPlannerService,
         manager_service: ManagerAgentService,
         agent_service: ClaudeAgentService,
+        promotion_service: GitPromotionService | None = None,
     ) -> None:
         self._repo_root = repo_root.resolve()
         self._planner_service = planner_service
         self._manager_service = manager_service
         self._agent_service = agent_service
+        self._promotion_service = promotion_service
 
     def snapshot(
         self,
@@ -132,15 +139,33 @@ class AgentAuditTrailService:
     def _collect_manager_contexts(self) -> list[_AuditEntryContext]:
         contexts: list[_AuditEntryContext] = []
         for dispatch in self._manager_service.list_dispatches():
+            dispatch = hydrate_manager_dispatch_promotion(
+                dispatch,
+                promotion_service=self._promotion_service,
+            )
             if dispatch.execution_plan is None:
                 continue
             for task in dispatch.execution_plan.tasks:
                 run_summary = task.run_summary
+                is_terminal_task = (
+                    run_summary is not None
+                    and dispatch.run_summary is not None
+                    and run_summary.run_id == dispatch.run_summary.run_id
+                )
+                promotion_state = (
+                    resolve_manager_dispatch_promotion_state(
+                        dispatch,
+                        promotion_service=self._promotion_service,
+                    )
+                    if is_terminal_task
+                    else None
+                )
                 patch_uri = run_summary.promotion_patch_uri if run_summary is not None else None
                 patch_text, patch_truncated = self._load_patch_text(patch_uri)
                 changed_paths = self._extract_changed_paths(run_summary)
                 error_reason = (
                     self._normalize_text(task.error)
+                    or (promotion_state.error if promotion_state is not None else None)
                     or self._extract_run_summary_error(run_summary)
                     or self._normalize_text(dispatch.error)
                 )
@@ -154,7 +179,11 @@ class AgentAuditTrailService:
                             agent_id=run_summary.driver_result.agent_id if run_summary is not None else "openhands",
                             title=task.title,
                             status=task.status.value,
-                            final_status=run_summary.final_status if run_summary is not None else None,
+                            final_status=(
+                                promotion_state.final_status
+                                if promotion_state is not None and promotion_state.final_status is not None
+                                else (run_summary.final_status if run_summary is not None else None)
+                            ),
                             recorded_at=dispatch.updated_at,
                             duration_ms=self._extract_duration_ms(run_summary),
                             first_progress_ms=self._extract_metric(run_summary, "first_progress_ms"),
@@ -170,6 +199,18 @@ class AgentAuditTrailService:
                                 "intent": dispatch.selected_intent.label if dispatch.selected_intent is not None else None,
                                 "stage": task.stage.value,
                                 "depends_on": list(task.depends_on),
+                                "promotion_phase": promotion_state.phase if promotion_state is not None else None,
+                                "promotion_approval_id": (
+                                    promotion_state.approval_id if promotion_state is not None else None
+                                ),
+                                "promotion_id": promotion_state.promotion_id if promotion_state is not None else None,
+                                "promotion_status": (
+                                    promotion_state.promotion_status if promotion_state is not None else None
+                                ),
+                                "promotion_pr_url": promotion_state.pr_url if promotion_state is not None else None,
+                                "promotion_branch_name": (
+                                    promotion_state.branch_name if promotion_state is not None else None
+                                ),
                             },
                         ),
                         input_prompt=dispatch.prompt,
@@ -180,7 +221,25 @@ class AgentAuditTrailService:
                         patch_truncated=patch_truncated,
                         error_reason=error_reason,
                         traceback=self._multiline_or_none(task.error),
-                        raw_record={"manager_dispatch": dispatch.model_dump(mode="json")},
+                        raw_record={
+                            "manager_dispatch": dispatch.model_dump(mode="json"),
+                            "promotion_state": (
+                                {
+                                    "phase": promotion_state.phase,
+                                    "final_status": promotion_state.final_status,
+                                    "approval_id": promotion_state.approval_id,
+                                    "promotion_id": promotion_state.promotion_id,
+                                    "promotion_status": promotion_state.promotion_status,
+                                    "pr_url": promotion_state.pr_url,
+                                    "branch_name": promotion_state.branch_name,
+                                    "commit_sha": promotion_state.commit_sha,
+                                    "error": promotion_state.error,
+                                    "source": promotion_state.source,
+                                }
+                                if promotion_state is not None
+                                else None
+                            ),
+                        },
                     )
                 )
         return contexts

@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import re
 import sys
-from typing import Callable, Iterable
+from typing import Any, Callable, Iterable
 
 from autoresearch.agent_protocol.decision import derive_terminal_status
 from autoresearch.agent_protocol.models import (
@@ -14,6 +14,11 @@ from autoresearch.agent_protocol.models import (
     RunSummary,
     ValidationCheck,
     ValidationReport,
+)
+from autoresearch.core.services.git_promotion_gate import GitPromotionRead, GitPromotionService
+from autoresearch.core.services.manager_promotion_state import (
+    build_promotion_result_from_record,
+    hydrate_manager_dispatch_promotion,
 )
 from autoresearch.core.services.openhands_worker import OpenHandsWorkerService
 from autoresearch.core.services.writer_lease import WriterLeaseService
@@ -262,12 +267,14 @@ class ManagerAgentService:
         repo_root: Path | None = None,
         worker_service: OpenHandsWorkerService | None = None,
         dispatch_runner: Callable[[JobSpec], RunSummary] | None = None,
+        promotion_service: GitPromotionService | None = None,
         writer_lease: WriterLeaseService | None = None,
     ) -> None:
         self._repository = repository
         self._repo_root = (repo_root or Path(__file__).resolve().parents[3]).resolve()
         self._worker_service = worker_service or OpenHandsWorkerService()
         self._dispatch_runner = dispatch_runner or self._default_dispatch_runner
+        self._promotion_service = promotion_service
         self._writer_lease = writer_lease or WriterLeaseService()
 
     def create_dispatch(self, request: ManagerDispatchRequest) -> ManagerDispatchRead:
@@ -308,10 +315,104 @@ class ManagerAgentService:
         return self._repository.save(dispatch.dispatch_id, dispatch)
 
     def list_dispatches(self) -> list[ManagerDispatchRead]:
-        return self._repository.list()
+        return [self._hydrate_dispatch(item) for item in self._repository.list()]
 
     def get_dispatch(self, dispatch_id: str) -> ManagerDispatchRead | None:
-        return self._repository.get(dispatch_id)
+        item = self._repository.get(dispatch_id)
+        if item is None:
+            return None
+        return self._hydrate_dispatch(item)
+
+    def record_promotion_approval(self, dispatch_id: str, *, approval_id: str) -> ManagerDispatchRead:
+        current = self._require_dispatch(dispatch_id)
+        return self._save_dispatch(
+            current,
+            metadata_updates={
+                "promotion_approval_id": approval_id,
+                "promotion_phase": "awaiting_approval",
+            },
+        )
+
+    def record_promotion_result(
+        self,
+        dispatch_id: str,
+        *,
+        approval_id: str | None,
+        promotion: GitPromotionRead,
+    ) -> ManagerDispatchRead:
+        current = self._require_dispatch(dispatch_id)
+        run_summary = current.run_summary
+        if run_summary is not None:
+            run_summary = run_summary.model_copy(
+                update={
+                    "promotion": build_promotion_result_from_record(promotion, run_summary=run_summary),
+                    "final_status": "promoted" if promotion.pr_url else run_summary.final_status,
+                }
+            )
+        return self._save_dispatch(
+            current,
+            run_summary=run_summary,
+            metadata_updates={
+                "promotion_approval_id": approval_id,
+                "promotion_id": promotion.promotion_id,
+                "promotion_status": promotion.status.value,
+                "promotion_pr_url": promotion.pr_url,
+                "promotion_branch_name": promotion.branch_name,
+                "promotion_commit_sha": promotion.commit_sha,
+                "promotion_error": promotion.error,
+                "promotion_phase": "draft_pr_created" if promotion.pr_url else "promotion_completed",
+            },
+        )
+
+    def record_promotion_failure(
+        self,
+        dispatch_id: str,
+        *,
+        approval_id: str | None,
+        error: str,
+        promotion: GitPromotionRead | None = None,
+    ) -> ManagerDispatchRead:
+        current = self._require_dispatch(dispatch_id)
+        run_summary = current.run_summary
+        metadata_updates: dict[str, Any] = {
+            "promotion_approval_id": approval_id,
+            "promotion_status": JobStatus.FAILED.value,
+            "promotion_error": error,
+            "promotion_phase": "promotion_failed",
+        }
+        if promotion is not None:
+            metadata_updates.update(
+                {
+                    "promotion_id": promotion.promotion_id,
+                    "promotion_pr_url": promotion.pr_url,
+                    "promotion_branch_name": promotion.branch_name,
+                    "promotion_commit_sha": promotion.commit_sha,
+                }
+            )
+            if run_summary is not None:
+                run_summary = run_summary.model_copy(
+                    update={
+                        "promotion": build_promotion_result_from_record(promotion, run_summary=run_summary),
+                    }
+                )
+        return self._save_dispatch(
+            current,
+            run_summary=run_summary,
+            error=current.error,
+            metadata_updates=metadata_updates,
+        )
+
+    def record_promotion_rejection(self, dispatch_id: str, *, approval_id: str | None) -> ManagerDispatchRead:
+        current = self._require_dispatch(dispatch_id)
+        return self._save_dispatch(
+            current,
+            metadata_updates={
+                "promotion_approval_id": approval_id,
+                "promotion_status": "rejected",
+                "promotion_phase": "patch_only_execution",
+                "promotion_error": None,
+            },
+        )
 
     def execute_dispatch(self, dispatch_id: str) -> ManagerDispatchRead:
         dispatch = self._require_dispatch(dispatch_id)
@@ -840,6 +941,7 @@ class ManagerAgentService:
         task_run_summary: RunSummary | None = None,
         task_error: str | None = None,
         run_summary: RunSummary | None = None,
+        metadata_updates: dict[str, Any] | None = None,
         summary: str | None = None,
         error: str | None = None,
     ) -> ManagerDispatchRead:
@@ -866,12 +968,22 @@ class ManagerAgentService:
                 "status": status or current.status,
                 "execution_plan": execution_plan,
                 "run_summary": run_summary if run_summary is not None else current.run_summary,
+                "metadata": {
+                    **current.metadata,
+                    **(metadata_updates or {}),
+                },
                 "summary": summary if summary is not None else current.summary,
                 "error": error if error is not None else current.error,
                 "updated_at": utc_now(),
             }
         )
         return self._repository.save(updated.dispatch_id, updated)
+
+    def _hydrate_dispatch(self, dispatch: ManagerDispatchRead) -> ManagerDispatchRead:
+        return hydrate_manager_dispatch_promotion(
+            dispatch,
+            promotion_service=self._promotion_service,
+        )
 
     def _ensure_dependencies_completed(self, *, current: ManagerDispatchRead, task: ManagerPlanTaskRead) -> None:
         if current.execution_plan is None:
