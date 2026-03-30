@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import shutil
 import sys
 import time
+
+import pytest
 
 from autoresearch.agent_protocol.models import ExecutionPolicy, JobSpec, ValidatorSpec
 from autoresearch.core.services.git_promotion_gate import GitPromotionGateService
@@ -556,7 +559,7 @@ result_path.write_text(json.dumps(payload), encoding="utf-8")
     )
 
 
-def test_runner_treats_adapter_stdout_as_runtime_heartbeat(
+def test_runner_does_not_treat_stdout_as_runtime_heartbeat(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -591,7 +594,7 @@ payload = {
     "agent_id": "openhands",
     "attempt": 1,
     "status": "succeeded",
-    "summary": "stdout heartbeat kept adapter alive",
+    "summary": "stdout heartbeat should not keep adapter alive",
     "changed_paths": ["src/chatty_worker.py"],
     "output_artifacts": [],
     "metrics": {"duration_ms": 0, "steps": 1, "commands": 1, "prompt_tokens": None, "completion_tokens": None},
@@ -630,9 +633,10 @@ result_path.write_text(json.dumps(payload), encoding="utf-8")
         )
     )
 
-    assert summary.driver_result.status == "succeeded"
-    assert summary.driver_result.metrics.first_state_heartbeat_ms is not None
-    assert summary.driver_result.metrics.first_scoped_write_ms is not None
+    assert summary.final_status == "failed"
+    assert summary.driver_result.status == "stalled_no_progress"
+    assert summary.driver_result.metrics.first_state_heartbeat_ms is None
+    assert summary.driver_result.metrics.first_scoped_write_ms is None
 
 
 def test_runner_ignores_agent_is_working_spinner_noise(
@@ -693,6 +697,86 @@ for _ in range(10):
     assert summary.driver_result.metrics.first_scoped_write_ms is None
 
 
+def test_runner_kills_process_group_and_persists_summary_for_invalid_log_hang(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    (repo_root / "src").mkdir(parents=True, exist_ok=True)
+    (repo_root / "src" / "__init__.py").write_text("", encoding="utf-8")
+    (repo_root / "src" / "chatty_worker.py").write_text("VALUE = 1\n", encoding="utf-8")
+    _write_adapter(
+        repo_root,
+        "drivers/process_group_noise_probe.py",
+        """#!/usr/bin/env python3
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+artifacts_dir = Path(os.environ["AEP_ARTIFACT_DIR"])
+pid_file = artifacts_dir / "child.pid"
+
+child = subprocess.Popen(
+    [
+        sys.executable,
+        "-c",
+        "import time\\nwhile True:\\n    print('Agent is working', flush=True)\\n    time.sleep(0.5)\\n",
+    ]
+)
+pid_file.write_text(str(child.pid), encoding="utf-8")
+
+while True:
+    print("Agent is working", flush=True)
+    time.sleep(0.5)
+""",
+    )
+    _write_manifest(repo_root, "drivers/process_group_noise_probe.py")
+
+    runner = AgentExecutionRunner(
+        repo_root=repo_root,
+        runtime_root=tmp_path / "runtime",
+        manifests_dir=repo_root / "configs" / "agents",
+    )
+    monkeypatch.setattr(runner, "_stall_progress_timeout_sec", lambda timeout_sec: 2)
+
+    summary = runner.run_job(
+        JobSpec(
+            run_id="run-process-group-noise-probe",
+            agent_id="openhands",
+            task="Spawn a child process that only emits invalid progress noise forever.",
+            validators=[
+                ValidatorSpec(
+                    id="worker.test_command",
+                    kind="command",
+                    command=f"{sys.executable} -m py_compile src/chatty_worker.py",
+                )
+            ],
+            policy=ExecutionPolicy(
+                timeout_sec=60,
+                allowed_paths=["src/chatty_worker.py"],
+                cleanup_on_success=False,
+            ),
+        )
+    )
+
+    run_dir = tmp_path / "runtime" / "run-process-group-noise-probe"
+    summary_path = run_dir / "summary.json"
+    pid_path = run_dir / "artifacts" / "child.pid"
+
+    assert summary.final_status == "failed"
+    assert summary.driver_result.status == "stalled_no_progress"
+    assert summary_path.exists()
+    assert pid_path.exists()
+
+    child_pid = int(pid_path.read_text(encoding="utf-8").strip())
+    time.sleep(0.2)
+    with pytest.raises(ProcessLookupError):
+        os.kill(child_pid, 0)
+
+
 def test_runner_ignores_log_heartbeat_after_first_scoped_write(
     tmp_path: Path,
     monkeypatch,
@@ -707,20 +791,27 @@ def test_runner_ignores_log_heartbeat_after_first_scoped_write(
         "drivers/output_then_spin_probe.py",
         """#!/usr/bin/env python3
 import os
+import shutil
 import time
 from pathlib import Path
 
 workspace = Path(os.environ["AEP_WORKSPACE"])
 target = workspace / "src" / "chatty_worker.py"
+state_dir = workspace / ".openhands-state"
 
 for step in range(3):
+    state_dir.mkdir(parents=True, exist_ok=True)
+    (state_dir / "heartbeat.json").write_text(f"{{\\"step\\": {step}}}\\n", encoding="utf-8")
     print(f"warmup heartbeat {step}", flush=True)
     time.sleep(1)
 
 target.write_text("VALUE = 2\\n", encoding="utf-8")
+shutil.rmtree(state_dir)
 
-for step in range(6):
+step = 0
+while True:
     print(f"post-write heartbeat {step}", flush=True)
+    step += 1
     time.sleep(1)
 """,
     )

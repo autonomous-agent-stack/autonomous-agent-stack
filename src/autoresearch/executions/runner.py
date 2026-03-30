@@ -10,7 +10,6 @@ import signal
 import subprocess
 import sys
 import time
-import zlib
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -34,12 +33,6 @@ _RUNTIME_DENY_PREFIXES = (
     ".masfactory_runtime/",
     "memory/",
     ".git/",
-)
-
-_ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
-_BRAILLE_SPINNER_PREFIX_RE = re.compile(r"^[\s\u2800-\u28ff]+")
-_LOG_HEARTBEAT_NOISE_PATTERNS = (
-    re.compile(r"^agent is working$", re.IGNORECASE),
 )
 
 _AI_LAB_ENV_OVERRIDE_KEYS = (
@@ -656,15 +649,12 @@ class AgentExecutionRunner:
             workspace_dir=workspace_dir,
             allowed_paths=policy.merged.allowed_paths,
         )
-        last_state_progress_signature = self._runtime_heartbeat_signature(
-            workspace_dir=workspace_dir,
-            heartbeat_paths=(stdout_log, stderr_log),
-            include_log_heartbeats=True,
-        )
+        last_state_progress_signature = self._runtime_heartbeat_signature(workspace_dir=workspace_dir)
         last_progress_at = started
         first_progress_ms: int | None = None
         first_scoped_write_ms: int | None = None
         first_state_heartbeat_ms: int | None = None
+        process_group_id: int | None = None
 
         with stdout_log.open("a", encoding="utf-8") as stdout_handle, stderr_log.open(
             "a", encoding="utf-8"
@@ -683,6 +673,11 @@ class AgentExecutionRunner:
                 text=True,
                 start_new_session=True,
             )
+            if hasattr(os, "getpgid"):
+                try:
+                    process_group_id = os.getpgid(process.pid)
+                except OSError:
+                    process_group_id = None
 
             while True:
                 returncode = process.poll()
@@ -698,7 +693,7 @@ class AgentExecutionRunner:
                     break
 
                 if duration_ms >= timeout_sec * 1000:
-                    self._terminate_process(process)
+                    self._terminate_process(process, process_group_id=process_group_id)
                     return DriverResult(
                         run_id=run_id,
                         agent_id=agent_id,
@@ -722,8 +717,6 @@ class AgentExecutionRunner:
                 )
                 current_state_progress_signature = self._runtime_heartbeat_signature(
                     workspace_dir=workspace_dir,
-                    heartbeat_paths=(stdout_log, stderr_log),
-                    include_log_heartbeats=first_scoped_write_ms is None,
                 )
                 scoped_progress_changed = (
                     current_scoped_progress_signature != last_scoped_progress_signature
@@ -759,7 +752,7 @@ class AgentExecutionRunner:
                     last_state_progress_signature = current_state_progress_signature
                     last_progress_at = now
                 elif (now - last_progress_at) >= stall_timeout_sec:
-                    self._terminate_process(process)
+                    self._terminate_process(process, process_group_id=process_group_id)
                     stall_error = f"no workspace progress for {stall_timeout_sec}s"
                     return DriverResult(
                         run_id=run_id,
@@ -802,7 +795,7 @@ class AgentExecutionRunner:
                     )
                     last_probed_signature = current_signature
                     if probe_failure is not None:
-                        self._terminate_process(process)
+                        self._terminate_process(process, process_group_id=process_group_id)
                         return DriverResult(
                             run_id=run_id,
                             agent_id=agent_id,
@@ -1078,50 +1071,8 @@ class AgentExecutionRunner:
         self,
         *,
         workspace_dir: Path,
-        heartbeat_paths: tuple[Path, ...],
-        include_log_heartbeats: bool,
     ) -> tuple[tuple[str, int, int], ...]:
-        items = list(self._state_heartbeat_signature(workspace_dir=workspace_dir))
-        if include_log_heartbeats:
-            for path in heartbeat_paths:
-                signature = self._log_heartbeat_signature(path)
-                if signature is not None:
-                    items.append((f"log:{path.name}", signature, 0))
-        return tuple(items)
-
-    def _log_heartbeat_signature(self, path: Path) -> int | None:
-        if not path.exists():
-            return None
-
-        try:
-            content = path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            return None
-
-        meaningful_lines: list[str] = []
-        for raw_line in content.replace("\r", "\n").splitlines():
-            normalized = self._normalize_log_heartbeat_line(raw_line)
-            if normalized is None:
-                continue
-            if meaningful_lines and meaningful_lines[-1] == normalized:
-                continue
-            meaningful_lines.append(normalized)
-
-        if not meaningful_lines:
-            return None
-
-        payload = "\n".join(meaningful_lines[-8:]).encode("utf-8")
-        return zlib.crc32(payload)
-
-    def _normalize_log_heartbeat_line(self, raw_line: str) -> str | None:
-        line = _ANSI_ESCAPE_RE.sub("", raw_line)
-        line = _BRAILLE_SPINNER_PREFIX_RE.sub("", line).strip()
-        if not line:
-            return None
-        collapsed = re.sub(r"\s+", " ", line)
-        if any(pattern.match(collapsed) for pattern in _LOG_HEARTBEAT_NOISE_PATTERNS):
-            return None
-        return collapsed
+        return self._state_heartbeat_signature(workspace_dir=workspace_dir)
 
     def _changed_python_signature(
         self,
@@ -1554,18 +1505,30 @@ class AgentExecutionRunner:
             handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
     @staticmethod
-    def _terminate_process(process: subprocess.Popen[str]) -> None:
+    def _terminate_process(
+        process: subprocess.Popen[str],
+        *,
+        process_group_id: int | None = None,
+    ) -> None:
         if process.poll() is not None:
             return
 
         def _send(sig: signal.Signals) -> None:
-            if hasattr(os, "killpg"):
-                os.killpg(process.pid, sig)
+            delivered = False
+            if process_group_id is not None and hasattr(os, "killpg"):
+                try:
+                    os.killpg(process_group_id, sig)
+                    delivered = True
+                except (OSError, ProcessLookupError):
+                    delivered = False
+
+            if delivered:
+                return
+
+            if sig == signal.SIGTERM:
+                process.terminate()
             else:
-                if sig == signal.SIGTERM:
-                    process.terminate()
-                else:
-                    process.kill()
+                process.kill()
 
         try:
             _send(signal.SIGTERM)
@@ -1579,7 +1542,17 @@ class AgentExecutionRunner:
                 _send(signal.SIGKILL)
             except (OSError, ProcessLookupError):
                 return
-            process.wait(timeout=5)
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                try:
+                    process.kill()
+                except OSError:
+                    return
+                try:
+                    process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    return
 
     @staticmethod
     def _rmtree_force(path: Path) -> None:
