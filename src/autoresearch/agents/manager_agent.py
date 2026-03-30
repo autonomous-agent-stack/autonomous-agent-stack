@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from pathlib import Path
 import re
 import sys
 from typing import Callable, Iterable
 
-from autoresearch.agent_protocol.models import JobSpec, RunSummary
+from autoresearch.agent_protocol.decision import derive_terminal_status
+from autoresearch.agent_protocol.models import (
+    DriverResult,
+    JobSpec,
+    RunSummary,
+    ValidationCheck,
+    ValidationReport,
+)
 from autoresearch.core.services.openhands_worker import OpenHandsWorkerService
 from autoresearch.core.services.writer_lease import WriterLeaseService
 from autoresearch.executions.runner import AgentExecutionRunner
@@ -327,6 +335,44 @@ class ManagerAgentService:
             try:
                 run_summary = self._dispatch_runner(current_task.agent_job)
             except Exception as exc:
+                recovered_summary = self._recover_terminal_run_summary(
+                    current_task.agent_job,
+                    detail=str(exc).strip() or exc.__class__.__name__,
+                )
+                if recovered_summary is not None:
+                    last_summary = recovered_summary
+                    task_status = (
+                        JobStatus.COMPLETED
+                        if recovered_summary.final_status in {"ready_for_promotion", "promoted"}
+                        else JobStatus.FAILED
+                    )
+                    if task_status is JobStatus.FAILED:
+                        failed = self._save_dispatch(
+                            self._require_dispatch(dispatch_id),
+                            status=JobStatus.FAILED,
+                            task_id=task.task_id,
+                            task_status=task_status,
+                            task_run_summary=recovered_summary,
+                            task_error=recovered_summary.driver_result.error or str(exc),
+                            run_summary=recovered_summary,
+                            error=recovered_summary.driver_result.error or str(exc),
+                            summary=(
+                                f"Manager plan stopped on {task.task_id} "
+                                f"with recovered {recovered_summary.final_status}."
+                            ),
+                        )
+                        return failed
+
+                    self._save_dispatch(
+                        self._require_dispatch(dispatch_id),
+                        task_id=task.task_id,
+                        task_status=JobStatus.COMPLETED,
+                        task_run_summary=recovered_summary,
+                        run_summary=recovered_summary,
+                        error=None,
+                    )
+                    continue
+
                 failed = self._save_dispatch(
                     self._require_dispatch(dispatch_id),
                     status=JobStatus.FAILED,
@@ -849,6 +895,60 @@ class ManagerAgentService:
     def _default_dispatch_runner(self, job: JobSpec) -> RunSummary:
         runner = AgentExecutionRunner(repo_root=self._repo_root)
         return runner.run_job(job)
+
+    def _recover_terminal_run_summary(self, job: JobSpec, *, detail: str) -> RunSummary | None:
+        run_dir = self._repo_root / ".masfactory_runtime" / "runs" / job.run_id
+        summary_path = run_dir / "summary.json"
+        existing_summary = self._load_run_summary(summary_path)
+        if existing_summary is not None:
+            return existing_summary
+
+        result = self._load_driver_result(run_dir / "driver_result.json")
+        if result is None:
+            return None
+        if not str(result.error or "").strip():
+            result = result.model_copy(update={"error": detail})
+
+        validation = ValidationReport(
+            run_id=job.run_id,
+            passed=False,
+            checks=[
+                ValidationCheck(
+                    id="builtin.manager_dispatch_completion",
+                    passed=False,
+                    detail=detail[:1000],
+                )
+            ],
+        )
+        patch_path = run_dir / "artifacts" / "promotion.patch"
+        return RunSummary(
+            run_id=job.run_id,
+            final_status=derive_terminal_status(result, validation),
+            driver_result=result,
+            validation=validation,
+            promotion_patch_uri=str(patch_path) if patch_path.exists() else None,
+            promotion_preflight=None,
+            promotion=None,
+        )
+
+    @staticmethod
+    def _load_run_summary(summary_path: Path) -> RunSummary | None:
+        if not summary_path.exists():
+            return None
+        try:
+            return RunSummary.model_validate_json(summary_path.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+
+    @staticmethod
+    def _load_driver_result(result_path: Path) -> DriverResult | None:
+        if not result_path.exists():
+            return None
+        try:
+            payload = json.loads(result_path.read_text(encoding="utf-8"))
+            return DriverResult.model_validate(payload)
+        except Exception:
+            return None
 
     def _require_dispatch(self, dispatch_id: str) -> ManagerDispatchRead:
         dispatch = self._repository.get(dispatch_id)

@@ -123,21 +123,6 @@ class AgentExecutionRunner:
             self._rmtree_force(run_dir)
         artifacts_dir.mkdir(parents=True, exist_ok=True)
 
-        job_path.write_text(
-            json.dumps(job.model_dump(mode="json"), ensure_ascii=False, indent=2), encoding="utf-8"
-        )
-        policy_payload = {
-            "hard": effective_policy.hard.model_dump(mode="json"),
-            "manifest_default": effective_policy.manifest_default.model_dump(mode="json"),
-            "job": effective_policy.job.model_dump(mode="json"),
-            "merged": effective_policy.merged.model_dump(mode="json"),
-        }
-        policy_path.write_text(
-            json.dumps(policy_payload, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
-
-        self._snapshot_repo_to_baseline(baseline_dir)
-
         current_agent = job.agent_id
         fallback_index = 0
         pending_attempts = 1
@@ -151,71 +136,176 @@ class AgentExecutionRunner:
             message="no attempt executed",
         )
         last_validation = ValidationReport(run_id=job.run_id, passed=False, checks=[])
-        last_patch_filtered_paths: list[str] = []
-
-        while True:
-            if pending_attempts <= 0:
-                if fallback_index >= len(job.fallback):
-                    break
-                step = job.fallback[fallback_index]
-                fallback_index += 1
-
-                if step.action == "retry":
-                    skip_retry_reason = self._retry_skip_reason(last_result)
-                    if skip_retry_reason is not None:
-                        self._append_event(
-                            events_path,
-                            {
-                                "type": "fallback_skipped",
-                                "attempt": attempt,
-                                "agent_id": current_agent,
-                                "action": "retry",
-                                "reason": skip_retry_reason,
-                            },
-                        )
-                        continue
-                    pending_attempts = step.max_attempts
-                    continue
-                if step.action == "fallback_agent":
-                    if step.agent_id:
-                        current_agent = step.agent_id
-                    pending_attempts = step.max_attempts
-                    continue
-                if step.action == "human_review":
-                    forced_final_status = "human_review"
-                    break
-                if step.action == "reject":
-                    forced_final_status = "blocked"
-                    break
-
-            attempt += 1
-            pending_attempts -= 1
-
-            active_manifest = self._registry.load(current_agent)
-            preflight_error = self._preflight_agent_environment(
-                agent_id=current_agent,
-                manifest_entrypoint=active_manifest.entrypoint,
+        try:
+            job_path.write_text(
+                json.dumps(job.model_dump(mode="json"), ensure_ascii=False, indent=2), encoding="utf-8"
             )
-            if preflight_error is not None:
-                driver_result = self._contract_error_result(
-                    run_id=job.run_id,
+            policy_payload = {
+                "hard": effective_policy.hard.model_dump(mode="json"),
+                "manifest_default": effective_policy.manifest_default.model_dump(mode="json"),
+                "job": effective_policy.job.model_dump(mode="json"),
+                "merged": effective_policy.merged.model_dump(mode="json"),
+            }
+            policy_path.write_text(
+                json.dumps(policy_payload, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+
+            self._snapshot_repo_to_baseline(baseline_dir)
+
+            while True:
+                if pending_attempts <= 0:
+                    if fallback_index >= len(job.fallback):
+                        break
+                    step = job.fallback[fallback_index]
+                    fallback_index += 1
+
+                    if step.action == "retry":
+                        skip_retry_reason = self._retry_skip_reason(last_result)
+                        if skip_retry_reason is not None:
+                            self._append_event(
+                                events_path,
+                                {
+                                    "type": "fallback_skipped",
+                                    "attempt": attempt,
+                                    "agent_id": current_agent,
+                                    "action": "retry",
+                                    "reason": skip_retry_reason,
+                                },
+                            )
+                            continue
+                        pending_attempts = step.max_attempts
+                        continue
+                    if step.action == "fallback_agent":
+                        if step.agent_id:
+                            current_agent = step.agent_id
+                        pending_attempts = step.max_attempts
+                        continue
+                    if step.action == "human_review":
+                        forced_final_status = "human_review"
+                        break
+                    if step.action == "reject":
+                        forced_final_status = "blocked"
+                        break
+
+                attempt += 1
+                pending_attempts -= 1
+
+                active_manifest = self._registry.load(current_agent)
+                preflight_error = self._preflight_agent_environment(
+                    agent_id=current_agent,
+                    manifest_entrypoint=active_manifest.entrypoint,
+                )
+                if preflight_error is not None:
+                    driver_result = self._contract_error_result(
+                        run_id=job.run_id,
+                        agent_id=current_agent,
+                        attempt=attempt,
+                        message=preflight_error,
+                        recommended_action="fallback",
+                    )
+                    last_result = driver_result
+                    last_validation = ValidationReport(run_id=job.run_id, passed=False, checks=[])
+                    self._append_event(
+                        events_path,
+                        {
+                            "type": "attempt_blocked",
+                            "attempt": attempt,
+                            "agent_id": current_agent,
+                            "reason": "environment_preflight_failed",
+                            "detail": preflight_error,
+                        },
+                    )
+                    self._append_event(
+                        events_path,
+                        {
+                            "type": "attempt_completed",
+                            "attempt": attempt,
+                            "agent_id": current_agent,
+                            "driver_status": driver_result.status,
+                            "validation_passed": False,
+                        },
+                    )
+                    continue
+
+                attempt_job = self._job_for_attempt(
+                    job=job,
                     agent_id=current_agent,
                     attempt=attempt,
-                    message=preflight_error,
-                    recommended_action="fallback",
+                    last_result=last_result,
+                    last_validation=last_validation,
                 )
-                last_result = driver_result
-                last_validation = ValidationReport(run_id=job.run_id, passed=False, checks=[])
+                job_path.write_text(
+                    json.dumps(attempt_job.model_dump(mode="json"), ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+
+                self._snapshot_baseline_to_workspace(baseline_dir, workspace_dir)
+                self._prepare_shadow_workspace(workspace_dir, effective_policy)
                 self._append_event(
                     events_path,
                     {
-                        "type": "attempt_blocked",
+                        "type": "attempt_started",
                         "attempt": attempt,
                         "agent_id": current_agent,
-                        "reason": "environment_preflight_failed",
-                        "detail": preflight_error,
                     },
                 )
+
+                driver_result = self._invoke_adapter(
+                    manifest_entrypoint=active_manifest.entrypoint,
+                    run_dir=run_dir,
+                    workspace_dir=workspace_dir,
+                    artifacts_dir=artifacts_dir,
+                    job_path=job_path,
+                    result_path=result_path,
+                    events_path=events_path,
+                    baseline_dir=baseline_dir,
+                    run_id=job.run_id,
+                    agent_id=current_agent,
+                    attempt=attempt,
+                    timeout_sec=effective_policy.merged.timeout_sec,
+                    policy=effective_policy,
+                )
+                result_path.write_text(
+                    json.dumps(driver_result.model_dump(mode="json"), ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+
+                changed_paths = self._collect_changed_paths(baseline_dir, workspace_dir)
+                patch_text, patch_filtered_paths, builtin_checks = self._build_filtered_patch(
+                    baseline_dir=baseline_dir,
+                    workspace_dir=workspace_dir,
+                    changed_paths=changed_paths,
+                    driver_result=driver_result,
+                    policy=effective_policy,
+                )
+                patch_path.write_text(patch_text, encoding="utf-8")
+
+                validation = self._run_validators(
+                    run_id=job.run_id,
+                    workspace_dir=workspace_dir,
+                    patch_path=patch_path,
+                    builtin_checks=builtin_checks,
+                    validator_specs=job.validators,
+                    timeout_sec=effective_policy.merged.timeout_sec,
+                )
+
+                if not driver_result.changed_paths:
+                    driver_result = driver_result.model_copy(
+                        update={"changed_paths": patch_filtered_paths}
+                    )
+
+                if self._has_policy_violation(validation):
+                    driver_result = driver_result.model_copy(
+                        update={
+                            "status": "policy_blocked",
+                            "recommended_action": "reject",
+                            "error": "execution produced out-of-scope or forbidden changes",
+                        }
+                    )
+
+                last_result = driver_result
+                last_validation = validation
+
                 self._append_event(
                     events_path,
                     {
@@ -223,158 +313,96 @@ class AgentExecutionRunner:
                         "attempt": attempt,
                         "agent_id": current_agent,
                         "driver_status": driver_result.status,
-                        "validation_passed": False,
+                        "validation_passed": validation.passed,
                     },
                 )
-                continue
 
-            attempt_job = self._job_for_attempt(
+                if attempt_succeeded(driver_result=driver_result, validation=validation):
+                    promotion_preflight, promotion = self._finalize_promotion(
+                        job=job,
+                        agent_id=current_agent,
+                        patch_path=patch_path,
+                        changed_files=patch_filtered_paths,
+                        validation=validation,
+                        policy=effective_policy,
+                        artifacts_dir=artifacts_dir,
+                    )
+                    final_status = "promoted" if promotion.mode is GitPromotionMode.DRAFT_PR else "ready_for_promotion"
+                    if not promotion.success:
+                        final_status = "blocked"
+                    summary = RunSummary(
+                        run_id=job.run_id,
+                        final_status=final_status,
+                        driver_result=driver_result,
+                        validation=validation,
+                        promotion_patch_uri=str(patch_path),
+                        promotion_preflight=promotion_preflight,
+                        promotion=promotion,
+                    )
+                    self._write_run_summary(summary_path, summary)
+                    self._cleanup_workspace(
+                        workspace_dir=workspace_dir,
+                        success=True,
+                        policy=effective_policy,
+                    )
+                    return summary
+
+                if driver_result.status == "policy_blocked":
+                    break
+
+            summary = RunSummary(
+                run_id=job.run_id,
+                final_status=forced_final_status or derive_terminal_status(last_result, last_validation),
+                driver_result=last_result,
+                validation=last_validation,
+                promotion_patch_uri=str(patch_path) if patch_path.exists() else None,
+                promotion_preflight=None,
+                promotion=None,
+            )
+            self._write_run_summary(summary_path, summary)
+            self._cleanup_workspace(
+                workspace_dir=workspace_dir,
+                success=False,
+                policy=effective_policy,
+            )
+            return summary
+        except Exception as exc:
+            self._append_event_safe(
+                events_path,
+                {
+                    "type": "runner_internal_error",
+                    "attempt": attempt,
+                    "agent_id": current_agent,
+                    "detail": str(exc).strip() or exc.__class__.__name__,
+                },
+            )
+            summary = self._recover_terminal_summary(
                 job=job,
-                agent_id=current_agent,
-                attempt=attempt,
+                summary_path=summary_path,
+                result_path=result_path,
+                patch_path=patch_path,
                 last_result=last_result,
                 last_validation=last_validation,
+                detail=str(exc).strip() or "runner failed before writing summary",
             )
-            job_path.write_text(
-                json.dumps(attempt_job.model_dump(mode="json"), ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
-
-            self._snapshot_baseline_to_workspace(baseline_dir, workspace_dir)
-            self._prepare_shadow_workspace(workspace_dir, effective_policy)
-            self._append_event(
-                events_path,
-                {
-                    "type": "attempt_started",
-                    "attempt": attempt,
-                    "agent_id": current_agent,
-                },
-            )
-
-            driver_result = self._invoke_adapter(
-                manifest_entrypoint=active_manifest.entrypoint,
-                run_dir=run_dir,
-                workspace_dir=workspace_dir,
-                artifacts_dir=artifacts_dir,
-                job_path=job_path,
-                result_path=result_path,
-                events_path=events_path,
-                baseline_dir=baseline_dir,
-                run_id=job.run_id,
-                agent_id=current_agent,
-                attempt=attempt,
-                timeout_sec=effective_policy.merged.timeout_sec,
-                policy=effective_policy,
-            )
-            result_path.write_text(
-                json.dumps(driver_result.model_dump(mode="json"), ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
-
-            changed_paths = self._collect_changed_paths(baseline_dir, workspace_dir)
-            patch_text, patch_filtered_paths, builtin_checks = self._build_filtered_patch(
-                baseline_dir=baseline_dir,
-                workspace_dir=workspace_dir,
-                changed_paths=changed_paths,
-                driver_result=driver_result,
-                policy=effective_policy,
-            )
-            patch_path.write_text(patch_text, encoding="utf-8")
-
-            validation = self._run_validators(
-                run_id=job.run_id,
-                workspace_dir=workspace_dir,
-                patch_path=patch_path,
-                builtin_checks=builtin_checks,
-                validator_specs=job.validators,
-                timeout_sec=effective_policy.merged.timeout_sec,
-            )
-
-            if not driver_result.changed_paths:
-                driver_result = driver_result.model_copy(
-                    update={"changed_paths": patch_filtered_paths}
-                )
-            last_patch_filtered_paths = patch_filtered_paths
-
-            if self._has_policy_violation(validation):
-                driver_result = driver_result.model_copy(
-                    update={
-                        "status": "policy_blocked",
-                        "recommended_action": "reject",
-                        "error": "execution produced out-of-scope or forbidden changes",
-                    }
-                )
-
-            last_result = driver_result
-            last_validation = validation
-
-            self._append_event(
-                events_path,
-                {
-                    "type": "attempt_completed",
-                    "attempt": attempt,
-                    "agent_id": current_agent,
-                    "driver_status": driver_result.status,
-                    "validation_passed": validation.passed,
-                },
-            )
-
-            if attempt_succeeded(driver_result=driver_result, validation=validation):
-                promotion_preflight, promotion = self._finalize_promotion(
-                    job=job,
-                    agent_id=current_agent,
-                    patch_path=patch_path,
-                    changed_files=patch_filtered_paths,
-                    validation=validation,
-                    policy=effective_policy,
-                    artifacts_dir=artifacts_dir,
-                )
-                final_status = "promoted" if promotion.mode is GitPromotionMode.DRAFT_PR else "ready_for_promotion"
-                if not promotion.success:
-                    final_status = "blocked"
-                summary = RunSummary(
-                    run_id=job.run_id,
-                    final_status=final_status,
-                    driver_result=driver_result,
-                    validation=validation,
-                    promotion_patch_uri=str(patch_path),
-                    promotion_preflight=promotion_preflight,
-                    promotion=promotion,
-                )
-                summary_path.write_text(
-                    json.dumps(summary.model_dump(mode="json"), ensure_ascii=False, indent=2),
-                    encoding="utf-8",
-                )
+            self._write_run_summary(summary_path, summary)
+            try:
                 self._cleanup_workspace(
                     workspace_dir=workspace_dir,
-                    success=True,
+                    success=False,
                     policy=effective_policy,
                 )
-                return summary
-
-            if driver_result.status == "policy_blocked":
-                break
-
-        final_status = forced_final_status or derive_terminal_status(last_result, last_validation)
-        summary = RunSummary(
-            run_id=job.run_id,
-            final_status=final_status,
-            driver_result=last_result,
-            validation=last_validation,
-            promotion_patch_uri=str(patch_path) if patch_path.exists() else None,
-            promotion_preflight=None,
-            promotion=None,
-        )
-        summary_path.write_text(
-            json.dumps(summary.model_dump(mode="json"), ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-        self._cleanup_workspace(
-            workspace_dir=workspace_dir,
-            success=False,
-            policy=effective_policy,
-        )
-        return summary
+            except Exception as cleanup_exc:
+                self._append_event_safe(
+                    events_path,
+                    {
+                        "type": "workspace_cleanup_failed",
+                        "attempt": attempt,
+                        "agent_id": current_agent,
+                        "detail": str(cleanup_exc).strip() or cleanup_exc.__class__.__name__,
+                    },
+                )
+            return summary
 
     @staticmethod
     def _has_policy_violation(validation: ValidationReport) -> bool:
@@ -1469,6 +1497,83 @@ class AgentExecutionRunner:
         events_path.parent.mkdir(parents=True, exist_ok=True)
         with events_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+
+    @staticmethod
+    def _append_event_safe(events_path: Path, payload: dict[str, Any]) -> None:
+        try:
+            AgentExecutionRunner._append_event(events_path, payload)
+        except OSError:
+            return
+
+    @staticmethod
+    def _write_run_summary(summary_path: Path, summary: RunSummary) -> None:
+        summary_path.write_text(
+            json.dumps(summary.model_dump(mode="json"), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    @staticmethod
+    def _load_run_summary(summary_path: Path) -> RunSummary | None:
+        if not summary_path.exists():
+            return None
+        try:
+            return RunSummary.model_validate_json(summary_path.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+
+    @staticmethod
+    def _load_driver_result(result_path: Path) -> DriverResult | None:
+        if not result_path.exists():
+            return None
+        try:
+            payload = json.loads(result_path.read_text(encoding="utf-8"))
+            return DriverResult.model_validate(payload)
+        except Exception:
+            return None
+
+    def _recover_terminal_summary(
+        self,
+        *,
+        job: JobSpec,
+        summary_path: Path,
+        result_path: Path,
+        patch_path: Path,
+        last_result: DriverResult,
+        last_validation: ValidationReport,
+        detail: str,
+    ) -> RunSummary:
+        existing_summary = self._load_run_summary(summary_path)
+        if existing_summary is not None:
+            return existing_summary
+
+        recovered_result = self._load_driver_result(result_path) or last_result
+        if not str(recovered_result.error or "").strip():
+            recovered_result = recovered_result.model_copy(update={"error": detail})
+
+        checks = list(last_validation.checks)
+        if not any(check.id == "builtin.runner_completion" for check in checks):
+            checks.append(
+                ValidationCheck(
+                    id="builtin.runner_completion",
+                    passed=False,
+                    detail=detail[:1000],
+                )
+            )
+        recovered_validation = ValidationReport(
+            run_id=job.run_id,
+            passed=all(check.passed for check in checks),
+            checks=checks,
+        )
+        final_status = derive_terminal_status(recovered_result, recovered_validation)
+        return RunSummary(
+            run_id=job.run_id,
+            final_status=final_status,
+            driver_result=recovered_result,
+            validation=recovered_validation,
+            promotion_patch_uri=str(patch_path) if patch_path.exists() else None,
+            promotion_preflight=None,
+            promotion=None,
+        )
 
     @staticmethod
     def _terminate_process(process: subprocess.Popen[str]) -> None:

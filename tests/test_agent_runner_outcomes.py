@@ -115,6 +115,69 @@ JSON
     assert checks["builtin.nonempty_change_for_promote"].passed is False
 
 
+def test_runner_recovers_terminal_summary_when_postprocess_crashes_after_driver_result(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    (repo_root / "src").mkdir(parents=True)
+    (repo_root / "src" / "base.py").write_text("x = 1\n", encoding="utf-8")
+
+    adapter = repo_root / "drivers" / "timeout_adapter.sh"
+    adapter.parent.mkdir(parents=True, exist_ok=True)
+    adapter.write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+cat > "$AEP_RESULT_PATH" <<'JSON'
+{
+  "protocol_version": "aep/v0",
+  "run_id": "run-timeout",
+  "agent_id": "timeout-agent",
+  "attempt": 1,
+  "status": "timed_out",
+  "summary": "adapter timed out",
+  "changed_paths": [],
+  "output_artifacts": [],
+  "metrics": {"duration_ms": 0, "steps": 0, "commands": 0, "prompt_tokens": null, "completion_tokens": null},
+  "recommended_action": "fallback",
+  "error": "timeout after 60s"
+}
+JSON
+""",
+        encoding="utf-8",
+    )
+    adapter.chmod(0o755)
+    _write_manifest(repo_root, "timeout-agent", "drivers/timeout_adapter.sh")
+
+    runner = AgentExecutionRunner(
+        repo_root=repo_root,
+        runtime_root=tmp_path / "runtime",
+        manifests_dir=repo_root / "configs" / "agents",
+    )
+
+    def _explode(*args, **kwargs):
+        _ = args, kwargs
+        raise RuntimeError("postprocess exploded after driver result")
+
+    monkeypatch.setattr(runner, "_build_filtered_patch", _explode)
+
+    summary = runner.run_job(JobSpec(run_id="run-timeout", agent_id="timeout-agent", task="demo"))
+    summary_path = tmp_path / "runtime" / "run-timeout" / "summary.json"
+
+    assert summary.final_status == "failed"
+    assert summary.driver_result.status == "timed_out"
+    assert summary_path.exists()
+
+    saved_summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert saved_summary["final_status"] == "failed"
+    assert saved_summary["driver_result"]["status"] == "timed_out"
+    assert any(
+        check["id"] == "builtin.runner_completion" and check["passed"] is False
+        for check in saved_summary["validation"]["checks"]
+    )
+
+
 def test_openhands_environment_preflight_blocks_dirty_runtime_before_attempt(
     tmp_path: Path,
     monkeypatch,

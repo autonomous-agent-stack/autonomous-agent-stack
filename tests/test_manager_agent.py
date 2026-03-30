@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import sys
 
@@ -242,3 +243,63 @@ def test_manager_agent_api_dispatch_executes_background_plan(tmp_path: Path) -> 
     assert all(task["status"] == "completed" for task in current["execution_plan"]["tasks"])
     assert current["execution_plan"]["tasks"][0]["run_summary"]["final_status"] == "ready_for_promotion"
     assert current["execution_plan"]["tasks"][2]["metadata"]["manager_stage"] == "frontend"
+
+
+def test_manager_agent_recovers_terminal_summary_when_dispatch_runner_raises(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    _seed_admin_dashboard_repo(repo_root)
+
+    def _crashing_runner(job: JobSpec) -> RunSummary:
+        run_dir = repo_root / ".masfactory_runtime" / "runs" / job.run_id
+        artifacts_dir = run_dir / "artifacts"
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "driver_result.json").write_text(
+            json.dumps(
+                {
+                    "protocol_version": "aep/v0",
+                    "run_id": job.run_id,
+                    "agent_id": job.agent_id,
+                    "attempt": 1,
+                    "status": "timed_out",
+                    "summary": "adapter timed out",
+                    "changed_paths": [],
+                    "output_artifacts": [],
+                    "metrics": {
+                        "duration_ms": 0,
+                        "steps": 0,
+                        "commands": 0,
+                        "prompt_tokens": None,
+                        "completion_tokens": None,
+                    },
+                    "recommended_action": "fallback",
+                    "error": "timeout after 900s",
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        raise RuntimeError("summary.json missing after timeout")
+
+    service = ManagerAgentService(
+        repository=InMemoryRepository(),
+        repo_root=repo_root,
+        dispatch_runner=_crashing_runner,
+    )
+
+    dispatch = service.create_dispatch(
+        ManagerDispatchRequest(
+            prompt="给我做一个玛露 6g 遮瑕膏落地页，带浅色品牌 UI、预约留资接口和基础测试。",
+            auto_dispatch=False,
+        )
+    )
+    finalized = service.execute_dispatch(dispatch.dispatch_id)
+
+    assert finalized.status is JobStatus.FAILED
+    assert finalized.run_summary is not None
+    assert finalized.run_summary.final_status == "failed"
+    assert finalized.run_summary.driver_result.status == "timed_out"
+    assert finalized.execution_plan is not None
+    assert finalized.execution_plan.tasks[0].status is JobStatus.FAILED
+    assert finalized.execution_plan.tasks[0].run_summary is not None
+    assert finalized.execution_plan.tasks[0].run_summary.final_status == "failed"
