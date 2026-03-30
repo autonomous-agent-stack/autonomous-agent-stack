@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sys
 
 from fastapi.testclient import TestClient
 
@@ -153,8 +154,8 @@ def test_manager_agent_routes_issue_style_landing_page_prompt_to_business_dag(tm
     backend_task, tests_task, frontend_task = dispatch.execution_plan.tasks
     assert dispatch.selected_intent.metadata["surface_slug"] == "malu"
     assert dispatch.selected_intent.metadata["surface_root"] == "apps/malu"
-    assert backend_task.worker_spec.allowed_paths == ["apps/malu/**"]
-    assert backend_task.worker_spec.test_command == "python -m py_compile apps/malu/lead_capture.py"
+    assert backend_task.worker_spec.allowed_paths == ["apps/malu/**", "tests/apps/test_malu_landing_page.py"]
+    assert backend_task.worker_spec.test_command == "pytest -q tests/apps/test_malu_landing_page.py"
     assert tests_task.worker_spec.allowed_paths == ["tests/apps/test_malu_landing_page.py"]
     assert tests_task.worker_spec.test_command == "pytest -q tests/apps/test_malu_landing_page.py"
     assert frontend_task.worker_spec.allowed_paths == ["apps/malu/**"]
@@ -183,7 +184,10 @@ def test_manager_agent_routes_direct_malu_landing_page_prompt_to_product_intent(
     assert dispatch.execution_plan.strategy is ManagerPlanStrategy.TASK_DAG
     assert dispatch.execution_plan.tasks[0].worker_spec.metadata["manager_intent_label"] == "product_landing_page"
     assert dispatch.selected_intent.metadata["surface_root"] == "apps/malu"
-    assert dispatch.execution_plan.tasks[0].worker_spec.allowed_paths == ["apps/malu/**"]
+    assert dispatch.execution_plan.tasks[0].worker_spec.allowed_paths == [
+        "apps/malu/**",
+        "tests/apps/test_malu_landing_page.py",
+    ]
     assert dispatch.execution_plan.tasks[1].worker_spec.allowed_paths == ["tests/apps/test_malu_landing_page.py"]
     assert dispatch.execution_plan.tasks[2].worker_spec.allowed_paths == ["apps/malu/**"]
 

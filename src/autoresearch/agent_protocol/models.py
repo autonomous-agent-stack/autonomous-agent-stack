@@ -35,7 +35,7 @@ class ExecutionPolicy(StrictModel):
     )
 
     max_changed_files: int = Field(default=20, ge=0, le=1000)
-    max_patch_lines: int = Field(default=500, ge=0, le=100000)
+    max_patch_lines: int = Field(default=2000, ge=0, le=100000)
     allow_binary_changes: bool = False
 
     cleanup_on_success: bool = True

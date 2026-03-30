@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from autoresearch.agent_protocol.models import ExecutionPolicy
 from autoresearch.agent_protocol.policy import build_effective_policy
+import json
+from pathlib import Path
 
 
 def test_policy_merge_deny_wins() -> None:
@@ -34,7 +36,7 @@ def test_policy_merge_deny_wins() -> None:
     assert effective.allowed_paths == ["src/**"]
     assert "src/secrets/**" in effective.forbidden_paths
     assert effective.max_changed_files == 20
-    assert effective.max_patch_lines == 500
+    assert effective.max_patch_lines == 900
     assert effective.allow_binary_changes is False
 
 
@@ -73,3 +75,10 @@ def test_policy_merge_allows_isolated_apps_targets_when_job_requests_business_su
         "tests/apps/test_malu_landing_page.py",
         "apps/malu/**",
     ]
+
+
+def test_openhands_manifest_default_policy_includes_apps_surface() -> None:
+    manifest_path = Path(__file__).resolve().parents[1] / "configs" / "agents" / "openhands.yaml"
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    assert "apps/**" in payload["policy_defaults"]["allowed_paths"]

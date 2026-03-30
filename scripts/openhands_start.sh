@@ -270,23 +270,25 @@ run_ai_lab() {
   local runtime_settings_path
   local runtime_config_dir
   local runtime_home
+  local runtime_state_dir
   local runtime_script_path
 
   container_audit_dir="$(container_path_for_host_path "${AUDIT_DIR}")"
   container_audit_file="$(container_path_for_host_path "${AUDIT_FILE}")"
   container_prompt_file="$(container_path_for_host_path "${PROMPT_FILE}")"
   persistence_token="$(basename "$(dirname "${AUDIT_DIR}")")-$(basename "${AUDIT_DIR}")"
-  container_persistence_dir="${OPENHANDS_CONTAINER_WORKSPACE}/.openhands-state/${persistence_token}"
   container_sandbox_volumes="${OPENHANDS_CONTAINER_WORKSPACE}:/workspace:rw"
   host_mount_root="$(host_mount_root_for_path "${PROMPT_FILE}")"
   extra_volume="${WORKSPACE}:${OPENHANDS_CONTAINER_WORKSPACE}:rw"
   runtime_home="${OPENHANDS_RUN_AS_HOME}"
   runtime_config_dir="${runtime_home}/.openhands"
+  runtime_state_dir="${runtime_home}/state"
+  container_persistence_dir="${runtime_state_dir}/${persistence_token}"
   runtime_settings_path="${runtime_config_dir}/agent_settings.json"
   runtime_script_path="/tmp/openhands-run.sh"
 
   if [[ "${OPENHANDS_RUN_AS_ENABLED}" == "1" && "${OPENHANDS_RUN_AS_USER}" != "root" && -n "${OPENHANDS_RUN_AS_USER}" ]]; then
-    shell_cmd='mkdir -p "${OPENHANDS_AUDIT_DIR}" "${OPENHANDS_PERSISTENCE_DIR}" "'"${runtime_config_dir}"'" && printf "%s\n" "set -euo pipefail" "cd \"\${OPENHANDS_WORKSPACE}\"" "eval \"\${OPENHANDS_CMD_TEMPLATE}\"" > "'"${runtime_script_path}"'" && chmod 755 "'"${runtime_script_path}"'" && cp /root/.openhands/agent_settings.json "'"${runtime_settings_path}"'" && chmod 777 "'"${runtime_home}"'" "'"${runtime_config_dir}"'" && chmod 644 "'"${runtime_settings_path}"'" && chmod o+rx /root && runuser -u "'"${OPENHANDS_RUN_AS_USER}"'" -- env HOME="'"${runtime_home}"'" PATH="/usr/local/bin:/usr/bin:/bin:/root/.local/bin" OPENHANDS_SETTINGS_PATH="'"${runtime_settings_path}"'" /bin/bash "'"${runtime_script_path}"'"'
+    shell_cmd='mkdir -p "${OPENHANDS_AUDIT_DIR}" "${OPENHANDS_PERSISTENCE_DIR}" "'"${runtime_config_dir}"'" "'"${runtime_state_dir}"'" && printf "%s\n" "set -euo pipefail" "cd \"\${OPENHANDS_WORKSPACE}\"" "eval \"\${OPENHANDS_CMD_TEMPLATE}\"" > "'"${runtime_script_path}"'" && chmod 755 "'"${runtime_script_path}"'" && cp /root/.openhands/agent_settings.json "'"${runtime_settings_path}"'" && chmod 777 "'"${runtime_home}"'" "'"${runtime_config_dir}"'" "'"${runtime_state_dir}"'" "${OPENHANDS_PERSISTENCE_DIR}" && chmod 644 "'"${runtime_settings_path}"'" && chmod o+rx /root && runuser -u "'"${OPENHANDS_RUN_AS_USER}"'" -- env HOME="'"${runtime_home}"'" PATH="/usr/local/bin:/usr/bin:/bin:/root/.local/bin" OPENHANDS_SETTINGS_PATH="'"${runtime_settings_path}"'" /bin/bash "'"${runtime_script_path}"'"'
   else
     shell_cmd='mkdir -p "${OPENHANDS_AUDIT_DIR}" "${OPENHANDS_PERSISTENCE_DIR}" && cd "${OPENHANDS_WORKSPACE}" && eval "${OPENHANDS_CMD_TEMPLATE}"'
   fi

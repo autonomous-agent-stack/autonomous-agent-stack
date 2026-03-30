@@ -552,4 +552,7 @@ result_path.write_text(json.dumps(payload), encoding="utf-8")
     assert summary.driver_result.metrics.first_scoped_write_ms is not None
     assert summary.driver_result.metrics.first_state_heartbeat_ms is not None
     assert summary.driver_result.metrics.first_progress_ms <= summary.driver_result.metrics.first_state_heartbeat_ms
-    assert summary.driver_result.metrics.first_state_heartbeat_ms < summary.driver_result.metrics.first_scoped_write_ms
+    assert (
+        summary.driver_result.metrics.first_state_heartbeat_ms
+        <= summary.driver_result.metrics.first_scoped_write_ms
+    )

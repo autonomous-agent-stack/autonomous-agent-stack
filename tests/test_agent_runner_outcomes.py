@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from autoresearch.agent_protocol.models import JobSpec
+from autoresearch.agent_protocol.models import DriverResult, ExecutionPolicy, JobSpec
+from autoresearch.agent_protocol.policy import build_effective_policy
 from autoresearch.executions.runner import AgentExecutionRunner
 
 
@@ -188,3 +189,76 @@ exit 1
         and item.get("reason") == "environment_preflight_failed"
         for item in events
     )
+
+
+def test_runner_ignores_benign_pytest_artifacts_and_app_readme(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    baseline_dir = tmp_path / "baseline"
+    workspace_dir = tmp_path / "workspace"
+    (baseline_dir / "apps" / "malu").mkdir(parents=True, exist_ok=True)
+    (workspace_dir / "apps" / "malu").mkdir(parents=True, exist_ok=True)
+    (baseline_dir / "tests" / "apps").mkdir(parents=True, exist_ok=True)
+    (workspace_dir / "tests" / "apps" / "__pycache__").mkdir(parents=True, exist_ok=True)
+    (workspace_dir / ".pytest_cache" / "v" / "cache").mkdir(parents=True, exist_ok=True)
+
+    (baseline_dir / "apps" / "malu" / "lead_capture.py").write_text(
+        "VALUE = 1\n",
+        encoding="utf-8",
+    )
+    (workspace_dir / "apps" / "malu" / "lead_capture.py").write_text(
+        "VALUE = 2\n",
+        encoding="utf-8",
+    )
+    (baseline_dir / "tests" / "apps" / "test_malu_landing_page.py").write_text(
+        "def test_placeholder():\n    assert True\n",
+        encoding="utf-8",
+    )
+    (workspace_dir / "tests" / "apps" / "test_malu_landing_page.py").write_text(
+        "def test_placeholder():\n    assert True\n",
+        encoding="utf-8",
+    )
+    (workspace_dir / "apps" / "malu" / "README.md").write_text("# draft\n", encoding="utf-8")
+    (workspace_dir / ".pytest_cache" / "README.md").write_text("cache\n", encoding="utf-8")
+    (workspace_dir / ".pytest_cache" / "v" / "cache" / "nodeids").write_text("[]\n", encoding="utf-8")
+    (workspace_dir / "tests" / "apps" / "__pycache__" / "test_malu_landing_page.cpython-314.pyc").write_bytes(
+        b"pyc"
+    )
+
+    runner = AgentExecutionRunner(
+        repo_root=repo_root,
+        runtime_root=tmp_path / "runtime",
+        manifests_dir=repo_root / "configs" / "agents",
+    )
+    effective_policy = build_effective_policy(
+        ExecutionPolicy(allowed_paths=["apps/**", "tests/**"]),
+        ExecutionPolicy(allowed_paths=["apps/malu/**", "tests/apps/test_malu_landing_page.py"]),
+    )
+    changed_paths = runner._collect_changed_paths(baseline_dir, workspace_dir)
+    patch_text, filtered_paths, checks = runner._build_filtered_patch(
+        baseline_dir=baseline_dir,
+        workspace_dir=workspace_dir,
+        changed_paths=changed_paths,
+        driver_result=DriverResult(
+            run_id="run-benign-artifacts",
+            agent_id="mock",
+            attempt=1,
+            status="succeeded",
+            summary="ok",
+            changed_paths=[],
+            output_artifacts=[],
+            recommended_action="promote",
+        ),
+        policy=effective_policy,
+    )
+
+    check_map = {item.id: item for item in checks}
+
+    assert filtered_paths == ["apps/malu/lead_capture.py"]
+    assert check_map["builtin.allowed_paths"].passed is True
+    assert check_map["builtin.no_runtime_artifacts"].passed is True
+    assert check_map["builtin.max_changed_files"].passed is True
+    assert "apps/malu/README.md" not in patch_text
+    assert ".pytest_cache" not in patch_text
+    assert "__pycache__" not in patch_text

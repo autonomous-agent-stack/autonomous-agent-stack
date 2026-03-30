@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import re
+import sys
 from typing import Callable, Iterable
 
 from autoresearch.agent_protocol.models import JobSpec, RunSummary
@@ -587,7 +588,10 @@ class ManagerAgentService:
     def _bucket_backend_paths(self, intent: ManagerIntentRead) -> list[str]:
         if intent.intent_id == "product_landing_page":
             surface_root = str(intent.metadata.get("surface_root") or "apps/brand-site")
-            return [f"{surface_root}/**"]
+            surface_test_path = str(
+                intent.metadata.get("surface_test_path") or "tests/apps/test_brand_site_landing_page.py"
+            )
+            return [f"{surface_root}/**", surface_test_path]
         candidates = [
             path
             for path in intent.allowed_paths
@@ -764,14 +768,11 @@ class ManagerAgentService:
         test_paths: list[str],
     ) -> str:
         if intent.intent_id == "product_landing_page":
-            backend_entry = str(
-                intent.metadata.get("surface_backend_entry") or "apps/brand-site/lead_capture.py"
-            )
             surface_test_path = str(
                 intent.metadata.get("surface_test_path") or "tests/apps/test_brand_site_landing_page.py"
             )
             if task_stage is ManagerTaskStage.BACKEND:
-                return f"python -m py_compile {backend_entry}"
+                return f"pytest -q {surface_test_path}"
             if task_stage in {ManagerTaskStage.TESTS, ManagerTaskStage.FRONTEND}:
                 return f"pytest -q {surface_test_path}"
         if test_paths:

@@ -77,3 +77,32 @@ def test_mock_adapter_falls_back_to_first_allowed_source_file(tmp_path: Path) ->
     target = workspace / "scripts" / "check_prompt_hygiene.py"
     assert payload["changed_paths"] == ["scripts/check_prompt_hygiene.py"]
     assert "def run()" in target.read_text(encoding="utf-8")
+
+
+def test_mock_adapter_uses_validator_target_inside_globbed_apps_scope(tmp_path: Path) -> None:
+    payload, workspace = _run_mock_adapter(
+        tmp_path,
+        allowed_paths=["apps/malu/**"],
+        validator_command=f"{sys.executable} -m py_compile apps/malu/lead_capture.py",
+    )
+
+    target = workspace / "apps" / "malu" / "lead_capture.py"
+    assert payload["changed_paths"] == ["apps/malu/lead_capture.py"]
+    assert "class PhoneValidator" in target.read_text(encoding="utf-8")
+
+
+def test_mock_adapter_builds_source_and_test_for_pytest_validated_business_surface(tmp_path: Path) -> None:
+    payload, workspace = _run_mock_adapter(
+        tmp_path,
+        allowed_paths=["apps/malu/**", "tests/apps/test_malu_landing_page.py"],
+        validator_command="pytest -q tests/apps/test_malu_landing_page.py",
+    )
+
+    source_target = workspace / "apps" / "malu" / "lead_capture.py"
+    test_target = workspace / "tests" / "apps" / "test_malu_landing_page.py"
+    assert payload["changed_paths"] == [
+        "apps/malu/lead_capture.py",
+        "tests/apps/test_malu_landing_page.py",
+    ]
+    assert "class PhoneValidator" in source_target.read_text(encoding="utf-8")
+    assert "from apps.malu.lead_capture import PhoneValidator, capture_lead" in test_target.read_text(encoding="utf-8")

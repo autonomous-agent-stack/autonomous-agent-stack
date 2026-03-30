@@ -126,6 +126,27 @@ def _write_patch(root: Path, *, filename: str = "src/demo.py") -> Path:
     return patch_path
 
 
+def _write_large_patch(root: Path, *, filename: str, added_lines: int) -> Path:
+    patch_path = root / "promotion.patch"
+    additions = [f'+LINE_{index} = "{index}"' for index in range(added_lines)]
+    patch_path.write_text(
+        "\n".join(
+            [
+                f"diff --git a/{filename} b/{filename}",
+                "new file mode 100644",
+                "index 0000000..1111111",
+                "--- /dev/null",
+                f"+++ b/{filename}",
+                f"@@ -0,0 +1,{added_lines} @@",
+                *additions,
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return patch_path
+
+
 def _intent(
     patch_path: Path,
     *,
@@ -231,6 +252,48 @@ def test_finalize_defaults_to_patch_when_patch_gates_pass(tmp_path: Path) -> Non
     assert result.pr_url is None
     assert (artifacts_dir / "promotion_preflight.json").exists()
     assert (artifacts_dir / "promotion_result.json").exists()
+
+
+def test_finalize_ignores_benign_runtime_artifacts_and_accepts_large_business_patch(
+    tmp_path: Path,
+) -> None:
+    patch_path = _write_large_patch(
+        tmp_path,
+        filename="apps/malu/lead_capture.py",
+        added_lines=600,
+    )
+    artifacts_dir = tmp_path / "artifacts"
+
+    service = GitPromotionGateService(repo_root=tmp_path)
+    preflight, result = service.finalize(
+        intent=PromotionIntent(
+            run_id="run-business-patch",
+            actor_role=PromotionActorRole.AGGREGATOR,
+            actor_id="aggregator-1",
+            writer_id="worker-1",
+            writer_lease_key="writer:business-patch",
+            patch_uri=str(patch_path),
+            changed_files=[
+                "apps/malu/lead_capture.py",
+                "apps/malu/README.md",
+                ".pytest_cache/README.md",
+                "tests/apps/__pycache__/test_malu_landing_page.cpython-314.pyc",
+            ],
+            base_ref="HEAD",
+            preferred_mode=GitPromotionMode.PATCH,
+            target_base_branch="main",
+            approval_granted=False,
+            metadata={},
+        ),
+        artifacts_dir=artifacts_dir,
+    )
+
+    checks = {item.id: item for item in preflight.checks}
+
+    assert result.success is True
+    assert result.mode is GitPromotionMode.PATCH
+    assert checks["gate.no_runtime_artifacts"].passed is True
+    assert checks["gate.max_patch_lines"].passed is True
 
 
 def test_finalize_upgrades_patch_to_draft_pr_when_all_preconditions_pass(tmp_path: Path) -> None:

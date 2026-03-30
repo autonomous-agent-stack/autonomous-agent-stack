@@ -64,7 +64,7 @@ def test_openhands_start_defaults_audit_path_to_workspace_for_ai_lab(tmp_path: P
 
     assert completed.returncode == 0
     assert "/opt/workspace/.openhands-audit" in completed.stdout
-    assert "OPENHANDS_PERSISTENCE_DIR=/opt/workspace/.openhands-state/" in completed.stdout
+    assert "OPENHANDS_PERSISTENCE_DIR=/tmp/openhands-home/state/" in completed.stdout
 
 
 def test_openhands_start_legacy_template_can_be_restored_explicitly(tmp_path: Path) -> None:

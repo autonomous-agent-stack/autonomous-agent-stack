@@ -52,7 +52,7 @@ def test_openhands_worker_builds_controlled_request_with_mock_fallback() -> None
     assert request.failure_strategy is FailureStrategy.FALLBACK
     assert request.allowed_paths == ["src/autoresearch/core/services/openhands_worker.py"]
     assert request.test_command == [
-        "python",
+        sys.executable,
         "-m",
         "py_compile",
         "src/autoresearch/core/services/openhands_worker.py",
@@ -100,3 +100,19 @@ def test_openhands_worker_builds_controlled_request_with_pytest_via_active_pytho
     request = service.build_controlled_request(spec)
 
     assert request.test_command == [sys.executable, "-m", "pytest", "-q", "tests/test_worker.py"]
+
+
+def test_openhands_worker_normalizes_python_commands_to_active_interpreter() -> None:
+    service = OpenHandsWorkerService()
+    spec = OpenHandsWorkerJobSpec(
+        job_id="job-6",
+        problem_statement="Compile a scoped business module with the active interpreter.",
+        allowed_paths=["apps/malu/lead_capture.py"],
+        test_command="python -m py_compile apps/malu/lead_capture.py",
+    )
+
+    job = service.build_agent_job_spec(spec)
+    request = service.build_controlled_request(spec)
+
+    assert job.validators[0].command == f"{sys.executable} -m py_compile apps/malu/lead_capture.py"
+    assert request.test_command == [sys.executable, "-m", "py_compile", "apps/malu/lead_capture.py"]

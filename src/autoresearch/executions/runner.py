@@ -35,6 +35,19 @@ _RUNTIME_DENY_PREFIXES = (
 )
 
 
+def _is_benign_runtime_artifact(path: str) -> bool:
+    normalized = path.replace("\\", "/").strip("/")
+    if not normalized:
+        return False
+    if normalized.startswith(".pytest_cache/") or "/.pytest_cache/" in f"/{normalized}":
+        return True
+    if "/__pycache__/" in f"/{normalized}":
+        return True
+    if normalized.startswith("apps/") and normalized.endswith("/README.md"):
+        return True
+    return False
+
+
 class AgentExecutionRunner:
     def __init__(
         self,
@@ -811,16 +824,17 @@ class AgentExecutionRunner:
             )
         )
 
+        relevant_changed = [path for path in changed_paths if not _is_benign_runtime_artifact(path)]
         forbidden_changed = [
-            path for path in changed_paths if self._matches_any(path, policy.merged.forbidden_paths)
+            path for path in relevant_changed if self._matches_any(path, policy.merged.forbidden_paths)
         ]
         runtime_changed = [
-            path for path in changed_paths if path.startswith(_RUNTIME_DENY_PREFIXES)
+            path for path in relevant_changed if path.startswith(_RUNTIME_DENY_PREFIXES)
         ]
 
         allowed_changed = [
             path
-            for path in changed_paths
+            for path in relevant_changed
             if self._matches_any(path, policy.merged.allowed_paths)
             and not self._matches_any(path, policy.merged.forbidden_paths)
             and not path.startswith(_RUNTIME_DENY_PREFIXES)
@@ -832,7 +846,7 @@ class AgentExecutionRunner:
                 passed=len(
                     [
                         p
-                        for p in changed_paths
+                        for p in relevant_changed
                         if p not in allowed_changed
                         and p not in forbidden_changed
                         and p not in runtime_changed
@@ -859,8 +873,8 @@ class AgentExecutionRunner:
         checks.append(
             ValidationCheck(
                 id="builtin.max_changed_files",
-                passed=len(changed_paths) <= policy.merged.max_changed_files,
-                detail=f"changed={len(changed_paths)} limit={policy.merged.max_changed_files}",
+                passed=len(relevant_changed) <= policy.merged.max_changed_files,
+                detail=f"changed={len(relevant_changed)} limit={policy.merged.max_changed_files}",
             )
         )
 

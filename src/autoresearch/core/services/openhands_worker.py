@@ -24,6 +24,8 @@ class OpenHandsWorkerService:
             return []
         if parts[0] == "pytest":
             return [sys.executable, "-m", "pytest", *parts[1:]]
+        if parts[0] in {"python", "python3"}:
+            return [sys.executable, *parts[1:]]
         return parts
 
     def _execution_test_command(self, raw_command: str) -> str:
