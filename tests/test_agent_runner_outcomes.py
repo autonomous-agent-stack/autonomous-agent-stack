@@ -71,6 +71,52 @@ JSON
     assert checks["builtin.driver_success"].passed is False
 
 
+def test_runner_persists_summary_when_attempt_crashes_unexpectedly(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    (repo_root / "src").mkdir(parents=True)
+    (repo_root / "src" / "base.py").write_text("x = 1\n", encoding="utf-8")
+
+    adapter = repo_root / "drivers" / "explosive_adapter.sh"
+    adapter.parent.mkdir(parents=True, exist_ok=True)
+    adapter.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+    adapter.chmod(0o755)
+    _write_manifest(repo_root, "explosive", "drivers/explosive_adapter.sh")
+
+    runner = AgentExecutionRunner(
+        repo_root=repo_root,
+        runtime_root=tmp_path / "runtime",
+        manifests_dir=repo_root / "configs" / "agents",
+    )
+
+    def _boom(**_: object) -> DriverResult:
+        raise RuntimeError("synthetic invoke failure")
+
+    monkeypatch.setattr(runner, "_invoke_adapter", _boom)
+
+    summary = runner.run_job(JobSpec(run_id="run-explosive", agent_id="explosive", task="demo"))
+
+    summary_path = tmp_path / "runtime" / "run-explosive" / "summary.json"
+    events_path = tmp_path / "runtime" / "run-explosive" / "events.ndjson"
+
+    assert summary.final_status == "failed"
+    assert summary.driver_result.status == "contract_error"
+    assert "RuntimeError" in (summary.driver_result.error or "")
+    assert summary_path.exists()
+    payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert payload["final_status"] == "failed"
+    assert payload["driver_result"]["status"] == "contract_error"
+    events = [
+        json.loads(line)
+        for line in events_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert any(item.get("type") == "runner_exception" for item in events)
+
+
 def test_zero_change_success_is_blocked(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()

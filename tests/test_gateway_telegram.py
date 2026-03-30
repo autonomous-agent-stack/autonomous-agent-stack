@@ -797,6 +797,7 @@ def test_telegram_help_command_returns_available_commands(
         assert "[Telegram Commands]" in help_text
         assert "/status" in help_text
         assert "/task <需求>" in help_text
+        assert "/task --approve <需求>" in help_text
         assert "/approve <approval_id> approve" in help_text
         assert "/memory <内容>" in help_text
         assert "/mode shared" in help_text
@@ -860,6 +861,85 @@ def test_telegram_task_issue_dispatches_manager_and_queues_issue_reply_approval(
     finally:
         app.dependency_overrides.pop(get_telegram_notifier_service, None)
         app.dependency_overrides.pop(get_github_issue_service, None)
+        app.dependency_overrides.pop(get_manager_agent_service, None)
+
+
+def test_telegram_task_approve_flag_grants_owner_dispatch_context(
+    telegram_client: TestClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    notifier = _StubTelegramNotifier()
+    manager_service = _build_manager_service(tmp_path / "manager-approve-flag.sqlite3")
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+    app.dependency_overrides[get_manager_agent_service] = lambda: manager_service
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_OWNER_UIDS", "9541")
+
+    try:
+        response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 3164,
+                "message": {
+                    "message_id": 157,
+                    "text": "/task --approve 为美妆品牌玛露开发 6g 遮瑕膏落地页",
+                    "chat": {"id": 9541, "type": "private"},
+                    "from": {"id": 9541, "username": "owner-user"},
+                },
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        dispatch = manager_service.get_dispatch(payload["metadata"]["dispatch_id"])
+
+        assert dispatch is not None
+        backend_task = dispatch.execution_plan.tasks[0]
+        assert backend_task.worker_spec is not None
+        assert backend_task.agent_job is not None
+        assert backend_task.worker_spec.metadata["approval_granted"] is True
+        assert backend_task.agent_job.metadata["approval_granted"] is True
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+        app.dependency_overrides.pop(get_manager_agent_service, None)
+
+
+def test_telegram_task_approve_flag_is_ignored_for_non_admin_user(
+    telegram_client: TestClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    notifier = _StubTelegramNotifier()
+    manager_service = _build_manager_service(tmp_path / "manager-non-admin-approve.sqlite3")
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+    app.dependency_overrides[get_manager_agent_service] = lambda: manager_service
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_ALLOWED_UIDS", "9542")
+
+    try:
+        response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 3165,
+                "message": {
+                    "message_id": 158,
+                    "text": "/task --approve 为美妆品牌玛露开发 6g 遮瑕膏落地页",
+                    "chat": {"id": 9542, "type": "private"},
+                    "from": {"id": 9542, "username": "member-user"},
+                },
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        dispatch = manager_service.get_dispatch(payload["metadata"]["dispatch_id"])
+
+        assert dispatch is not None
+        backend_task = dispatch.execution_plan.tasks[0]
+        assert backend_task.worker_spec is not None
+        assert backend_task.agent_job is not None
+        assert backend_task.worker_spec.metadata["approval_granted"] is False
+        assert backend_task.agent_job.metadata["approval_granted"] is False
+        assert any("仅对 owner/partner 生效" in item["text"] for item in notifier.messages)
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
         app.dependency_overrides.pop(get_manager_agent_service, None)
 
 

@@ -39,6 +39,7 @@ from autoresearch.core.services.telegram_notify import TelegramNotifierService
 from autoresearch.shared.models import (
     AdminChannelConfigCreateRequest,
     AdminChannelConfigUpdateRequest,
+    ActorRole,
     ApprovalDecisionRequest,
     ApprovalRequestCreateRequest,
     ApprovalRisk,
@@ -662,11 +663,12 @@ def _handle_task_command(
     notifier: TelegramNotifierService,
     session_identity: TelegramSessionIdentityRead,
 ) -> TelegramWebhookAck:
-    task_query = _extract_task_query(extracted["text"])
+    task_query, approval_requested = _parse_task_command(extracted["text"])
     if not task_query:
         message_text = (
             "用法:\n"
             "/task <需求>\n"
+            "/task --approve <需求>\n"
             "/task issue <owner/repo#123 | #123 | GitHub issue URL> [补充说明]"
         )
         if notifier.enabled:
@@ -699,6 +701,16 @@ def _handle_task_command(
     operator_note = ""
     issue_reference: str | None = None
     issue_url: str | None = None
+    approval_granted = approval_requested and _can_telegram_task_self_approve(
+        session_identity=session_identity
+    )
+
+    if approval_requested and not approval_granted and notifier.enabled:
+        background_tasks.add_task(
+            notifier.send_message,
+            chat_id=chat_id,
+            text="`--approve` 仅对 owner/partner 生效；本次仍按常规审批流执行。",
+        )
 
     if task_query.casefold().startswith("issue "):
         issue_reference, operator_note = _extract_issue_task_parts(task_query)
@@ -725,6 +737,7 @@ def _handle_task_command(
     dispatch = manager_service.create_dispatch(
         ManagerDispatchRequest(
             prompt=manager_prompt,
+            approval_granted=approval_granted,
             auto_dispatch=True,
             metadata={
                 "source": "telegram_manager_task",
@@ -738,6 +751,9 @@ def _handle_task_command(
                 "github_issue_reference": issue_reference,
                 "github_issue_url": issue_url,
                 "github_issue_title": issue.title if issue is not None else None,
+                "approval_requested": approval_requested,
+                "approval_granted": approval_granted,
+                "approval_source": "telegram_task_flag" if approval_granted else None,
             },
         )
     )
@@ -1848,13 +1864,29 @@ def _extract_approve_query(text: str) -> str:
 
 
 def _extract_task_query(text: str) -> str:
+    return _parse_task_command(text)[0]
+
+
+def _parse_task_command(text: str) -> tuple[str, bool]:
     normalized = text.strip()
     lowered = normalized.lower()
     if lowered == "/task":
-        return ""
+        return "", False
     if lowered.startswith("/task "):
-        return normalized.split(" ", 1)[1].strip()
-    return ""
+        payload = normalized.split(" ", 1)[1].strip()
+        approval_requested = False
+        if payload.startswith("--approve"):
+            approval_requested = True
+            payload = payload[len("--approve") :].strip()
+        return payload, approval_requested
+    return "", False
+
+
+def _can_telegram_task_self_approve(
+    *,
+    session_identity: TelegramSessionIdentityRead,
+) -> bool:
+    return session_identity.actor.role in {ActorRole.OWNER, ActorRole.PARTNER}
 
 
 def _extract_issue_task_parts(task_query: str) -> tuple[str, str]:
@@ -2074,6 +2106,7 @@ def _build_help_message(*, session_identity: TelegramSessionIdentityRead) -> str
         "[Telegram Commands]",
         "/status 查看当前会话、任务和能力摘要",
         "/task <需求> 走 Manager Agent DAG 执行任务",
+        "/task --approve <需求> owner/partner 直通 Draft PR 审批上下文",
         "/task issue <issue_ref> [补充说明] 读取 GitHub issue 后派发修复",
         "/approve 查看待审批列表",
         "/approve <approval_id> 查看待审批详情",
