@@ -609,6 +609,7 @@ class AgentExecutionRunner:
         last_state_progress_signature = self._runtime_heartbeat_signature(
             workspace_dir=workspace_dir,
             heartbeat_paths=(stdout_log, stderr_log),
+            include_log_heartbeats=True,
         )
         last_progress_at = started
         first_progress_ms: int | None = None
@@ -672,6 +673,7 @@ class AgentExecutionRunner:
                 current_state_progress_signature = self._runtime_heartbeat_signature(
                     workspace_dir=workspace_dir,
                     heartbeat_paths=(stdout_log, stderr_log),
+                    include_log_heartbeats=first_scoped_write_ms is None,
                 )
                 scoped_progress_changed = (
                     current_scoped_progress_signature != last_scoped_progress_signature
@@ -1027,13 +1029,15 @@ class AgentExecutionRunner:
         *,
         workspace_dir: Path,
         heartbeat_paths: tuple[Path, ...],
+        include_log_heartbeats: bool,
     ) -> tuple[tuple[str, int, int], ...]:
         items = list(self._state_heartbeat_signature(workspace_dir=workspace_dir))
-        for path in heartbeat_paths:
-            if not path.exists():
-                continue
-            stat = path.stat()
-            items.append((f"log:{path.name}", stat.st_size, 0))
+        if include_log_heartbeats:
+            for path in heartbeat_paths:
+                if not path.exists():
+                    continue
+                stat = path.stat()
+                items.append((f"log:{path.name}", stat.st_size, 0))
         return tuple(items)
 
     def _changed_python_signature(
