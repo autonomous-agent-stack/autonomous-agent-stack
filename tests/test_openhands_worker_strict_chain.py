@@ -635,6 +635,64 @@ result_path.write_text(json.dumps(payload), encoding="utf-8")
     assert summary.driver_result.metrics.first_scoped_write_ms is not None
 
 
+def test_runner_ignores_agent_is_working_spinner_noise(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    (repo_root / "src").mkdir(parents=True, exist_ok=True)
+    (repo_root / "src" / "__init__.py").write_text("", encoding="utf-8")
+    (repo_root / "src" / "chatty_worker.py").write_text("VALUE = 1\n", encoding="utf-8")
+    _write_adapter(
+        repo_root,
+        "drivers/agent_working_noise_probe.py",
+        """#!/usr/bin/env python3
+import time
+
+for _ in range(10):
+    print("Agent is working", flush=True)
+    time.sleep(0.5)
+""",
+    )
+    _write_manifest(repo_root, "drivers/agent_working_noise_probe.py")
+
+    runner = AgentExecutionRunner(
+        repo_root=repo_root,
+        runtime_root=tmp_path / "runtime",
+        manifests_dir=repo_root / "configs" / "agents",
+    )
+    monkeypatch.setattr(runner, "_stall_progress_timeout_sec", lambda timeout_sec: 2)
+
+    started = time.perf_counter()
+    summary = runner.run_job(
+        JobSpec(
+            run_id="run-agent-working-noise-probe",
+            agent_id="openhands",
+            task="Emit only spinner-like Agent is working noise forever.",
+            validators=[
+                ValidatorSpec(
+                    id="worker.test_command",
+                    kind="command",
+                    command=f"{sys.executable} -m py_compile src/chatty_worker.py",
+                )
+            ],
+            policy=ExecutionPolicy(
+                timeout_sec=60,
+                allowed_paths=["src/chatty_worker.py"],
+                cleanup_on_success=False,
+            ),
+        )
+    )
+    duration = time.perf_counter() - started
+
+    assert duration < 8
+    assert summary.final_status == "failed"
+    assert summary.driver_result.status == "stalled_no_progress"
+    assert summary.driver_result.metrics.first_state_heartbeat_ms is None
+    assert summary.driver_result.metrics.first_scoped_write_ms is None
+
+
 def test_runner_ignores_log_heartbeat_after_first_scoped_write(
     tmp_path: Path,
     monkeypatch,

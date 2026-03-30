@@ -10,6 +10,7 @@ import signal
 import subprocess
 import sys
 import time
+import zlib
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -33,6 +34,12 @@ _RUNTIME_DENY_PREFIXES = (
     ".masfactory_runtime/",
     "memory/",
     ".git/",
+)
+
+_ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+_BRAILLE_SPINNER_PREFIX_RE = re.compile(r"^[\s\u2800-\u28ff]+")
+_LOG_HEARTBEAT_NOISE_PATTERNS = (
+    re.compile(r"^agent is working$", re.IGNORECASE),
 )
 
 _AI_LAB_ENV_OVERRIDE_KEYS = (
@@ -1077,11 +1084,44 @@ class AgentExecutionRunner:
         items = list(self._state_heartbeat_signature(workspace_dir=workspace_dir))
         if include_log_heartbeats:
             for path in heartbeat_paths:
-                if not path.exists():
-                    continue
-                stat = path.stat()
-                items.append((f"log:{path.name}", stat.st_size, 0))
+                signature = self._log_heartbeat_signature(path)
+                if signature is not None:
+                    items.append((f"log:{path.name}", signature, 0))
         return tuple(items)
+
+    def _log_heartbeat_signature(self, path: Path) -> int | None:
+        if not path.exists():
+            return None
+
+        try:
+            content = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return None
+
+        meaningful_lines: list[str] = []
+        for raw_line in content.replace("\r", "\n").splitlines():
+            normalized = self._normalize_log_heartbeat_line(raw_line)
+            if normalized is None:
+                continue
+            if meaningful_lines and meaningful_lines[-1] == normalized:
+                continue
+            meaningful_lines.append(normalized)
+
+        if not meaningful_lines:
+            return None
+
+        payload = "\n".join(meaningful_lines[-8:]).encode("utf-8")
+        return zlib.crc32(payload)
+
+    def _normalize_log_heartbeat_line(self, raw_line: str) -> str | None:
+        line = _ANSI_ESCAPE_RE.sub("", raw_line)
+        line = _BRAILLE_SPINNER_PREFIX_RE.sub("", line).strip()
+        if not line:
+            return None
+        collapsed = re.sub(r"\s+", " ", line)
+        if any(pattern.match(collapsed) for pattern in _LOG_HEARTBEAT_NOISE_PATTERNS):
+            return None
+        return collapsed
 
     def _changed_python_signature(
         self,
