@@ -588,10 +588,11 @@ class ManagerAgentService:
     def _bucket_backend_paths(self, intent: ManagerIntentRead) -> list[str]:
         if intent.intent_id == "product_landing_page":
             surface_root = str(intent.metadata.get("surface_root") or "apps/brand-site")
+            surface_test_init = str(intent.metadata.get("surface_test_init") or "tests/apps/__init__.py")
             surface_test_path = str(
                 intent.metadata.get("surface_test_path") or "tests/apps/test_brand_site_landing_page.py"
             )
-            return [f"{surface_root}/**", surface_test_path]
+            return [f"{surface_root}/**", surface_test_init, surface_test_path]
         candidates = [
             path
             for path in intent.allowed_paths
@@ -606,8 +607,9 @@ class ManagerAgentService:
 
     def _bucket_test_paths(self, intent: ManagerIntentRead) -> list[str]:
         if intent.intent_id == "product_landing_page":
+            surface_test_init = str(intent.metadata.get("surface_test_init") or "tests/apps/__init__.py")
             surface_test_path = str(intent.metadata.get("surface_test_path") or "tests/apps/test_brand_site_landing_page.py")
-            return [surface_test_path]
+            return [surface_test_init, surface_test_path]
         candidates = [
             *intent.suggested_test_paths,
             *[path for path in intent.allowed_paths if path.startswith("tests/")],
@@ -627,15 +629,17 @@ class ManagerAgentService:
     def _build_product_surface_scope(self, prompt: str) -> dict[str, object]:
         surface_slug = self._extract_product_surface_slug(prompt)
         surface_root = f"apps/{surface_slug}"
+        surface_test_init = "tests/apps/__init__.py"
         surface_test_path = f"tests/apps/test_{surface_slug}_landing_page.py"
         surface_backend_entry = f"{surface_root}/lead_capture.py"
         surface_frontend_entry = f"{surface_root}/landing_page.html"
         return {
-            "allowed_paths": [f"{surface_root}/**", surface_test_path],
+            "allowed_paths": [f"{surface_root}/**", surface_test_init, surface_test_path],
             "suggested_tests": [surface_test_path],
             "metadata": {
                 "surface_slug": surface_slug,
                 "surface_root": surface_root,
+                "surface_test_init": surface_test_init,
                 "surface_test_path": surface_test_path,
                 "surface_backend_entry": surface_backend_entry,
                 "surface_frontend_entry": surface_frontend_entry,

@@ -2,8 +2,15 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import sys
 
-from autoresearch.agent_protocol.models import DriverResult, ExecutionPolicy, JobSpec
+from autoresearch.agent_protocol.models import (
+    DriverResult,
+    ExecutionPolicy,
+    FallbackStep,
+    JobSpec,
+    ValidatorSpec,
+)
 from autoresearch.agent_protocol.policy import build_effective_policy
 from autoresearch.executions.runner import AgentExecutionRunner
 
@@ -191,6 +198,95 @@ exit 1
     )
 
 
+def test_openhands_ai_lab_env_strips_ambient_path_overrides(tmp_path: Path, monkeypatch) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    (repo_root / "ai_lab.env").write_text(
+        "WORKSPACE_DIR=/Volumes/AI_LAB/ai_lab/workspace\n"
+        "LOG_DIR=/Volumes/AI_LAB/ai_lab/logs\n",
+        encoding="utf-8",
+    )
+
+    runner = AgentExecutionRunner(
+        repo_root=repo_root,
+        runtime_root=tmp_path / "runtime",
+        manifests_dir=repo_root / "configs" / "agents",
+    )
+    monkeypatch.setenv("OPENHANDS_RUNTIME", "ai-lab")
+    monkeypatch.setenv("ENV_FILE", "/tmp/foreign.env")
+    monkeypatch.setenv("OPENHANDS_ENV_FILE", "/tmp/foreign-openhands.env")
+    monkeypatch.setenv("WORKSPACE_DIR", "/Users/ai_lab/workspace")
+    monkeypatch.setenv("LOG_DIR", "/Users/ai_lab/logs")
+    monkeypatch.setenv("OPENHANDS_HOME_DIR", "/Users/ai_lab/logs/openhands-home")
+
+    env = runner._build_openhands_ai_lab_env()
+
+    assert env["ENV_FILE"] == str(repo_root / "ai_lab.env")
+    assert env["OPENHANDS_ENV_FILE"] == str(repo_root / "ai_lab.env")
+    assert "WORKSPACE_DIR" not in env
+    assert "LOG_DIR" not in env
+    assert "OPENHANDS_HOME_DIR" not in env
+
+
+def test_openhands_environment_preflight_uses_repo_managed_ai_lab_env(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    (repo_root / "ai_lab.env").write_text(
+        "WORKSPACE_DIR=/Volumes/AI_LAB/ai_lab/workspace\n"
+        "LOG_DIR=/Volumes/AI_LAB/ai_lab/logs\n",
+        encoding="utf-8",
+    )
+    snapshot_path = repo_root / "preflight-env.txt"
+    preflight = repo_root / "scripts" / "fake_preflight.sh"
+    preflight.parent.mkdir(parents=True, exist_ok=True)
+    preflight.write_text(
+        f"""#!/usr/bin/env bash
+set -euo pipefail
+cat > "{snapshot_path}" <<EOF
+ENV_FILE=${{ENV_FILE:-}}
+OPENHANDS_ENV_FILE=${{OPENHANDS_ENV_FILE:-}}
+WORKSPACE_DIR=${{WORKSPACE_DIR:-}}
+LOG_DIR=${{LOG_DIR:-}}
+OPENHANDS_HOME_DIR=${{OPENHANDS_HOME_DIR:-}}
+EOF
+exit 1
+""",
+        encoding="utf-8",
+    )
+    preflight.chmod(0o755)
+
+    runner = AgentExecutionRunner(
+        repo_root=repo_root,
+        runtime_root=tmp_path / "runtime",
+        manifests_dir=repo_root / "configs" / "agents",
+    )
+    monkeypatch.setenv("OPENHANDS_RUNTIME", "ai-lab")
+    monkeypatch.setenv("OPENHANDS_PREFLIGHT_CMD", f"bash {preflight}")
+    monkeypatch.setenv("ENV_FILE", "/tmp/foreign.env")
+    monkeypatch.setenv("OPENHANDS_ENV_FILE", "/tmp/foreign-openhands.env")
+    monkeypatch.setenv("WORKSPACE_DIR", "/Users/ai_lab/workspace")
+    monkeypatch.setenv("LOG_DIR", "/Users/ai_lab/logs")
+    monkeypatch.setenv("OPENHANDS_HOME_DIR", "/Users/ai_lab/logs/openhands-home")
+
+    error = runner._preflight_agent_environment(
+        agent_id="openhands",
+        manifest_entrypoint="drivers/openhands_adapter.sh",
+    )
+
+    assert error is not None
+    assert error.startswith("EnvironmentCheckFailed:")
+    assert snapshot_path.read_text(encoding="utf-8").splitlines() == [
+        f"ENV_FILE={repo_root / 'ai_lab.env'}",
+        f"OPENHANDS_ENV_FILE={repo_root / 'ai_lab.env'}",
+        "WORKSPACE_DIR=",
+        "LOG_DIR=",
+        "OPENHANDS_HOME_DIR=",
+    ]
+
+
 def test_runner_ignores_benign_pytest_artifacts_and_app_readme(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
@@ -262,3 +358,87 @@ def test_runner_ignores_benign_pytest_artifacts_and_app_readme(tmp_path: Path) -
     assert "apps/malu/README.md" not in patch_text
     assert ".pytest_cache" not in patch_text
     assert "__pycache__" not in patch_text
+
+
+def test_retry_attempt_receives_raw_validator_feedback(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    (repo_root / "src").mkdir(parents=True)
+    (repo_root / "src" / "retry_target.py").write_text("VALUE = 'seed'\\n", encoding="utf-8")
+
+    adapter = repo_root / "drivers" / "retry_feedback_adapter.py"
+    adapter.parent.mkdir(parents=True, exist_ok=True)
+    adapter.write_text(
+        """#!/usr/bin/env python3
+import json
+import os
+from pathlib import Path
+
+workspace = Path(os.environ["AEP_WORKSPACE"])
+result_path = Path(os.environ["AEP_RESULT_PATH"])
+job = json.loads(Path(os.environ["AEP_JOB_SPEC"]).read_text(encoding="utf-8"))
+attempt = int(os.environ["AEP_ATTEMPT"])
+target = workspace / "src" / "retry_target.py"
+
+if attempt == 1:
+    target.write_text("raise TypeError('Invalid args for response field!')\\n", encoding="utf-8")
+else:
+    task = job["task"]
+    if "Invalid args for response field!" not in task:
+        raise SystemExit("retry feedback missing raw validator detail")
+    target.write_text("VALUE = 'fixed'\\n", encoding="utf-8")
+
+payload = {
+    "protocol_version": "aep/v0",
+    "run_id": "run-retry-feedback",
+    "agent_id": "openhands",
+    "attempt": attempt,
+    "status": "succeeded",
+    "summary": f"attempt {attempt} completed",
+    "changed_paths": ["src/retry_target.py"],
+    "output_artifacts": [],
+    "metrics": {"duration_ms": 0, "steps": 0, "commands": 0, "prompt_tokens": None, "completion_tokens": None},
+    "recommended_action": "promote",
+    "error": None,
+}
+result_path.write_text(json.dumps(payload), encoding="utf-8")
+""",
+        encoding="utf-8",
+    )
+    adapter.chmod(0o755)
+    _write_manifest(repo_root, "openhands", "drivers/retry_feedback_adapter.py")
+
+    runner = AgentExecutionRunner(
+        repo_root=repo_root,
+        runtime_root=tmp_path / "runtime",
+        manifests_dir=repo_root / "configs" / "agents",
+    )
+
+    summary = runner.run_job(
+        JobSpec(
+            run_id="run-retry-feedback",
+            agent_id="openhands",
+            task="Fix src/retry_target.py.",
+            validators=[
+                ValidatorSpec(
+                    id="worker.test_command",
+                    kind="command",
+                    command=f"{sys.executable} src/retry_target.py",
+                )
+            ],
+            fallback=[FallbackStep(action="retry", max_attempts=1)],
+            policy=ExecutionPolicy(
+                allowed_paths=["src/retry_target.py"],
+                cleanup_on_success=False,
+            ),
+            metadata={"pipeline_target": "patch"},
+        )
+    )
+
+    job_payload = json.loads(
+        (tmp_path / "runtime" / "run-retry-feedback" / "job.json").read_text(encoding="utf-8")
+    )
+
+    assert summary.final_status == "ready_for_promotion"
+    assert summary.driver_result.attempt == 2
+    assert "Invalid args for response field!" in job_payload["task"]

@@ -471,9 +471,7 @@ time.sleep(30)
     assert summary.driver_result.status == "stalled_no_progress"
     assert summary.driver_result.summary == "adapter stalled after 2s without workspace progress"
     assert summary.driver_result.error == "no workspace progress for 2s"
-    assert summary.driver_result.metrics.first_progress_ms is None
     assert summary.driver_result.metrics.first_scoped_write_ms is None
-    assert summary.driver_result.metrics.first_state_heartbeat_ms is None
 
 
 def test_runner_records_first_progress_metrics_for_state_and_scoped_write(tmp_path: Path) -> None:
@@ -556,3 +554,82 @@ result_path.write_text(json.dumps(payload), encoding="utf-8")
         summary.driver_result.metrics.first_state_heartbeat_ms
         <= summary.driver_result.metrics.first_scoped_write_ms
     )
+
+
+def test_runner_treats_adapter_stdout_as_runtime_heartbeat(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    (repo_root / "src").mkdir(parents=True, exist_ok=True)
+    (repo_root / "src" / "__init__.py").write_text("", encoding="utf-8")
+    (repo_root / "src" / "chatty_worker.py").write_text("VALUE = 1\n", encoding="utf-8")
+    _write_adapter(
+        repo_root,
+        "drivers/output_heartbeat_probe.py",
+        """#!/usr/bin/env python3
+import json
+import os
+import sys
+import time
+from pathlib import Path
+
+workspace = Path(os.environ["AEP_WORKSPACE"])
+result_path = Path(os.environ["AEP_RESULT_PATH"])
+target = workspace / "src" / "chatty_worker.py"
+
+for step in range(4):
+    print(f"heartbeat {step}", flush=True)
+    time.sleep(1)
+
+target.write_text("VALUE = 2\\n", encoding="utf-8")
+time.sleep(2.5)
+payload = {
+    "protocol_version": "aep/v0",
+    "run_id": "run-output-heartbeat-probe",
+    "agent_id": "openhands",
+    "attempt": 1,
+    "status": "succeeded",
+    "summary": "stdout heartbeat kept adapter alive",
+    "changed_paths": ["src/chatty_worker.py"],
+    "output_artifacts": [],
+    "metrics": {"duration_ms": 0, "steps": 1, "commands": 1, "prompt_tokens": None, "completion_tokens": None},
+    "recommended_action": "promote",
+    "error": None,
+}
+result_path.write_text(json.dumps(payload), encoding="utf-8")
+""",
+    )
+    _write_manifest(repo_root, "drivers/output_heartbeat_probe.py")
+
+    runner = AgentExecutionRunner(
+        repo_root=repo_root,
+        runtime_root=tmp_path / "runtime",
+        manifests_dir=repo_root / "configs" / "agents",
+    )
+    monkeypatch.setattr(runner, "_stall_progress_timeout_sec", lambda timeout_sec: 2)
+
+    summary = runner.run_job(
+        JobSpec(
+            run_id="run-output-heartbeat-probe",
+            agent_id="openhands",
+            task="Emit stdout heartbeats before touching the workspace.",
+            validators=[
+                ValidatorSpec(
+                    id="worker.test_command",
+                    kind="command",
+                    command=f"{sys.executable} -m py_compile src/chatty_worker.py",
+                )
+            ],
+            policy=ExecutionPolicy(
+                timeout_sec=60,
+                allowed_paths=["src/chatty_worker.py"],
+                cleanup_on_success=False,
+            ),
+        )
+    )
+
+    assert summary.driver_result.status == "succeeded"
+    assert summary.driver_result.metrics.first_state_heartbeat_ms is not None
+    assert summary.driver_result.metrics.first_scoped_write_ms is not None

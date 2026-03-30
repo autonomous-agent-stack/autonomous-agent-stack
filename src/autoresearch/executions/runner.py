@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -32,6 +33,27 @@ _RUNTIME_DENY_PREFIXES = (
     ".masfactory_runtime/",
     "memory/",
     ".git/",
+)
+
+_AI_LAB_ENV_OVERRIDE_KEYS = (
+    "ENV_FILE",
+    "OPENHANDS_ENV_FILE",
+    "COMPOSE_DIR",
+    "COMPOSE_FILE",
+    "WORKSPACE_DIR",
+    "LOG_DIR",
+    "CACHE_DIR",
+    "LAB_USER",
+    "AUTO_OPEN_DOCKER",
+    "AUTO_START_COLIMA",
+    "AI_LAB_IMAGE_TAG",
+    "AI_LAB_FORCE_DOCKER_RUN",
+    "AI_LAB_HOST_MOUNT_ROOT",
+    "OPENHANDS_HOME_DIR",
+    "DOCKER_HOST_SOCKET_PATH",
+    "DOCKER_HOST_IN_CONTAINER",
+    "DOCKER_HOST_MOUNT_DIR",
+    "AI_LAB_COLIMA_HELPER",
 )
 
 
@@ -66,6 +88,21 @@ class AgentExecutionRunner:
             self._repo_root,
             writer_lease=WriterLeaseService(),
         )
+
+    def _uses_openhands_ai_lab_runtime(self, manifest_entrypoint: str) -> bool:
+        if Path(manifest_entrypoint).name != "openhands_adapter.sh":
+            return False
+        runtime = str(os.environ.get("OPENHANDS_RUNTIME") or "ai-lab").strip().lower()
+        return runtime == "ai-lab"
+
+    def _build_openhands_ai_lab_env(self) -> dict[str, str]:
+        env = dict(os.environ)
+        for key in _AI_LAB_ENV_OVERRIDE_KEYS:
+            env.pop(key, None)
+        env_file = str(self._repo_root / "ai_lab.env")
+        env["ENV_FILE"] = env_file
+        env["OPENHANDS_ENV_FILE"] = env_file
+        return env
 
     def run_job(self, job: JobSpec) -> RunSummary:
         manifest = self._registry.load(job.agent_id)
@@ -190,6 +227,18 @@ class AgentExecutionRunner:
                     },
                 )
                 continue
+
+            attempt_job = self._job_for_attempt(
+                job=job,
+                agent_id=current_agent,
+                attempt=attempt,
+                last_result=last_result,
+                last_validation=last_validation,
+            )
+            job_path.write_text(
+                json.dumps(attempt_job.model_dump(mode="json"), ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
 
             self._snapshot_baseline_to_workspace(baseline_dir, workspace_dir)
             self._prepare_shadow_workspace(workspace_dir, effective_policy)
@@ -526,7 +575,10 @@ class AgentExecutionRunner:
                 message=f"adapter entrypoint not found: {entrypoint}",
             )
 
-        env = dict(os.environ)
+        if self._uses_openhands_ai_lab_runtime(manifest_entrypoint):
+            env = self._build_openhands_ai_lab_env()
+        else:
+            env = dict(os.environ)
         env.update(
             {
                 "AEP_RUN_DIR": str(run_dir),
@@ -554,7 +606,10 @@ class AgentExecutionRunner:
             workspace_dir=workspace_dir,
             allowed_paths=policy.merged.allowed_paths,
         )
-        last_state_progress_signature = self._state_heartbeat_signature(workspace_dir=workspace_dir)
+        last_state_progress_signature = self._runtime_heartbeat_signature(
+            workspace_dir=workspace_dir,
+            heartbeat_paths=(stdout_log, stderr_log),
+        )
         last_progress_at = started
         first_progress_ms: int | None = None
         first_scoped_write_ms: int | None = None
@@ -575,6 +630,7 @@ class AgentExecutionRunner:
                 stdout=stdout_handle,
                 stderr=stderr_handle,
                 text=True,
+                start_new_session=True,
             )
 
             while True:
@@ -591,12 +647,7 @@ class AgentExecutionRunner:
                     break
 
                 if duration_ms >= timeout_sec * 1000:
-                    process.terminate()
-                    try:
-                        process.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        process.kill()
-                        process.wait(timeout=5)
+                    self._terminate_process(process)
                     return DriverResult(
                         run_id=run_id,
                         agent_id=agent_id,
@@ -618,8 +669,9 @@ class AgentExecutionRunner:
                     workspace_dir=workspace_dir,
                     allowed_paths=policy.merged.allowed_paths,
                 )
-                current_state_progress_signature = self._state_heartbeat_signature(
-                    workspace_dir=workspace_dir
+                current_state_progress_signature = self._runtime_heartbeat_signature(
+                    workspace_dir=workspace_dir,
+                    heartbeat_paths=(stdout_log, stderr_log),
                 )
                 scoped_progress_changed = (
                     current_scoped_progress_signature != last_scoped_progress_signature
@@ -655,12 +707,7 @@ class AgentExecutionRunner:
                     last_state_progress_signature = current_state_progress_signature
                     last_progress_at = now
                 elif (now - last_progress_at) >= stall_timeout_sec:
-                    process.terminate()
-                    try:
-                        process.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        process.kill()
-                        process.wait(timeout=5)
+                    self._terminate_process(process)
                     stall_error = f"no workspace progress for {stall_timeout_sec}s"
                     return DriverResult(
                         run_id=run_id,
@@ -703,12 +750,7 @@ class AgentExecutionRunner:
                     )
                     last_probed_signature = current_signature
                     if probe_failure is not None:
-                        process.terminate()
-                        try:
-                            process.wait(timeout=5)
-                        except subprocess.TimeoutExpired:
-                            process.kill()
-                            process.wait(timeout=5)
+                        self._terminate_process(process)
                         return DriverResult(
                             run_id=run_id,
                             agent_id=agent_id,
@@ -980,6 +1022,20 @@ class AgentExecutionRunner:
                 )
         return tuple(items)
 
+    def _runtime_heartbeat_signature(
+        self,
+        *,
+        workspace_dir: Path,
+        heartbeat_paths: tuple[Path, ...],
+    ) -> tuple[tuple[str, int, int], ...]:
+        items = list(self._state_heartbeat_signature(workspace_dir=workspace_dir))
+        for path in heartbeat_paths:
+            if not path.exists():
+                continue
+            stat = path.stat()
+            items.append((f"log:{path.name}", stat.st_size, 0))
+        return tuple(items)
+
     def _changed_python_signature(
         self,
         *,
@@ -1082,15 +1138,16 @@ class AgentExecutionRunner:
         if str(os.environ.get("OPENHANDS_DRY_RUN") or "0").strip() == "1":
             return None
 
-        runtime = str(os.environ.get("OPENHANDS_RUNTIME") or "ai-lab").strip().lower()
-        if runtime != "ai-lab":
+        if not self._uses_openhands_ai_lab_runtime(manifest_entrypoint):
             return None
+        preflight_env = self._build_openhands_ai_lab_env()
 
         override_command = str(os.environ.get("OPENHANDS_PREFLIGHT_CMD") or "").strip()
         if override_command:
             completed = subprocess.run(
                 override_command,
                 cwd=self._repo_root,
+                env=preflight_env,
                 shell=True,
                 capture_output=True,
                 text=True,
@@ -1103,6 +1160,7 @@ class AgentExecutionRunner:
             completed = subprocess.run(
                 ["bash", str(script), "status"],
                 cwd=self._repo_root,
+                env=preflight_env,
                 capture_output=True,
                 text=True,
                 check=False,
@@ -1116,6 +1174,68 @@ class AgentExecutionRunner:
             detail = f"preflight exited with code {completed.returncode}"
         collapsed = re.sub(r"\s+", " ", detail)[:400]
         return f"EnvironmentCheckFailed: {collapsed}"
+
+    def _job_for_attempt(
+        self,
+        *,
+        job: JobSpec,
+        agent_id: str,
+        attempt: int,
+        last_result: DriverResult,
+        last_validation: ValidationReport,
+    ) -> JobSpec:
+        if attempt <= 1 or agent_id != job.agent_id:
+            return job
+
+        feedback = self._build_retry_feedback(last_result=last_result, last_validation=last_validation)
+        if feedback is None:
+            return job
+
+        metadata = dict(job.metadata)
+        metadata["retry_feedback"] = feedback
+        metadata["retry_attempt"] = attempt
+        metadata["retry_source_status"] = last_result.status
+        return job.model_copy(
+            update={
+                "task": (
+                    f"{job.task.rstrip()}\n\n"
+                    "Retry feedback from the previous attempt. Fix these exact failures before making any new changes:\n"
+                    f"{feedback}\n"
+                ),
+                "metadata": metadata,
+            }
+        )
+
+    @staticmethod
+    def _build_retry_feedback(
+        *,
+        last_result: DriverResult,
+        last_validation: ValidationReport,
+    ) -> str | None:
+        if last_validation.passed:
+            return None
+
+        failed_checks = [check for check in last_validation.checks if not check.passed and check.detail.strip()]
+        error_text = str(last_result.error or "").strip()
+        if not failed_checks and not error_text:
+            return None
+
+        parts = [
+            f"Previous driver status: {last_result.status}",
+            f"Previous driver summary: {last_result.summary}",
+        ]
+        if last_result.changed_paths:
+            parts.append("Previous changed paths:")
+            parts.extend(f"- {path}" for path in last_result.changed_paths)
+        if failed_checks:
+            parts.append("Raw validator failures:")
+            for check in failed_checks:
+                parts.append(f"[{check.id}]")
+                parts.append(check.detail.strip())
+        if error_text:
+            parts.append("Driver error:")
+            parts.append(error_text)
+        return "\n".join(parts)
 
     @staticmethod
     def _retry_skip_reason(result: DriverResult) -> str | None:
@@ -1345,6 +1465,34 @@ class AgentExecutionRunner:
         events_path.parent.mkdir(parents=True, exist_ok=True)
         with events_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+
+    @staticmethod
+    def _terminate_process(process: subprocess.Popen[str]) -> None:
+        if process.poll() is not None:
+            return
+
+        def _send(sig: signal.Signals) -> None:
+            if hasattr(os, "killpg"):
+                os.killpg(process.pid, sig)
+            else:
+                if sig == signal.SIGTERM:
+                    process.terminate()
+                else:
+                    process.kill()
+
+        try:
+            _send(signal.SIGTERM)
+        except (OSError, ProcessLookupError):
+            return
+
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            try:
+                _send(signal.SIGKILL)
+            except (OSError, ProcessLookupError):
+                return
+            process.wait(timeout=5)
 
     @staticmethod
     def _rmtree_force(path: Path) -> None:

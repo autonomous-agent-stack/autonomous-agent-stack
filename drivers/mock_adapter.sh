@@ -71,11 +71,14 @@ def infer_validator_target() -> Optional[Path]:
 
 
 def infer_primary_source_target() -> Optional[Path]:
-    exact_paths = [
-        item
-        for item in allowed_paths
-        if not any(char in item for char in "*?[") and "/tests/" not in f"/{item.replace('\\', '/')}/"
-    ]
+    exact_paths: list[str] = []
+    for item in allowed_paths:
+        if any(char in item for char in "*?["):
+            continue
+        normalized_item = item.replace("\\", "/")
+        if "/tests/" in f"/{normalized_item}/":
+            continue
+        exact_paths.append(item)
     for candidate in exact_paths:
         path = Path(candidate)
         if path.name.startswith("test_") and "tests" in path.parts:
