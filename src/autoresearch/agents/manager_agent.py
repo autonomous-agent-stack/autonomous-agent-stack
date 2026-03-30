@@ -300,6 +300,7 @@ class ManagerAgentService:
                 **request.metadata,
                 "pipeline_target": request.pipeline_target,
                 "target_base_branch": request.target_base_branch,
+                "approval_granted": request.approval_granted,
                 "plan_strategy": execution_plan.strategy.value,
             },
             error=None,

@@ -14,6 +14,7 @@ from autoresearch.api.dependencies import (
     get_capability_provider_registry,
     get_claude_agent_service,
     get_github_issue_service,
+    get_git_promotion_service,
     get_manager_agent_service,
     get_openclaw_memory_service,
     get_openclaw_compat_service,
@@ -30,6 +31,7 @@ from autoresearch.core.services.admin_config import AdminConfigService
 from autoresearch.core.services.approval_store import ApprovalStoreService
 from autoresearch.core.services.claude_agents import ClaudeAgentService
 from autoresearch.core.services.github_issue_service import GitHubIssueCommentRead, GitHubIssueRead, GitHubIssueReference
+from autoresearch.core.services.git_promotion_gate import GitPromotionRead
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.openclaw_memory import OpenClawMemoryService
 from autoresearch.core.services.panel_access import PanelAccessService
@@ -41,6 +43,7 @@ from autoresearch.shared.models import (
     ClaudeAgentRunRead,
     ApprovalRequestRead,
     ApprovalRequestCreateRequest,
+    JobStatus,
     OpenClawMemoryRecordRead,
     OpenClawSessionRead,
     PromotionDiffStats,
@@ -163,7 +166,32 @@ class _StubGitHubIssueService:
         return f"commented on {raw_reference}"
 
 
-def _build_manager_service(db_path: Path) -> ManagerAgentService:
+class _StubPromotionService:
+    def __init__(self) -> None:
+        self.requests: list[object] = []
+
+    def promote(self, request) -> GitPromotionRead:
+        self.requests.append(request)
+        return GitPromotionRead(
+            promotion_id=f"gpr_{request.run_id[-6:]}",
+            run_id=request.run_id,
+            status=JobStatus.COMPLETED,
+            base_ref=request.base_ref,
+            branch_name=f"codex/test/{request.run_id[-6:]}",
+            commit_sha="abc123def456",
+            patch_path=f"/tmp/{request.run_id}.patch",
+            worktree_path=f"/tmp/{request.run_id}",
+            draft_pr_command="gh pr create --draft",
+            pr_url=f"https://github.com/owner/repo/pull/{request.run_id[-3:]}",
+            validator_commands=[],
+            created_at=utc_now(),
+            updated_at=utc_now(),
+            metadata=dict(request.metadata),
+            error=None,
+        )
+
+
+def _build_manager_service(db_path: Path, *, include_draft_pr: bool = True) -> ManagerAgentService:
     repository = SQLiteModelRepository(
         db_path=db_path,
         table_name="manager_agent_dispatches_gateway_it",
@@ -171,7 +199,7 @@ def _build_manager_service(db_path: Path) -> ManagerAgentService:
     )
 
     def _dispatch_runner(job_spec) -> RunSummary:
-        return RunSummary(
+        summary = RunSummary(
             run_id=job_spec.run_id,
             final_status="ready_for_promotion",
             driver_result=DriverResult(
@@ -185,7 +213,10 @@ def _build_manager_service(db_path: Path) -> ManagerAgentService:
             validation=ValidationReport(run_id=job_spec.run_id, passed=True),
             promotion_patch_uri="artifacts/promotion.patch",
             promotion=None,
-        ).model_copy(
+        )
+        if not include_draft_pr:
+            return summary
+        return summary.model_copy(
             update={
                 "promotion": PromotionResult(
                     run_id=job_spec.run_id,
@@ -260,15 +291,18 @@ def telegram_client(tmp_path: Path) -> TestClient:
             model_cls=ApprovalRequestRead,
         )
     )
+    promotion_service = _StubPromotionService()
 
     app.dependency_overrides[get_openclaw_compat_service] = lambda: openclaw_service
     app.dependency_overrides[get_openclaw_memory_service] = lambda: memory_service
     app.dependency_overrides[get_approval_store_service] = lambda: approval_service
+    app.dependency_overrides[get_git_promotion_service] = lambda: promotion_service
     app.dependency_overrides[get_claude_agent_service] = lambda: claude_service
     app.dependency_overrides[get_admin_config_service] = lambda: admin_config_service
 
     with TestClient(app) as client:
         setattr(client, "_approval_store", approval_service)
+        setattr(client, "_promotion_service", promotion_service)
         yield client
 
     app.dependency_overrides.clear()
@@ -797,12 +831,106 @@ def test_telegram_help_command_returns_available_commands(
         assert "[Telegram Commands]" in help_text
         assert "/status" in help_text
         assert "/task <需求>" in help_text
+        assert "/task patch <需求>" in help_text
         assert "/approve <approval_id> approve" in help_text
         assert "/memory <内容>" in help_text
         assert "/mode shared" in help_text
         assert "/help" in help_text
     finally:
         app.dependency_overrides.pop(get_telegram_notifier_service, None)
+
+
+def test_telegram_task_generic_prompt_queues_promotion_approval(
+    telegram_client: TestClient,
+    tmp_path: Path,
+) -> None:
+    notifier = _StubTelegramNotifier()
+    manager_service = _build_manager_service(
+        tmp_path / "manager-generic-approval.sqlite3",
+        include_draft_pr=False,
+    )
+    approval_service = getattr(telegram_client, "_approval_store")
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+    app.dependency_overrides[get_manager_agent_service] = lambda: manager_service
+
+    try:
+        response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 3160,
+                "message": {
+                    "message_id": 153,
+                    "text": "/task 给我做一个玛露 6g 遮瑕膏落地页，准备好后走 Draft PR。",
+                    "chat": {"id": 9539, "type": "private"},
+                    "from": {"id": 9539, "username": "task-user"},
+                },
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["accepted"] is True
+        assert payload["metadata"]["pipeline_target"] == "draft_pr"
+        assert payload["metadata"]["task_lane"] == "approval_aware"
+
+        dispatch = manager_service.get_dispatch(payload["metadata"]["dispatch_id"])
+        assert dispatch is not None
+        assert dispatch.status.value == "completed"
+        assert dispatch.run_summary is not None
+        assert dispatch.run_summary.final_status == "ready_for_promotion"
+
+        approvals = approval_service.list_requests(telegram_uid="9539", limit=10)
+        assert len(approvals) == 1
+        approval = approvals[0]
+        assert approval.metadata["action_type"] == "manager_dispatch_promote"
+        assert approval.metadata["dispatch_id"] == dispatch.dispatch_id
+        assert approval.metadata["run_id"] == dispatch.run_summary.run_id
+
+        assert any("phase: awaiting_approval" in item["text"] for item in notifier.messages)
+        assert any("[Task Promotion Pending]" in item["text"] for item in notifier.messages)
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+        app.dependency_overrides.pop(get_manager_agent_service, None)
+
+
+def test_telegram_task_patch_prefix_stays_patch_only(
+    telegram_client: TestClient,
+    tmp_path: Path,
+) -> None:
+    notifier = _StubTelegramNotifier()
+    manager_service = _build_manager_service(
+        tmp_path / "manager-generic-patch.sqlite3",
+        include_draft_pr=False,
+    )
+    approval_service = getattr(telegram_client, "_approval_store")
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+    app.dependency_overrides[get_manager_agent_service] = lambda: manager_service
+
+    try:
+        response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 31605,
+                "message": {
+                    "message_id": 1535,
+                    "text": "/task patch 给我做一个浅色 landing page patch 就行",
+                    "chat": {"id": 9542, "type": "private"},
+                    "from": {"id": 9542, "username": "patch-user"},
+                },
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["accepted"] is True
+        assert payload["metadata"]["pipeline_target"] == "patch"
+        assert payload["metadata"]["task_lane"] == "patch_only"
+
+        approvals = approval_service.list_requests(telegram_uid="9542", limit=10)
+        assert approvals == []
+        assert any("phase: patch_only_execution" in item["text"] for item in notifier.messages)
+        assert not any("[Task Promotion Pending]" in item["text"] for item in notifier.messages)
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+        app.dependency_overrides.pop(get_manager_agent_service, None)
 
 
 def test_telegram_task_issue_dispatches_manager_and_queues_issue_reply_approval(
@@ -860,6 +988,67 @@ def test_telegram_task_issue_dispatches_manager_and_queues_issue_reply_approval(
     finally:
         app.dependency_overrides.pop(get_telegram_notifier_service, None)
         app.dependency_overrides.pop(get_github_issue_service, None)
+        app.dependency_overrides.pop(get_manager_agent_service, None)
+
+
+def test_telegram_approve_command_executes_manager_dispatch_promotion(
+    telegram_client: TestClient,
+    tmp_path: Path,
+) -> None:
+    notifier = _StubTelegramNotifier()
+    manager_service = _build_manager_service(
+        tmp_path / "manager-promote.sqlite3",
+        include_draft_pr=False,
+    )
+    approval_service = getattr(telegram_client, "_approval_store")
+    promotion_service = getattr(telegram_client, "_promotion_service")
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+    app.dependency_overrides[get_manager_agent_service] = lambda: manager_service
+
+    try:
+        task_response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 31615,
+                "message": {
+                    "message_id": 1536,
+                    "text": "/task 给我做一个玛露 6g 遮瑕膏落地页，准备好后走 Draft PR。",
+                    "chat": {"id": 9541, "type": "private"},
+                    "from": {"id": 9541, "username": "promote-user"},
+                },
+            },
+        )
+        assert task_response.status_code == 200
+        approvals = approval_service.list_requests(telegram_uid="9541", limit=10)
+        assert len(approvals) == 1
+        approval = approvals[0]
+
+        approve_response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 31616,
+                "message": {
+                    "message_id": 1537,
+                    "text": f"/approve {approval.approval_id} approve ship it",
+                    "chat": {"id": 9541, "type": "private"},
+                    "from": {"id": 9541, "username": "promote-user"},
+                },
+            },
+        )
+        assert approve_response.status_code == 200
+        assert approve_response.json()["accepted"] is True
+
+        resolved = approval_service.get_request(approval.approval_id)
+        assert resolved is not None
+        assert resolved.status.value == "approved"
+        assert resolved.metadata["promotion_pr_url"].startswith("https://github.com/owner/repo/pull/")
+        assert len(promotion_service.requests) == 1
+        assert promotion_service.requests[0].run_id == approval.metadata["run_id"]
+
+        assert any("[Task Promotion Executed]" in item["text"] for item in notifier.messages)
+        assert any("draft_pr:" in item["text"] for item in notifier.messages)
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
         app.dependency_overrides.pop(get_manager_agent_service, None)
 
 

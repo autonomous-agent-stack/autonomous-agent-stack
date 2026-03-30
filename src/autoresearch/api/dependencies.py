@@ -33,6 +33,7 @@ from autoresearch.core.services.claude_agents import ClaudeAgentService
 from autoresearch.core.services.evaluations import EvaluationService
 from autoresearch.core.services.executions import ExecutionService
 from autoresearch.core.services.github_issue_service import GitHubIssueService
+from autoresearch.core.services.git_promotion_gate import GitPromotionService
 from autoresearch.core.services.mirofish_prediction import MiroFishPredictionService
 from autoresearch.core.services.managed_skill_registry import ManagedSkillRegistryService
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
@@ -273,6 +274,11 @@ def get_approval_store_service() -> ApprovalStoreService:
             model_cls=ApprovalRequestRead,
         )
     )
+
+
+@lru_cache(maxsize=1)
+def get_git_promotion_service() -> GitPromotionService:
+    return GitPromotionService(repo_root=_repo_root())
 
 
 @lru_cache(maxsize=1)

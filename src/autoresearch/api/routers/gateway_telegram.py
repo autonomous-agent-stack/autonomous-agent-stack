@@ -14,6 +14,7 @@ from autoresearch.api.dependencies import (
     get_capability_provider_registry,
     get_claude_agent_service,
     get_github_issue_service,
+    get_git_promotion_service,
     get_manager_agent_service,
     get_openclaw_compat_service,
     get_openclaw_memory_service,
@@ -26,6 +27,7 @@ from autoresearch.core.services.admin_config import AdminConfigService
 from autoresearch.core.services.approval_store import ApprovalStoreService
 from autoresearch.core.services.claude_agents import ClaudeAgentService
 from autoresearch.core.services.github_issue_service import GitHubIssueRead, GitHubIssueService
+from autoresearch.core.services.git_promotion_gate import GitPromotionCreateRequest, GitPromotionService
 from autoresearch.core.services.group_access import GroupAccessManager
 from autoresearch.agents.manager_agent import ManagerAgentService
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
@@ -89,6 +91,7 @@ def telegram_webhook(
     agent_service: ClaudeAgentService = Depends(get_claude_agent_service),
     manager_service: ManagerAgentService = Depends(get_manager_agent_service),
     github_issue_service: GitHubIssueService = Depends(get_github_issue_service),
+    promotion_service: GitPromotionService = Depends(get_git_promotion_service),
     capability_registry: CapabilityProviderRegistry = Depends(get_capability_provider_registry),
     panel_access_service: PanelAccessService = Depends(get_panel_access_service),
     notifier: TelegramNotifierService = Depends(get_telegram_notifier_service),
@@ -104,6 +107,7 @@ def telegram_webhook(
         agent_service=agent_service,
         manager_service=manager_service,
         github_issue_service=github_issue_service,
+        promotion_service=promotion_service,
         capability_registry=capability_registry,
         panel_access_service=panel_access_service,
         notifier=notifier,
@@ -126,6 +130,7 @@ def legacy_telegram_webhook(
     agent_service: ClaudeAgentService = Depends(get_claude_agent_service),
     manager_service: ManagerAgentService = Depends(get_manager_agent_service),
     github_issue_service: GitHubIssueService = Depends(get_github_issue_service),
+    promotion_service: GitPromotionService = Depends(get_git_promotion_service),
     capability_registry: CapabilityProviderRegistry = Depends(get_capability_provider_registry),
     panel_access_service: PanelAccessService = Depends(get_panel_access_service),
     notifier: TelegramNotifierService = Depends(get_telegram_notifier_service),
@@ -141,6 +146,7 @@ def legacy_telegram_webhook(
         agent_service=agent_service,
         manager_service=manager_service,
         github_issue_service=github_issue_service,
+        promotion_service=promotion_service,
         capability_registry=capability_registry,
         panel_access_service=panel_access_service,
         notifier=notifier,
@@ -159,6 +165,7 @@ def _handle_telegram_webhook(
     agent_service: ClaudeAgentService,
     manager_service: ManagerAgentService,
     github_issue_service: GitHubIssueService,
+    promotion_service: GitPromotionService,
     capability_registry: CapabilityProviderRegistry,
     panel_access_service: PanelAccessService,
     notifier: TelegramNotifierService,
@@ -267,6 +274,9 @@ def _handle_telegram_webhook(
             background_tasks=background_tasks,
             approval_service=approval_service,
             github_issue_service=github_issue_service,
+            promotion_service=promotion_service,
+            manager_service=manager_service,
+            openclaw_service=openclaw_service,
             notifier=notifier,
             session_identity=session_identity,
         )
@@ -667,6 +677,7 @@ def _handle_task_command(
         message_text = (
             "用法:\n"
             "/task <需求>\n"
+            "/task patch <需求>\n"
             "/task issue <owner/repo#123 | #123 | GitHub issue URL> [补充说明]"
         )
         if notifier.enabled:
@@ -694,6 +705,24 @@ def _handle_task_command(
     )
 
     issue: GitHubIssueRead | None = None
+    task_query, pipeline_target, requires_promotion_approval = _resolve_task_execution_mode(task_query)
+    if not task_query:
+        message_text = (
+            "用法:\n"
+            "/task <需求>\n"
+            "/task patch <需求>\n"
+            "/task issue <owner/repo#123 | #123 | GitHub issue URL> [补充说明]"
+        )
+        if notifier.enabled:
+            background_tasks.add_task(notifier.send_message, chat_id=chat_id, text=message_text)
+        return TelegramWebhookAck(
+            accepted=False,
+            update_id=_safe_int(update.get("update_id")),
+            chat_id=chat_id,
+            session_id=session.session_id,
+            reason="missing task payload",
+            metadata={"source": "telegram_manager_task", "scope": session_identity.scope.value},
+        )
     manager_prompt = task_query
     task_source = "prompt"
     operator_note = ""
@@ -725,6 +754,7 @@ def _handle_task_command(
     dispatch = manager_service.create_dispatch(
         ManagerDispatchRequest(
             prompt=manager_prompt,
+            pipeline_target=pipeline_target,
             auto_dispatch=True,
             metadata={
                 "source": "telegram_manager_task",
@@ -738,6 +768,8 @@ def _handle_task_command(
                 "github_issue_reference": issue_reference,
                 "github_issue_url": issue_url,
                 "github_issue_title": issue.title if issue is not None else None,
+                "task_lane": "approval_aware" if requires_promotion_approval else "patch_only",
+                "approval_required": requires_promotion_approval,
             },
         )
     )
@@ -751,13 +783,19 @@ def _handle_task_command(
                 "dispatch_id": dispatch.dispatch_id,
                 "task_source": task_source,
                 "issue_reference": issue_reference,
+                "task_lane": "approval_aware" if requires_promotion_approval else "patch_only",
+                "phase": "task_accepted",
             },
         ),
     )
     openclaw_service.set_status(
         session_id=session.session_id,
         status=JobStatus.QUEUED,
-        metadata_updates={"latest_manager_dispatch_id": dispatch.dispatch_id},
+        metadata_updates={
+            "latest_manager_dispatch_id": dispatch.dispatch_id,
+            "latest_manager_dispatch_phase": "task_accepted",
+            "latest_manager_dispatch_lane": "approval_aware" if requires_promotion_approval else "patch_only",
+        },
     )
 
     if notifier.enabled:
@@ -794,6 +832,8 @@ def _handle_task_command(
             "task_source": task_source,
             "issue_reference": issue_reference,
             "issue_url": issue_url,
+            "pipeline_target": pipeline_target,
+            "task_lane": "approval_aware" if requires_promotion_approval else "patch_only",
             "scope": session_identity.scope.value,
         },
     )
@@ -1162,6 +1202,9 @@ def _handle_approve_command(
     background_tasks: BackgroundTasks,
     approval_service: ApprovalStoreService,
     github_issue_service: GitHubIssueService,
+    promotion_service: GitPromotionService,
+    manager_service: ManagerAgentService,
+    openclaw_service: OpenClawCompatService,
     notifier: TelegramNotifierService,
     session_identity: TelegramSessionIdentityRead,
 ) -> TelegramWebhookAck:
@@ -1210,14 +1253,40 @@ def _handle_approve_command(
                             ),
                         ]
                     ).strip()
+                elif decision == "approved" and approval.metadata.get("action_type") == "manager_dispatch_promote":
+                    promotion_message = _execute_manager_promotion_for_approval(
+                        approval=approval,
+                        approval_service=approval_service,
+                        promotion_service=promotion_service,
+                        manager_service=manager_service,
+                        openclaw_service=openclaw_service,
+                        chat_id=chat_id,
+                        scope=session_identity.scope.value,
+                    )
+                    message_text = "\n\n".join(
+                        [
+                            message_text,
+                            promotion_message,
+                        ]
+                    ).strip()
+                elif decision == "rejected" and approval.metadata.get("action_type") == "manager_dispatch_promote":
+                    message_text = "\n\n".join(
+                        [
+                            message_text,
+                            "[Task Promotion Skipped]\n保留当前 patch-only 结果，不继续创建 Draft PR。",
+                        ]
+                    ).strip()
             except ValueError as exc:
                 message_text = str(exc)
                 message_source = "telegram_approve_decision"
             except RuntimeError as exc:
+                failure_title = "[Task Promotion Failed]"
+                if approval.metadata.get("action_type") == "github_issue_comment":
+                    failure_title = "[GitHub Reply Failed]"
                 message_text = "\n\n".join(
                     [
                         _build_approval_decision_message(approval),
-                        f"[GitHub Reply Failed]\n{str(exc).strip()}",
+                        f"{failure_title}\n{str(exc).strip()}",
                     ]
                 ).strip()
                 message_source = "telegram_approve_decision"
@@ -1409,6 +1478,21 @@ def _execute_manager_dispatch_and_notify(
         dispatch = dispatch.model_copy(update={"error": dispatch.error or error_text})
 
     final_status = dispatch.status
+    promotion_approval = _queue_manager_dispatch_promotion_approval(
+        dispatch=dispatch,
+        approval_service=approval_service,
+        approval_uid=approval_uid,
+        session_id=session_id,
+        assistant_scope=assistant_scope,
+        chat_id=chat_id,
+        issue_reference=issue_reference,
+        issue_url=issue_url,
+        issue_title=issue_title,
+    )
+    final_phase = _manager_dispatch_phase(
+        dispatch,
+        promotion_approval_id=promotion_approval.approval_id if promotion_approval is not None else None,
+    )
     openclaw_service.append_event(
         session_id=session_id,
         request=OpenClawSessionEventAppendRequest(
@@ -1418,6 +1502,8 @@ def _execute_manager_dispatch_and_notify(
                 "source": "telegram_manager_task",
                 "dispatch_id": dispatch.dispatch_id,
                 "status": final_status.value,
+                "phase": final_phase,
+                "approval_id": promotion_approval.approval_id if promotion_approval is not None else None,
                 "issue_reference": issue_reference,
             },
         ),
@@ -1425,7 +1511,14 @@ def _execute_manager_dispatch_and_notify(
     openclaw_service.set_status(
         session_id=session_id,
         status=JobStatus.COMPLETED if final_status == JobStatus.COMPLETED else JobStatus.FAILED,
-        metadata_updates={"latest_manager_dispatch_status": final_status.value},
+        metadata_updates={
+            "latest_manager_dispatch_status": final_status.value,
+            "latest_manager_dispatch_phase": final_phase,
+            "latest_manager_dispatch_lane": str(dispatch.metadata.get("task_lane") or "patch_only"),
+            "latest_manager_dispatch_approval_id": (
+                promotion_approval.approval_id if promotion_approval is not None else None
+            ),
+        },
     )
 
     if notifier.enabled:
@@ -1435,34 +1528,30 @@ def _execute_manager_dispatch_and_notify(
                 dispatch,
                 issue_reference=issue_reference,
                 issue_url=issue_url,
+                promotion_approval_id=promotion_approval.approval_id if promotion_approval is not None else None,
             ),
         )
+        if promotion_approval is not None:
+            notifier.send_message(
+                chat_id=chat_id,
+                text=_build_manager_promotion_approval_message(
+                    approval_id=promotion_approval.approval_id,
+                    dispatch=dispatch,
+                ),
+            )
 
-    if not issue_reference:
+    if promotion_approval is not None or not issue_reference:
         return
 
-    approval = approval_service.create_request(
-        ApprovalRequestCreateRequest(
-            title=f"Reply to GitHub issue {issue_reference}",
-            summary=f"Review and post the automated execution update for {issue_reference}.",
-            risk=ApprovalRisk.EXTERNAL,
-            source="github_issue_task",
-            telegram_uid=approval_uid,
-            session_id=session_id,
-            assistant_scope=assistant_scope,
-            metadata={
-                "action_type": "github_issue_comment",
-                "issue_reference": issue_reference,
-                "issue_url": issue_url,
-                "issue_title": issue_title,
-                "dispatch_id": dispatch.dispatch_id,
-                "comment_body": _build_github_issue_comment_body(
-                    dispatch,
-                    issue_reference=issue_reference,
-                    issue_url=issue_url,
-                ),
-            },
-        )
+    approval = _queue_github_issue_reply_approval(
+        approval_service=approval_service,
+        dispatch=dispatch,
+        approval_uid=approval_uid,
+        session_id=session_id,
+        assistant_scope=assistant_scope,
+        issue_reference=issue_reference,
+        issue_url=issue_url,
+        issue_title=issue_title,
     )
     openclaw_service.append_event(
         session_id=session_id,
@@ -1497,6 +1586,8 @@ def _build_manager_dispatch_queued_message(
     lines = [
         "[Manager Task]",
         f"dispatch: {dispatch.dispatch_id}",
+        "phase: task_accepted",
+        f"lane: {str(dispatch.metadata.get('task_lane') or 'patch_only')}",
         f"strategy: {dispatch.execution_plan.strategy.value if dispatch.execution_plan is not None else 'single_task'}",
         f"tasks: {task_count}",
     ]
@@ -1511,6 +1602,7 @@ def _build_manager_dispatch_result_message(
     *,
     issue_reference: str | None,
     issue_url: str | None,
+    promotion_approval_id: str | None = None,
 ) -> str:
     task_count = len(dispatch.execution_plan.tasks) if dispatch.execution_plan is not None else 0
     completed_count = (
@@ -1521,6 +1613,8 @@ def _build_manager_dispatch_result_message(
     lines = [
         "[Manager Task]",
         f"dispatch: {dispatch.dispatch_id}",
+        f"phase: {_manager_dispatch_phase(dispatch, promotion_approval_id=promotion_approval_id)}",
+        f"lane: {str(dispatch.metadata.get('task_lane') or 'patch_only')}",
         f"status: {dispatch.status.value}",
         f"tasks: {completed_count}/{task_count}",
     ]
@@ -1534,6 +1628,8 @@ def _build_manager_dispatch_result_message(
     promotion = dispatch.run_summary.promotion if dispatch.run_summary is not None else None
     if promotion is not None and promotion.pr_url:
         lines.append(f"draft_pr: {promotion.pr_url}")
+    elif promotion_approval_id:
+        lines.append(f"approval: {promotion_approval_id}")
     elif dispatch.run_summary is not None and dispatch.run_summary.promotion_patch_uri:
         lines.append(f"patch: {dispatch.run_summary.promotion_patch_uri}")
 
@@ -1548,6 +1644,231 @@ def _build_manager_dispatch_result_message(
     if error_text:
         lines.extend(["", "error:", error_text.strip()])
     return _truncate_telegram_text("\n".join(lines))
+
+
+def _resolve_task_execution_mode(task_query: str) -> tuple[str, str, bool]:
+    normalized = task_query.strip()
+    lowered = normalized.casefold()
+    prefixes = (
+        ("patch ", "patch", False),
+        ("patch-only ", "patch", False),
+        ("draft ", "draft_pr", True),
+        ("draft-pr ", "draft_pr", True),
+    )
+    for prefix, pipeline_target, requires_approval in prefixes:
+        if lowered.startswith(prefix):
+            return normalized[len(prefix):].strip(), pipeline_target, requires_approval
+    if lowered.startswith("issue "):
+        return normalized, "draft_pr", True
+    return normalized, "draft_pr", True
+
+
+def _manager_dispatch_requests_draft_pr(dispatch: ManagerDispatchRead) -> bool:
+    return str(dispatch.metadata.get("pipeline_target") or "").strip().lower() == "draft_pr"
+
+
+def _manager_dispatch_phase(
+    dispatch: ManagerDispatchRead,
+    *,
+    promotion_approval_id: str | None = None,
+) -> str:
+    if promotion_approval_id:
+        return "awaiting_approval"
+    promotion = dispatch.run_summary.promotion if dispatch.run_summary is not None else None
+    if promotion is not None and promotion.pr_url:
+        return "draft_pr_created"
+    if dispatch.status == JobStatus.QUEUED:
+        return "task_accepted"
+    if dispatch.status == JobStatus.RUNNING:
+        return "running"
+    if dispatch.run_summary is not None and dispatch.run_summary.final_status == "ready_for_promotion":
+        return "patch_only_execution"
+    if dispatch.status == JobStatus.FAILED:
+        return "terminal_failed"
+    return dispatch.status.value
+
+
+def _queue_manager_dispatch_promotion_approval(
+    *,
+    dispatch: ManagerDispatchRead,
+    approval_service: ApprovalStoreService,
+    approval_uid: str,
+    session_id: str,
+    assistant_scope: AssistantScope,
+    chat_id: str,
+    issue_reference: str | None,
+    issue_url: str | None,
+    issue_title: str | None,
+) -> Any | None:
+    if dispatch.run_summary is None or dispatch.run_summary.final_status != "ready_for_promotion":
+        return None
+    promotion = dispatch.run_summary.promotion
+    if promotion is not None and promotion.pr_url:
+        return None
+    if not _manager_dispatch_requests_draft_pr(dispatch):
+        return None
+
+    return approval_service.create_request(
+        ApprovalRequestCreateRequest(
+            title=f"Promote manager dispatch {dispatch.dispatch_id} to draft PR",
+            summary="Review the patch-only result and decide whether to continue with branch promotion + draft PR creation.",
+            risk=ApprovalRisk.EXTERNAL,
+            source="manager_dispatch_promotion",
+            telegram_uid=approval_uid,
+            session_id=session_id,
+            agent_run_id=dispatch.run_summary.run_id,
+            assistant_scope=assistant_scope,
+            metadata={
+                "action_type": "manager_dispatch_promote",
+                "dispatch_id": dispatch.dispatch_id,
+                "run_id": dispatch.run_summary.run_id,
+                "base_ref": str(dispatch.metadata.get("target_base_branch") or "main"),
+                "pipeline_target": str(dispatch.metadata.get("pipeline_target") or "draft_pr"),
+                "task_lane": str(dispatch.metadata.get("task_lane") or "approval_aware"),
+                "telegram_chat_id": chat_id,
+                "issue_reference": issue_reference,
+                "issue_url": issue_url,
+                "issue_title": issue_title,
+            },
+        )
+    )
+
+
+def _build_manager_promotion_approval_message(
+    *,
+    approval_id: str,
+    dispatch: ManagerDispatchRead,
+) -> str:
+    lines = [
+        "[Task Promotion Pending]",
+        f"approval: {approval_id}",
+        f"dispatch: {dispatch.dispatch_id}",
+        "phase: awaiting_approval",
+        "",
+        f"/approve {approval_id} approve  继续创建 Draft PR",
+        f"/approve {approval_id} reject  保留当前 patch-only 结果",
+    ]
+    return _truncate_telegram_text("\n".join(lines))
+
+
+def _execute_manager_promotion_for_approval(
+    *,
+    approval: Any,
+    approval_service: ApprovalStoreService,
+    promotion_service: GitPromotionService,
+    manager_service: ManagerAgentService,
+    openclaw_service: OpenClawCompatService,
+    chat_id: str,
+    scope: str,
+) -> str:
+    run_id = str(approval.metadata.get("run_id") or "").strip()
+    if not run_id:
+        raise RuntimeError("approval is missing run_id for promotion")
+
+    base_ref = str(approval.metadata.get("base_ref") or "main").strip() or "main"
+    promotion = promotion_service.promote(
+        GitPromotionCreateRequest(
+            run_id=run_id,
+            base_ref=base_ref,
+            push_branch=True,
+            open_draft_pr=True,
+            metadata={
+                "approved_via": "telegram_command",
+                "approval_id": approval.approval_id,
+                "dispatch_id": approval.metadata.get("dispatch_id"),
+            },
+        )
+    )
+    approval_service.update_request_metadata(
+        approval.approval_id,
+        {
+            "promotion_id": promotion.promotion_id,
+            "promotion_status": promotion.status.value,
+            "promotion_pr_url": promotion.pr_url,
+            "promotion_branch_name": promotion.branch_name,
+            "promotion_commit_sha": promotion.commit_sha,
+        },
+        require_status=ApprovalStatus.APPROVED,
+    )
+    session_id = str(approval.session_id or "").strip() or None
+    dispatch_id = str(approval.metadata.get("dispatch_id") or "").strip() or None
+    if session_id is not None and dispatch_id is not None:
+        openclaw_service.append_event(
+            session_id=session_id,
+            request=OpenClawSessionEventAppendRequest(
+                role="status",
+                content=f"manager draft pr created: {dispatch_id}",
+                metadata={
+                    "source": "telegram_approve_decision",
+                    "dispatch_id": dispatch_id,
+                    "approval_id": approval.approval_id,
+                    "promotion_id": promotion.promotion_id,
+                    "promotion_status": promotion.status.value,
+                    "draft_pr_url": promotion.pr_url,
+                    "scope": scope,
+                },
+            ),
+        )
+        openclaw_service.set_status(
+            session_id=session_id,
+            status=JobStatus.COMPLETED,
+            metadata_updates={
+                "latest_manager_dispatch_phase": "draft_pr_created",
+                "latest_manager_dispatch_approval_id": approval.approval_id,
+                "latest_manager_draft_pr_url": promotion.pr_url,
+            },
+        )
+
+    dispatch = manager_service.get_dispatch(dispatch_id) if dispatch_id is not None else None
+    lines = [
+        "[Task Promotion Executed]",
+        f"approval: {approval.approval_id}",
+        f"run: {run_id}",
+        f"status: {promotion.status.value}",
+    ]
+    if dispatch is not None:
+        lines.append(f"dispatch: {dispatch.dispatch_id}")
+    if promotion.branch_name:
+        lines.append(f"branch: {promotion.branch_name}")
+    if promotion.pr_url:
+        lines.append(f"draft_pr: {promotion.pr_url}")
+    return _truncate_telegram_text("\n".join(lines))
+
+
+def _queue_github_issue_reply_approval(
+    *,
+    approval_service: ApprovalStoreService,
+    dispatch: ManagerDispatchRead,
+    approval_uid: str,
+    session_id: str,
+    assistant_scope: AssistantScope,
+    issue_reference: str,
+    issue_url: str | None,
+    issue_title: str | None,
+) -> Any:
+    return approval_service.create_request(
+        ApprovalRequestCreateRequest(
+            title=f"Reply to GitHub issue {issue_reference}",
+            summary=f"Review and post the automated execution update for {issue_reference}.",
+            risk=ApprovalRisk.EXTERNAL,
+            source="github_issue_task",
+            telegram_uid=approval_uid,
+            session_id=session_id,
+            assistant_scope=assistant_scope,
+            metadata={
+                "action_type": "github_issue_comment",
+                "issue_reference": issue_reference,
+                "issue_url": issue_url,
+                "issue_title": issue_title,
+                "dispatch_id": dispatch.dispatch_id,
+                "comment_body": _build_github_issue_comment_body(
+                    dispatch,
+                    issue_reference=issue_reference,
+                    issue_url=issue_url,
+                ),
+            },
+        )
+    )
 
 
 def _build_github_issue_comment_body(
@@ -2073,7 +2394,8 @@ def _build_help_message(*, session_identity: TelegramSessionIdentityRead) -> str
     lines = [
         "[Telegram Commands]",
         "/status 查看当前会话、任务和能力摘要",
-        "/task <需求> 走 Manager Agent DAG 执行任务",
+        "/task <需求> 走 approval-aware 的 Manager 任务流",
+        "/task patch <需求> 只执行 patch-only，不继续创建 Draft PR",
         "/task issue <issue_ref> [补充说明] 读取 GitHub issue 后派发修复",
         "/approve 查看待审批列表",
         "/approve <approval_id> 查看待审批详情",
