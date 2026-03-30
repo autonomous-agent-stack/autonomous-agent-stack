@@ -61,7 +61,7 @@
 
 **启动时间**：2026-03-26 01:04  
 **监控频率**：每 5 分钟  
-**监控对象**：`/Volumes/PS1008/Github/autonomous-agent-stack`
+**监控对象**：`/Volumes/AI_LAB/Github/autonomous-agent-stack`（路径已更新 2026-03-30 07:24）
 
 ### 📋 实时报告
 
