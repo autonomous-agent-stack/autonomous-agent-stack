@@ -37,6 +37,8 @@ _RUNTIME_DENY_PREFIXES = (
     ".git/",
 )
 
+_TRACE_STDIO_TAIL_CHARS = 4000
+
 
 def _is_benign_runtime_artifact(path: str) -> bool:
     normalized = path.replace("\\", "/").strip("/")
@@ -97,6 +99,40 @@ class GitPromotionProvider(Protocol):
 
 
 class CliGitPromotionProvider:
+    def _record_step(
+        self,
+        *,
+        trace: list[dict[str, Any]] | None,
+        step: str,
+        started_at: datetime,
+        completed_at: datetime,
+        ok: bool,
+        stdout: str | None = None,
+        stderr: str | None = None,
+        exit_code: int | None = None,
+        error_type: str | None = None,
+        error: str | None = None,
+        **metadata: Any,
+    ) -> None:
+        if trace is None:
+            return
+        record: dict[str, Any] = {
+            "step": step,
+            "started_at": started_at.isoformat(),
+            "completed_at": completed_at.isoformat(),
+            "duration_ms": int((completed_at - started_at).total_seconds() * 1000),
+            "ok": ok,
+            "exit_code": exit_code,
+            "stdout_tail": (stdout or "")[-_TRACE_STDIO_TAIL_CHARS:] or None,
+            "stderr_tail": (stderr or "")[-_TRACE_STDIO_TAIL_CHARS:] or None,
+            "error_type": error_type,
+            "error": error,
+        }
+        for key, value in metadata.items():
+            if value is not None:
+                record[key] = value
+        trace.append(record)
+
     def probe_remote_health(self, repo_root: Path, *, base_branch: str) -> GitRemoteProbe:
         if not (repo_root / ".git").exists():
             return GitRemoteProbe(reason="repository is not a git checkout")
@@ -137,14 +173,33 @@ class CliGitPromotionProvider:
         branch_name: str,
         base_branch: str,
         workspace_dir: Path,
+        trace: list[dict[str, Any]] | None = None,
     ) -> None:
         workspace_dir.parent.mkdir(parents=True, exist_ok=True)
         if workspace_dir.exists():
             self._run_git(repo_root, ["worktree", "remove", "--force", str(workspace_dir)], check=False)
-        self._run_git(
+        started_at = utc_now()
+        completed = self._run_git(
             repo_root,
             ["worktree", "add", "-B", branch_name, str(workspace_dir), base_branch],
+            check=False,
         )
+        completed_at = utc_now()
+        self._record_step(
+            trace=trace,
+            step="create_branch",
+            started_at=started_at,
+            completed_at=completed_at,
+            ok=completed.returncode == 0,
+            stdout=completed.stdout,
+            stderr=completed.stderr,
+            exit_code=completed.returncode,
+            branch_name=branch_name,
+            base_branch=base_branch,
+            workspace_dir=str(workspace_dir),
+        )
+        if completed.returncode != 0:
+            raise RuntimeError((completed.stderr or completed.stdout or "git command failed").strip())
 
     def commit_changes(
         self,
@@ -157,12 +212,33 @@ class CliGitPromotionProvider:
         commit_message: str,
         validator_commands: list[str] | None = None,
         validator_log_dir: Path | None = None,
+        trace: list[dict[str, Any]] | None = None,
     ) -> str:
         _ = repo_root, branch_name, changed_files
-        self._run_git(workspace_dir, ["apply", "--index", "--whitespace=nowarn", str(patch_uri)])
+        apply_started_at = utc_now()
+        applied = self._run_git(
+            workspace_dir,
+            ["apply", "--index", "--whitespace=nowarn", str(patch_uri)],
+            check=False,
+        )
+        apply_completed_at = utc_now()
+        self._record_step(
+            trace=trace,
+            step="apply_patch",
+            started_at=apply_started_at,
+            completed_at=apply_completed_at,
+            ok=applied.returncode == 0,
+            stdout=applied.stdout,
+            stderr=applied.stderr,
+            exit_code=applied.returncode,
+            patch_uri=str(patch_uri),
+        )
+        if applied.returncode != 0:
+            raise RuntimeError((applied.stderr or applied.stdout or "git command failed").strip())
 
         validator_log_dir.mkdir(parents=True, exist_ok=True) if validator_log_dir is not None else None
         for index, command in enumerate(validator_commands or [], start=1):
+            validator_started_at = utc_now()
             completed = subprocess.run(
                 command,
                 cwd=workspace_dir,
@@ -170,6 +246,19 @@ class CliGitPromotionProvider:
                 capture_output=True,
                 text=True,
                 check=False,
+            )
+            validator_completed_at = utc_now()
+            self._record_step(
+                trace=trace,
+                step="validator",
+                started_at=validator_started_at,
+                completed_at=validator_completed_at,
+                ok=completed.returncode == 0,
+                stdout=completed.stdout,
+                stderr=completed.stderr,
+                exit_code=completed.returncode,
+                validator_index=index,
+                command=command,
             )
             if validator_log_dir is not None:
                 (validator_log_dir / f"validator_{index}.log").write_text(
@@ -192,7 +281,8 @@ class CliGitPromotionProvider:
         if not self._git_status(workspace_dir):
             raise RuntimeError("promotion patch did not produce any source changes")
 
-        self._run_git(
+        commit_started_at = utc_now()
+        commit = self._run_git(
             workspace_dir,
             [
                 "-c",
@@ -203,7 +293,22 @@ class CliGitPromotionProvider:
                 "-m",
                 commit_message,
             ],
+            check=False,
         )
+        commit_completed_at = utc_now()
+        self._record_step(
+            trace=trace,
+            step="commit",
+            started_at=commit_started_at,
+            completed_at=commit_completed_at,
+            ok=commit.returncode == 0,
+            stdout=commit.stdout,
+            stderr=commit.stderr,
+            exit_code=commit.returncode,
+            commit_message=commit_message,
+        )
+        if commit.returncode != 0:
+            raise RuntimeError((commit.stderr or commit.stdout or "git command failed").strip())
         completed = self._run_git(workspace_dir, ["rev-parse", "HEAD"])
         return (completed.stdout or "").strip()
 
@@ -213,9 +318,25 @@ class CliGitPromotionProvider:
         *,
         workspace_dir: Path,
         branch_name: str,
+        trace: list[dict[str, Any]] | None = None,
     ) -> None:
         _ = repo_root
-        self._run_git(workspace_dir, ["push", "-u", "origin", branch_name])
+        started_at = utc_now()
+        completed = self._run_git(workspace_dir, ["push", "-u", "origin", branch_name], check=False)
+        completed_at = utc_now()
+        self._record_step(
+            trace=trace,
+            step="push",
+            started_at=started_at,
+            completed_at=completed_at,
+            ok=completed.returncode == 0,
+            stdout=completed.stdout,
+            stderr=completed.stderr,
+            exit_code=completed.returncode,
+            branch_name=branch_name,
+        )
+        if completed.returncode != 0:
+            raise RuntimeError((completed.stderr or completed.stdout or "git command failed").strip())
 
     def open_draft_pr(
         self,
@@ -226,12 +347,14 @@ class CliGitPromotionProvider:
         base_branch: str,
         title: str,
         body: str,
+        trace: list[dict[str, Any]] | None = None,
     ) -> str:
         _ = repo_root
         gh_path = shutil.which("gh")
         if gh_path is None:
             raise RuntimeError("gh CLI is not available")
-        self.push_branch(repo_root, workspace_dir=workspace_dir, branch_name=branch_name)
+        self.push_branch(repo_root, workspace_dir=workspace_dir, branch_name=branch_name, trace=trace)
+        started_at = utc_now()
         completed = subprocess.run(
             [
                 gh_path,
@@ -251,6 +374,20 @@ class CliGitPromotionProvider:
             capture_output=True,
             text=True,
             check=False,
+        )
+        completed_at = utc_now()
+        self._record_step(
+            trace=trace,
+            step="create_pr",
+            started_at=started_at,
+            completed_at=completed_at,
+            ok=completed.returncode == 0,
+            stdout=completed.stdout,
+            stderr=completed.stderr,
+            exit_code=completed.returncode,
+            branch_name=branch_name,
+            base_branch=base_branch,
+            title=title,
         )
         if completed.returncode != 0:
             raise RuntimeError((completed.stderr or completed.stdout or "gh pr create failed").strip())
@@ -825,6 +962,8 @@ class GitPromotionService:
             validator_commands=request.validator_commands,
         )
         body_file.write_text(body + "\n", encoding="utf-8")
+        trace_file = promotion_dir / "step_trace.json"
+        step_trace: list[dict[str, Any]] = []
 
         draft_pr_command = CliGitPromotionProvider.draft_pr_command(
             base_ref=request.base_ref,
@@ -859,6 +998,7 @@ class GitPromotionService:
                     branch_name=branch_name,
                     base_branch=request.base_ref,
                     workspace_dir=workspace_dir,
+                    trace=step_trace,
                 )
                 commit_sha = self._provider.commit_changes(
                     self._repo_root,
@@ -869,6 +1009,7 @@ class GitPromotionService:
                     commit_message=commit_message,
                     validator_commands=request.validator_commands,
                     validator_log_dir=validator_dir,
+                    trace=step_trace,
                 )
 
                 if request.push_branch and not request.open_draft_pr:
@@ -876,6 +1017,7 @@ class GitPromotionService:
                         self._repo_root,
                         workspace_dir=workspace_dir,
                         branch_name=branch_name,
+                        trace=step_trace,
                     )
 
                 pr_url = None
@@ -887,7 +1029,14 @@ class GitPromotionService:
                         base_branch=request.base_ref,
                         title=title,
                         body=body,
+                        trace=step_trace,
                     )
+                trace_file.write_text(json.dumps(step_trace, indent=2), encoding="utf-8")
+                step_summary = self._build_step_summary(
+                    step_trace=step_trace,
+                    terminal_status=JobStatus.COMPLETED.value,
+                    pr_url=pr_url,
+                )
 
                 completed_record = created.model_copy(
                     update={
@@ -901,6 +1050,8 @@ class GitPromotionService:
                                 str(path) for path in sorted(validator_dir.glob("validator_*.log"))
                             ],
                             "body_file": str(body_file),
+                            "step_trace_file": str(trace_file),
+                            "step_summary": step_summary,
                             "push_branch": request.push_branch,
                             "open_draft_pr": request.open_draft_pr,
                         },
@@ -911,10 +1062,27 @@ class GitPromotionService:
                     self._cleanup_worktree(workspace_dir)
                 return completed_record
             except Exception as exc:
+                trace_file.write_text(json.dumps(step_trace, indent=2), encoding="utf-8")
+                step_summary = self._build_step_summary(
+                    step_trace=step_trace,
+                    terminal_status=JobStatus.FAILED.value,
+                    error=str(exc),
+                )
                 failed = created.model_copy(
                     update={
                         "status": JobStatus.FAILED,
                         "updated_at": utc_now(),
+                        "metadata": {
+                            **created.metadata,
+                            "validator_logs": [
+                                str(path) for path in sorted(validator_dir.glob("validator_*.log"))
+                            ],
+                            "body_file": str(body_file),
+                            "step_trace_file": str(trace_file),
+                            "step_summary": step_summary,
+                            "push_branch": request.push_branch,
+                            "open_draft_pr": request.open_draft_pr,
+                        },
                         "error": str(exc),
                     }
                 )
@@ -922,6 +1090,29 @@ class GitPromotionService:
                 if not request.keep_worktree:
                     self._cleanup_worktree(workspace_dir)
                 raise
+
+    def _build_step_summary(
+        self,
+        *,
+        step_trace: list[dict[str, Any]],
+        terminal_status: str,
+        pr_url: str | None = None,
+        error: str | None = None,
+    ) -> dict[str, Any]:
+        last_step = step_trace[-1] if step_trace else None
+        failed_step = next((step for step in reversed(step_trace) if not step.get("ok", False)), None)
+        return {
+            "terminal_status": terminal_status,
+            "last_step": last_step.get("step") if last_step is not None else None,
+            "failed_step": failed_step.get("step") if failed_step is not None else None,
+            "failure_reason": (
+                error
+                or (failed_step.get("error") if failed_step is not None else None)
+                or (failed_step.get("stderr_tail") if failed_step is not None else None)
+            ),
+            "retryable": bool(failed_step is not None and failed_step.get("step") in {"push", "create_pr"}),
+            "pr_url": pr_url,
+        }
 
     def _branch_name(self, *, branch_prefix: str, task: str, created_at: datetime) -> str:
         prefix = branch_prefix.rstrip("/")

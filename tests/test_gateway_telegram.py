@@ -204,6 +204,15 @@ class _StubPromotionService:
                 updated_at=utc_now(),
                 metadata={
                     **dict(request.metadata),
+                    "step_trace_file": f"/tmp/{request.run_id}.trace.json",
+                    "step_summary": {
+                        "terminal_status": JobStatus.FAILED.value,
+                        "last_step": "create_pr",
+                        "failed_step": "create_pr",
+                        "failure_reason": self.failures[request.run_id],
+                        "retryable": True,
+                        "pr_url": None,
+                    },
                     "open_draft_pr": request.open_draft_pr,
                     "push_branch": request.push_branch,
                 },
@@ -228,6 +237,15 @@ class _StubPromotionService:
             updated_at=utc_now(),
             metadata={
                 **dict(request.metadata),
+                "step_trace_file": f"/tmp/{request.run_id}.trace.json",
+                "step_summary": {
+                    "terminal_status": JobStatus.COMPLETED.value,
+                    "last_step": "create_pr",
+                    "failed_step": None,
+                    "failure_reason": None,
+                    "retryable": False,
+                    "pr_url": f"https://github.com/owner/repo/pull/{request.run_id[-3:]}",
+                },
                 "open_draft_pr": request.open_draft_pr,
                 "push_branch": request.push_branch,
             },
@@ -1101,6 +1119,8 @@ def test_telegram_approve_command_executes_manager_dispatch_promotion(
         assert dispatch is not None
         assert dispatch.metadata["promotion_id"] == resolved.metadata["promotion_id"]
         assert dispatch.metadata["promotion_pr_url"] == resolved.metadata["promotion_pr_url"]
+        assert dispatch.metadata["promotion_step_summary"]["last_step"] == "create_pr"
+        assert dispatch.metadata["promotion_step_summary"]["terminal_status"] == "completed"
         assert dispatch.run_summary is not None
         assert dispatch.run_summary.final_status == "promoted"
         assert dispatch.run_summary.promotion is not None
@@ -1245,6 +1265,8 @@ def test_telegram_approve_command_records_failed_manager_dispatch_promotion_stat
         assert dispatch is not None
         assert dispatch.metadata["promotion_status"] == "failed"
         assert dispatch.metadata["promotion_error"] == "draft pr creation failed"
+        assert dispatch.metadata["promotion_step_summary"]["failed_step"] == "create_pr"
+        assert dispatch.metadata["promotion_step_summary"]["retryable"] is True
         assert dispatch.run_summary is not None
         assert dispatch.run_summary.promotion is not None
         assert dispatch.run_summary.promotion.reason == "draft pr creation failed"

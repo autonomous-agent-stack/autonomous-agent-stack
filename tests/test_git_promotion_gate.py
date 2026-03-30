@@ -39,8 +39,9 @@ class FakeGitPromotionProvider:
         branch_name: str,
         base_branch: str,
         workspace_dir: Path,
+        trace: list[dict[str, object]] | None = None,
     ) -> None:
-        _ = repo_root
+        _ = repo_root, trace
         workspace_dir.mkdir(parents=True, exist_ok=True)
         self.branch_calls.append((branch_name, base_branch))
 
@@ -55,8 +56,9 @@ class FakeGitPromotionProvider:
         commit_message: str,
         validator_commands: list[str] | None = None,
         validator_log_dir: Path | None = None,
+        trace: list[dict[str, object]] | None = None,
     ) -> str:
-        _ = repo_root, workspace_dir, patch_uri, changed_files, validator_log_dir
+        _ = repo_root, workspace_dir, patch_uri, changed_files, validator_log_dir, trace
         self.commit_calls.append((branch_name, commit_message, tuple(validator_commands or [])))
         return "abc123def456"
 
@@ -66,8 +68,9 @@ class FakeGitPromotionProvider:
         *,
         workspace_dir: Path,
         branch_name: str,
+        trace: list[dict[str, object]] | None = None,
     ) -> None:
-        _ = repo_root, workspace_dir
+        _ = repo_root, workspace_dir, trace
         self.push_calls.append(branch_name)
 
     def open_draft_pr(
@@ -79,8 +82,9 @@ class FakeGitPromotionProvider:
         base_branch: str,
         title: str,
         body: str,
+        trace: list[dict[str, object]] | None = None,
     ) -> str:
-        _ = repo_root, workspace_dir
+        _ = repo_root, workspace_dir, trace
         self.pr_calls.append((branch_name, base_branch, title))
         return f"https://example.invalid/{branch_name}?base={base_branch}&body={body}"
 
@@ -522,6 +526,32 @@ def test_git_promotion_service_creates_branch_commit_and_draft_pr_payload(tmp_pa
 
     promoted = _git(repo_root, "show", f"{record.branch_name}:src/base.py")
     assert promoted.strip() == "value = 2"
+    assert record.metadata["step_summary"]["terminal_status"] == "completed"
+    assert record.metadata["step_summary"]["last_step"] == "commit"
+    assert Path(record.metadata["step_trace_file"]).exists()
+
+
+def test_git_promotion_service_records_step_summary_on_failure(tmp_path: Path) -> None:
+    repo_root, runtime_root = _prepare_promotion_repo(tmp_path)
+    service = GitPromotionService(repo_root=repo_root, runtime_root=runtime_root)
+
+    with pytest.raises(RuntimeError, match="validator failed"):
+        service.promote(
+            GitPromotionCreateRequest(
+                run_id="run_promotion",
+                base_ref="main",
+                validator_commands=["python -c \"raise SystemExit(7)\""],
+                push_branch=False,
+                open_draft_pr=False,
+            )
+        )
+
+    record = service.find_latest_promotion_for_run("run_promotion")
+    assert record is not None
+    assert record.status == "failed"
+    assert record.metadata["step_summary"]["terminal_status"] == "failed"
+    assert record.metadata["step_summary"]["failed_step"] == "validator"
+    assert Path(record.metadata["step_trace_file"]).exists()
 
 
 def test_git_promotion_service_rejects_dirty_repository(tmp_path: Path) -> None:

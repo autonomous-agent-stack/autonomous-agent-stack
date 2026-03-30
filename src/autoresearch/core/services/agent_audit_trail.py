@@ -208,10 +208,17 @@ class AgentAuditTrailService:
                                     promotion_state.promotion_status if promotion_state is not None else None
                                 ),
                                 "promotion_pr_url": promotion_state.pr_url if promotion_state is not None else None,
-                                "promotion_branch_name": (
-                                    promotion_state.branch_name if promotion_state is not None else None
-                                ),
-                            },
+                            "promotion_branch_name": (
+                                promotion_state.branch_name if promotion_state is not None else None
+                            ),
+                            "promotion_step_summary": (
+                                (
+                                    promotion_state.record.metadata.get("step_summary")
+                                    if promotion_state is not None and promotion_state.record is not None
+                                    else None
+                                )
+                            ),
+                        },
                         ),
                         input_prompt=dispatch.prompt,
                         job_spec=self._model_payload(task.agent_job),
@@ -235,6 +242,16 @@ class AgentAuditTrailService:
                                     "commit_sha": promotion_state.commit_sha,
                                     "error": promotion_state.error,
                                     "source": promotion_state.source,
+                                    "step_summary": (
+                                        promotion_state.record.metadata.get("step_summary")
+                                        if promotion_state is not None and promotion_state.record is not None
+                                        else None
+                                    ),
+                                    "step_trace_file": (
+                                        promotion_state.record.metadata.get("step_trace_file")
+                                        if promotion_state is not None and promotion_state.record is not None
+                                        else None
+                                    ),
                                 }
                                 if promotion_state is not None
                                 else None

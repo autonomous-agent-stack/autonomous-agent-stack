@@ -585,7 +585,18 @@ def test_admin_audit_trail_projects_manager_promotion_state(admin_client: TestCl
             validator_commands=[],
             created_at=dispatch.updated_at,
             updated_at=dispatch.updated_at,
-            metadata={"open_draft_pr": True},
+            metadata={
+                "open_draft_pr": True,
+                "step_trace_file": "/tmp/gpr_manager_promote_1.trace.json",
+                "step_summary": {
+                    "terminal_status": "completed",
+                    "last_step": "create_pr",
+                    "failed_step": None,
+                    "failure_reason": None,
+                    "retryable": False,
+                    "pr_url": "https://github.com/owner/repo/pull/321",
+                },
+            },
             error=None,
         )
     )
@@ -604,6 +615,7 @@ def test_admin_audit_trail_projects_manager_promotion_state(admin_client: TestCl
     assert item["metadata"]["promotion_phase"] == "draft_pr_created"
     assert item["metadata"]["promotion_id"] == "gpr_manager_promote_1"
     assert item["metadata"]["promotion_pr_url"] == "https://github.com/owner/repo/pull/321"
+    assert item["metadata"]["promotion_step_summary"]["last_step"] == "create_pr"
 
     detail = admin_client.get(f"/api/v1/admin/audit-trail/{item['entry_id']}")
     assert detail.status_code == 200
@@ -611,6 +623,8 @@ def test_admin_audit_trail_projects_manager_promotion_state(admin_client: TestCl
     assert detail_payload["entry"]["final_status"] == "promoted"
     assert detail_payload["raw_record"]["promotion_state"]["phase"] == "draft_pr_created"
     assert detail_payload["raw_record"]["promotion_state"]["pr_url"] == "https://github.com/owner/repo/pull/321"
+    assert detail_payload["raw_record"]["promotion_state"]["step_summary"]["terminal_status"] == "completed"
+    assert detail_payload["raw_record"]["promotion_state"]["step_trace_file"] == "/tmp/gpr_manager_promote_1.trace.json"
 
 
 def test_admin_approvals_list_and_resolve(admin_client: TestClient) -> None:

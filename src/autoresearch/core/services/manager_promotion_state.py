@@ -20,6 +20,7 @@ class ManagerDispatchPromotionState:
     commit_sha: str | None = None
     error: str | None = None
     source: str = "dispatch"
+    record: GitPromotionRead | None = None
 
 
 def manager_dispatch_requests_draft_pr(dispatch: ManagerDispatchRead) -> bool:
@@ -68,6 +69,8 @@ def hydrate_manager_dispatch_promotion(
         "promotion_branch_name": record.branch_name,
         "promotion_commit_sha": record.commit_sha,
         "promotion_error": record.error,
+        "promotion_step_summary": record.metadata.get("step_summary"),
+        "promotion_step_trace_file": record.metadata.get("step_trace_file"),
     }
     run_summary = dispatch.run_summary
     if run_summary is not None:
@@ -112,6 +115,7 @@ def resolve_manager_dispatch_promotion_state(
                 commit_sha=record.commit_sha,
                 error=record.error,
                 source="promotion_record",
+                record=record,
             )
         if record.status is JobStatus.FAILED:
             return ManagerDispatchPromotionState(
@@ -125,6 +129,7 @@ def resolve_manager_dispatch_promotion_state(
                 commit_sha=record.commit_sha,
                 error=record.error,
                 source="promotion_record",
+                record=record,
             )
         return ManagerDispatchPromotionState(
             phase="promotion_in_progress",
@@ -137,6 +142,7 @@ def resolve_manager_dispatch_promotion_state(
             commit_sha=record.commit_sha,
             error=record.error,
             source="promotion_record",
+            record=record,
         )
 
     promotion = dispatch.run_summary.promotion if dispatch.run_summary is not None else None
