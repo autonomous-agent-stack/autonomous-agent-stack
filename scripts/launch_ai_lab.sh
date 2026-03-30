@@ -14,9 +14,15 @@ OVERRIDE_LOG_DIR="${LOG_DIR:-}"
 OVERRIDE_CACHE_DIR="${CACHE_DIR:-}"
 OVERRIDE_LAB_USER="${LAB_USER:-}"
 OVERRIDE_AUTO_OPEN_DOCKER="${AUTO_OPEN_DOCKER:-}"
+OVERRIDE_AUTO_START_COLIMA="${AUTO_START_COLIMA:-}"
 OVERRIDE_IMAGE_TAG="${AI_LAB_IMAGE_TAG:-}"
 OVERRIDE_FORCE_DOCKER_RUN="${AI_LAB_FORCE_DOCKER_RUN:-}"
 OVERRIDE_HOST_MOUNT_ROOT="${AI_LAB_HOST_MOUNT_ROOT:-}"
+OVERRIDE_OPENHANDS_HOME_DIR="${OPENHANDS_HOME_DIR:-}"
+OVERRIDE_DOCKER_HOST_SOCKET_PATH="${DOCKER_HOST_SOCKET_PATH:-}"
+OVERRIDE_DOCKER_HOST_IN_CONTAINER="${DOCKER_HOST_IN_CONTAINER:-}"
+OVERRIDE_DOCKER_HOST_MOUNT_DIR="${DOCKER_HOST_MOUNT_DIR:-}"
+OVERRIDE_COLIMA_HELPER="${AI_LAB_COLIMA_HELPER:-}"
 
 load_env_file() {
   local file="$1"
@@ -38,10 +44,15 @@ LOG_DIR="${OVERRIDE_LOG_DIR:-${LOG_DIR:-/Users/ai_lab/logs}}"
 CACHE_DIR="${OVERRIDE_CACHE_DIR:-${CACHE_DIR:-/Users/ai_lab/.cache}}"
 LAB_USER="${OVERRIDE_LAB_USER:-${LAB_USER:-ai_lab}}"
 AUTO_OPEN_DOCKER="${OVERRIDE_AUTO_OPEN_DOCKER:-${AUTO_OPEN_DOCKER:-1}}"
+AUTO_START_COLIMA="${OVERRIDE_AUTO_START_COLIMA:-${AUTO_START_COLIMA:-1}}"
 IMAGE_TAG="${OVERRIDE_IMAGE_TAG:-${AI_LAB_IMAGE_TAG:-ai-lab-local:dev}}"
 FORCE_DOCKER_RUN="${OVERRIDE_FORCE_DOCKER_RUN:-${AI_LAB_FORCE_DOCKER_RUN:-0}}"
 HOST_MOUNT_ROOT="${OVERRIDE_HOST_MOUNT_ROOT:-${AI_LAB_HOST_MOUNT_ROOT:-${WORKSPACE_DIR}}}"
-OPENHANDS_HOME_DIR="${LOG_DIR}/openhands-home"
+OPENHANDS_HOME_DIR="${OVERRIDE_OPENHANDS_HOME_DIR:-${OPENHANDS_HOME_DIR:-${LOG_DIR}/openhands-home}}"
+DOCKER_HOST_SOCKET_PATH="${OVERRIDE_DOCKER_HOST_SOCKET_PATH:-${DOCKER_HOST_SOCKET_PATH:-}}"
+DOCKER_HOST_IN_CONTAINER="${OVERRIDE_DOCKER_HOST_IN_CONTAINER:-${DOCKER_HOST_IN_CONTAINER:-}}"
+DOCKER_HOST_MOUNT_DIR="${OVERRIDE_DOCKER_HOST_MOUNT_DIR:-${DOCKER_HOST_MOUNT_DIR:-/var/run/host-docker}}"
+COLIMA_HELPER="${OVERRIDE_COLIMA_HELPER:-${AI_LAB_COLIMA_HELPER:-${REPO_ROOT}/scripts/colima-external.sh}}"
 
 if [[ "${LAB_USER}" != "ai_lab" ]]; then
   WORKSPACE_DIR="${WORKSPACE_DIR:-/Users/${LAB_USER}/workspace}"
@@ -84,6 +95,68 @@ need_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "missing command: $1"
 }
 
+docker_host_socket_path() {
+  local docker_host_value="${DOCKER_HOST:-}"
+  if [[ "${docker_host_value}" =~ ^unix://(.+)$ ]]; then
+    printf '%s' "${BASH_REMATCH[1]}"
+  fi
+}
+
+preferred_colima_home_path() {
+  if [[ -n "${COLIMA_HOME_PATH:-}" ]]; then
+    printf '%s' "${COLIMA_HOME_PATH}"
+    return
+  fi
+
+  if [[ -d "/Volumes/ColimaStore/.colima-home" ]] || [[ -e "/Volumes/AI_LAB/colima-store.sparsebundle" ]]; then
+    printf '/Volumes/ColimaStore/.colima-home'
+    return
+  fi
+
+  printf '%s/.colima' "${HOME}"
+}
+
+preferred_colima_socket_path() {
+  local colima_home
+  local profile="${COLIMA_PROFILE:-default}"
+  colima_home="$(preferred_colima_home_path)"
+  printf '%s/%s/docker.sock' "${colima_home}" "${profile}"
+}
+
+configure_docker_socket_env() {
+  if [[ -z "${DOCKER_HOST_SOCKET_PATH}" ]]; then
+    DOCKER_HOST_SOCKET_PATH="$(docker_host_socket_path)"
+  fi
+
+  if [[ -n "${DOCKER_HOST_SOCKET_PATH}" ]]; then
+    DOCKER_HOST_SOCKET_DIR="${DOCKER_HOST_SOCKET_DIR:-$(dirname "${DOCKER_HOST_SOCKET_PATH}")}"
+    DOCKER_HOST_SOCKET_NAME="${DOCKER_HOST_SOCKET_NAME:-$(basename "${DOCKER_HOST_SOCKET_PATH}")}"
+    DOCKER_HOST_IN_CONTAINER="${DOCKER_HOST_IN_CONTAINER:-unix://${DOCKER_HOST_MOUNT_DIR}/${DOCKER_HOST_SOCKET_NAME}}"
+    export DOCKER_HOST_SOCKET_PATH
+    export DOCKER_HOST_SOCKET_DIR
+    export DOCKER_HOST_SOCKET_NAME
+    export DOCKER_HOST_MOUNT_DIR
+    export DOCKER_HOST_IN_CONTAINER
+  fi
+}
+
+describe_socket_access() {
+  local socket_path="$1"
+  if [[ -e "${socket_path}" ]]; then
+    stat -f 'owner=%Su group=%Sg mode=%Sp path=%N' "${socket_path}" 2>/dev/null || true
+  else
+    printf 'missing path=%s\n' "${socket_path}"
+  fi
+}
+
+docker_host_looks_like_colima() {
+  local docker_host_value="${DOCKER_HOST:-}"
+  if [[ "${docker_host_value}" == *".colima/"* ]]; then
+    return 0
+  fi
+  [[ "${DOCKER_CONTEXT:-}" == "colima" ]]
+}
+
 docker_ready() {
   python3 - <<'PY' >/dev/null 2>&1
 import subprocess
@@ -91,7 +164,7 @@ import sys
 
 try:
     completed = subprocess.run(
-        ["docker", "info"],
+        ["docker", "version", "--format", "{{.Server.Version}}"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         timeout=3,
@@ -104,10 +177,59 @@ sys.exit(0 if completed.returncode == 0 else 1)
 PY
 }
 
+try_safe_colima_fallback() {
+  if [[ "${AUTO_START_COLIMA}" != "1" ]]; then
+    return 1
+  fi
+
+  log "configured Colima socket is not usable; trying a safe Colima fallback"
+
+  local ready_label="current-user"
+
+  if [[ -f "${COLIMA_HELPER}" ]] && { [[ -n "${COLIMA_HOME_PATH:-}" ]] || [[ -d "/Volumes/ColimaStore/.colima-home" ]] || [[ -e "/Volumes/AI_LAB/colima-store.sparsebundle" ]]; }; then
+    bash "${COLIMA_HELPER}" start
+    ready_label="repo-managed"
+  else
+    need_cmd colima
+    local -a colima_args=(start --profile "${COLIMA_PROFILE:-default}")
+    if [[ -d "/Volumes/AI_LAB" ]]; then
+      colima_args+=(--mount "/Volumes/AI_LAB:w")
+    fi
+    colima "${colima_args[@]}"
+  fi
+
+  export DOCKER_HOST="unix://$(preferred_colima_socket_path)"
+  DOCKER_HOST_SOCKET_PATH=""
+  configure_docker_socket_env
+
+  for _ in {1..20}; do
+    if docker_ready; then
+      ok "${ready_label} Colima is ready via ${DOCKER_HOST}"
+      return 0
+    fi
+    sleep 2
+  done
+
+  return 1
+}
+
 ensure_docker() {
   need_cmd docker
+  configure_docker_socket_env
   if docker_ready; then
+    configure_docker_socket_env
     return
+  fi
+
+  local configured_socket
+  configured_socket="$(docker_host_socket_path)"
+  if [[ -n "${configured_socket}" ]] && [[ ! -r "${configured_socket}" || ! -w "${configured_socket}" ]]; then
+    warn "configured DOCKER_HOST socket is not accessible"
+    describe_socket_access "${configured_socket}" >&2 || true
+    if docker_host_looks_like_colima && try_safe_colima_fallback; then
+      return
+    fi
+    die "Docker socket is configured but not accessible. Update DOCKER_HOST or start a Colima profile owned by the current user."
   fi
 
   if [[ "${AUTO_OPEN_DOCKER}" == "1" ]] && [[ "$(uname -s)" == "Darwin" ]]; then
@@ -207,6 +329,7 @@ build_direct_image() {
 }
 
 direct_docker_base_args() {
+  configure_docker_socket_env
   DIRECT_DOCKER_ARGS=(
     docker run --rm
     --platform linux/arm64
@@ -220,6 +343,13 @@ direct_docker_base_args() {
     -e PYTHONDONTWRITEBYTECODE=1
     -e PYTHONUNBUFFERED=1
   )
+
+  if [[ -n "${DOCKER_HOST_SOCKET_PATH}" ]] && [[ -S "${DOCKER_HOST_SOCKET_PATH}" ]]; then
+    DIRECT_DOCKER_ARGS+=(
+      --mount "type=bind,src=${DOCKER_HOST_SOCKET_DIR},dst=${DOCKER_HOST_MOUNT_DIR}"
+      -e "DOCKER_HOST=${DOCKER_HOST_IN_CONTAINER}"
+    )
+  fi
 
   append_env_passthrough TELEGRAM_BOT_TOKEN
   append_env_passthrough TELEGRAM_CHAT_ID

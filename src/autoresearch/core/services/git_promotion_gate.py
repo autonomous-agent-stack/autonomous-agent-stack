@@ -38,6 +38,19 @@ _RUNTIME_DENY_PREFIXES = (
 )
 
 
+def _is_benign_runtime_artifact(path: str) -> bool:
+    normalized = path.replace("\\", "/").strip("/")
+    if not normalized:
+        return False
+    if normalized.startswith(".pytest_cache/") or "/.pytest_cache/" in f"/{normalized}":
+        return True
+    if "/__pycache__/" in f"/{normalized}":
+        return True
+    if normalized.startswith("apps/") and normalized.endswith("/README.md"):
+        return True
+    return False
+
+
 class GitPromotionProvider(Protocol):
     def probe_remote_health(self, repo_root: Path, *, base_branch: str) -> GitRemoteProbe: ...
 
@@ -490,7 +503,11 @@ class GitPromotionGateService:
         remote_probe: GitRemoteProbe,
         repo_dirty: list[str],
     ) -> list[PromotionGateCheck]:
-        changed_files = [item.replace("\\", "/") for item in intent.changed_files]
+        changed_files = [
+            item.replace("\\", "/")
+            for item in intent.changed_files
+            if not _is_benign_runtime_artifact(item)
+        ]
         forbidden_paths = self._metadata_list(intent.metadata, "forbidden_paths") or self._default_forbidden_paths
         max_changed_files = int(intent.metadata.get("max_changed_files", self._default_max_changed_files))
         max_patch_lines = int(intent.metadata.get("max_patch_lines", self._default_max_patch_lines))

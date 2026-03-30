@@ -9,6 +9,37 @@ on:
   pull_request:
   merge_group:
 
+env:
+  PYTHON_BASELINE: "3.11"
+  CORE_LINT_PATHS: >-
+    src/autoresearch/agent_protocol
+    src/autoresearch/api/routers
+    src/autoresearch/executions/runner.py
+    src/gateway
+    src/gatekeeper
+    scripts/agent_run.py
+    tests/gateway/test_message_mirror.py
+    tests/test_agent_protocol_models.py
+    tests/test_agent_policy_merge.py
+    tests/test_agent_runner_patch_filter.py
+    tests/test_agent_fallbacks.py
+    tests/test_approvals_api.py
+    tests/test_capability_api.py
+    tests/test_gatekeeper_e2e.py
+    tests/test_openclaw_compat.py
+    tests/test_openhands_controlled_backend.py
+  CORE_TEST_PATHS: >-
+    tests/gateway/test_message_mirror.py
+    tests/test_agent_protocol_models.py
+    tests/test_agent_policy_merge.py
+    tests/test_agent_runner_patch_filter.py
+    tests/test_agent_fallbacks.py
+    tests/test_approvals_api.py
+    tests/test_capability_api.py
+    tests/test_gatekeeper_e2e.py
+    tests/test_openclaw_compat.py
+    tests/test_openhands_controlled_backend.py
+
 jobs:
   lint-test-audit:
     runs-on: ubuntu-latest
@@ -26,6 +57,11 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Show Python support policy
+        run: |
+          echo "Project baseline: Python ${PYTHON_BASELINE}+"
+          echo "CI verification matrix: 3.11, 3.12"
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -38,38 +74,17 @@ jobs:
 
       - name: Ruff
         run: |
-          ruff check \
-            src/autoresearch/agent_protocol \
-            src/autoresearch/executions/runner.py \
-            scripts/agent_run.py \
-            tests/test_agent_protocol_models.py \
-            tests/test_agent_policy_merge.py \
-            tests/test_agent_runner_patch_filter.py \
-            tests/test_agent_fallbacks.py \
-            tests/test_openhands_controlled_backend.py
+          ruff check ${CORE_LINT_PATHS}
 
       - name: Black
         run: |
-          black --check \
-            src/autoresearch/agent_protocol \
-            src/autoresearch/executions/runner.py \
-            scripts/agent_run.py \
-            tests/test_agent_protocol_models.py \
-            tests/test_agent_policy_merge.py \
-            tests/test_agent_runner_patch_filter.py \
-            tests/test_agent_fallbacks.py \
-            tests/test_openhands_controlled_backend.py
+          black --check ${CORE_LINT_PATHS}
 
       - name: Pytest
         env:
           PYTHONPATH: src
         run: |
-          pytest -q \
-            tests/test_agent_protocol_models.py \
-            tests/test_agent_policy_merge.py \
-            tests/test_agent_runner_patch_filter.py \
-            tests/test_agent_fallbacks.py \
-            tests/test_openhands_controlled_backend.py
+          pytest -q ${CORE_TEST_PATHS}
 
       - name: Pip Audit
         # Temporary exception: no patched Pygments release published yet.

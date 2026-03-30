@@ -2,6 +2,12 @@
 
 一个面向多智能体编排、工作流触发、自集成验证和零信任加固的工程化仓库。
 
+## 运行时要求
+
+- Python 基线：`3.11+`
+- 本仓库当前在 CI 中验证：`3.11`、`3.12`
+- 如果本机默认 `python3` 低于 3.11，请先安装 3.11+ 再执行 `make setup`
+
 ## 为什么现在更容易上手
 
 参考 ClawX 的使用体验，这个仓库把新手最常见的三个问题做了统一入口。
@@ -16,6 +22,7 @@
 
 ```bash
 cd /Volumes/PS1008/Github/autonomous-agent-stack
+# 确保这里用的是 Python 3.11+
 make setup
 make doctor
 make start
@@ -26,6 +33,31 @@ make start
 - `http://127.0.0.1:8001/health`
 - `http://127.0.0.1:8001/docs`
 - `http://127.0.0.1:8001/panel`
+
+如果你要启用 Telegram 提醒和 Mini App 审批，至少补齐这 4 个环境变量：
+
+```bash
+AUTORESEARCH_TELEGRAM_BOT_TOKEN=...
+AUTORESEARCH_TELEGRAM_ALLOWED_UIDS=你的TelegramUID
+AUTORESEARCH_PANEL_JWT_SECRET=随机长串
+AUTORESEARCH_PANEL_BASE_URL=https://你的面板域名/api/v1/panel/view
+```
+
+如果还希望通知卡片直接带 `Mini App` 按钮，再补：
+
+```bash
+AUTORESEARCH_TELEGRAM_MINI_APP_URL=https://你的面板域名/api/v1/panel/view
+```
+
+如果你要把上游 OpenClaw 巡检挂成 Planner 的可选低噪音任务，再补这 3 个变量：
+
+```bash
+AUTORESEARCH_UPSTREAM_WATCH_URL=https://github.com/openclaw/openclaw.git
+AUTORESEARCH_UPSTREAM_WATCH_WORKSPACE_ROOT=/Volumes/AI_LAB/ai_lab/workspace
+AUTORESEARCH_UPSTREAM_WATCH_MAX_COMMITS=5
+```
+
+当前代码会优先使用 `AUTORESEARCH_TELEGRAM_BOT_TOKEN`；旧变量 `TELEGRAM_BOT_TOKEN` 还能兼容，但已经是 deprecated。
 
 ## 常用命令
 
@@ -53,7 +85,19 @@ make review-gates-local
 
 `make hygiene-check` 会把结果写到 `logs/audit/prompt_hygiene/report.txt` 和 `logs/audit/prompt_hygiene/report.json`。
 
-`make openhands` 会调用 `scripts/openhands_start.sh`（CLI 直连模式），默认注入 `DIFF_ONLY=1` 与 `MAX_FILES_PER_STEP=3` 的执行约束，并优先读取 `memory/SOP/MASFactory_Strict_Execution_v1.md`。
+`make openhands` 会调用 `scripts/openhands_start.sh`（CLI 直连模式），默认注入 `DIFF_ONLY=1` 与 `MAX_FILES_PER_STEP=3` 的执行约束；当前真实边界请以 [ARCHITECTURE.md](./ARCHITECTURE.md) 为总图，以 [memory/SOP/MASFactory_Strict_Execution_v1.md](./memory/SOP/MASFactory_Strict_Execution_v1.md) 为执行清单。
+
+当前 launcher 会优先读取根目录 `ai_lab.env`。`host` 模式下会优先寻找 `./.masfactory_runtime/tools/openhands-cli-py312/bin/openhands` 这类独立工具 venv，并自动在本地 OpenHands home 下生成 `agent_settings.json`；`ai-lab` 模式则默认调用容器内的 `openhands`。默认模板会走 `--exp --headless`，因为本地验证的 `OpenHands CLI 1.5.0` 在这条路径上能自动收尾退出，更适合作为 pipeline worker：
+
+```bash
+RUNTIME=process \
+SANDBOX_VOLUMES=/你的workspace:/workspace:rw \
+openhands --exp --headless -t "你的任务"
+```
+
+实际执行时 launcher 会先 `cd` 到目标 worktree，再启动 CLI，所以 OpenHands 的 workspace 会对准当前任务目录。如果你要切回旧的“把 prompt 当位置参数”模式，可显式设置 `OPENHANDS_HEADLESS=0`；如果你明确想关闭 `--exp`，可设置 `OPENHANDS_EXPERIMENTAL=0`。`OPENHANDS_JSON=1` 仅适用于明确支持该 flag 的 CLI 版本；当前本地验证的 `OpenHands CLI 1.5.0` 默认不带它。如果要走真实 `ai-lab` 容器链，除了容器内 `openhands` 本身可用，还需要当前 shell 对配置的 Docker/Colima socket 有访问权限。`sandbox/ai-lab/Dockerfile` 也默认锁到同一个 `OpenHands CLI 1.5.0`，避免容器冷启动时漂移到未验证的新版本。
+
+`launch_ai_lab.sh` 也会显式识别 `DOCKER_HOST=unix://...` 这类 Colima socket。如果当前配置指向了一个当前用户不可访问的 Colima socket，它会先尝试安全回退：有外置盘 Colima store 时走 repo 自带的 `scripts/colima-external.sh`，否则直接回退到当前用户自己的 `~/.colima/<profile>/docker.sock`，而不是直接放宽宿主机 socket 权限。当前用户回退分支还会显式把 `/Volumes/AI_LAB` 挂进 Colima；如果你不想碰现有默认 profile，可直接用独立 profile，例如 `COLIMA_PROFILE=ai-lab bash ./scripts/launch_ai_lab.sh status`。
 
 `make openhands-controlled` 会走最窄闭环：创建隔离 workspace、执行 OpenHands 子任务、运行校验、输出 promotion patch 与审计摘要（不直接污染主仓库）。
 
@@ -71,6 +115,7 @@ make review-gates-local
   - 检查项：`mypy + bandit + semgrep`（工具版本固定在 `requirements-review.lock`）
   - 包含 `merge_group` 触发，兼容 merge queue
 - 仓库 required checks 建议：`CI / lint-test-audit` + `Quality Gates / reviewer-gates`
+- 试运行与反馈闭环：见 [PR Review Hardening](./docs/pr-review-hardening.md) 里的 `Trial Rubric` 与 `Feedback Loop`
 
 完整落地说明见：[PR Review Hardening](./docs/pr-review-hardening.md)
 
@@ -108,7 +153,8 @@ PORT=8010 make start
 
 - [API 主入口](./src/autoresearch/api/main.py)
 - [工作流引擎](./src/workflow/workflow_engine.py)
-- [Telegram Webhook](./src/gateway/telegram_webhook.py)
+- [Telegram Gateway（主线）](./src/autoresearch/api/routers/gateway_telegram.py)
+- [Telegram Webhook（legacy compatibility only）](./src/gateway/telegram_webhook.py)
 - [自集成服务](./src/autoresearch/core/services/self_integration.py)
 - [自集成路由](./src/autoresearch/api/routers/integrations.py)
 - [技能注册表](./src/opensage/skill_registry.py)
@@ -118,7 +164,7 @@ PORT=8010 make start
 ## 快速排错
 
 1. 先跑 `make doctor`，看是否有 `FAIL`
-2. 如果是依赖问题，执行 `make setup`
+2. 如果提示 Python 版本过低，先切到 Python 3.11+，再执行 `make setup`
 3. 如果是端口问题，执行 `PORT=8010 make start`
 4. 如果是导入问题，确认通过 `make start` 启动（脚本会自动设置 `PYTHONPATH=src`）
 
@@ -216,6 +262,7 @@ PORT=8010 make start
 ## 深入文档
 
 - [快速启动文档](./docs/QUICK_START.md)
+- [架构总图](./ARCHITECTURE.md)
 - [Admin View 字段填写教程](./docs/admin-view-field-guide.md)
 - [状态与发布说明](./STATUS_AND_RELEASE_NOTES.md)
 - [工作流引擎验证报告](./docs/WORKFLOW_ENGINE_VERIFICATION_REPORT.md)

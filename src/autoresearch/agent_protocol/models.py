@@ -22,7 +22,7 @@ class ExecutionPolicy(StrictModel):
 
     tool_allowlist: list[str] = Field(default_factory=lambda: ["read", "write", "bash"])
 
-    allowed_paths: list[str] = Field(default_factory=lambda: ["src/**", "tests/**", "docs/**"])
+    allowed_paths: list[str] = Field(default_factory=lambda: ["src/**", "tests/**", "docs/**", "apps/**"])
     forbidden_paths: list[str] = Field(
         default_factory=lambda: [
             ".git/**",
@@ -35,7 +35,7 @@ class ExecutionPolicy(StrictModel):
     )
 
     max_changed_files: int = Field(default=20, ge=0, le=1000)
-    max_patch_lines: int = Field(default=500, ge=0, le=100000)
+    max_patch_lines: int = Field(default=2000, ge=0, le=100000)
     allow_binary_changes: bool = False
 
     cleanup_on_success: bool = True
@@ -80,6 +80,9 @@ class DriverMetrics(StrictModel):
     commands: int = 0
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
+    first_progress_ms: int | None = None
+    first_scoped_write_ms: int | None = None
+    first_state_heartbeat_ms: int | None = None
 
 
 class DriverResult(StrictModel):
@@ -94,6 +97,7 @@ class DriverResult(StrictModel):
         "partial",
         "failed",
         "timed_out",
+        "stalled_no_progress",
         "policy_blocked",
         "contract_error",
     ]

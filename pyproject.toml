@@ -2,7 +2,7 @@
 name = "autonomous-agent-stack"
 version = "0.1.0"
 description = "Modern multi-agent orchestration framework powered by MASFactory"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 
 [build-system]
 requires = ["hatchling"]
@@ -10,11 +10,11 @@ build-backend = "hatchling.build"
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py311"
 
 [tool.black]
 line-length = 100
-target-version = ["py310"]
+target-version = ["py311"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

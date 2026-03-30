@@ -331,6 +331,24 @@ class AdminSettings(_BaseApiSettings):
         return roles or {"viewer", "editor", "admin", "owner"}
 
 
+class UpstreamWatcherSettings(_BaseApiSettings):
+    upstream_url: str = Field(
+        default="https://github.com/openclaw/openclaw.git",
+        validation_alias="AUTORESEARCH_UPSTREAM_WATCH_URL",
+    )
+    workspace_root: Path = Field(
+        default=Path("/Volumes/AI_LAB/ai_lab/workspace"),
+        validation_alias="AUTORESEARCH_UPSTREAM_WATCH_WORKSPACE_ROOT",
+    )
+    max_commits: int = Field(default=5, validation_alias="AUTORESEARCH_UPSTREAM_WATCH_MAX_COMMITS")
+
+    @field_validator("workspace_root", mode="before")
+    @classmethod
+    def _normalize_workspace_root(cls, value: Any) -> Path:
+        path = _parse_path(value)
+        return path or Path("/Volumes/AI_LAB/ai_lab/workspace")
+
+
 def load_runtime_settings() -> RuntimeSettings:
     return RuntimeSettings()
 
@@ -351,6 +369,10 @@ def load_feature_settings() -> FeatureSettings:
 
 def load_admin_settings() -> AdminSettings:
     return AdminSettings()
+
+
+def load_upstream_watcher_settings() -> UpstreamWatcherSettings:
+    return UpstreamWatcherSettings()
 
 
 @lru_cache(maxsize=1)
@@ -378,10 +400,16 @@ def get_admin_settings() -> AdminSettings:
     return load_admin_settings()
 
 
+@lru_cache(maxsize=1)
+def get_upstream_watcher_settings() -> UpstreamWatcherSettings:
+    return load_upstream_watcher_settings()
+
+
 def clear_settings_caches() -> None:
     get_runtime_settings.cache_clear()
     get_telegram_settings.cache_clear()
     get_panel_settings.cache_clear()
     get_feature_settings.cache_clear()
     get_admin_settings.cache_clear()
+    get_upstream_watcher_settings.cache_clear()
     _WARNED_DEPRECATED_ALIASES.clear()

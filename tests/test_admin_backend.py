@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 import time
 from pathlib import Path
@@ -7,12 +8,16 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from autoresearch.agent_protocol.models import DriverMetrics, DriverResult, JobSpec, RunSummary, ValidationReport
 from autoresearch.api.dependencies import (
     get_admin_auth_service,
     get_admin_config_service,
+    get_agent_audit_trail_service,
     get_approval_store_service,
+    get_autoresearch_planner_service,
     get_capability_provider_registry,
     get_claude_agent_service,
+    get_manager_agent_service,
     get_openclaw_compat_service,
 )
 from autoresearch.api.main import app
@@ -21,9 +26,14 @@ from autoresearch.core.adapters.contracts import CapabilityDomain
 from autoresearch.core.services.admin_auth import AdminAuthService
 from autoresearch.core.services.admin_config import AdminConfigService
 from autoresearch.core.services.admin_secrets import AdminSecretCipher
+from autoresearch.core.services.agent_audit_trail import AgentAuditTrailService
 from autoresearch.core.services.approval_store import ApprovalStoreService
+from autoresearch.core.services.autoresearch_planner import AutoResearchPlannerService
 from autoresearch.core.services.claude_agents import ClaudeAgentService
+from autoresearch.agents.manager_agent import ManagerAgentService
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
+from autoresearch.shared.autoresearch_planner_contract import AutoResearchPlannerRequest
+from autoresearch.shared.manager_agent_contract import ManagerDispatchRequest
 from autoresearch.shared.models import (
     AdminAgentConfigRead,
     AdminChannelConfigRead,
@@ -31,10 +41,11 @@ from autoresearch.shared.models import (
     AdminSecretRecordRead,
     ApprovalRequestCreateRequest,
     ApprovalRequestRead,
+    ClaudeAgentCreateRequest,
     ClaudeAgentRunRead,
     OpenClawSessionRead,
 )
-from autoresearch.shared.store import SQLiteModelRepository
+from autoresearch.shared.store import InMemoryRepository, SQLiteModelRepository
 
 
 class _StubCapabilityProvider:
@@ -112,6 +123,50 @@ class _StubCalendarProvider(_StubCapabilityProvider):
         return {}
 
 
+def _write(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+
+
+def _successful_run_summary(job: JobSpec) -> RunSummary:
+    patch_path = Path("/tmp") / f"{job.run_id}.patch"
+    patch_path.write_text(
+        "\n".join(
+            [
+                "diff --git a/src/demo.py b/src/demo.py",
+                "--- a/src/demo.py",
+                "+++ b/src/demo.py",
+                "@@ -1 +1 @@",
+                "+VALUE = 'READY_FOR_PROMOTION'",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return RunSummary(
+        run_id=job.run_id,
+        final_status="ready_for_promotion",
+        driver_result=DriverResult(
+            run_id=job.run_id,
+            agent_id=job.agent_id,
+            status="succeeded",
+            summary="admin audit flow completed successfully",
+            changed_paths=list(job.policy.allowed_paths),
+            metrics=DriverMetrics(
+                duration_ms=1800,
+                steps=3,
+                commands=2,
+                first_progress_ms=300,
+                first_scoped_write_ms=900,
+                first_state_heartbeat_ms=300,
+            ),
+            recommended_action="promote",
+        ),
+        validation=ValidationReport(run_id=job.run_id, passed=True),
+        promotion_patch_uri=str(patch_path),
+    )
+
+
 @pytest.fixture
 def admin_client(tmp_path: Path) -> TestClient:
     db_path = tmp_path / "admin.sqlite3"
@@ -132,6 +187,22 @@ def admin_client(tmp_path: Path) -> TestClient:
         repo_root=tmp_path,
         max_agents=10,
         max_depth=3,
+    )
+    planner_service = AutoResearchPlannerService(
+        repository=InMemoryRepository(),
+        repo_root=tmp_path,
+        dispatch_runner=_successful_run_summary,
+    )
+    manager_service = ManagerAgentService(
+        repository=InMemoryRepository(),
+        repo_root=tmp_path,
+        dispatch_runner=_successful_run_summary,
+    )
+    audit_trail_service = AgentAuditTrailService(
+        repo_root=tmp_path,
+        planner_service=planner_service,
+        manager_service=manager_service,
+        agent_service=claude_service,
     )
     admin_service = AdminConfigService(
         agent_repository=SQLiteModelRepository(
@@ -174,6 +245,9 @@ def admin_client(tmp_path: Path) -> TestClient:
 
     app.dependency_overrides[get_openclaw_compat_service] = lambda: openclaw_service
     app.dependency_overrides[get_claude_agent_service] = lambda: claude_service
+    app.dependency_overrides[get_autoresearch_planner_service] = lambda: planner_service
+    app.dependency_overrides[get_manager_agent_service] = lambda: manager_service
+    app.dependency_overrides[get_agent_audit_trail_service] = lambda: audit_trail_service
     app.dependency_overrides[get_admin_config_service] = lambda: admin_service
     app.dependency_overrides[get_admin_auth_service] = lambda: auth_service
     app.dependency_overrides[get_approval_store_service] = lambda: approval_store
@@ -190,6 +264,10 @@ def admin_client(tmp_path: Path) -> TestClient:
         client.headers.update({"authorization": f"Bearer {token}"})
         setattr(client, "_admin_service", admin_service)
         setattr(client, "_approval_store", approval_store)
+        setattr(client, "_planner_service", planner_service)
+        setattr(client, "_manager_service", manager_service)
+        setattr(client, "_claude_service", claude_service)
+        setattr(client, "_repo_root", tmp_path)
         yield client
 
     app.dependency_overrides.clear()
@@ -214,6 +292,8 @@ def test_admin_requires_bearer_token(admin_client: TestClient) -> None:
     assert denied.status_code == 401
     denied_capabilities = admin_client.get("/api/v1/admin/capabilities")
     assert denied_capabilities.status_code == 401
+    denied_audit = admin_client.get("/api/v1/admin/audit-trail")
+    assert denied_audit.status_code == 401
     if existing is not None:
         admin_client.headers["authorization"] = existing
 
@@ -223,8 +303,11 @@ def test_admin_view_contains_capability_inventory_section(admin_client: TestClie
 
     assert response.status_code == 200
     assert "Capability Inventory" in response.text
+    assert "Agent Audit Trail" in response.text
     assert "Approval Queue" in response.text
     assert "Managed Skill Queue" in response.text
+    assert "/api/v1/admin/audit-trail" in response.text
+    assert "loadAuditDetail" in response.text
     assert "/api/v1/admin/capabilities" in response.text
     assert "/api/v1/admin/approvals" in response.text
     assert "/api/v1/admin/skills/status" in response.text
@@ -248,6 +331,203 @@ def test_admin_capability_snapshot_lists_provider_inventory(admin_client: TestCl
     assert mcp_provider["tools"][0]["name"] == "echo_tool"
     skill_provider = payload["providers"][2]
     assert skill_provider["skills"][0]["skill_key"] == "daily_brief"
+
+
+def test_admin_audit_trail_lists_recent_worker_activity(admin_client: TestClient) -> None:
+    repo_root: Path = getattr(admin_client, "_repo_root")
+    planner_service: AutoResearchPlannerService = getattr(admin_client, "_planner_service")
+    manager_service: ManagerAgentService = getattr(admin_client, "_manager_service")
+    claude_service: ClaudeAgentService = getattr(admin_client, "_claude_service")
+
+    _write(
+        repo_root / "src" / "autoresearch" / "core" / "services" / "audit_target.py",
+        "def collect_audit_events() -> bool:\n    # FIXME: add audit timeline regression coverage\n    return True\n",
+    )
+    _write(repo_root / "tests" / "test_audit_target.py", "def test_collect_audit_events():\n    assert True\n")
+    _write(repo_root / "panel" / "app.tsx", "export const App = () => null;\n")
+    _write(repo_root / "src" / "autoresearch" / "api" / "routers" / "admin.py", "router = object()\n")
+    _write(repo_root / "src" / "autoresearch" / "api" / "routers" / "panel.py", "router = object()\n")
+    _write(repo_root / "tests" / "test_panel_security.py", "def test_panel_ok():\n    assert True\n")
+    _write(repo_root / "tests" / "test_admin_managed_skills.py", "def test_admin_ok():\n    assert True\n")
+
+    plan = planner_service.create(
+        AutoResearchPlannerRequest(goal="Find the next audit trail hardening task.")
+    )
+    planner_service.request_dispatch(plan.plan_id, requested_by="admin-ui")
+    planner_service.execute_dispatch(plan.plan_id)
+
+    dispatch = manager_service.create_dispatch(
+        ManagerDispatchRequest(
+            prompt="在 Admin Panel 里加一个带图表的智能体行为审计大屏。",
+            auto_dispatch=False,
+        )
+    )
+    manager_service.execute_dispatch(dispatch.dispatch_id)
+
+    claude_service.create(
+        ClaudeAgentCreateRequest(
+            task_name="audit reviewer",
+            prompt="Inspect the latest worker execution traces.",
+            command_override=[sys.executable, "-c", "print('audit-review')"],
+            append_prompt=False,
+            metadata={
+                "allowed_paths": ["src/autoresearch/api/routers/admin.py"],
+                "changed_paths": ["src/autoresearch/api/routers/admin.py"],
+            },
+        )
+    )
+
+    runtime_summary_path = (
+        repo_root / ".masfactory_runtime" / "smokes" / "audit-smoke" / "artifacts" / "chain_summary.json"
+    )
+    runtime_summary_path.parent.mkdir(parents=True, exist_ok=True)
+    runtime_patch_path = runtime_summary_path.parent / "promotion.patch"
+    runtime_patch_path.write_text(
+        "\n".join(
+            [
+                "diff --git a/src/autoresearch/api/routers/admin.py b/src/autoresearch/api/routers/admin.py",
+                "--- a/src/autoresearch/api/routers/admin.py",
+                "+++ b/src/autoresearch/api/routers/admin.py",
+                "@@ -1 +1 @@",
+                "+AUDIT_TRAIL = True",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    runtime_summary_path.write_text(
+        json.dumps(
+            {
+                "run_id": "runtime-audit-001",
+                "status": "ready_for_promotion",
+                "task": "Rebuild audit trail timeline",
+                "isolated_workspace": "/tmp/audit-runtime",
+                "driver_result": {
+                    "agent_id": "openhands",
+                    "summary": "runtime artifact captured successfully",
+                    "changed_paths": ["src/autoresearch/api/routers/admin.py"],
+                    "metrics": {
+                        "duration_ms": 2400,
+                        "first_progress_ms": 700,
+                        "first_scoped_write_ms": 1100,
+                        "first_state_heartbeat_ms": 700,
+                    },
+                },
+                "promotion": {
+                    "changed_files": ["src/autoresearch/api/routers/admin.py"],
+                    "diff_stats": {"files_changed": 1},
+                    "patch_uri": str(runtime_patch_path),
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    failed_runtime_path = (
+        repo_root / "logs" / "audit" / "openhands" / "jobs" / "audit-failed-001" / "chain_summary.json"
+    )
+    failed_runtime_path.parent.mkdir(parents=True, exist_ok=True)
+    failed_patch_path = failed_runtime_path.parent / "promotion.patch"
+    failed_patch_path.write_text(
+        "\n".join(
+            [
+                "diff --git a/src/autoresearch/core/services/agent_audit_trail.py b/src/autoresearch/core/services/agent_audit_trail.py",
+                "--- a/src/autoresearch/core/services/agent_audit_trail.py",
+                "+++ b/src/autoresearch/core/services/agent_audit_trail.py",
+                "@@ -1 +1 @@",
+                "+BROKEN = True",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    failed_runtime_path.write_text(
+        json.dumps(
+            {
+                "run_id": "runtime-audit-failed-001",
+                "status": "failed",
+                "task": "Patch audit trail filters",
+                "error": "validation command failed",
+                "traceback": "Traceback (most recent call last):\\nValueError: missing token",
+                "artifacts": {"promotion_patch": str(failed_patch_path)},
+                "driver_result": {
+                    "agent_id": "openhands",
+                    "summary": "worker failed during validation",
+                    "changed_paths": ["src/autoresearch/core/services/agent_audit_trail.py"],
+                    "metrics": {
+                        "duration_ms": 3200,
+                        "first_progress_ms": 600,
+                        "first_scoped_write_ms": 1600,
+                        "first_state_heartbeat_ms": 600,
+                    },
+                    "error": "pytest exited with code 1",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    response = admin_client.get("/api/v1/admin/audit-trail?limit=20")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["stats"]["total"] >= 5
+    assert payload["stats"]["queued"] >= 1
+    assert payload["stats"]["succeeded"] >= 2
+    assert payload["stats"]["failed"] >= 1
+    sources = {item["source"] for item in payload["items"]}
+    assert {"manager_task", "autoresearch_plan", "claude_agent", "runtime_artifact"} <= sources
+
+    planner_item = next(item for item in payload["items"] if item["source"] == "autoresearch_plan")
+    assert planner_item["final_status"] == "ready_for_promotion"
+    assert planner_item["status"] == "dispatched"
+    assert "tests/test_audit_target.py" in planner_item["scope_paths"]
+    assert planner_item["first_progress_ms"] == 300
+    assert planner_item["first_scoped_write_ms"] == 900
+    assert planner_item["first_state_heartbeat_ms"] == 300
+
+    manager_backend = next(
+        item
+        for item in payload["items"]
+        if item["source"] == "manager_task" and item["metadata"]["stage"] == "backend"
+    )
+    assert manager_backend["final_status"] == "ready_for_promotion"
+    assert "src/autoresearch/api/routers/admin.py" in manager_backend["scope_paths"]
+
+    runtime_item = next(
+        item
+        for item in payload["items"]
+        if item["source"] == "runtime_artifact" and item["run_id"] == "runtime-audit-001"
+    )
+    assert runtime_item["isolated_workspace"] == "/tmp/audit-runtime"
+    assert runtime_item["patch_uri"] == str(runtime_patch_path)
+    assert runtime_item["agent_role"] == "worker"
+    assert runtime_item["first_progress_ms"] == 700
+    assert runtime_item["first_scoped_write_ms"] == 1100
+    assert runtime_item["first_state_heartbeat_ms"] == 700
+
+    detail_response = admin_client.get(f"/api/v1/admin/audit-trail/{planner_item['entry_id']}")
+    assert detail_response.status_code == 200
+    detail_payload = detail_response.json()
+    assert detail_payload["input_prompt"] == "Find the next audit trail hardening task."
+    assert detail_payload["job_spec"]["task"] != ""
+    assert "diff --git" in detail_payload["patch_text"]
+    assert detail_payload["patch_truncated"] is False
+    assert detail_payload["entry"]["first_progress_ms"] == 300
+
+    failed_response = admin_client.get("/api/v1/admin/audit-trail?limit=20&status_filter=failed&agent_role=worker")
+    assert failed_response.status_code == 200
+    failed_items = failed_response.json()["items"]
+    assert len(failed_items) == 1
+    assert failed_items[0]["run_id"] == "runtime-audit-failed-001"
+
+    failed_detail = admin_client.get(f"/api/v1/admin/audit-trail/{failed_items[0]['entry_id']}")
+    assert failed_detail.status_code == 200
+    failed_detail_payload = failed_detail.json()
+    assert failed_detail_payload["error_reason"] == "validation command failed"
+    assert "Traceback" in (failed_detail_payload["traceback"] or "")
+    assert "diff --git" in failed_detail_payload["patch_text"]
+    assert failed_detail_payload["entry"]["first_progress_ms"] == 600
 
 
 def test_admin_approvals_list_and_resolve(admin_client: TestClient) -> None:

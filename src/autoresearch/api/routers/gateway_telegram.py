@@ -13,6 +13,8 @@ from autoresearch.api.dependencies import (
     get_approval_store_service,
     get_capability_provider_registry,
     get_claude_agent_service,
+    get_github_issue_service,
+    get_manager_agent_service,
     get_openclaw_compat_service,
     get_openclaw_memory_service,
     get_panel_access_service,
@@ -23,7 +25,9 @@ from autoresearch.core.adapters import CapabilityDomain, CapabilityProviderRegis
 from autoresearch.core.services.admin_config import AdminConfigService
 from autoresearch.core.services.approval_store import ApprovalStoreService
 from autoresearch.core.services.claude_agents import ClaudeAgentService
+from autoresearch.core.services.github_issue_service import GitHubIssueRead, GitHubIssueService
 from autoresearch.core.services.group_access import GroupAccessManager
+from autoresearch.agents.manager_agent import ManagerAgentService
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.openclaw_memory import OpenClawMemoryService
 from autoresearch.core.services.panel_access import PanelAccessService
@@ -35,7 +39,10 @@ from autoresearch.core.services.telegram_notify import TelegramNotifierService
 from autoresearch.shared.models import (
     AdminChannelConfigCreateRequest,
     AdminChannelConfigUpdateRequest,
+    ActorRole,
     ApprovalDecisionRequest,
+    ApprovalRequestCreateRequest,
+    ApprovalRisk,
     ApprovalStatus,
     AssistantScope,
     ClaudeAgentCreateRequest,
@@ -50,6 +57,7 @@ from autoresearch.shared.models import (
     ChatType,
     TelegramWebhookAck,
 )
+from autoresearch.shared.manager_agent_contract import ManagerDispatchRead, ManagerDispatchRequest
 
 
 router = APIRouter(prefix="/api/v1/gateway/telegram", tags=["gateway", "telegram"])
@@ -80,6 +88,8 @@ def telegram_webhook(
     memory_service: OpenClawMemoryService = Depends(get_openclaw_memory_service),
     approval_service: ApprovalStoreService = Depends(get_approval_store_service),
     agent_service: ClaudeAgentService = Depends(get_claude_agent_service),
+    manager_service: ManagerAgentService = Depends(get_manager_agent_service),
+    github_issue_service: GitHubIssueService = Depends(get_github_issue_service),
     capability_registry: CapabilityProviderRegistry = Depends(get_capability_provider_registry),
     panel_access_service: PanelAccessService = Depends(get_panel_access_service),
     notifier: TelegramNotifierService = Depends(get_telegram_notifier_service),
@@ -93,6 +103,8 @@ def telegram_webhook(
         memory_service=memory_service,
         approval_service=approval_service,
         agent_service=agent_service,
+        manager_service=manager_service,
+        github_issue_service=github_issue_service,
         capability_registry=capability_registry,
         panel_access_service=panel_access_service,
         notifier=notifier,
@@ -113,6 +125,8 @@ def legacy_telegram_webhook(
     memory_service: OpenClawMemoryService = Depends(get_openclaw_memory_service),
     approval_service: ApprovalStoreService = Depends(get_approval_store_service),
     agent_service: ClaudeAgentService = Depends(get_claude_agent_service),
+    manager_service: ManagerAgentService = Depends(get_manager_agent_service),
+    github_issue_service: GitHubIssueService = Depends(get_github_issue_service),
     capability_registry: CapabilityProviderRegistry = Depends(get_capability_provider_registry),
     panel_access_service: PanelAccessService = Depends(get_panel_access_service),
     notifier: TelegramNotifierService = Depends(get_telegram_notifier_service),
@@ -126,6 +140,8 @@ def legacy_telegram_webhook(
         memory_service=memory_service,
         approval_service=approval_service,
         agent_service=agent_service,
+        manager_service=manager_service,
+        github_issue_service=github_issue_service,
         capability_registry=capability_registry,
         panel_access_service=panel_access_service,
         notifier=notifier,
@@ -142,6 +158,8 @@ def _handle_telegram_webhook(
     memory_service: OpenClawMemoryService,
     approval_service: ApprovalStoreService,
     agent_service: ClaudeAgentService,
+    manager_service: ManagerAgentService,
+    github_issue_service: GitHubIssueService,
     capability_registry: CapabilityProviderRegistry,
     panel_access_service: PanelAccessService,
     notifier: TelegramNotifierService,
@@ -228,6 +246,20 @@ def _handle_telegram_webhook(
             session_identity=session_identity,
         )
 
+    if _is_task_command(text):
+        return _handle_task_command(
+            chat_id=chat_id,
+            update=update,
+            extracted=extracted,
+            background_tasks=background_tasks,
+            openclaw_service=openclaw_service,
+            approval_service=approval_service,
+            manager_service=manager_service,
+            github_issue_service=github_issue_service,
+            notifier=notifier,
+            session_identity=session_identity,
+        )
+
     if _is_approve_command(text):
         return _handle_approve_command(
             chat_id=chat_id,
@@ -235,6 +267,7 @@ def _handle_telegram_webhook(
             extracted=extracted,
             background_tasks=background_tasks,
             approval_service=approval_service,
+            github_issue_service=github_issue_service,
             notifier=notifier,
             session_identity=session_identity,
         )
@@ -617,6 +650,171 @@ def _find_or_create_telegram_session(
     )
 
 
+def _handle_task_command(
+    *,
+    chat_id: str,
+    update: dict[str, Any],
+    extracted: dict[str, Any],
+    background_tasks: BackgroundTasks,
+    openclaw_service: OpenClawCompatService,
+    approval_service: ApprovalStoreService,
+    manager_service: ManagerAgentService,
+    github_issue_service: GitHubIssueService,
+    notifier: TelegramNotifierService,
+    session_identity: TelegramSessionIdentityRead,
+) -> TelegramWebhookAck:
+    task_query, approval_requested = _parse_task_command(extracted["text"])
+    if not task_query:
+        message_text = (
+            "用法:\n"
+            "/task <需求>\n"
+            "/task --approve <需求>\n"
+            "/task issue <owner/repo#123 | #123 | GitHub issue URL> [补充说明]"
+        )
+        if notifier.enabled:
+            background_tasks.add_task(notifier.send_message, chat_id=chat_id, text=message_text)
+        return TelegramWebhookAck(
+            accepted=False,
+            update_id=_safe_int(update.get("update_id")),
+            chat_id=chat_id,
+            reason="missing task payload",
+            metadata={"source": "telegram_manager_task", "scope": session_identity.scope.value},
+        )
+
+    session = _find_or_create_telegram_session(
+        openclaw_service=openclaw_service,
+        chat_id=chat_id,
+        session_identity=session_identity,
+    )
+    _append_user_event(
+        openclaw_service=openclaw_service,
+        session=session,
+        text=extracted["text"],
+        update=update,
+        extracted=extracted,
+        session_identity=session_identity,
+    )
+
+    issue: GitHubIssueRead | None = None
+    manager_prompt = task_query
+    task_source = "prompt"
+    operator_note = ""
+    issue_reference: str | None = None
+    issue_url: str | None = None
+    approval_granted = approval_requested and _can_telegram_task_self_approve(
+        session_identity=session_identity
+    )
+
+    if approval_requested and not approval_granted and notifier.enabled:
+        background_tasks.add_task(
+            notifier.send_message,
+            chat_id=chat_id,
+            text="`--approve` 仅对 owner/partner 生效；本次仍按常规审批流执行。",
+        )
+
+    if task_query.casefold().startswith("issue "):
+        issue_reference, operator_note = _extract_issue_task_parts(task_query)
+        try:
+            issue = github_issue_service.fetch_issue(issue_reference)
+        except Exception as exc:
+            return TelegramWebhookAck(
+                accepted=False,
+                update_id=_safe_int(update.get("update_id")),
+                chat_id=chat_id,
+                session_id=session.session_id,
+                reason=str(exc),
+                metadata={
+                    "source": "telegram_manager_task",
+                    "task_source": "issue",
+                    "scope": session_identity.scope.value,
+                },
+            )
+        manager_prompt = github_issue_service.build_manager_prompt(issue, operator_note=operator_note or None)
+        task_source = "issue"
+        issue_reference = issue.reference.display
+        issue_url = issue.url
+
+    dispatch = manager_service.create_dispatch(
+        ManagerDispatchRequest(
+            prompt=manager_prompt,
+            approval_granted=approval_granted,
+            auto_dispatch=True,
+            metadata={
+                "source": "telegram_manager_task",
+                "task_source": task_source,
+                "telegram_chat_id": chat_id,
+                "telegram_user_id": session_identity.actor.user_id,
+                "telegram_session_id": session.session_id,
+                "telegram_scope": session_identity.scope.value,
+                "raw_task_query": task_query,
+                "operator_note": operator_note,
+                "github_issue_reference": issue_reference,
+                "github_issue_url": issue_url,
+                "github_issue_title": issue.title if issue is not None else None,
+                "approval_requested": approval_requested,
+                "approval_granted": approval_granted,
+                "approval_source": "telegram_task_flag" if approval_granted else None,
+            },
+        )
+    )
+    openclaw_service.append_event(
+        session_id=session.session_id,
+        request=OpenClawSessionEventAppendRequest(
+            role="status",
+            content=f"manager dispatch queued: {dispatch.dispatch_id}",
+            metadata={
+                "source": "telegram_manager_task",
+                "dispatch_id": dispatch.dispatch_id,
+                "task_source": task_source,
+                "issue_reference": issue_reference,
+            },
+        ),
+    )
+    openclaw_service.set_status(
+        session_id=session.session_id,
+        status=JobStatus.QUEUED,
+        metadata_updates={"latest_manager_dispatch_id": dispatch.dispatch_id},
+    )
+
+    if notifier.enabled:
+        background_tasks.add_task(
+            notifier.send_message,
+            chat_id=chat_id,
+            text=_build_manager_dispatch_queued_message(dispatch, issue_reference=issue_reference),
+        )
+
+    background_tasks.add_task(
+        _execute_manager_dispatch_and_notify,
+        manager_service=manager_service,
+        approval_service=approval_service,
+        openclaw_service=openclaw_service,
+        notifier=notifier,
+        chat_id=chat_id,
+        session_id=session.session_id,
+        approval_uid=session_identity.actor.user_id or chat_id,
+        assistant_scope=session_identity.scope,
+        dispatch_id=dispatch.dispatch_id,
+        issue_reference=issue_reference,
+        issue_url=issue_url,
+        issue_title=issue.title if issue is not None else None,
+    )
+
+    return TelegramWebhookAck(
+        accepted=True,
+        update_id=_safe_int(update.get("update_id")),
+        chat_id=chat_id,
+        session_id=session.session_id,
+        metadata={
+            "source": "telegram_manager_task",
+            "dispatch_id": dispatch.dispatch_id,
+            "task_source": task_source,
+            "issue_reference": issue_reference,
+            "issue_url": issue_url,
+            "scope": session_identity.scope.value,
+        },
+    )
+
+
 def _handle_memory_command(
     *,
     chat_id: str,
@@ -979,6 +1177,7 @@ def _handle_approve_command(
     extracted: dict[str, Any],
     background_tasks: BackgroundTasks,
     approval_service: ApprovalStoreService,
+    github_issue_service: GitHubIssueService,
     notifier: TelegramNotifierService,
     session_identity: TelegramSessionIdentityRead,
 ) -> TelegramWebhookAck:
@@ -1009,8 +1208,34 @@ def _handle_approve_command(
                 message_text = _build_approval_decision_message(approval)
                 message_source = "telegram_approve_decision"
                 approval_query = approval.approval_id
+                if decision == "approved" and approval.metadata.get("action_type") == "github_issue_comment":
+                    comment_output = _post_github_issue_comment_for_approval(
+                        approval=approval,
+                        approval_service=approval_service,
+                        github_issue_service=github_issue_service,
+                        chat_id=chat_id,
+                        scope=session_identity.scope.value,
+                    )
+                    message_text = "\n\n".join(
+                        [
+                            message_text,
+                            _build_github_issue_comment_posted_message(
+                                approval_id=approval.approval_id,
+                                issue_reference=str(approval.metadata.get("issue_reference") or "unknown"),
+                                output=comment_output or None,
+                            ),
+                        ]
+                    ).strip()
             except ValueError as exc:
                 message_text = str(exc)
+                message_source = "telegram_approve_decision"
+            except RuntimeError as exc:
+                message_text = "\n\n".join(
+                    [
+                        _build_approval_decision_message(approval),
+                        f"[GitHub Reply Failed]\n{str(exc).strip()}",
+                    ]
+                ).strip()
                 message_source = "telegram_approve_decision"
     elif approval_id:
         approval = approval_service.get_request(approval_id)
@@ -1159,6 +1384,273 @@ def _build_agent_result_message(run: ClaudeAgentRunRead) -> str:
     return text
 
 
+def _execute_manager_dispatch_and_notify(
+    *,
+    manager_service: ManagerAgentService,
+    approval_service: ApprovalStoreService,
+    openclaw_service: OpenClawCompatService,
+    notifier: TelegramNotifierService,
+    chat_id: str,
+    session_id: str,
+    approval_uid: str,
+    assistant_scope: AssistantScope,
+    dispatch_id: str,
+    issue_reference: str | None,
+    issue_url: str | None,
+    issue_title: str | None,
+) -> None:
+    dispatch: ManagerDispatchRead | None = None
+    try:
+        dispatch = manager_service.execute_dispatch(dispatch_id)
+    except Exception as exc:
+        dispatch = manager_service.get_dispatch(dispatch_id)
+        error_text = str(exc).strip() or "manager dispatch failed"
+        if dispatch is None:
+            if notifier.enabled:
+                notifier.send_message(
+                    chat_id=chat_id,
+                    text=_truncate_telegram_text(
+                        "\n".join(
+                            [
+                                "[Manager Task]",
+                                f"dispatch: {dispatch_id}",
+                                "status: failed",
+                                "",
+                                error_text,
+                            ]
+                        )
+                    ),
+                )
+            return
+        dispatch = dispatch.model_copy(update={"error": dispatch.error or error_text})
+
+    final_status = dispatch.status
+    openclaw_service.append_event(
+        session_id=session_id,
+        request=OpenClawSessionEventAppendRequest(
+            role="status",
+            content=f"manager dispatch finished: {dispatch.dispatch_id}",
+            metadata={
+                "source": "telegram_manager_task",
+                "dispatch_id": dispatch.dispatch_id,
+                "status": final_status.value,
+                "issue_reference": issue_reference,
+            },
+        ),
+    )
+    openclaw_service.set_status(
+        session_id=session_id,
+        status=JobStatus.COMPLETED if final_status == JobStatus.COMPLETED else JobStatus.FAILED,
+        metadata_updates={"latest_manager_dispatch_status": final_status.value},
+    )
+
+    if notifier.enabled:
+        notifier.send_message(
+            chat_id=chat_id,
+            text=_build_manager_dispatch_result_message(
+                dispatch,
+                issue_reference=issue_reference,
+                issue_url=issue_url,
+            ),
+        )
+
+    if not issue_reference:
+        return
+
+    approval = approval_service.create_request(
+        ApprovalRequestCreateRequest(
+            title=f"Reply to GitHub issue {issue_reference}",
+            summary=f"Review and post the automated execution update for {issue_reference}.",
+            risk=ApprovalRisk.EXTERNAL,
+            source="github_issue_task",
+            telegram_uid=approval_uid,
+            session_id=session_id,
+            assistant_scope=assistant_scope,
+            metadata={
+                "action_type": "github_issue_comment",
+                "issue_reference": issue_reference,
+                "issue_url": issue_url,
+                "issue_title": issue_title,
+                "dispatch_id": dispatch.dispatch_id,
+                "comment_body": _build_github_issue_comment_body(
+                    dispatch,
+                    issue_reference=issue_reference,
+                    issue_url=issue_url,
+                ),
+            },
+        )
+    )
+    openclaw_service.append_event(
+        session_id=session_id,
+        request=OpenClawSessionEventAppendRequest(
+            role="status",
+            content=f"github issue reply approval queued: {approval.approval_id}",
+            metadata={
+                "source": "telegram_manager_task",
+                "approval_id": approval.approval_id,
+                "dispatch_id": dispatch.dispatch_id,
+                "issue_reference": issue_reference,
+            },
+        ),
+    )
+    if notifier.enabled:
+        notifier.send_message(
+            chat_id=chat_id,
+            text=_build_github_issue_reply_approval_message(
+                approval_id=approval.approval_id,
+                issue_reference=issue_reference,
+                issue_url=issue_url,
+            ),
+        )
+
+
+def _build_manager_dispatch_queued_message(
+    dispatch: ManagerDispatchRead,
+    *,
+    issue_reference: str | None,
+) -> str:
+    task_count = len(dispatch.execution_plan.tasks) if dispatch.execution_plan is not None else 0
+    lines = [
+        "[Manager Task]",
+        f"dispatch: {dispatch.dispatch_id}",
+        f"strategy: {dispatch.execution_plan.strategy.value if dispatch.execution_plan is not None else 'single_task'}",
+        f"tasks: {task_count}",
+    ]
+    if issue_reference:
+        lines.append(f"issue: {issue_reference}")
+    lines.append("已接收，开始拆解并执行。")
+    return _truncate_telegram_text("\n".join(lines))
+
+
+def _build_manager_dispatch_result_message(
+    dispatch: ManagerDispatchRead,
+    *,
+    issue_reference: str | None,
+    issue_url: str | None,
+) -> str:
+    task_count = len(dispatch.execution_plan.tasks) if dispatch.execution_plan is not None else 0
+    completed_count = (
+        sum(1 for item in dispatch.execution_plan.tasks if item.status == JobStatus.COMPLETED)
+        if dispatch.execution_plan is not None
+        else 0
+    )
+    lines = [
+        "[Manager Task]",
+        f"dispatch: {dispatch.dispatch_id}",
+        f"status: {dispatch.status.value}",
+        f"tasks: {completed_count}/{task_count}",
+    ]
+    if issue_reference:
+        lines.append(f"issue: {issue_reference}")
+    if issue_url:
+        lines.append(f"url: {issue_url}")
+    if dispatch.summary:
+        lines.extend(["", dispatch.summary])
+
+    promotion = dispatch.run_summary.promotion if dispatch.run_summary is not None else None
+    if promotion is not None and promotion.pr_url:
+        lines.append(f"draft_pr: {promotion.pr_url}")
+    elif dispatch.run_summary is not None and dispatch.run_summary.promotion_patch_uri:
+        lines.append(f"patch: {dispatch.run_summary.promotion_patch_uri}")
+
+    error_text = (
+        dispatch.error
+        or (
+            dispatch.run_summary.driver_result.error
+            if dispatch.run_summary is not None and dispatch.run_summary.driver_result.error
+            else None
+        )
+    )
+    if error_text:
+        lines.extend(["", "error:", error_text.strip()])
+    return _truncate_telegram_text("\n".join(lines))
+
+
+def _build_github_issue_comment_body(
+    dispatch: ManagerDispatchRead,
+    *,
+    issue_reference: str,
+    issue_url: str | None,
+) -> str:
+    lines = [
+        "Automated progress update from the local autonomous agent stack.",
+        "",
+        f"- Issue: {issue_reference}",
+        f"- Dispatch: {dispatch.dispatch_id}",
+        f"- Status: {dispatch.status.value}",
+    ]
+    if issue_url:
+        lines.append(f"- Issue URL: {issue_url}")
+    if dispatch.summary:
+        lines.append(f"- Summary: {dispatch.summary}")
+    promotion = dispatch.run_summary.promotion if dispatch.run_summary is not None else None
+    if promotion is not None and promotion.pr_url:
+        lines.append(f"- Draft PR: {promotion.pr_url}")
+    error_text = (
+        dispatch.error
+        or (
+            dispatch.run_summary.driver_result.error
+            if dispatch.run_summary is not None and dispatch.run_summary.driver_result.error
+            else None
+        )
+    )
+    if error_text:
+        lines.append(f"- Error: {error_text.strip()}")
+    lines.extend(
+        [
+            "",
+            "This update was prepared automatically from Telegram `/task issue` and still expects human review before merge.",
+        ]
+    )
+    return "\n".join(lines).strip()
+
+
+def _build_github_issue_reply_approval_message(
+    *,
+    approval_id: str,
+    issue_reference: str,
+    issue_url: str | None,
+) -> str:
+    lines = [
+        "[GitHub Reply Pending]",
+        f"approval: {approval_id}",
+        f"issue: {issue_reference}",
+    ]
+    if issue_url:
+        lines.append(f"url: {issue_url}")
+    lines.extend(
+        [
+            "",
+            f"/approve {approval_id} approve  发布执行结果到 GitHub issue",
+            f"/approve {approval_id} reject  保留结果，仅在 Telegram 查看",
+        ]
+    )
+    return _truncate_telegram_text("\n".join(lines))
+
+
+def _build_github_issue_comment_posted_message(
+    *,
+    approval_id: str,
+    issue_reference: str,
+    output: str | None,
+) -> str:
+    lines = [
+        "[GitHub Reply Posted]",
+        f"approval: {approval_id}",
+        f"issue: {issue_reference}",
+    ]
+    if output:
+        lines.extend(["", output.strip()])
+    return _truncate_telegram_text("\n".join(lines))
+
+
+def _truncate_telegram_text(text: str) -> str:
+    normalized = text.strip()
+    if len(normalized) > 3900:
+        return normalized[:3900] + "\n...[truncated]"
+    return normalized
+
+
 def _handle_status_query(
     *,
     chat_id: str,
@@ -1291,6 +1783,11 @@ def _is_help_command(text: str) -> bool:
     return normalized in {"/help", "help", "帮助"}
 
 
+def _is_task_command(text: str) -> bool:
+    normalized = text.strip().lower()
+    return normalized == "/task" or normalized.startswith("/task ")
+
+
 def _is_approve_command(text: str) -> bool:
     normalized = text.strip().lower()
     return normalized == "/approve" or normalized.startswith("/approve ")
@@ -1364,6 +1861,43 @@ def _extract_approve_query(text: str) -> str:
     if lowered.startswith("/approve "):
         return normalized.split(" ", 1)[1].strip()
     return ""
+
+
+def _extract_task_query(text: str) -> str:
+    return _parse_task_command(text)[0]
+
+
+def _parse_task_command(text: str) -> tuple[str, bool]:
+    normalized = text.strip()
+    lowered = normalized.lower()
+    if lowered == "/task":
+        return "", False
+    if lowered.startswith("/task "):
+        payload = normalized.split(" ", 1)[1].strip()
+        approval_requested = False
+        if payload.startswith("--approve"):
+            approval_requested = True
+            payload = payload[len("--approve") :].strip()
+        return payload, approval_requested
+    return "", False
+
+
+def _can_telegram_task_self_approve(
+    *,
+    session_identity: TelegramSessionIdentityRead,
+) -> bool:
+    return session_identity.actor.role in {ActorRole.OWNER, ActorRole.PARTNER}
+
+
+def _extract_issue_task_parts(task_query: str) -> tuple[str, str]:
+    normalized = task_query.strip()
+    if not normalized.casefold().startswith("issue "):
+        raise ValueError("issue task must start with `issue `")
+    remainder = normalized[6:].strip()
+    if not remainder:
+        raise ValueError("missing GitHub issue reference")
+    issue_reference, _, operator_note = remainder.partition(" ")
+    return issue_reference.strip(), operator_note.strip()
 
 
 def _parse_approve_query(query: str) -> tuple[str, str | None, str]:
@@ -1571,6 +2105,9 @@ def _build_help_message(*, session_identity: TelegramSessionIdentityRead) -> str
     lines = [
         "[Telegram Commands]",
         "/status 查看当前会话、任务和能力摘要",
+        "/task <需求> 走 Manager Agent DAG 执行任务",
+        "/task --approve <需求> owner/partner 直通 Draft PR 审批上下文",
+        "/task issue <issue_ref> [补充说明] 读取 GitHub issue 后派发修复",
         "/approve 查看待审批列表",
         "/approve <approval_id> 查看待审批详情",
         "/approve <approval_id> approve [备注] 批准待审批事项",
@@ -1593,6 +2130,32 @@ def _build_help_message(*, session_identity: TelegramSessionIdentityRead) -> str
         lines.append("/mode 群组固定为 shared，仅用于查看说明")
     lines.append("/help 查看本帮助")
     return "\n".join(lines)
+
+
+def _post_github_issue_comment_for_approval(
+    *,
+    approval: Any,
+    approval_service: ApprovalStoreService,
+    github_issue_service: GitHubIssueService,
+    chat_id: str,
+    scope: str,
+) -> str:
+    issue_reference = str(approval.metadata.get("issue_reference") or "").strip()
+    comment_body = str(approval.metadata.get("comment_body") or "").strip()
+    if not issue_reference or not comment_body:
+        raise RuntimeError("approval is missing GitHub issue comment payload")
+    output = github_issue_service.post_comment(issue_reference, comment_body)
+    approval_service.update_request_metadata(
+        approval.approval_id,
+        {
+            "comment_posted": True,
+            "comment_posted_at": _utc_now(),
+            "comment_post_result": output,
+            "resolved_via_chat_id": chat_id,
+            "resolved_scope": scope,
+        },
+    )
+    return output
 
 
 def _build_approval_list_message(approvals: list[Any]) -> str:

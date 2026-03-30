@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import ast
 from dataclasses import dataclass
 import fnmatch
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 from autoresearch.core.services.git_promotion_gate import GitPromotionGateService
@@ -71,6 +74,12 @@ class OpenHandsControlledBackendService:
         "SSH_ASKPASS",
     }
     _GIT_ENV_PREFIXES = ("GITHUB_", "GH_", "GIT_AUTHOR_", "GIT_COMMITTER_", "SSH_")
+    _FAST_FAIL_PATTERNS = (
+        re.compile(r"\bSyntaxError\b"),
+        re.compile(r"\bModuleNotFoundError\b"),
+        re.compile(r"\bImportError\b"),
+        re.compile(r"\bPermission denied\b", re.IGNORECASE),
+    )
 
     def __init__(
         self,
@@ -95,6 +104,7 @@ class OpenHandsControlledBackendService:
         log_file = artifacts_dir / "execution.log"
         patch_file = artifacts_dir / "promotion.patch"
         summary_file = artifacts_dir / "summary.json"
+        overlay = run_dir / "overlay"
 
         artifacts_dir.mkdir(parents=True, exist_ok=True)
         created_at = utc_now()
@@ -154,6 +164,11 @@ class OpenHandsControlledBackendService:
             current_backend_attempts += 1
             total_attempts += 1
             self._sync_directory(source=baseline, target=workspace, apply_excludes=False)
+            self._prepare_strict_workspace(
+                workspace=workspace,
+                overlay_root=overlay,
+                allowed_paths=request.allowed_paths,
+            )
             self._append_log(
                 log_file,
                 f"\n=== attempt {total_attempts} backend={backend.value} iteration={current_backend_attempts}/{backend_limit} ===\n",
@@ -207,6 +222,20 @@ class OpenHandsControlledBackendService:
                     if validation_status is ValidationStatus.PASSED
                     else f"test_command failed with status={validation_status.value}"
                 )
+
+            fail_fast_reason = self._detect_fail_fast_reason(
+                execution_outcome=execution_outcome,
+                changed_files=changed_files,
+                workspace=workspace,
+                log_file=log_file,
+            )
+            if fail_fast_reason is not None:
+                status = ControlledRunStatus.FAILED
+                error = fail_fast_reason
+                validation_status = ValidationStatus.FAILED
+                if validation_exit_code is None:
+                    validation_exit_code = 2
+                break
 
             if exit_code == 0 and validation_status is ValidationStatus.PASSED and changed_files:
                 status = ControlledRunStatus.READY_FOR_PROMOTION
@@ -399,6 +428,7 @@ class OpenHandsControlledBackendService:
 
     def _sync_directory(self, *, source: Path, target: Path, apply_excludes: bool) -> None:
         if target.exists():
+            self._make_tree_writable(target)
             shutil.rmtree(target)
         target.mkdir(parents=True, exist_ok=True)
 
@@ -429,21 +459,30 @@ class OpenHandsControlledBackendService:
         log_file: Path,
         allowed_paths: list[str],
     ) -> _BackendExecutionOutcome:
-        if backend is ControlledBackend.MOCK:
-            return self._run_mock_backend(
+        try:
+            if backend is ControlledBackend.MOCK:
+                return self._run_mock_backend(
+                    prompt=prompt,
+                    workspace=workspace,
+                    log_file=log_file,
+                    allowed_paths=allowed_paths,
+                )
+
+            return self._run_openhands_cli(
                 prompt=prompt,
                 workspace=workspace,
+                artifacts_dir=artifacts_dir,
                 log_file=log_file,
                 allowed_paths=allowed_paths,
             )
-
-        return self._run_openhands_cli(
-            prompt=prompt,
-            workspace=workspace,
-            artifacts_dir=artifacts_dir,
-            log_file=log_file,
-            allowed_paths=allowed_paths,
-        )
+        except Exception as exc:
+            message = str(exc).strip() or exc.__class__.__name__
+            self._append_log(log_file, f"[backend-exception] {exc.__class__.__name__}: {message}\n")
+            return _BackendExecutionOutcome(
+                exit_code=1,
+                error=message,
+                stderr=f"{exc.__class__.__name__}: {message}\n",
+            )
 
     def _run_mock_backend(
         self,
@@ -484,7 +523,7 @@ class OpenHandsControlledBackendService:
             "Execution contract:\n"
             "- Single task execution only. Do not start autonomous loops.\n"
             "- Do not commit, push, or edit git config.\n"
-            "- Modify files only under /opt/workspace.\n"
+            "- Modify files only inside the provided workspace root.\n"
             "- Return changed files and executed commands in final summary.\n"
         )
 
@@ -537,6 +576,8 @@ class OpenHandsControlledBackendService:
         env["OPENHANDS_WORKSPACE"] = str(workspace)
         env["OPENHANDS_AUDIT_DIR"] = str(artifacts_dir)
         env["OPENHANDS_AUDIT_FILE"] = str(artifacts_dir / "openhands_compliance.json")
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        env["PYTHONPYCACHEPREFIX"] = str(artifacts_dir / "pycache")
         if env.get("OPENHANDS_DRY_RUN") == "1" and "OPENHANDS_RUNTIME" not in env:
             env["OPENHANDS_RUNTIME"] = "host"
         return env
@@ -588,6 +629,11 @@ class OpenHandsControlledBackendService:
         completed = subprocess.run(
             command,
             cwd=workspace,
+            env={
+                **os.environ,
+                "PYTHONDONTWRITEBYTECODE": "1",
+                "PYTHONPYCACHEPREFIX": str(validation_dir / "pycache"),
+            },
             capture_output=True,
             text=True,
             check=False,
@@ -610,6 +656,171 @@ class OpenHandsControlledBackendService:
         if completed.returncode == 0:
             return 0, ValidationStatus.PASSED
         return completed.returncode, ValidationStatus.FAILED
+
+    def _prepare_strict_workspace(
+        self,
+        *,
+        workspace: Path,
+        overlay_root: Path,
+        allowed_paths: list[str],
+    ) -> None:
+        if overlay_root.exists():
+            shutil.rmtree(overlay_root)
+        overlay_root.mkdir(parents=True, exist_ok=True)
+
+        file_paths: list[str] = []
+        directory_paths: list[str] = []
+        wildcard_paths: list[str] = []
+
+        for pattern in allowed_paths:
+            normalized = pattern.strip().replace("\\", "/").rstrip("/")
+            if not normalized:
+                continue
+            if any(char in normalized for char in "*?["):
+                wildcard_paths.append(normalized)
+                continue
+            target = workspace / normalized
+            if target.exists() and target.is_dir():
+                directory_paths.append(normalized)
+                continue
+            if "." in Path(normalized).name:
+                file_paths.append(normalized)
+            else:
+                directory_paths.append(normalized)
+
+        for rel_path in file_paths:
+            self._materialize_overlay_file(
+                workspace=workspace,
+                overlay_root=overlay_root,
+                relative_path=rel_path,
+            )
+
+        self._apply_readonly_tree(workspace=workspace)
+
+        for rel_path in directory_paths:
+            self._make_path_tree_writable(workspace / rel_path)
+
+        for pattern in wildcard_paths:
+            self._make_matching_paths_writable(workspace=workspace, pattern=pattern)
+
+        for rel_path in file_paths:
+            self._make_overlay_target_writable(overlay_root=overlay_root, relative_path=rel_path)
+
+    def _materialize_overlay_file(
+        self,
+        *,
+        workspace: Path,
+        overlay_root: Path,
+        relative_path: str,
+    ) -> None:
+        source = workspace / relative_path
+        overlay_target = overlay_root / relative_path
+        overlay_target.parent.mkdir(parents=True, exist_ok=True)
+        if source.exists():
+            if source.is_dir():
+                return
+            shutil.copy2(source, overlay_target)
+            source.unlink()
+        else:
+            overlay_target.touch()
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.symlink_to(overlay_target)
+
+    def _apply_readonly_tree(self, *, workspace: Path) -> None:
+        for root, dirnames, filenames in os.walk(workspace):
+            root_path = Path(root)
+            os.chmod(root_path, 0o555)
+            for dirname in dirnames:
+                os.chmod(root_path / dirname, 0o555)
+            for filename in filenames:
+                path = root_path / filename
+                if path.is_symlink():
+                    continue
+                os.chmod(path, 0o444)
+
+    def _make_path_tree_writable(self, path: Path) -> None:
+        if not path.exists():
+            return
+        if path.is_file():
+            os.chmod(path, 0o644)
+            return
+        for root, dirnames, filenames in os.walk(path):
+            root_path = Path(root)
+            os.chmod(root_path, 0o755)
+            for dirname in dirnames:
+                os.chmod(root_path / dirname, 0o755)
+            for filename in filenames:
+                candidate = root_path / filename
+                if candidate.is_symlink():
+                    continue
+                os.chmod(candidate, 0o644)
+
+    def _make_matching_paths_writable(self, *, workspace: Path, pattern: str) -> None:
+        for candidate in workspace.rglob("*"):
+            relative = candidate.relative_to(workspace).as_posix()
+            if fnmatch.fnmatch(relative, pattern):
+                self._make_path_tree_writable(candidate)
+
+    def _make_tree_writable(self, path: Path) -> None:
+        if not path.exists():
+            return
+        for root, dirnames, filenames in os.walk(path):
+            root_path = Path(root)
+            os.chmod(root_path, 0o755)
+            for dirname in dirnames:
+                os.chmod(root_path / dirname, 0o755)
+            for filename in filenames:
+                candidate = root_path / filename
+                if candidate.is_symlink():
+                    continue
+                os.chmod(candidate, 0o644)
+
+    def _make_overlay_target_writable(self, *, overlay_root: Path, relative_path: str) -> None:
+        target = overlay_root / relative_path
+        parent = target.parent
+        while True:
+            os.chmod(parent, 0o755)
+            if parent == overlay_root:
+                break
+            parent = parent.parent
+        if target.exists():
+            os.chmod(target, 0o644)
+
+    def _detect_fail_fast_reason(
+        self,
+        *,
+        execution_outcome: _BackendExecutionOutcome,
+        changed_files: list[str],
+        workspace: Path,
+        log_file: Path,
+    ) -> str | None:
+        combined_output = "\n".join(
+            part for part in (execution_outcome.error, execution_outcome.stdout, execution_outcome.stderr) if part
+        )
+        for pattern in self._FAST_FAIL_PATTERNS:
+            if pattern.search(combined_output):
+                reason = f"fail-fast probe tripped on backend output: {pattern.pattern}"
+                self._append_log(log_file, f"[fail-fast] {reason}\n")
+                return reason
+
+        python_changes = [path for path in changed_files if path.endswith(".py")]
+        if not python_changes:
+            return None
+
+        for rel_path in python_changes:
+            target = workspace / rel_path
+            try:
+                source = target.read_text(encoding="utf-8")
+                ast.parse(source, filename=rel_path)
+            except SyntaxError as exc:
+                reason = f"fail-fast probe detected broken python artifacts: SyntaxError in {rel_path}:{exc.lineno}"
+                self._append_log(log_file, f"[fail-fast] {reason}\n")
+                return reason
+            except OSError as exc:
+                reason = f"fail-fast probe could not read changed file {rel_path}: {exc}"
+                self._append_log(log_file, f"[fail-fast] {reason}\n")
+                return reason
+        return None
 
     def _detect_scope_violation(
         self,

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+
 import pytest
 
 from autoresearch.core.services.openhands_worker import OpenHandsWorkerService
@@ -21,14 +23,16 @@ def test_openhands_worker_builds_patch_only_agent_job_spec() -> None:
 
     assert job.agent_id == "openhands"
     assert job.mode == "patch_only"
+    assert job.policy.timeout_sec == 420
     assert job.policy.allowed_paths == ["src/foo.py", "tests/test_foo.py"]
-    assert job.validators[0].command == "pytest tests/test_foo.py -q"
+    assert job.validators[0].command == f"{sys.executable} -m pytest tests/test_foo.py -q"
     assert job.metadata["worker_contract"] == "openhands-worker/v1"
     assert job.metadata["worker_output_mode"] == "patch"
     assert job.metadata["pipeline_target"] == "draft_pr"
     assert "Do not run git add, git commit, git push" in job.task
     assert "allowed_paths:" in job.task
     assert "test_command:" in job.task
+    assert f"{sys.executable} -m pytest tests/test_foo.py -q" in job.task
 
 
 def test_openhands_worker_builds_controlled_request_with_mock_fallback() -> None:
@@ -48,7 +52,7 @@ def test_openhands_worker_builds_controlled_request_with_mock_fallback() -> None
     assert request.failure_strategy is FailureStrategy.FALLBACK
     assert request.allowed_paths == ["src/autoresearch/core/services/openhands_worker.py"]
     assert request.test_command == [
-        "python",
+        sys.executable,
         "-m",
         "py_compile",
         "src/autoresearch/core/services/openhands_worker.py",
@@ -82,3 +86,33 @@ def test_openhands_worker_can_target_patch_pipeline_explicitly() -> None:
 
     assert request.worker_output_mode == "patch"
     assert request.pipeline_target.value == "patch"
+
+
+def test_openhands_worker_builds_controlled_request_with_pytest_via_active_python() -> None:
+    service = OpenHandsWorkerService()
+    spec = OpenHandsWorkerJobSpec(
+        job_id="job-5",
+        problem_statement="Keep pytest bound to the active interpreter.",
+        allowed_paths=["tests/test_worker.py"],
+        test_command="pytest -q tests/test_worker.py",
+    )
+
+    request = service.build_controlled_request(spec)
+
+    assert request.test_command == [sys.executable, "-m", "pytest", "-q", "tests/test_worker.py"]
+
+
+def test_openhands_worker_normalizes_python_commands_to_active_interpreter() -> None:
+    service = OpenHandsWorkerService()
+    spec = OpenHandsWorkerJobSpec(
+        job_id="job-6",
+        problem_statement="Compile a scoped business module with the active interpreter.",
+        allowed_paths=["apps/malu/lead_capture.py"],
+        test_command="python -m py_compile apps/malu/lead_capture.py",
+    )
+
+    job = service.build_agent_job_spec(spec)
+    request = service.build_controlled_request(spec)
+
+    assert job.validators[0].command == f"{sys.executable} -m py_compile apps/malu/lead_capture.py"
+    assert request.test_command == [sys.executable, "-m", "py_compile", "apps/malu/lead_capture.py"]

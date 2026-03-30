@@ -893,8 +893,8 @@ class PanelMagicLinkRead(StrictModel):
 class PanelAuditLogRead(StrictModel):
     audit_id: str
     telegram_uid: str
-    action: Literal["cancel", "retry", "approve", "reject"]
-    target_type: Literal["agent_run", "approval_request"] = "agent_run"
+    action: Literal["cancel", "retry", "approve", "reject", "dispatch"]
+    target_type: Literal["agent_run", "approval_request", "autoresearch_plan"] = "agent_run"
     target_id: str
     status: Literal["accepted", "rejected", "failed"] = "accepted"
     reason: str | None = None
@@ -965,6 +965,63 @@ class AdminManagedSkillPromotionExecuteRequest(StrictModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class AdminAgentAuditRole(str, Enum):
+    MANAGER = "manager"
+    PLANNER = "planner"
+    WORKER = "worker"
+
+
+class AdminAgentAuditTrailEntryRead(StrictModel):
+    entry_id: str
+    source: Literal["manager_task", "autoresearch_plan", "claude_agent", "runtime_artifact"]
+    agent_role: AdminAgentAuditRole = AdminAgentAuditRole.WORKER
+    run_id: str
+    agent_id: str | None = None
+    title: str
+    status: str
+    final_status: str | None = None
+    recorded_at: datetime
+    duration_ms: int | None = None
+    first_progress_ms: int | None = None
+    first_scoped_write_ms: int | None = None
+    first_state_heartbeat_ms: int | None = None
+    files_changed: int = 0
+    changed_paths: list[str] = Field(default_factory=list)
+    scope_paths: list[str] = Field(default_factory=list)
+    patch_uri: str | None = None
+    isolated_workspace: str | None = None
+    summary: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class AdminAgentAuditTrailStatsRead(StrictModel):
+    total: int = 0
+    succeeded: int = 0
+    failed: int = 0
+    running: int = 0
+    queued: int = 0
+    review_required: int = 0
+
+
+class AdminAgentAuditTrailSnapshotRead(StrictModel):
+    items: list[AdminAgentAuditTrailEntryRead] = Field(default_factory=list)
+    stats: AdminAgentAuditTrailStatsRead = Field(default_factory=AdminAgentAuditTrailStatsRead)
+    issued_at: datetime
+
+
+class AdminAgentAuditTrailDetailRead(StrictModel):
+    entry: AdminAgentAuditTrailEntryRead
+    input_prompt: str | None = None
+    job_spec: dict[str, Any] = Field(default_factory=dict)
+    worker_spec: dict[str, Any] = Field(default_factory=dict)
+    controlled_request: dict[str, Any] = Field(default_factory=dict)
+    patch_text: str = ""
+    patch_truncated: bool = False
+    error_reason: str | None = None
+    traceback: str | None = None
+    raw_record: dict[str, Any] = Field(default_factory=dict)
+
+
 class PanelStateRead(StrictModel):
     telegram_uid: str
     sessions: list[OpenClawSessionRead] = Field(default_factory=list)
@@ -972,6 +1029,7 @@ class PanelStateRead(StrictModel):
     audit_logs: list[PanelAuditLogRead] = Field(default_factory=list)
     capability_providers: list[CapabilityProviderSummaryRead] = Field(default_factory=list)
     pending_approvals: list[ApprovalRequestRead] = Field(default_factory=list)
+    pending_autoresearch_plans: list[dict[str, Any]] = Field(default_factory=list)
     issued_at: datetime
 
 
