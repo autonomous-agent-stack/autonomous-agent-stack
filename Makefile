@@ -30,7 +30,7 @@ PROMOTE_BRANCH_PREFIX ?= codex/auto-upgrade
 PROMOTE_PUSH ?= 0
 PROMOTE_OPEN_DRAFT_PR ?= 0
 
-.PHONY: help setup doctor start test-quick clean
+.PHONY: help setup doctor doctor-linux start test-quick clean
 .PHONY: ai-lab ai-lab-setup ai-lab-check ai-lab-up ai-lab-down ai-lab-status ai-lab-shell ai-lab-run masfactory-flight hygiene-check openhands openhands-dry-run openhands-controlled openhands-controlled-dry-run openhands-demo agent-run promote-run
 .PHONY: review-gates-local
 
@@ -39,6 +39,7 @@ help:
 	@echo ""
 	@echo "  make setup       Create .venv and install dependencies"
 	@echo "  make doctor      Run environment checks"
+	@echo "  make doctor-linux Run Linux remote-worker checks"
 	@echo "  make start       Run doctor then start local API"
 	@echo "  make ai-lab      One-key launch AI lab shell"
 	@echo "  make ai-lab-setup Initialize AI lab user and quota volume"
@@ -81,6 +82,13 @@ doctor:
 		exit 1; \
 	fi
 	$(VENV_PYTHON) scripts/doctor.py --port $(PORT)
+
+doctor-linux:
+	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \
+		echo "Missing $(VENV_PYTHON). Run 'make setup' first."; \
+		exit 1; \
+	fi
+	$(VENV_PYTHON) scripts/doctor.py --profile linux-remote --port $(PORT)
 
 start:
 	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \

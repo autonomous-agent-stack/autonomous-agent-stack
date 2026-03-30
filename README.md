@@ -25,6 +25,7 @@ cd /Volumes/PS1008/Github/autonomous-agent-stack
 # 确保这里用的是 Python 3.11+
 make setup
 make doctor
+make doctor-linux
 make start
 ```
 
@@ -59,12 +60,32 @@ AUTORESEARCH_UPSTREAM_WATCH_MAX_COMMITS=5
 
 当前代码会优先使用 `AUTORESEARCH_TELEGRAM_BOT_TOKEN`；旧变量 `TELEGRAM_BOT_TOKEN` 还能兼容，但已经是 deprecated。
 
+## Linux 远端节点
+
+如果你准备把 Linux 当“执行面”来跑真实 OpenHands，最稳的第一步不是照搬 Mac/Colima，而是直接走 `host` runtime。
+
+最小路径：
+
+```bash
+python3.11 -m venv .venv
+source .venv/bin/activate
+make setup
+OPENHANDS_RUNTIME=host make doctor-linux
+OPENHANDS_RUNTIME=host make start
+```
+
+更完整的落地清单、环境变量建议和远端使用姿势见：
+
+- [Linux Remote Worker Guide](./docs/linux-remote-worker.md)
+- [OpenHands Controlled Backend Integration](./docs/openhands-cli-integration.md)
+
 ## 常用命令
 
 ```bash
 make help
 make setup
 make doctor
+make doctor-linux
 make start
 make test-quick
 make ai-lab
@@ -164,9 +185,10 @@ PORT=8010 make start
 ## 快速排错
 
 1. 先跑 `make doctor`，看是否有 `FAIL`
-2. 如果提示 Python 版本过低，先切到 Python 3.11+，再执行 `make setup`
-3. 如果是端口问题，执行 `PORT=8010 make start`
-4. 如果是导入问题，确认通过 `make start` 启动（脚本会自动设置 `PYTHONPATH=src`）
+2. Linux 远端执行节点先跑 `OPENHANDS_RUNTIME=host make doctor-linux`
+3. 如果提示 Python 版本过低，先切到 Python 3.11+，再执行 `make setup`
+4. 如果是端口问题，执行 `PORT=8010 make start`
+5. 如果是导入问题，确认通过 `make start` 启动（脚本会自动设置 `PYTHONPATH=src`）
 
 ## 🎯 灵感来源（Inspirations）
 
