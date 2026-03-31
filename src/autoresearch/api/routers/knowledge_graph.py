@@ -6,11 +6,10 @@ Reuses DAG rendering logic with light-themed UI.
 
 from __future__ import annotations
 
-import json
 from typing import Any, Dict, List, Optional
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 
 from autoresearch.core.memory import LocalGraphMemory
 from autoresearch.core.initialization.malu_brand_graph import (

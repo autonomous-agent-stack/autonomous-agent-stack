@@ -103,7 +103,7 @@ class PR_Static_Analyzer:
                             }
                             result["violations"].append(dangerous_violation)
                             result["safe"] = False
-        except SyntaxError as e:
+        except SyntaxError:
             # 语法错误不一定是安全问题，可能只是 diff 格式问题
             # 只有当代码明显有语法错误时才标记
             pass

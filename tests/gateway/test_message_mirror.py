@@ -1,18 +1,15 @@
-"""
-MessageMirror 测试用例
+"""MessageMirror 测试用例."""
 
-测试消息镜像功能
-"""
+import importlib
+import os
+import sys
 
 import pytest
-import sys
-import os
-import asyncio
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 sys.path.insert(0, project_root)
 
-from src.gateway.message_mirror import MessageMirror
+MessageMirror = importlib.import_module("src.gateway.message_mirror").MessageMirror
 
 
 class TestMessageMirror:

@@ -32,8 +32,6 @@ from autoresearch.shared.models import (
     OpenClawSkillDetailRead,
     OpenClawSkillRead,
     OpenClawSessionRead,
-    OpenVikingCompactRequest,
-    OpenVikingMemoryProfileRead,
 )
 
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-from typing import Any, Literal
+from typing import Literal
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Request, status
