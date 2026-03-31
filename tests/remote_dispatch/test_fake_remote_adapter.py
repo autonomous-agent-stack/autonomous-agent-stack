@@ -66,6 +66,7 @@ def test_fake_remote_adapter_success_flow(tmp_path: Path) -> None:
     assert terminal.status is RemoteRunStatus.SUCCEEDED
     assert summary.status is RemoteRunStatus.SUCCEEDED
     assert summary.run_summary is None
+    assert all(not artifact_path.startswith("/") for artifact_path in summary.artifact_paths.values())
     assert (
         repo_root
         / ".masfactory_runtime"
@@ -173,3 +174,16 @@ def test_fake_remote_adapter_result_fetch_failure_raises(tmp_path: Path) -> None
     assert terminal.status is RemoteRunStatus.SUCCEEDED
     with pytest.raises(FileNotFoundError):
         adapter.fetch_summary(spec.run_id)
+
+
+def test_fake_remote_adapter_rejects_runtime_root_outside_repo_root(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    runtime_root = tmp_path / "external-runs"
+
+    with pytest.raises(ValueError, match="runtime_root must live under repo_root"):
+        FakeRemoteAdapter(
+            repo_root=repo_root,
+            local_runner=_success_summary,
+            runtime_root=runtime_root,
+        )

@@ -51,9 +51,19 @@ class FakeRemoteAdapter(RemoteDispatchAdapter):
         runtime_root: Path | None = None,
     ) -> None:
         self._repo_root = repo_root.resolve()
-        self._runtime_root = (runtime_root or (self._repo_root / ".masfactory_runtime" / "runs")).resolve()
+        self._runtime_root = self._resolve_runtime_root(runtime_root)
         self._local_runner = local_runner
         self._states: dict[str, _FakeRunState] = {}
+
+    def _resolve_runtime_root(self, runtime_root: Path | None) -> Path:
+        candidate = (runtime_root or (self._repo_root / ".masfactory_runtime" / "runs")).resolve()
+        try:
+            candidate.relative_to(self._repo_root)
+        except ValueError as exc:
+            raise ValueError(
+                "fake remote runtime_root must live under repo_root so artifact_paths remain repo-relative"
+            ) from exc
+        return candidate
 
     def dispatch(self, spec: RemoteTaskSpec) -> RemoteRunRecord:
         now = utc_now()
@@ -364,7 +374,12 @@ class FakeRemoteAdapter(RemoteDispatchAdapter):
             encoding="utf-8",
         )
 
-        record = state.record.model_copy(update={"artifact_paths": self._artifact_paths(state)})
+        record = RemoteRunRecord.model_validate(
+            {
+                **state.record.model_dump(mode="json"),
+                "artifact_paths": self._artifact_paths(state),
+            }
+        )
         state.record = record
         (control_dir / "record.json").write_text(
             json.dumps(record.model_dump(mode="json"), ensure_ascii=False, indent=2),
@@ -377,7 +392,12 @@ class FakeRemoteAdapter(RemoteDispatchAdapter):
         )
 
         if state.heartbeats:
-            heartbeat = state.heartbeats[-1].model_copy(update={"artifact_paths": self._artifact_paths(state, include_summary=False)})
+            heartbeat = RemoteHeartbeat.model_validate(
+                {
+                    **state.heartbeats[-1].model_dump(mode="json"),
+                    "artifact_paths": self._artifact_paths(state, include_summary=False),
+                }
+            )
             state.heartbeats[-1] = heartbeat
             (control_dir / "heartbeat.json").write_text(
                 json.dumps(heartbeat.model_dump(mode="json"), ensure_ascii=False, indent=2),
@@ -385,7 +405,12 @@ class FakeRemoteAdapter(RemoteDispatchAdapter):
             )
 
         if state.summary is not None:
-            summary = state.summary.model_copy(update={"artifact_paths": self._artifact_paths(state)})
+            summary = RemoteRunSummary.model_validate(
+                {
+                    **state.summary.model_dump(mode="json"),
+                    "artifact_paths": self._artifact_paths(state),
+                }
+            )
             state.summary = summary
             if state.scenario != "result_fetch_failure":
                 (control_dir / "summary.json").write_text(
@@ -402,5 +427,7 @@ class FakeRemoteAdapter(RemoteDispatchAdapter):
     def _relpath(self, path: Path) -> str:
         try:
             return path.resolve().relative_to(self._repo_root).as_posix()
-        except ValueError:
-            return path.as_posix()
+        except ValueError as exc:
+            raise ValueError(
+                "fake remote artifact path escaped repo_root; refusing to emit an absolute artifact_paths value"
+            ) from exc
