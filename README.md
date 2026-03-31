@@ -61,7 +61,6 @@
 
 ### 为什么不是"超级智能体"？
 
-**基于 ARCHITECTURE.md 和 AEP v0 的现实定位**：
 
 - ❌ **当前不现实**: "无需人类干预 + 自我进化"
 - ✅ **现实可行**: "受控自动化平台"
@@ -182,7 +181,6 @@ PORT=8010 make start
 
 **愿景调整**: [VISION-ADJUSTMENT.md](./VISION-ADJUSTMENT.md)
 **18 天计划**: [18-DAY-SPRINT.md](./18-DAY-SPRINT.md)
-**架构文档**: [ARCHITECTURE.md](./ARCHITECTURE.md)
 
 ---
 
