@@ -169,3 +169,25 @@ class RemoteHeartbeat(StrictModel):
 
 class RemoteRunSummary(RemoteRunRecord):
     run_summary: RunSummary | None = None
+
+
+class RemoteWorkerHealthRead(StrictModel):
+    protocol_version: Literal["remote-run/v1"] = "remote-run/v1"
+    healthy: bool = False
+    host: str | None = None
+    detail: str = ""
+    checked_at: datetime = Field(default_factory=utc_now)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("host")
+    @classmethod
+    def _normalize_host(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
+    @field_validator("detail")
+    @classmethod
+    def _normalize_detail(cls, value: str) -> str:
+        return value.strip()

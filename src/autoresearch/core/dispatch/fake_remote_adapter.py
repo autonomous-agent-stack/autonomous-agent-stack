@@ -21,6 +21,7 @@ from autoresearch.shared.remote_run_contract import (
     RemoteRunStatus,
     RemoteRunSummary,
     RemoteTaskSpec,
+    RemoteWorkerHealthRead,
 )
 
 
@@ -64,6 +65,14 @@ class FakeRemoteAdapter(RemoteDispatchAdapter):
                 "fake remote runtime_root must live under repo_root so artifact_paths remain repo-relative"
             ) from exc
         return candidate
+
+    def healthcheck(self) -> RemoteWorkerHealthRead:
+        return RemoteWorkerHealthRead(
+            healthy=True,
+            host="local-fake-adapter",
+            detail="fake remote adapter is available for offline regression",
+            metadata={"adapter": "fake", "repo_root": str(self._repo_root)},
+        )
 
     def dispatch(self, spec: RemoteTaskSpec) -> RemoteRunRecord:
         now = utc_now()

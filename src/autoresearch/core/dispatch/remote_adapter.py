@@ -7,10 +7,15 @@ from autoresearch.shared.remote_run_contract import (
     RemoteRunRecord,
     RemoteRunSummary,
     RemoteTaskSpec,
+    RemoteWorkerHealthRead,
 )
 
 
 class RemoteDispatchAdapter(ABC):
+    @abstractmethod
+    def healthcheck(self) -> RemoteWorkerHealthRead:
+        raise NotImplementedError
+
     @abstractmethod
     def dispatch(self, spec: RemoteTaskSpec) -> RemoteRunRecord:
         raise NotImplementedError
