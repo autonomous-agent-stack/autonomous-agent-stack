@@ -35,7 +35,7 @@ def test_openhands_worker_builds_patch_only_agent_job_spec() -> None:
     assert f"{sys.executable} -m pytest tests/test_foo.py -q" in job.task
 
 
-def test_openhands_worker_builds_controlled_request_with_mock_fallback() -> None:
+def test_openhands_worker_disables_mock_fallback_for_infra_scopes() -> None:
     service = OpenHandsWorkerService()
     spec = OpenHandsWorkerJobSpec(
         job_id="job-2",
@@ -46,10 +46,11 @@ def test_openhands_worker_builds_controlled_request_with_mock_fallback() -> None
     )
 
     request = service.build_controlled_request(spec)
+    job = service.build_agent_job_spec(spec)
 
     assert request.backend is ControlledBackend.OPENHANDS_CLI
-    assert request.fallback_backend is ControlledBackend.MOCK
-    assert request.failure_strategy is FailureStrategy.FALLBACK
+    assert request.fallback_backend is None
+    assert request.failure_strategy is FailureStrategy.HUMAN_IN_LOOP
     assert request.allowed_paths == ["src/autoresearch/core/services/openhands_worker.py"]
     assert request.test_command == [
         sys.executable,
@@ -60,6 +61,9 @@ def test_openhands_worker_builds_controlled_request_with_mock_fallback() -> None
     assert request.worker_output_mode == "patch"
     assert request.pipeline_target.value == "draft_pr"
     assert request.max_iterations == 2
+    assert [step.action for step in job.fallback] == ["retry", "human_review"]
+    assert job.metadata["mock_fallback_enabled"] is False
+    assert request.metadata["mock_fallback_enabled"] is False
 
 
 def test_openhands_worker_rejects_absolute_allowed_paths() -> None:
@@ -116,3 +120,22 @@ def test_openhands_worker_normalizes_python_commands_to_active_interpreter() -> 
 
     assert job.validators[0].command == f"{sys.executable} -m py_compile apps/malu/lead_capture.py"
     assert request.test_command == [sys.executable, "-m", "py_compile", "apps/malu/lead_capture.py"]
+
+
+def test_openhands_worker_keeps_mock_fallback_for_business_surface_scopes() -> None:
+    service = OpenHandsWorkerService()
+    spec = OpenHandsWorkerJobSpec(
+        job_id="job-7",
+        problem_statement="Create the smallest landing-page business surface patch.",
+        allowed_paths=["apps/malu/**", "tests/apps/test_malu_landing_page.py"],
+        test_command="pytest -q tests/apps/test_malu_landing_page.py",
+    )
+
+    job = service.build_agent_job_spec(spec)
+    request = service.build_controlled_request(spec)
+
+    assert [step.action for step in job.fallback] == ["fallback_agent", "human_review"]
+    assert request.fallback_backend is ControlledBackend.MOCK
+    assert request.failure_strategy is FailureStrategy.FALLBACK
+    assert job.metadata["mock_fallback_enabled"] is True
+    assert request.metadata["mock_fallback_enabled"] is True

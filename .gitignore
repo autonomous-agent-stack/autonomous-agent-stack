@@ -21,6 +21,7 @@ wheels/
 *.egg
 
 # Virtual environments
+.venv/
 venv/
 ENV/
 env/
@@ -48,6 +49,7 @@ artifacts/
 *.db
 .env
 .env.local
+.env.linux
 ai_lab.env
 .masfactory_runtime/
 
