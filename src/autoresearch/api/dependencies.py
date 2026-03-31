@@ -9,6 +9,7 @@ from autoresearch.api.settings import (
     get_admin_settings,
     get_feature_settings,
     get_panel_settings,
+    get_remote_dispatch_settings,
     get_runtime_settings,
     get_telegram_settings,
     get_upstream_watcher_settings,
@@ -23,6 +24,7 @@ from autoresearch.core.adapters import (
     OpenClawSkillProviderAdapter,
 )
 from autoresearch.core.repositories import SQLiteEvaluationRepository
+from autoresearch.core.dispatch.ssh_remote_adapter import SshRemoteAdapter, SshRemoteAdapterConfig
 from autoresearch.core.services.admin_auth import AdminAuthService
 from autoresearch.core.services.admin_config import AdminConfigService
 from autoresearch.core.services.admin_secrets import AdminSecretCipher
@@ -151,6 +153,24 @@ def get_execution_service() -> ExecutionService:
 
 @lru_cache(maxsize=1)
 def get_autoresearch_planner_service() -> AutoResearchPlannerService:
+    remote_settings = get_remote_dispatch_settings()
+    remote_adapter = None
+    if remote_settings.adapter == "ssh":
+        if not remote_settings.ssh_destination:
+            raise ValueError("AUTORESEARCH_REMOTE_SSH_DESTINATION is required when AUTORESEARCH_REMOTE_ADAPTER=ssh")
+        remote_adapter = SshRemoteAdapter(
+            config=SshRemoteAdapterConfig(
+                ssh_destination=remote_settings.ssh_destination,
+                remote_repo_root=remote_settings.remote_repo_root,
+                ssh_bin=remote_settings.ssh_bin,
+                ssh_options=tuple(remote_settings.ssh_options),
+                remote_env_file=remote_settings.remote_env_file,
+                remote_python_bin=remote_settings.remote_python_bin,
+                remote_worker_script=remote_settings.remote_worker_script,
+                command_timeout_seconds=remote_settings.command_timeout_seconds,
+                healthcheck_timeout_seconds=remote_settings.healthcheck_timeout_seconds,
+            )
+        )
     return AutoResearchPlannerService(
         repository=SQLiteModelRepository(
             db_path=_api_db_path(),
@@ -159,6 +179,9 @@ def get_autoresearch_planner_service() -> AutoResearchPlannerService:
         ),
         repo_root=_repo_root(),
         upstream_watcher=get_upstream_watcher_service(),
+        remote_adapter=remote_adapter,
+        max_dispatch_polls=remote_settings.dispatch_poll_attempts,
+        dispatch_poll_interval_seconds=remote_settings.dispatch_poll_interval_seconds,
     )
 
 

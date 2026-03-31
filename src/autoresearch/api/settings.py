@@ -349,6 +349,63 @@ class UpstreamWatcherSettings(_BaseApiSettings):
         return path or Path("/Volumes/AI_LAB/ai_lab/workspace")
 
 
+class RemoteDispatchSettings(_BaseApiSettings):
+    adapter: str = Field(default="fake", validation_alias="AUTORESEARCH_REMOTE_ADAPTER")
+    ssh_bin: str = Field(default="ssh", validation_alias="AUTORESEARCH_REMOTE_SSH_BIN")
+    ssh_destination: str | None = Field(default=None, validation_alias="AUTORESEARCH_REMOTE_SSH_DESTINATION")
+    ssh_options_raw: str = Field(default="", validation_alias="AUTORESEARCH_REMOTE_SSH_OPTIONS")
+    remote_repo_root: str = Field(
+        default="~/autonomous-agent-stack",
+        validation_alias="AUTORESEARCH_REMOTE_REPO_ROOT",
+    )
+    remote_env_file: str | None = Field(default=None, validation_alias="AUTORESEARCH_REMOTE_ENV_FILE")
+    remote_python_bin: str = Field(
+        default=".venv/bin/python",
+        validation_alias="AUTORESEARCH_REMOTE_PYTHON_BIN",
+    )
+    remote_worker_script: str = Field(
+        default="scripts/remote_exec_worker.py",
+        validation_alias="AUTORESEARCH_REMOTE_WORKER_SCRIPT",
+    )
+    command_timeout_seconds: float = Field(
+        default=30.0,
+        validation_alias="AUTORESEARCH_REMOTE_COMMAND_TIMEOUT_SECONDS",
+    )
+    healthcheck_timeout_seconds: float = Field(
+        default=10.0,
+        validation_alias="AUTORESEARCH_REMOTE_HEALTHCHECK_TIMEOUT_SECONDS",
+    )
+    dispatch_poll_attempts: int = Field(
+        default=8,
+        validation_alias="AUTORESEARCH_REMOTE_DISPATCH_POLL_ATTEMPTS",
+    )
+    dispatch_poll_interval_seconds: float = Field(
+        default=2.0,
+        validation_alias="AUTORESEARCH_REMOTE_DISPATCH_POLL_INTERVAL_SECONDS",
+    )
+
+    @field_validator(
+        "adapter",
+        "ssh_bin",
+        "ssh_destination",
+        "remote_repo_root",
+        "remote_env_file",
+        "remote_python_bin",
+        "remote_worker_script",
+        mode="before",
+    )
+    @classmethod
+    def _normalize_optional_text(cls, value: Any) -> str | None:
+        if value is None:
+            return None
+        normalized = str(value).strip()
+        return normalized or None
+
+    @property
+    def ssh_options(self) -> list[str]:
+        return shlex.split(self.ssh_options_raw) if self.ssh_options_raw.strip() else []
+
+
 def load_runtime_settings() -> RuntimeSettings:
     return RuntimeSettings()
 
@@ -373,6 +430,10 @@ def load_admin_settings() -> AdminSettings:
 
 def load_upstream_watcher_settings() -> UpstreamWatcherSettings:
     return UpstreamWatcherSettings()
+
+
+def load_remote_dispatch_settings() -> RemoteDispatchSettings:
+    return RemoteDispatchSettings()
 
 
 @lru_cache(maxsize=1)
@@ -405,6 +466,11 @@ def get_upstream_watcher_settings() -> UpstreamWatcherSettings:
     return load_upstream_watcher_settings()
 
 
+@lru_cache(maxsize=1)
+def get_remote_dispatch_settings() -> RemoteDispatchSettings:
+    return load_remote_dispatch_settings()
+
+
 def clear_settings_caches() -> None:
     get_runtime_settings.cache_clear()
     get_telegram_settings.cache_clear()
@@ -412,4 +478,5 @@ def clear_settings_caches() -> None:
     get_feature_settings.cache_clear()
     get_admin_settings.cache_clear()
     get_upstream_watcher_settings.cache_clear()
+    get_remote_dispatch_settings.cache_clear()
     _WARNED_DEPRECATED_ALIASES.clear()

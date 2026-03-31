@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import os
 from pathlib import Path
 import re
+import time
 from typing import Callable
 
 from autoresearch.agent_protocol.models import JobSpec, RunSummary
@@ -82,8 +83,6 @@ class AutoResearchPlannerService:
         RemoteRunStatus.STALLED,
         RemoteRunStatus.TIMED_OUT,
     }
-    _MAX_DISPATCH_POLLS = 8
-
     def __init__(
         self,
         repository: Repository[AutoResearchPlanRead],
@@ -94,6 +93,8 @@ class AutoResearchPlannerService:
         remote_adapter: RemoteDispatchAdapter | None = None,
         writer_lease: WriterLeaseService | None = None,
         upstream_watcher: UpstreamWatcherService | None = None,
+        max_dispatch_polls: int = 8,
+        dispatch_poll_interval_seconds: float = 0.0,
     ) -> None:
         self._repository = repository
         self._repo_root = (repo_root or Path(__file__).resolve().parents[4]).resolve()
@@ -105,6 +106,8 @@ class AutoResearchPlannerService:
         )
         self._writer_lease = writer_lease or WriterLeaseService()
         self._upstream_watcher = upstream_watcher
+        self._max_dispatch_polls = max(1, int(max_dispatch_polls))
+        self._dispatch_poll_interval_seconds = max(0.0, float(dispatch_poll_interval_seconds))
 
     def create(self, request: AutoResearchPlannerRequest) -> AutoResearchPlanRead:
         now = utc_now()
@@ -589,10 +592,12 @@ class AutoResearchPlannerService:
 
     def _await_remote_summary(self, task_spec: RemoteTaskSpec) -> RemoteRunSummary:
         last_record: RemoteRunRecord | None = None
-        for _ in range(self._MAX_DISPATCH_POLLS):
+        for attempt in range(self._max_dispatch_polls):
             last_record = self._remote_adapter.poll(task_spec.run_id)
             if last_record.status in self._TERMINAL_REMOTE_STATUSES:
                 break
+            if self._dispatch_poll_interval_seconds > 0 and attempt < self._max_dispatch_polls - 1:
+                time.sleep(self._dispatch_poll_interval_seconds)
         if last_record is None:
             return self._planner_stalled_summary(task_spec, detail="remote adapter returned no dispatch record")
         if last_record.status not in self._TERMINAL_REMOTE_STATUSES:
