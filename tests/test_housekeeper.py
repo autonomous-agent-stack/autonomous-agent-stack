@@ -85,8 +85,8 @@ def _seed_agent_package_tree(repo_root: Path) -> None:
                         "small_bug_fix",
                         "low_risk_scaffold"
                     ],
-                    "clarification_markers": ["新功能", "feature", "跨模块", "cross-module", "端到端", "e2e"],
-                    "rejection_markers": ["全栈", "full stack", "数据库迁移", "migration", "依赖升级", "upgrade dependency", "架构升级", "architecture upgrade", "大重构", "large refactor"]
+                    "clarification_markers": ["新功能", "feature", "跨模块", "cross-module", "端到端", "e2e", "重构", "refactor", "schema", "migration plan", "multi-service", "多服务"],
+                    "rejection_markers": ["全栈", "full stack", "数据库迁移", "migration", "schema migration", "orm migration", "ddl", "依赖升级", "upgrade", "dependencies", "upgrade dependency", "架构升级", "architecture change", "architecture upgrade", "大重构", "large refactor", "major refactor", "自主审批", "auto approve pr", "approve pr"]
                 }
             },
         },
@@ -336,6 +336,7 @@ def test_housekeeper_api_creates_draft_then_control_plane_task_for_software_chan
         assert payload["agent_package_id"] == "software_change_agent_v0"
         assert payload["status"] == "approval_required"
         assert payload["approval_id"] is not None
+        assert services["manager"].list_dispatches() == []
         task_id = payload["task_id"]
         control_plane_task_id = payload["control_plane_task_id"]
 
@@ -352,6 +353,7 @@ def test_housekeeper_api_creates_draft_then_control_plane_task_for_software_chan
         assert control_task.status_code == 200
         assert control_task.json()["status"] == "completed"
         assert control_task.json()["agent_package_id"] == "software_change_agent_v0"
+        assert len(services["manager"].list_dispatches()) == 1
 
     app.dependency_overrides.clear()
 
@@ -525,5 +527,58 @@ def test_shared_memory_is_ignored_unless_explicitly_allowed(tmp_path: Path) -> N
         assert payload["clarification_reason_code"] == "no_matching_package"
         assert payload["memory_snapshot"]["shared_policy"] == "explicit_only"
         assert payload["memory_snapshot"]["shared_memory_count"] == 0
+
+    app.dependency_overrides.clear()
+
+
+def test_explicit_shared_memory_can_influence_routing_without_expanding_scope(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    db_path = tmp_path / "housekeeper-memory-explicit.sqlite3"
+    helper = _linux_success_helper(tmp_path / "linux_worker.py")
+    _seed_agent_package_tree(repo_root)
+    services = _build_services(repo_root, db_path, helper)
+
+    app.dependency_overrides[get_openclaw_compat_service] = lambda: services["openclaw"]
+    app.dependency_overrides[get_openclaw_memory_service] = lambda: services["memory"]
+    app.dependency_overrides[get_control_plane_service] = lambda: services["control"]
+    app.dependency_overrides[get_personal_housekeeper_service] = lambda: services["housekeeper"]
+
+    with TestClient(app) as client:
+        session = client.post(
+            "/api/v1/openclaw/sessions",
+            json={
+                "channel": "api",
+                "title": "memory-explicit",
+                "scope": "personal",
+                "assistant_id": "housekeeper",
+                "metadata": {},
+            },
+        )
+        assert session.status_code == 201
+        session_id = session.json()["session_id"]
+
+        shared = client.post(
+            f"/api/v1/openclaw/sessions/{session_id}/memory",
+            json={
+                "content": "housekeeper_shared: 提到巡检时默认走 Linux 巡检链路。",
+                "scope": "shared",
+                "tags": ["housekeeper_shared"],
+            },
+        )
+        assert shared.status_code == 201
+
+        response = client.post(
+            "/api/v1/openclaw/housekeeper/dispatch",
+            json={
+                "session_id": session_id,
+                "message": "帮我处理这个默认巡检流程。",
+            },
+        )
+        assert response.status_code == 202
+        payload = response.json()
+        assert payload["agent_package_id"] == "linux_housekeeping_agent_v0"
+        assert payload["status"] == "completed"
+        assert payload["memory_snapshot"]["shared_policy"] == "explicit_only"
+        assert payload["memory_snapshot"]["shared_memory_count"] == 1
 
     app.dependency_overrides.clear()

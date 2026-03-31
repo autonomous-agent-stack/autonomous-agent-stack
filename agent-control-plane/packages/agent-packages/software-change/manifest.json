@@ -100,19 +100,35 @@
         "跨模块",
         "cross-module",
         "端到端",
-        "e2e"
+        "e2e",
+        "重构",
+        "refactor",
+        "schema",
+        "migration plan",
+        "multi-service",
+        "多服务"
       ],
       "rejection_markers": [
         "全栈",
         "full stack",
         "数据库迁移",
         "migration",
+        "schema migration",
+        "orm migration",
+        "ddl",
         "依赖升级",
+        "upgrade",
+        "dependencies",
         "upgrade dependency",
         "架构升级",
+        "architecture change",
         "architecture upgrade",
         "大重构",
-        "large refactor"
+        "large refactor",
+        "major refactor",
+        "自主审批",
+        "auto approve pr",
+        "approve pr"
       ],
       "unsupported_scopes": [
         "full_stack_feature",
