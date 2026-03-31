@@ -178,7 +178,7 @@ def get_run(run_id: str) -> dict:
 
 @router.get("/approvals", summary="Pending approvals")
 def list_pending_approvals() -> list[dict]:
-    return [t for t in _MOCK_TASKS if t.get("status") == "approval_required"]  # noqa: S709]
+    return [t for t in _MOCK_TASKS if t.get("status") == "approval_required"]
 
 
 @router.get("/", summary="Console landing page")
