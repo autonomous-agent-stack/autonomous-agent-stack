@@ -8,6 +8,7 @@ Keep this module for compatibility only; do not wire new runtime behavior to it.
 
 from datetime import datetime
 from typing import Any
+import warnings
 
 from pydantic import Field, field_validator
 
@@ -90,7 +91,34 @@ class LegacyFrontdeskTaskRead(StrictModel):
     error: str | None = None
 
 
-# Compatibility aliases for any remaining imports from the pre-cleanup module path.
-HousekeeperDispatchRequest = LegacyFrontdeskDispatchRequest
-HousekeeperApprovalRequest = LegacyFrontdeskApprovalRequest
-HousekeeperTaskRead = LegacyFrontdeskTaskRead
+_COMPAT_ALIASES = {
+    "HousekeeperDispatchRequest": LegacyFrontdeskDispatchRequest,
+    "HousekeeperApprovalRequest": LegacyFrontdeskApprovalRequest,
+    "HousekeeperTaskRead": LegacyFrontdeskTaskRead,
+}
+
+
+def __getattr__(name: str):
+    target = _COMPAT_ALIASES.get(name)
+    if target is None:
+        raise AttributeError(name)
+    warnings.warn(
+        (
+            f"`autoresearch.housekeeper.schemas.{name}` is deprecated and kept only for compatibility. "
+            f"Use `LegacyFrontdesk*` from this module for legacy frontdesk schemas, or "
+            f"`autoresearch.shared.housekeeper_contract` for active runtime contracts."
+        ),
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return target
+
+
+__all__ = [
+    "LegacyFrontdeskDispatchRequest",
+    "LegacyFrontdeskApprovalRequest",
+    "LegacyFrontdeskTaskRead",
+    "HousekeeperDispatchRequest",
+    "HousekeeperApprovalRequest",
+    "HousekeeperTaskRead",
+]
