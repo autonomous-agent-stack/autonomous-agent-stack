@@ -14,6 +14,7 @@ from autoresearch.api.dependencies import (
     get_capability_provider_registry,
     get_claude_agent_service,
     get_github_issue_service,
+    get_housekeeper_service,
     get_manager_agent_service,
     get_openclaw_memory_service,
     get_openclaw_compat_service,
@@ -30,9 +31,11 @@ from autoresearch.core.services.admin_config import AdminConfigService
 from autoresearch.core.services.approval_store import ApprovalStoreService
 from autoresearch.core.services.claude_agents import ClaudeAgentService
 from autoresearch.core.services.github_issue_service import GitHubIssueCommentRead, GitHubIssueRead, GitHubIssueReference
+from autoresearch.core.services.housekeeper import HousekeeperService
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.openclaw_memory import OpenClawMemoryService
 from autoresearch.core.services.panel_access import PanelAccessService
+from autoresearch.shared.housekeeper_contract import HousekeeperChangeReason, HousekeeperMode, HousekeeperModeUpdateRequest
 from autoresearch.shared.manager_agent_contract import ManagerDispatchRead
 from autoresearch.shared.models import (
     AdminAgentConfigRead,
@@ -47,7 +50,7 @@ from autoresearch.shared.models import (
     PromotionResult,
     utc_now,
 )
-from autoresearch.shared.store import SQLiteModelRepository
+from autoresearch.shared.store import InMemoryRepository, SQLiteModelRepository
 
 
 class _StubSkillProvider:
@@ -88,6 +91,23 @@ class _StubSkillProvider:
         if normalized not in {"daily_brief", "daily brief"}:
             return None
         return OpenClawSkillDetailRead(**self._skill, content="# Daily Brief\nUse this skill.\n")
+
+
+def _night_housekeeper_service() -> HousekeeperService:
+    service = HousekeeperService(
+        state_repository=InMemoryRepository(),
+        budget_repository=InMemoryRepository(),
+        exploration_repository=InMemoryRepository(),
+    )
+    service.update_mode(
+        HousekeeperModeUpdateRequest(
+            action="set_manual_override",
+            target_mode=HousekeeperMode.NIGHT_READONLY_EXPLORE,
+            changed_by="test",
+            reason=HousekeeperChangeReason.MANUAL_API,
+        )
+    )
+    return service
 
 
 class _StubTelegramNotifier:
@@ -851,6 +871,7 @@ def test_telegram_task_issue_dispatches_manager_and_queues_issue_reply_approval(
     approval_service = getattr(telegram_client, "_approval_store")
     app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
     app.dependency_overrides[get_github_issue_service] = lambda: github_issue_service
+    app.dependency_overrides[get_housekeeper_service] = _night_housekeeper_service
     app.dependency_overrides[get_manager_agent_service] = lambda: manager_service
 
     try:
@@ -896,6 +917,7 @@ def test_telegram_task_issue_dispatches_manager_and_queues_issue_reply_approval(
     finally:
         app.dependency_overrides.pop(get_telegram_notifier_service, None)
         app.dependency_overrides.pop(get_github_issue_service, None)
+        app.dependency_overrides.pop(get_housekeeper_service, None)
         app.dependency_overrides.pop(get_manager_agent_service, None)
 
 
@@ -988,6 +1010,7 @@ def test_telegram_approve_command_posts_github_issue_reply_for_issue_tasks(
     approval_service = getattr(telegram_client, "_approval_store")
     app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
     app.dependency_overrides[get_github_issue_service] = lambda: github_issue_service
+    app.dependency_overrides[get_housekeeper_service] = _night_housekeeper_service
     app.dependency_overrides[get_manager_agent_service] = lambda: manager_service
 
     try:
@@ -1033,6 +1056,7 @@ def test_telegram_approve_command_posts_github_issue_reply_for_issue_tasks(
     finally:
         app.dependency_overrides.pop(get_telegram_notifier_service, None)
         app.dependency_overrides.pop(get_github_issue_service, None)
+        app.dependency_overrides.pop(get_housekeeper_service, None)
         app.dependency_overrides.pop(get_manager_agent_service, None)
 
 
