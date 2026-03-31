@@ -373,7 +373,7 @@ class HousekeeperService:
             return HousekeeperTickRead(
                 executed=False,
                 skipped_reason="circuit_breaker_open",
-                blocker_reason=ExplorationBlockerReason.BUDGET_EXHAUSTED,
+                blocker_reason=ExplorationBlockerReason.CIRCUIT_BREAKER_OPEN,
                 summary="Night explore skipped because the circuit breaker is open.",
                 state=state,
                 budget=budget,

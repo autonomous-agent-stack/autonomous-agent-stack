@@ -9,6 +9,8 @@ from autoresearch.core.services.approval_store import ApprovalStoreService
 from autoresearch.core.services.housekeeper import HousekeeperService
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
 from autoresearch.shared.housekeeper_contract import (
+    CircuitBreakerStatus,
+    ExplorationBlockerReason,
     HousekeeperChangeReason,
     HousekeeperMode,
     HousekeeperModeUpdateRequest,
@@ -151,3 +153,46 @@ def test_housekeeper_morning_summary_uses_four_sections(tmp_path: Path) -> None:
     assert "今天需要你决定什么" in summary.summary_text
     assert "系统当前模式与待执行队列" in summary.summary_text
     assert summary.decision_items
+
+
+def test_housekeeper_night_tick_reports_circuit_breaker_blocker_reason() -> None:
+    housekeeper = _service()
+    housekeeper.update_mode(
+        HousekeeperModeUpdateRequest(
+            action="set_manual_override",
+            target_mode=HousekeeperMode.NIGHT_READONLY_EXPLORE,
+            changed_by="test",
+            reason=HousekeeperChangeReason.MANUAL_API,
+        ),
+        now=datetime(2026, 3, 31, 16, 0, tzinfo=timezone.utc),
+    )
+    housekeeper.update_mode(
+        HousekeeperModeUpdateRequest(
+            action="apply_schedule",
+            target_mode=HousekeeperMode.DAY_SAFE,
+            changed_by="system",
+            reason=HousekeeperChangeReason.CIRCUIT_BREAKER,
+        ),
+        now=datetime(2026, 3, 31, 16, 0, tzinfo=timezone.utc),
+    )
+    state = housekeeper.get_state(now=datetime(2026, 3, 31, 16, 0, tzinfo=timezone.utc))
+    tripped = state.model_copy(
+        update={
+            "circuit_breaker_state": state.circuit_breaker_state.model_copy(
+                update={"status": CircuitBreakerStatus.OPEN}
+            ),
+        }
+    )
+    housekeeper._state_repository.save(tripped.state_id, tripped)
+
+    tick = housekeeper.execute_night_explore_tick(
+        manager_service=type("ManagerStub", (), {})(),
+        planner_service=type("PlannerStub", (), {})(),
+        notifier=TelegramNotifierService(bot_token=None),
+        media_jobs=[],
+        now=datetime(2026, 3, 31, 16, 0, tzinfo=timezone.utc),
+    )
+
+    assert tick.executed is False
+    assert tick.skipped_reason == "circuit_breaker_open"
+    assert tick.blocker_reason is ExplorationBlockerReason.CIRCUIT_BREAKER_OPEN
