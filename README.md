@@ -77,8 +77,15 @@ OPENHANDS_RUNTIME=host make start
 更完整的落地清单、环境变量建议和远端使用姿势见：
 
 - [Linux Remote Worker Guide](./docs/linux-remote-worker.md)
+- [Deployment Status](./docs/deployment-status.md)
 - [cc-switch Usage Guide](./docs/cc-switch-usage.md)
 - [OpenHands Controlled Backend Integration](./docs/openhands-cli-integration.md)
+
+当前要点：
+
+- 本地控制面和本地执行链可用
+- Linux 远端 lane 当前仍然 offline
+- 本仓库已经先把远端协议、状态机和 fake remote adapter 固定下来，等 Linux 恢复后直接接执行面
 
 ## 常用命令
 
@@ -124,6 +131,14 @@ openhands --exp --headless -t "你的任务"
 `make openhands-controlled` 会走最窄闭环：创建隔离 workspace、执行 OpenHands 子任务、运行校验、输出 promotion patch 与审计摘要（不直接污染主仓库）。
 
 `make agent-run` 走 AEP v0 统一执行内核：`JobSpec -> driver adapter -> patch gate -> decision`，OpenHands/Codex/本地脚本都可作为 driver 接入。
+
+这条主线现在额外有一层离线 control-plane 收口：
+
+- [Architecture](./ARCHITECTURE.md)
+- [Run Lifecycle](./docs/run-lifecycle.md)
+- [Failure Modes](./docs/failure-modes.md)
+- [Deployment Status](./docs/deployment-status.md)
+- [Agent Execution Protocol (AEP v0)](./docs/agent-execution-protocol.md)
 
 `make review-gates-local` 会在本地运行 reviewer 核心模块的 `mypy + bandit + semgrep`，与 CI 的 `Quality Gates` 流程保持一致。
 

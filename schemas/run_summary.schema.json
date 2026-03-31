@@ -1,0 +1,845 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "log",
+            "report",
+            "plan",
+            "patch",
+            "compliance",
+            "custom"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sha256"
+        },
+        "uri": {
+          "title": "Uri",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "kind",
+        "uri"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "DispatchLane": {
+      "enum": [
+        "local",
+        "remote"
+      ],
+      "title": "DispatchLane",
+      "type": "string"
+    },
+    "DriverMetrics": {
+      "additionalProperties": false,
+      "properties": {
+        "commands": {
+          "default": 0,
+          "title": "Commands",
+          "type": "integer"
+        },
+        "completion_tokens": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Completion Tokens"
+        },
+        "duration_ms": {
+          "default": 0,
+          "title": "Duration Ms",
+          "type": "integer"
+        },
+        "first_progress_ms": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "First Progress Ms"
+        },
+        "first_scoped_write_ms": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "First Scoped Write Ms"
+        },
+        "first_state_heartbeat_ms": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "First State Heartbeat Ms"
+        },
+        "prompt_tokens": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prompt Tokens"
+        },
+        "steps": {
+          "default": 0,
+          "title": "Steps",
+          "type": "integer"
+        }
+      },
+      "title": "DriverMetrics",
+      "type": "object"
+    },
+    "DriverResult": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_id": {
+          "title": "Agent Id",
+          "type": "string"
+        },
+        "attempt": {
+          "default": 1,
+          "title": "Attempt",
+          "type": "integer"
+        },
+        "changed_paths": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Changed Paths",
+          "type": "array"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        },
+        "metrics": {
+          "$ref": "#/$defs/DriverMetrics"
+        },
+        "output_artifacts": {
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "title": "Output Artifacts",
+          "type": "array"
+        },
+        "protocol_version": {
+          "const": "aep/v0",
+          "default": "aep/v0",
+          "title": "Protocol Version",
+          "type": "string"
+        },
+        "recommended_action": {
+          "default": "human_review",
+          "enum": [
+            "promote",
+            "retry",
+            "fallback",
+            "human_review",
+            "reject"
+          ],
+          "title": "Recommended Action",
+          "type": "string"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "succeeded",
+            "partial",
+            "failed",
+            "timed_out",
+            "stalled_no_progress",
+            "policy_blocked",
+            "contract_error"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "agent_id",
+        "status",
+        "summary"
+      ],
+      "title": "DriverResult",
+      "type": "object"
+    },
+    "FailureClass": {
+      "enum": [
+        "planner_stalled",
+        "executor_stalled",
+        "tool_timeout",
+        "model_fallback",
+        "assertion_failed_after_fallback",
+        "env_missing",
+        "workspace_dirty",
+        "transient_network",
+        "unknown"
+      ],
+      "title": "FailureClass",
+      "type": "string"
+    },
+    "GitPromotionMode": {
+      "enum": [
+        "patch",
+        "draft_pr"
+      ],
+      "title": "GitPromotionMode",
+      "type": "string"
+    },
+    "GitRemoteProbe": {
+      "additionalProperties": false,
+      "properties": {
+        "base_branch_exists": {
+          "default": false,
+          "title": "Base Branch Exists",
+          "type": "boolean"
+        },
+        "credentials_available": {
+          "default": false,
+          "title": "Credentials Available",
+          "type": "boolean"
+        },
+        "healthy": {
+          "default": false,
+          "title": "Healthy",
+          "type": "boolean"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "remote_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Remote Name"
+        },
+        "remote_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Remote Url"
+        }
+      },
+      "title": "GitRemoteProbe",
+      "type": "object"
+    },
+    "PromotionDiffStats": {
+      "additionalProperties": false,
+      "properties": {
+        "deletions": {
+          "default": 0,
+          "title": "Deletions",
+          "type": "integer"
+        },
+        "files_changed": {
+          "default": 0,
+          "title": "Files Changed",
+          "type": "integer"
+        },
+        "insertions": {
+          "default": 0,
+          "title": "Insertions",
+          "type": "integer"
+        },
+        "patch_lines": {
+          "default": 0,
+          "title": "Patch Lines",
+          "type": "integer"
+        }
+      },
+      "title": "PromotionDiffStats",
+      "type": "object"
+    },
+    "PromotionGateCheck": {
+      "additionalProperties": false,
+      "properties": {
+        "detail": {
+          "default": "",
+          "title": "Detail",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "passed": {
+          "title": "Passed",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "passed"
+      ],
+      "title": "PromotionGateCheck",
+      "type": "object"
+    },
+    "PromotionPreflight": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed": {
+          "default": false,
+          "title": "Allowed",
+          "type": "boolean"
+        },
+        "checks": {
+          "items": {
+            "$ref": "#/$defs/PromotionGateCheck"
+          },
+          "title": "Checks",
+          "type": "array"
+        },
+        "effective_mode": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GitPromotionMode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "remote_probe": {
+          "$ref": "#/$defs/GitRemoteProbe"
+        },
+        "requested_mode": {
+          "$ref": "#/$defs/GitPromotionMode"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "requested_mode"
+      ],
+      "title": "PromotionPreflight",
+      "type": "object"
+    },
+    "PromotionResult": {
+      "additionalProperties": false,
+      "properties": {
+        "base_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Ref"
+        },
+        "branch_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Branch Name"
+        },
+        "changed_files": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Changed Files",
+          "type": "array"
+        },
+        "checks": {
+          "items": {
+            "$ref": "#/$defs/PromotionGateCheck"
+          },
+          "title": "Checks",
+          "type": "array"
+        },
+        "commit_sha": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Commit Sha"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "diff_stats": {
+          "$ref": "#/$defs/PromotionDiffStats"
+        },
+        "finalized_by": {
+          "default": "aggregator",
+          "title": "Finalized By",
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        },
+        "mode": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GitPromotionMode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "patch_uri": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Patch Uri"
+        },
+        "pr_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pr Url"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        },
+        "success": {
+          "default": false,
+          "title": "Success",
+          "type": "boolean"
+        },
+        "target_base_branch": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Base Branch"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "created_at",
+        "updated_at"
+      ],
+      "title": "PromotionResult",
+      "type": "object"
+    },
+    "RecoveryAction": {
+      "enum": [
+        "retry",
+        "abort",
+        "require_human_review",
+        "downgrade_to_draft",
+        "quarantine"
+      ],
+      "title": "RecoveryAction",
+      "type": "string"
+    },
+    "RemoteRunStatus": {
+      "enum": [
+        "queued",
+        "running",
+        "succeeded",
+        "failed",
+        "stalled",
+        "timed_out"
+      ],
+      "title": "RemoteRunStatus",
+      "type": "string"
+    },
+    "RunSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "driver_result": {
+          "$ref": "#/$defs/DriverResult"
+        },
+        "final_status": {
+          "enum": [
+            "ready_for_promotion",
+            "blocked",
+            "failed",
+            "promoted",
+            "human_review"
+          ],
+          "title": "Final Status",
+          "type": "string"
+        },
+        "promotion": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PromotionResult"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "promotion_patch_uri": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Promotion Patch Uri"
+        },
+        "promotion_preflight": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PromotionPreflight"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        },
+        "validation": {
+          "$ref": "#/$defs/ValidationReport"
+        }
+      },
+      "required": [
+        "run_id",
+        "final_status",
+        "driver_result",
+        "validation"
+      ],
+      "title": "RunSummary",
+      "type": "object"
+    },
+    "ValidationCheck": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ArtifactRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "detail": {
+          "default": "",
+          "title": "Detail",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "passed": {
+          "title": "Passed",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "passed"
+      ],
+      "title": "ValidationCheck",
+      "type": "object"
+    },
+    "ValidationReport": {
+      "additionalProperties": false,
+      "properties": {
+        "checks": {
+          "items": {
+            "$ref": "#/$defs/ValidationCheck"
+          },
+          "title": "Checks",
+          "type": "array"
+        },
+        "passed": {
+          "title": "Passed",
+          "type": "boolean"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "passed"
+      ],
+      "title": "ValidationReport",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "artifact_paths": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Artifact Paths",
+      "type": "object"
+    },
+    "failure_class": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FailureClass"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "fallback_reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Fallback Reason"
+    },
+    "finished_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Finished At"
+    },
+    "lane": {
+      "$ref": "#/$defs/DispatchLane",
+      "default": "local"
+    },
+    "metadata": {
+      "additionalProperties": true,
+      "title": "Metadata",
+      "type": "object"
+    },
+    "protocol_version": {
+      "const": "remote-run/v1",
+      "default": "remote-run/v1",
+      "title": "Protocol Version",
+      "type": "string"
+    },
+    "recovery_action": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RecoveryAction"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "requested_lane": {
+      "$ref": "#/$defs/DispatchLane",
+      "default": "local"
+    },
+    "run_id": {
+      "minLength": 1,
+      "title": "Run Id",
+      "type": "string"
+    },
+    "run_summary": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RunSummary"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "started_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Started At"
+    },
+    "status": {
+      "$ref": "#/$defs/RemoteRunStatus",
+      "default": "queued"
+    },
+    "summary": {
+      "default": "",
+      "title": "Summary",
+      "type": "string"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id"
+  ],
+  "title": "RemoteRunSummary",
+  "type": "object"
+}

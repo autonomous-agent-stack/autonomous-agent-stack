@@ -2,6 +2,16 @@
 
 这份指南的目标很单纯：把一台 Linux 机器尽快变成这套仓库的稳定执行节点。
 
+> 状态说明（2026-03-31）：
+> 当前 live Linux lane 仍然是 offline。
+> `feat/control-plane-hardening` 先把协议、状态机、回退逻辑和测试固定下来；真实远端接入还没在这条分支里启用。
+
+先看这 3 份控制面文档，再看本指南：
+
+- [Run Lifecycle](./run-lifecycle.md)
+- [Failure Modes](./failure-modes.md)
+- [Deployment Status](./deployment-status.md)
+
 当前最推荐的拓扑不是“Linux 完全复制 Mac/Colima”，而是：
 
 - Mac: 控制面
@@ -28,6 +38,12 @@
 ```bash
 export OPENHANDS_RUNTIME=host
 ```
+
+等 Linux lane 恢复后，优先对齐的不是 shell 脚本细节，而是控制面契约：
+
+- `src/autoresearch/shared/remote_run_contract.py`
+- `schemas/task_run.schema.json`
+- `schemas/run_summary.schema.json`
 
 ## 最小准备
 

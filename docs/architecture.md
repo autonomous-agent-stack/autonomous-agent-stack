@@ -13,10 +13,11 @@ This file intentionally mirrors the current architecture in a docs-relative loca
 The stable path is:
 
 1. plan a bounded repository improvement,
-2. execute it inside isolation,
-3. validate the patch,
-4. re-check promotion conditions,
-5. emit either a patch artifact or a Draft PR.
+2. choose a runtime mode and lane,
+3. execute it inside isolation,
+4. validate the patch,
+5. re-check promotion conditions,
+6. emit either a patch artifact or a Draft PR.
 
 That means the system is optimized for controlled mutation, not unrestricted autonomy.
 
@@ -25,11 +26,13 @@ That means the system is optimized for controlled mutation, not unrestricted aut
 ```mermaid
 flowchart TD
     A["Repo Scan<br/>AutoResearch Planner"] --> B["Worker Contract<br/>strict OpenHands or AEP job"]
-    B --> C["Isolated Workspace<br/>baseline + workspace + artifacts"]
-    C --> D["Validation Gate<br/>tests + path policy + artifact filtering"]
-    D --> E["Git Promotion Gate<br/>writer lease + approval + draft PR checks"]
-    E --> F["Patch Artifact"]
-    E --> G["Draft PR"]
+    B --> C["Runtime Mode Selector<br/>day / night"]
+    C --> D["Dispatch Contract<br/>dispatch_run + adapter"]
+    D --> E["Isolated Workspace<br/>baseline + workspace + artifacts"]
+    E --> F["Validation Gate<br/>tests + path policy + artifact filtering"]
+    F --> G["Git Promotion Gate<br/>writer lease + approval + draft PR checks"]
+    G --> H["Patch Artifact"]
+    G --> I["Draft PR"]
 ```
 
 The architectural principle is simple:
@@ -38,6 +41,15 @@ The architectural principle is simple:
 - workers may edit in isolation,
 - promotion may upgrade the result,
 - but no single layer owns all three powers.
+
+## Control-Plane Hardening Additions
+
+The current docs set also assumes:
+
+- a typed `dispatch_run` record wraps execution,
+- a fake remote adapter can simulate future Linux orchestration while Linux is offline,
+- failure classes map to typed recovery actions,
+- and runtime mode config chooses the preferred lane before dispatch.
 
 ## Zero-Trust Rules
 

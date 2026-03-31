@@ -10,6 +10,7 @@ from autoresearch.agent_protocol.models import JobSpec, RunSummary
 from autoresearch.shared.models import JobStatus, StrictModel
 from autoresearch.shared.openhands_controlled_contract import ControlledExecutionRequest
 from autoresearch.shared.openhands_worker_contract import OpenHandsWorkerJobSpec
+from autoresearch.shared.remote_run_contract import RemoteRunRecord
 
 
 class AutoResearchPlannerRequest(StrictModel):
@@ -130,6 +131,7 @@ class AutoResearchPlanRead(StrictModel):
     dispatch_requested_at: datetime | None = None
     dispatch_completed_at: datetime | None = None
     dispatch_requested_by: str | None = None
+    dispatch_run: RemoteRunRecord | None = None
     run_summary: RunSummary | None = None
     dispatch_error: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)

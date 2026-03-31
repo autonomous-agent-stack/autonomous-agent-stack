@@ -1,0 +1,10 @@
+preferred_lane: local
+max_workers: 1
+max_concurrency: 1
+allow_exploration: false
+allow_patch: true
+allow_draft_pr: false
+require_high_risk_approval: true
+step_budget: 8
+token_budget: 20000
+timeout_sec: 900

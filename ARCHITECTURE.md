@@ -2,7 +2,7 @@
 
 This file is the canonical architecture handoff for the current `autonomous-agent-stack` checkout.
 
-It describes the system that actually exists in this repository on March 28, 2026, not the older aspirational stack diagrams that still exist in some historical docs. If a historical document disagrees with this file, trust this file first and then verify against code.
+It describes the system that actually exists in this repository on March 31, 2026, not the older aspirational stack diagrams that still exist in some historical docs. If a historical document disagrees with this file, trust this file first and then verify against code.
 
 ## What This Repository Is Now
 
@@ -20,11 +20,13 @@ The current mainline flow is:
 
 1. `AutoResearchPlannerService` scans the repo and selects a bounded change candidate.
 2. It emits an `OpenHandsWorkerJobSpec`, a `ControlledExecutionRequest`, and an AEP `JobSpec`.
-3. `OpenHandsWorkerService` translates that contract into a strict patch-only worker prompt.
-4. `OpenHandsControlledBackendService` or `AgentExecutionRunner` executes inside an isolated workspace.
-5. Validation commands run against the isolated result.
-6. `GitPromotionGateService` re-checks scope, runtime artifacts, binary changes, writer lease, approval state, and Draft PR preconditions.
-7. Promotion ends as either:
+3. A runtime mode selector chooses the preferred lane and budget envelope.
+4. A dispatch adapter wraps execution into a typed `dispatch_run` lifecycle.
+5. `OpenHandsWorkerService` translates the worker contract into a strict patch-only prompt.
+6. `OpenHandsControlledBackendService` or `AgentExecutionRunner` executes inside an isolated workspace.
+7. Validation commands run against the isolated result.
+8. `GitPromotionGateService` re-checks scope, runtime artifacts, binary changes, writer lease, approval state, and Draft PR preconditions.
+9. Promotion ends as either:
    - a patch artifact ready for human review, or
    - a Draft PR created from an isolated worktree.
 
@@ -33,11 +35,13 @@ The current mainline flow is:
 ```mermaid
 flowchart TD
     A["Repo Scan<br/>AutoResearch Planner"] --> B["Worker Contract<br/>OpenHandsWorkerJobSpec / ControlledExecutionRequest / JobSpec"]
-    B --> C["Isolated Execution<br/>OpenHands controlled backend or AEP runner"]
-    C --> D["Validation Gate<br/>allowed paths + tests + policy checks"]
-    D --> E["Git Promotion Gate<br/>writer lease + clean repo + approval + draft PR checks"]
-    E --> F["Patch Artifact"]
-    E --> G["Draft PR"]
+    B --> C["Runtime Mode Selector<br/>day / night"]
+    C --> D["Dispatch Contract<br/>dispatch_run + adapter lane selection"]
+    D --> E["Isolated Execution<br/>OpenHands controlled backend or AEP runner"]
+    E --> F["Validation Gate<br/>allowed paths + tests + policy checks"]
+    F --> G["Git Promotion Gate<br/>writer lease + clean repo + approval + draft PR checks"]
+    G --> H["Patch Artifact"]
+    G --> I["Draft PR"]
 ```
 
 This pipeline is intentionally asymmetric:
@@ -47,6 +51,19 @@ This pipeline is intentionally asymmetric:
 - but only the promotion layer is allowed to translate that patch into branch or PR level state.
 
 That asymmetry is the core safety mechanism.
+
+## Offline Remote Hardening Layer
+
+The repository now includes a control-plane wrapper for future Linux execution even when Linux is offline today.
+
+The added pieces are:
+
+- `RemoteTaskSpec`, `RemoteRunRecord`, and `RemoteRunSummary`
+- a fake remote adapter that simulates dispatch, heartbeat, timeout, and result fetch
+- a fixed failure taxonomy with typed recovery actions
+- day/night runtime config files that select preferred lane and execution budgets
+
+This means the repository can stabilize protocol, status, and fallback behavior before a live remote worker is reattached.
 
 ## Zero-Trust Invariants
 
@@ -292,6 +309,11 @@ FastAPI dependencies build `SQLiteModelRepository` instances for typed resources
 
 SQLite is the system of record for control-plane metadata, not the artifact filesystem.
 
+AutoResearch plans now persist both:
+
+- `dispatch_run`: the outer remote-control-plane record
+- `run_summary`: the inner legacy AEP/OpenHands summary when a local run exists
+
 ### Artifact Filesystem
 
 Per-run execution artifacts live under `.masfactory_runtime/` or the controlled backend run root and include:
@@ -304,6 +326,14 @@ Per-run execution artifacts live under `.masfactory_runtime/` or the controlled 
 - summary JSON,
 - event streams.
 
+The offline hardening layer also writes remote-control artifacts under the same run root:
+
+- `remote_control/task_spec.json`
+- `remote_control/record.json`
+- `remote_control/events.ndjson`
+- `remote_control/heartbeat.json`
+- `remote_control/summary.json`
+
 These artifacts are intentionally excluded from promotion.
 
 ## Canonical Source Files
@@ -313,6 +343,10 @@ When another AI or human needs the real architecture, start here:
 - `ARCHITECTURE.md`
 - `memory/SOP/MASFactory_Strict_Execution_v1.md`
 - `src/autoresearch/core/services/autoresearch_planner.py`
+- `src/autoresearch/shared/remote_run_contract.py`
+- `src/autoresearch/core/dispatch/fake_remote_adapter.py`
+- `src/autoresearch/core/dispatch/failure_classifier.py`
+- `src/autoresearch/core/runtime/select_mode.py`
 - `src/autoresearch/core/services/openhands_worker.py`
 - `src/autoresearch/core/services/openhands_controlled_backend.py`
 - `src/autoresearch/executions/runner.py`
@@ -341,5 +375,6 @@ Future AI handoffs should assume:
 
 - `ARCHITECTURE.md` is the canonical system picture,
 - `docs/architecture.md` exists for compatibility with older references,
+- `docs/run-lifecycle.md`, `docs/failure-modes.md`, and `docs/deployment-status.md` are the canonical control-plane hardening companions,
 - the SOP in `memory/SOP/MASFactory_Strict_Execution_v1.md` is the short operational checklist,
 - and all autonomous changes must remain patch-only until the promotion gate says otherwise.
