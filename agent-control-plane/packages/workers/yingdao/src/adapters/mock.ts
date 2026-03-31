@@ -19,7 +19,6 @@ import {
  */
 export class MockYingdaoWorkerAdapter implements WinYingdaoWorkerContract {
   private runs: Map<string, MockRun> = new Map();
-  private currentStep = 0;
 
   /**
    * 启动任务
@@ -93,12 +92,22 @@ export class MockYingdaoWorkerAdapter implements WinYingdaoWorkerContract {
     if (run.status !== 'completed') {
       return [];
     }
-    
+
+    // 返回 4 个最小必需集产物
     return [
       {
         type: 'log',
         path: '/artifacts/mock-run.log',
         size_bytes: 1024,
+        mime_type: 'application/json',
+        created_at: new Date(),
+        metadata: {},
+        flow_run_id: run.flow_run_id
+      },
+      {
+        type: 'metadata',  // summary
+        path: '/artifacts/mock-summary.json',
+        size_bytes: 512,
         mime_type: 'application/json',
         created_at: new Date(),
         metadata: {},
@@ -149,9 +158,9 @@ export class MockYingdaoWorkerAdapter implements WinYingdaoWorkerContract {
   }
 
   /**
-   * 分类错误
+   * 分类错误 (同步)
    */
-  async classifyError(error: Error): Promise<YingdaoErrorClassification> {
+  classifyError(error: Error): YingdaoErrorClassification {
     const message = error.message.toUpperCase();
     
     // 瞬时错误

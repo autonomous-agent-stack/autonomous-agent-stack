@@ -152,7 +152,7 @@ export interface WinYingdaoWorkerContract {
   cancelRun(handle: YingdaoTaskHandle, reason?: string): Promise<void>;
 
   /**
-   * 分类错误
+   * 分类错误 (同步)
    */
   classifyError(error: Error): YingdaoErrorClassification;
 }
