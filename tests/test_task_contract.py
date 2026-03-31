@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from autoresearch.shared.models import JobStatus
+from autoresearch.shared.housekeeper_contract import HousekeeperTaskStatus
 from autoresearch.shared.task_contract import (
     ApprovalStatus,
     CreateTaskRequest,
@@ -13,6 +14,8 @@ from autoresearch.shared.task_contract import (
     TaskPriority,
     TaskResult,
     TaskStatus,
+    housekeeper_status_to_task_status,
+    task_status_to_housekeeper_status,
     is_valid_transition,
     job_status_to_task_status,
     task_status_to_job_status,
@@ -186,3 +189,44 @@ class TestLegacyMapping:
 
     def test_completed_maps_to_succeeded(self):
         assert job_status_to_task_status(JobStatus.COMPLETED) == TaskStatus.SUCCEEDED
+
+
+class TestHousekeeperTaskStatusMapping:
+    """Bidirectional mapping between unified TaskStatus and HousekeeperTaskStatus."""
+
+    @pytest.mark.parametrize(
+        "hs, expected",
+        [
+            (HousekeeperTaskStatus.CREATED, TaskStatus.PENDING),
+            (HousekeeperTaskStatus.QUEUED, TaskStatus.QUEUED),
+            (HousekeeperTaskStatus.RUNNING, TaskStatus.RUNNING),
+            (HousekeeperTaskStatus.COMPLETED, TaskStatus.SUCCEEDED),
+            (HousekeeperTaskStatus.FAILED, TaskStatus.FAILED),
+            (HousekeeperTaskStatus.REJECTED, TaskStatus.REJECTED),
+            (HousekeeperTaskStatus.APPROVAL_REQUIRED, TaskStatus.APPROVAL_REQUIRED),
+            (HousekeeperTaskStatus.CLARIFICATION_REQUIRED, TaskStatus.NEEDS_REVIEW),
+        ],
+    )
+    def test_housekeeper_to_unified(self, hs, expected):
+        assert housekeeper_status_to_task_status(hs) == expected
+
+    def test_roundtrip_core_states(self):
+        for hs in [
+            HousekeeperTaskStatus.QUEUED,
+            HousekeeperTaskStatus.RUNNING,
+            HousekeeperTaskStatus.COMPLETED,
+            HousekeeperTaskStatus.FAILED,
+        ]:
+            ts = housekeeper_status_to_task_status(hs)
+            hs_back = task_status_to_housekeeper_status(ts)
+            assert hs_back == hs
+
+    def test_all_housekeeper_statuses_mapped(self):
+        for hs in HousekeeperTaskStatus:
+            ts = housekeeper_status_to_task_status(hs)
+            assert isinstance(ts, TaskStatus)
+
+    def test_all_task_statuses_mapped_back(self):
+        for ts in TaskStatus:
+            hs = task_status_to_housekeeper_status(ts)
+            assert isinstance(hs, HousekeeperTaskStatus)

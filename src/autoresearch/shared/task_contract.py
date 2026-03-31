@@ -285,3 +285,41 @@ def job_status_to_task_status(js: _LegacyJobStatus) -> TaskStatus:
 
 def task_status_to_job_status(ts: TaskStatus) -> _LegacyJobStatus:
     return _TASK_STATUS_TO_JOB_STATUS[ts]
+
+
+# ---------------------------------------------------------------------------
+# HousekeeperTaskStatus bridge
+# ---------------------------------------------------------------------------
+
+from .housekeeper_contract import HousekeeperTaskStatus as _HousekeeperTaskStatus  # noqa: E402
+
+_HOUSEKEEPER_TO_UNIFIED: dict[_HousekeeperTaskStatus, TaskStatus] = {
+    _HousekeeperTaskStatus.CREATED: TaskStatus.PENDING,
+    _HousekeeperTaskStatus.CLARIFICATION_REQUIRED: TaskStatus.NEEDS_REVIEW,
+    _HousekeeperTaskStatus.APPROVAL_REQUIRED: TaskStatus.APPROVAL_REQUIRED,
+    _HousekeeperTaskStatus.QUEUED: TaskStatus.QUEUED,
+    _HousekeeperTaskStatus.RUNNING: TaskStatus.RUNNING,
+    _HousekeeperTaskStatus.COMPLETED: TaskStatus.SUCCEEDED,
+    _HousekeeperTaskStatus.FAILED: TaskStatus.FAILED,
+    _HousekeeperTaskStatus.REJECTED: TaskStatus.REJECTED,
+}
+
+_UNIFIED_TO_HOUSEKEEPER: dict[TaskStatus, _HousekeeperTaskStatus] = {
+    TaskStatus.PENDING: _HousekeeperTaskStatus.CREATED,
+    TaskStatus.QUEUED: _HousekeeperTaskStatus.QUEUED,
+    TaskStatus.RUNNING: _HousekeeperTaskStatus.RUNNING,
+    TaskStatus.SUCCEEDED: _HousekeeperTaskStatus.COMPLETED,
+    TaskStatus.FAILED: _HousekeeperTaskStatus.FAILED,
+    TaskStatus.CANCELLED: _HousekeeperTaskStatus.FAILED,
+    TaskStatus.APPROVAL_REQUIRED: _HousekeeperTaskStatus.APPROVAL_REQUIRED,
+    TaskStatus.NEEDS_REVIEW: _HousekeeperTaskStatus.CLARIFICATION_REQUIRED,
+    TaskStatus.REJECTED: _HousekeeperTaskStatus.REJECTED,
+}
+
+
+def housekeeper_status_to_task_status(hs: _HousekeeperTaskStatus) -> TaskStatus:
+    return _HOUSEKEEPER_TO_UNIFIED[hs]
+
+
+def task_status_to_housekeeper_status(ts: TaskStatus) -> _HousekeeperTaskStatus:
+    return _UNIFIED_TO_HOUSEKEEPER[ts]
