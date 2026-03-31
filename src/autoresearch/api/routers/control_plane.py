@@ -16,7 +16,6 @@ from autoresearch.shared.housekeeper_contract import (
     WorkerRegistrationRead,
 )
 
-
 router = APIRouter(prefix="/api/v1/control-plane", tags=["control-plane"])
 
 

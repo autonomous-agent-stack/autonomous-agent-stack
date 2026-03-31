@@ -19,7 +19,6 @@ from autoresearch.core.services.cluster_manager import (
     get_cluster_manager,
 )
 
-
 router = APIRouter(prefix="/api/v1/cluster", tags=["cluster"])
 
 
@@ -27,8 +26,10 @@ router = APIRouter(prefix="/api/v1/cluster", tags=["cluster"])
 # 数据模型
 # ========================================================================
 
+
 class NodeRegisterRequest(BaseModel):
     """节点注册请求"""
+
     name: str = Field(..., min_length=1, max_length=100)
     endpoint: str = Field(..., min_length=1)
     api_key: str = Field(..., min_length=1)
@@ -38,6 +39,7 @@ class NodeRegisterRequest(BaseModel):
 
 class NodeRead(BaseModel):
     """节点信息"""
+
     node_id: str
     name: str
     endpoint: str
@@ -53,6 +55,7 @@ class NodeRead(BaseModel):
 
 class TaskDispatchRequest(BaseModel):
     """任务分发请求"""
+
     task: Dict[str, Any]
     required_capabilities: Optional[List[str]] = None
     strategy: str = "least_load"  # least_load, round_robin, random
@@ -60,6 +63,7 @@ class TaskDispatchRequest(BaseModel):
 
 class TaskDispatchResponse(BaseModel):
     """任务分发响应"""
+
     node_id: str
     node_name: str
     result: Dict[str, Any]
@@ -67,6 +71,7 @@ class TaskDispatchResponse(BaseModel):
 
 class ClusterStatusResponse(BaseModel):
     """集群状态响应"""
+
     total_nodes: int
     online_nodes: int
     offline_nodes: int
@@ -79,6 +84,7 @@ class ClusterStatusResponse(BaseModel):
 # ========================================================================
 # API 端点
 # ========================================================================
+
 
 @router.get("/health")
 def cluster_health() -> dict[str, str]:
@@ -100,7 +106,7 @@ async def register_node(
             capabilities=request.capabilities,
             metadata=request.metadata,
         )
-        
+
         return NodeRead(
             node_id=node.node_id,
             name=node.name,
@@ -114,7 +120,7 @@ async def register_node(
             successful_tasks=node.successful_tasks,
             failed_tasks=node.failed_tasks,
         )
-    
+
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -129,13 +135,13 @@ async def unregister_node(
 ):
     """注销节点"""
     success = await manager.unregister_node(node_id)
-    
+
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"节点不存在: {node_id}",
         )
-    
+
     return {"success": True, "message": f"节点已注销: {node_id}"}
 
 
@@ -169,13 +175,13 @@ async def get_node(
 ):
     """获取节点详情"""
     node = manager.nodes.get(node_id)
-    
+
     if not node:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"节点不存在: {node_id}",
         )
-    
+
     return NodeRead(
         node_id=node.node_id,
         name=node.name,
@@ -202,26 +208,26 @@ async def dispatch_task(
         strategy = LoadBalanceStrategy(request.strategy)
     except ValueError:
         strategy = LoadBalanceStrategy.LEAST_LOAD
-    
+
     try:
         result = await manager.dispatch_task_smart(
             task=request.task,
             required_capabilities=request.required_capabilities,
             strategy=strategy,
         )
-        
+
         return TaskDispatchResponse(
             node_id=result["node_id"],
             node_name=result["node_name"],
             result=result,
         )
-    
+
     except RuntimeError as e:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=str(e),
         )
-    
+
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -239,13 +245,13 @@ async def dispatch_task_to_node(
     try:
         result = await manager.dispatch_task(node_id, task)
         return result
-    
+
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
         )
-    
+
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -259,7 +265,7 @@ async def get_cluster_status(
 ):
     """获取集群状态"""
     status = manager.get_cluster_status()
-    
+
     return ClusterStatusResponse(**status)
 
 
@@ -269,7 +275,7 @@ async def start_monitoring(
 ):
     """启动心跳监控"""
     manager.start_monitoring()
-    
+
     return {"success": True, "message": "心跳监控已启动"}
 
 
@@ -279,5 +285,5 @@ async def stop_monitoring(
 ):
     """停止心跳监控"""
     manager.stop_monitoring()
-    
+
     return {"success": True, "message": "心跳监控已停止"}

@@ -7,7 +7,6 @@ from autoresearch.core.services.admin_auth import AdminAccessClaims, AdminAuthSe
 from autoresearch.core.services.approval_store import ApprovalStoreService
 from autoresearch.shared.models import ApprovalDecisionRequest, ApprovalRequestRead, ApprovalStatus
 
-
 router = APIRouter(prefix="/api/v1/approvals", tags=["approvals"])
 
 _APPROVAL_READ_ROLES = {"viewer", "editor", "admin", "owner"}
@@ -27,7 +26,9 @@ def _require_approval_read(
 ) -> AdminAccessClaims:
     token = _extract_bearer_token(request)
     if not token:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="missing admin bearer token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="missing admin bearer token"
+        )
     try:
         return auth_service.verify_token(token, required_roles=_APPROVAL_READ_ROLES)
     except PermissionError as exc:
@@ -40,7 +41,9 @@ def _require_approval_write(
 ) -> AdminAccessClaims:
     token = _extract_bearer_token(request)
     if not token:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="missing admin bearer token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="missing admin bearer token"
+        )
     try:
         return auth_service.verify_token(token, required_roles=_APPROVAL_WRITE_ROLES)
     except PermissionError as exc:
@@ -94,6 +97,8 @@ def resolve_approval(
     try:
         return approval_service.resolve_request(approval_id, payload)
     except KeyError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="approval not found") from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="approval not found"
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc

@@ -18,7 +18,6 @@ from autoresearch.shared.autoresearch_planner_contract import (
     UpstreamWatchDecision,
 )
 
-
 router = APIRouter(prefix="/api/v1/autoresearch/plans", tags=["autoresearch-plans"])
 
 
@@ -33,7 +32,9 @@ def create_autoresearch_plan(
     panel_access_service: PanelAccessService = Depends(get_panel_access_service),
     notifier: TelegramNotifierService = Depends(get_telegram_notifier_service),
 ) -> AutoResearchPlanRead:
-    telegram_uid = _select_plan_notification_uid(payload=payload, panel_access_service=panel_access_service)
+    telegram_uid = _select_plan_notification_uid(
+        payload=payload, panel_access_service=panel_access_service
+    )
     plan = service.create(payload.model_copy(update={"telegram_uid": telegram_uid}))
     panel_action_url = None
     notification_sent = False
@@ -51,12 +52,19 @@ def create_autoresearch_plan(
             panel_action_url=panel_action_url,
             telegram_uid=telegram_uid,
         )
-    notification_sent = _send_upstream_watch_notification(
-        notifier=notifier,
-        plan=plan,
-        telegram_uid=telegram_uid,
-    ) or notification_sent
-    if plan.selected_candidate is None and not notification_sent and telegram_uid == plan.telegram_uid:
+    notification_sent = (
+        _send_upstream_watch_notification(
+            notifier=notifier,
+            plan=plan,
+            telegram_uid=telegram_uid,
+        )
+        or notification_sent
+    )
+    if (
+        plan.selected_candidate is None
+        and not notification_sent
+        and telegram_uid == plan.telegram_uid
+    ):
         return plan
     return service.update_delivery(
         plan.plan_id,
@@ -80,7 +88,9 @@ def get_autoresearch_plan(
 ) -> AutoResearchPlanRead:
     plan = service.get(plan_id)
     if plan is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AutoResearch plan not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="AutoResearch plan not found"
+        )
     return plan
 
 
@@ -180,7 +190,9 @@ def _send_plan_notification(
     ):
         if notifier.send_message(
             chat_id=telegram_uid,
-            text=_build_plan_notification_text(plan, delivery=_plan_notification_delivery(reply_markup)),
+            text=_build_plan_notification_text(
+                plan, delivery=_plan_notification_delivery(reply_markup)
+            ),
             reply_markup=reply_markup,
         ):
             return True
@@ -237,12 +249,13 @@ def _build_upstream_watch_notification_text(plan: AutoResearchPlanRead) -> str:
     upstream_watch = plan.upstream_watch
     if upstream_watch is None:
         return "🛡️ 已完成上游巡检，当前没有需要同步的核心更新。"
-    focus_labels = [_format_upstream_focus_area(item) for item in upstream_watch.focus_areas if item != "repo-meta"]
+    focus_labels = [
+        _format_upstream_focus_area(item)
+        for item in upstream_watch.focus_areas
+        if item != "repo-meta"
+    ]
     focus_hint = "/".join(focus_labels[:3]) or "近期扩展"
-    return (
-        f"🛡️ 已完成上游巡检，最新变更（{focus_hint} 修复）与核心基建无关，"
-        "已自动拦截跳过。"
-    )
+    return f"🛡️ 已完成上游巡检，最新变更（{focus_hint} 修复）与核心基建无关，" "已自动拦截跳过。"
 
 
 def _format_upstream_focus_area(focus_area: str) -> str:

@@ -6,7 +6,6 @@ from autoresearch.api.dependencies import get_experiment_service
 from autoresearch.shared.models import ExperimentCreateRequest, ExperimentRead
 from autoresearch.train.services.experiments import ExperimentService
 
-
 router = APIRouter(prefix="/api/v1/experiments", tags=["experiments"])
 
 

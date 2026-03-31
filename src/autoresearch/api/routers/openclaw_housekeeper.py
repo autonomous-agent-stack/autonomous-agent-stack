@@ -10,7 +10,6 @@ from autoresearch.shared.housekeeper_contract import (
     HousekeeperTaskRead,
 )
 
-
 router = APIRouter(prefix="/api/v1/openclaw/housekeeper", tags=["openclaw-housekeeper"])
 
 
@@ -22,7 +21,9 @@ def dispatch_housekeeper_task(
     try:
         return service.dispatch(payload)
     except KeyError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="OpenClaw session not found") from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="OpenClaw session not found"
+        ) from exc
 
 
 @router.get("/tasks", response_model=list[HousekeeperTaskRead])
@@ -41,7 +42,9 @@ def get_housekeeper_task(
 ) -> HousekeeperTaskRead:
     item = service.get_task(task_id)
     if item is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="housekeeper task not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="housekeeper task not found"
+        )
     return item
 
 
@@ -54,7 +57,9 @@ def approve_housekeeper_task(
     try:
         return service.approve_task(task_id, payload)
     except KeyError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="housekeeper task not found") from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="housekeeper task not found"
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -68,6 +73,8 @@ def reject_housekeeper_task(
     try:
         return service.reject_task(task_id, payload)
     except KeyError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="housekeeper task not found") from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="housekeeper task not found"
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
