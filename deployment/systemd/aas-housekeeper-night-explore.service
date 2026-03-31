@@ -1,0 +1,9 @@
+[Unit]
+Description=Run one housekeeper night explore tick
+After=aas-api.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/autonomous-agent-stack
+EnvironmentFile=-/opt/autonomous-agent-stack/.env.linux
+ExecStart=/opt/autonomous-agent-stack/scripts/housekeeper_api.sh night-tick
