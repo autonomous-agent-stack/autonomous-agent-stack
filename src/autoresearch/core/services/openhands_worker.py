@@ -15,6 +15,19 @@ from autoresearch.shared.openhands_worker_contract import OpenHandsWorkerJobSpec
 class OpenHandsWorkerService:
     """Translate a patch-only OpenHands worker contract into existing AEP/backends."""
 
+    _SAFE_MOCK_FALLBACK_PREFIXES = ("apps/", "tests/apps/")
+
+    def _should_use_mock_fallback(self, spec: OpenHandsWorkerJobSpec) -> bool:
+        if not spec.use_mock_fallback:
+            return False
+        normalized_paths = [item.strip().replace("\\", "/") for item in spec.allowed_paths if item.strip()]
+        if not normalized_paths:
+            return False
+        return all(
+            path.startswith(self._SAFE_MOCK_FALLBACK_PREFIXES)
+            for path in normalized_paths
+        )
+
     def build_prompt(self, spec: OpenHandsWorkerJobSpec) -> str:
         allowed_paths = "\n".join(f"- {item}" for item in spec.allowed_paths)
         forbidden_paths = "\n".join(f"- {item}" for item in spec.forbidden_paths)
@@ -38,11 +51,12 @@ class OpenHandsWorkerService:
         )
 
     def build_agent_job_spec(self, spec: OpenHandsWorkerJobSpec) -> JobSpec:
+        allow_mock_fallback = self._should_use_mock_fallback(spec)
         fallback: list[FallbackStep] = []
         retry_attempts = max(spec.max_iterations - 1, 0)
         if retry_attempts > 0:
             fallback.append(FallbackStep(action="retry", max_attempts=retry_attempts))
-        if spec.use_mock_fallback:
+        if allow_mock_fallback:
             fallback.append(FallbackStep(action="fallback_agent", agent_id="mock", max_attempts=1))
         fallback.append(FallbackStep(action="human_review", max_attempts=1))
 
@@ -73,11 +87,13 @@ class OpenHandsWorkerService:
                 "worker_output_mode": spec.worker_output_mode,
                 "pipeline_target": spec.pipeline_target,
                 "target_base_branch": spec.target_base_branch,
+                "mock_fallback_enabled": allow_mock_fallback,
             },
         )
 
     def build_controlled_request(self, spec: OpenHandsWorkerJobSpec) -> ControlledExecutionRequest:
-        fallback_backend = ControlledBackend.MOCK if spec.use_mock_fallback else None
+        allow_mock_fallback = self._should_use_mock_fallback(spec)
+        fallback_backend = ControlledBackend.MOCK if allow_mock_fallback else None
         failure_strategy = FailureStrategy.FALLBACK if fallback_backend is not None else FailureStrategy.HUMAN_IN_LOOP
         return ControlledExecutionRequest(
             task_id=spec.job_id,
@@ -100,5 +116,6 @@ class OpenHandsWorkerService:
                 "allowed_paths": list(spec.allowed_paths),
                 "forbidden_paths": list(spec.forbidden_paths),
                 "base_branch": spec.target_base_branch,
+                "mock_fallback_enabled": allow_mock_fallback,
             },
         )
