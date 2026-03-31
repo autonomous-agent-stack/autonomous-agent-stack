@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import json
+import logging
+import time
 from typing import Any
 from urllib import error, request
 
 from autoresearch.shared.models import PanelAuditLogRead
+
+
+logger = logging.getLogger(__name__)
 
 
 class TelegramNotifierService:
@@ -16,10 +21,12 @@ class TelegramNotifierService:
         bot_token: str | None,
         api_base: str = "https://api.telegram.org",
         timeout_seconds: float = 10.0,
+        max_attempts: int = 2,
     ) -> None:
         self._bot_token = (bot_token or "").strip()
         self._api_base = api_base.rstrip("/")
         self._timeout_seconds = timeout_seconds
+        self._max_attempts = max(1, max_attempts)
 
     @property
     def enabled(self) -> bool:
@@ -51,12 +58,11 @@ class TelegramNotifierService:
             headers={"content-type": "application/json"},
             method="POST",
         )
-        try:
-            with request.urlopen(req, timeout=self._timeout_seconds) as response:
-                response_payload = json.loads(response.read().decode("utf-8"))
-            return bool(response_payload.get("ok"))
-        except (error.URLError, error.HTTPError, TimeoutError, json.JSONDecodeError):
-            return False
+        return self._send_request(
+            req=req,
+            operation="sendMessage",
+            chat_id=str(chat_id),
+        )
 
     def notify_manual_action(
         self,
@@ -192,9 +198,51 @@ class TelegramNotifierService:
             method="POST",
         )
 
-        try:
-            with request.urlopen(req, timeout=self._timeout_seconds) as response:
-                response_payload = json.loads(response.read().decode("utf-8"))
-            return bool(response_payload.get("ok"))
-        except (error.URLError, error.HTTPError, TimeoutError, json.JSONDecodeError):
-            return False
+        return self._send_request(
+            req=req,
+            operation="sendMessage(group_magic_link)",
+            chat_id=str(chat_id),
+        )
+
+    def _send_request(
+        self,
+        *,
+        req: request.Request,
+        operation: str,
+        chat_id: str,
+    ) -> bool:
+        last_error: Exception | None = None
+        for attempt in range(1, self._max_attempts + 1):
+            try:
+                with request.urlopen(req, timeout=self._timeout_seconds) as response:
+                    response_payload = json.loads(response.read().decode("utf-8"))
+                ok = bool(response_payload.get("ok"))
+                if not ok:
+                    logger.warning(
+                        "Telegram notifier %s returned ok=false on attempt %s for chat_id=%s payload=%s",
+                        operation,
+                        attempt,
+                        chat_id,
+                        response_payload,
+                    )
+                return ok
+            except (error.URLError, error.HTTPError, TimeoutError, json.JSONDecodeError) as exc:
+                last_error = exc
+                logger.warning(
+                    "Telegram notifier %s failed on attempt %s/%s for chat_id=%s: %s",
+                    operation,
+                    attempt,
+                    self._max_attempts,
+                    chat_id,
+                    exc,
+                )
+                if attempt < self._max_attempts:
+                    time.sleep(0.5)
+        if last_error is not None:
+            logger.error(
+                "Telegram notifier %s exhausted retries for chat_id=%s: %s",
+                operation,
+                chat_id,
+                last_error,
+            )
+        return False
