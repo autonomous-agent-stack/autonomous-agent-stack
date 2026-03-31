@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from autoresearch.shared.housekeeper_contract import AgentPackageRecordRead
 from autoresearch.shared.housekeeper_contract import (
+    AgentPackageRecordRead,
     HousekeeperBackendKind,
     WorkerAvailabilityStatus,
     WorkerRegistrationRead,
@@ -14,6 +14,10 @@ from autoresearch.shared.linux_supervisor_contract import (
     LinuxSupervisorProcessStatusRead,
 )
 from autoresearch.shared.models import utc_now
+from autoresearch.shared.worker_contract import (
+    WorkerStatus,
+    worker_status_rank,
+)
 
 
 class WorkerRegistryService:
@@ -22,8 +26,7 @@ class WorkerRegistryService:
     def __init__(self, *, repo_root: Path, linux_runtime_root: Path | None = None) -> None:
         self._repo_root = repo_root.resolve()
         self._linux_runtime_root = (
-            linux_runtime_root
-            or self._repo_root / ".masfactory_runtime" / "linux-housekeeper"
+            linux_runtime_root or self._repo_root / ".masfactory_runtime" / "linux-housekeeper"
         ).resolve()
 
     def list_workers(self) -> list[WorkerRegistrationRead]:
@@ -43,16 +46,18 @@ class WorkerRegistryService:
                 return worker
         return None
 
-    def find_worker_for_backend(self, backend_kind: HousekeeperBackendKind) -> WorkerRegistrationRead | None:
+    def find_worker_for_backend(
+        self, backend_kind: HousekeeperBackendKind
+    ) -> WorkerRegistrationRead | None:
         candidates = [
-            worker
-            for worker in self.list_workers()
-            if worker.backend_kind is backend_kind
+            worker for worker in self.list_workers() if worker.backend_kind is backend_kind
         ]
         candidates.sort(key=lambda item: self._status_rank(item.status))
         return candidates[0] if candidates else None
 
-    def find_worker_for_package(self, package: AgentPackageRecordRead) -> WorkerRegistrationRead | None:
+    def find_worker_for_package(
+        self, package: AgentPackageRecordRead
+    ) -> WorkerRegistrationRead | None:
         if package.execution_backend is HousekeeperBackendKind.LINUX_SUPERVISOR:
             return self.find_worker_for_backend(HousekeeperBackendKind.LINUX_SUPERVISOR)
         if package.execution_backend is HousekeeperBackendKind.WIN_YINGDAO:
@@ -69,12 +74,8 @@ class WorkerRegistryService:
         return candidates[0] if candidates else None
 
     def _status_rank(self, status: WorkerAvailabilityStatus) -> int:
-        return {
-            WorkerAvailabilityStatus.ONLINE: 0,
-            WorkerAvailabilityStatus.BUSY: 1,
-            WorkerAvailabilityStatus.DEGRADED: 2,
-            WorkerAvailabilityStatus.OFFLINE: 3,
-        }[status]
+        unified = WorkerStatus(status.value)
+        return worker_status_rank(unified)
 
     def _package_worker_rank(self, worker: WorkerRegistrationRead) -> tuple[int, int]:
         preferred_ids = {
