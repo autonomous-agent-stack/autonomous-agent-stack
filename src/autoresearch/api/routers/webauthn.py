@@ -19,12 +19,11 @@ import json
 import os
 import secrets
 import sqlite3
-from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 # 尝试导入 webauthn 库（可选依赖）
@@ -32,20 +31,15 @@ try:
     from webauthn import (
         generate_authentication_options,
         verify_authentication_response,
-        generate_registration_options,
         verify_registration_response,
-        options_to_json,
     )
     from webauthn.helpers.structs import (
         AuthenticationCredential,
         RegistrationCredential,
-        AuthenticatorSelectionCriteria,
-        AuthenticatorAttachment,
         UserVerificationRequirement,
         PublicKeyCredentialDescriptor,
         PublicKeyCredentialType,
     )
-    from webauthn.helpers.cose import COSEAlgorithmIdentifier
 
     WEBAUTHN_AVAILABLE = True
 except ImportError:

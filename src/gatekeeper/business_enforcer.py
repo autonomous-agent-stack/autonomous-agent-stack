@@ -118,7 +118,6 @@ class BusinessTDD_Enforcer:
     
     async def _semantic_check(self, text: str) -> Dict[str, Any]:
         """语义检查（调用 LLM）"""
-        lowered = text.lower()
         normalized = re.sub(r"\s+", "", text)
 
         required_hits = [keyword for keyword in self.malu_keywords if keyword in text]

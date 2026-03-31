@@ -9,14 +9,13 @@
 
 from __future__ import annotations
 
-import os
 import re
 import subprocess
 import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import List
 import logging
 
 logger = logging.getLogger(__name__)
@@ -248,8 +247,6 @@ if __name__ == "__main__":
     import asyncio
     
     async def test():
-        runner = Sandbox_Test_Runner()
-        
         # 测试清理 AppleDouble
         cleaned = AppleDoubleCleaner.clean("/tmp")
         print(f"✅ 清理了 {cleaned} 个 AppleDouble 文件")

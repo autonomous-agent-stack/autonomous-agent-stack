@@ -10,14 +10,10 @@
 from __future__ import annotations
 
 import pytest
-from typing import Dict, Any
-from unittest.mock import Mock, patch, AsyncMock
-import asyncio
 
 from src.gatekeeper.static_analyzer import PR_Static_Analyzer
 from src.gatekeeper.business_enforcer import BusinessTDD_Enforcer
-from src.gatekeeper.sandbox_runner import Sandbox_Test_Runner, SandboxTestResult
-from src.gatekeeper.llm_reviewer import LLM_Diff_Reviewer, LLMReview
+from src.gatekeeper.llm_reviewer import LLM_Diff_Reviewer
 from src.gatekeeper.board_summarizer import Board_Summarizer
 
 
@@ -383,7 +379,7 @@ class TestPerformance:
         large_diff = "\n".join([f"+line {i}" for i in range(1000)])
         
         start = time.time()
-        result = await static_analyzer.analyze_pr(large_diff)
+        await static_analyzer.analyze_pr(large_diff)
         elapsed = time.time() - start
         
         assert elapsed < 10.0
@@ -395,7 +391,7 @@ class TestPerformance:
         import time
         
         start = time.time()
-        review = await llm_reviewer.review_pr(
+        await llm_reviewer.review_pr(
             pr_diff="print('test')",
             security_result={"safe": True},
             test_result={"success": True},
