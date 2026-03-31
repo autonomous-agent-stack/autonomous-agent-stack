@@ -14,5 +14,6 @@ cryptography==46.0.6
 Pillow==12.1.1
 numpy==2.3.3
 pytest==8.4.2
+pytest-asyncio==0.24.0
 httpx==0.28.1
 redis==5.0.0

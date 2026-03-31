@@ -38,6 +38,12 @@ env:
     tests/test_run_contract.py
     tests/test_task_gate_contract.py
     tests/test_console.py
+    tests/test_offline_demo_fixture.py
+    tests/test_illegal_transitions.py
+    tests/test_gate_scenarios.py
+    tests/test_retry_fallback_review.py
+    tests/test_fake_workers.py
+    src/autoresearch/testing/fake_workers.py
   CORE_TEST_PATHS: >-
     tests/gateway/test_message_mirror.py
     tests/test_agent_protocol_models.py
@@ -54,6 +60,12 @@ env:
     tests/test_run_contract.py
     tests/test_task_gate_contract.py
     tests/test_console.py
+    tests/test_offline_demo_fixture.py
+    tests/test_illegal_transitions.py
+    tests/test_gate_scenarios.py
+    tests/test_retry_fallback_review.py
+    tests/test_fake_workers.py
+    src/autoresearch/testing/fake_workers.py
 
 jobs:
   lint-test-audit:
