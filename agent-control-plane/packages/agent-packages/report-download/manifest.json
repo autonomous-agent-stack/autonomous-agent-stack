@@ -1,0 +1,76 @@
+{
+  "id": "yingdao_report_download_agent_v0",
+  "name": "报表下载并归档 Agent",
+  "version": "0.1.0",
+
+  "input_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "required": ["report_date", "report_type", "archive_path"],
+    "properties": {
+      "report_date": {
+        "type": "string",
+        "format": "date",
+        "description": "报表日期 (YYYY-MM-DD)"
+      },
+      "report_type": {
+        "type": "string",
+        "enum": ["daily_sales", "weekly_summary", "monthly_summary"],
+        "description": "报表类型"
+      },
+      "archive_path": {
+        "type": "string",
+        "description": "归档目录路径"
+      }
+    }
+  },
+
+  "output_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "required": ["success", "file_path"],
+    "properties": {
+      "success": {
+        "type": "boolean"
+      },
+      "file_path": {
+        "type": "string",
+        "description": "下载的报表文件路径"
+      },
+      "archive_location": {
+        "type": "string",
+        "description": "归档位置"
+      }
+    }
+  },
+
+  "required_capabilities": {
+    "platform": ["win_yingdao"],
+    "tools": ["flow_runner", "screenshot", "file_system"],
+    "min_versions": {
+      "win_yingdao": "3.0.0"
+    }
+  },
+
+  "supported_worker_types": ["win_yingdao"],
+
+  "governance": {
+    "risk_level": "medium",
+    "requires_approval_for_write": false,
+    "max_execution_time_sec": 600
+  },
+
+  "failure_handling": {
+    "fallback_strategy": "manual",
+    "max_retries": 3
+  },
+
+  "execution": {
+    "timeout_ms": 600000,
+    "heartbeat_interval_ms": 15000
+  },
+
+  "artifacts": {
+    "required_artifacts": ["log", "screenshot", "receipt"]
+  }
+}
