@@ -1,0 +1,91 @@
+{
+  "id": "linux_housekeeping_agent_v0",
+  "name": "Linux Housekeeping Agent",
+  "description": "Run bounded Linux housekeeping, inspection, and script tasks through the resident Linux supervisor.",
+  "version": "0.1.0",
+  "execution_backend": "linux_supervisor",
+  "input_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "required": ["prompt"],
+    "properties": {
+      "prompt": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Natural-language Linux housekeeping request"
+      }
+    }
+  },
+  "output_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+      "task_id": {"type": "string"},
+      "conclusion": {"type": "string"},
+      "summary": {"type": "string"}
+    }
+  },
+  "required_capabilities": {
+    "platform": ["linux"],
+    "tools": ["shell", "script_runner", "log_collection"],
+    "min_versions": {
+      "linux": "0.1.0"
+    }
+  },
+  "supported_worker_types": ["linux"],
+  "governance": {
+    "risk_level": "medium",
+    "approval_rules": {
+      "requires_approval_for_write": false,
+      "requires_approval_for_delete": false,
+      "approval_threshold": 0
+    },
+    "permission_boundaries": {
+      "max_execution_time_sec": 1800,
+      "max_retry_count": 1
+    }
+  },
+  "failure_handling": {
+    "fallback_strategy": "manual"
+  },
+  "execution": {
+    "timeout_ms": 1800000,
+    "heartbeat_interval_ms": 5000,
+    "checkpoint_enabled": true,
+    "resource_limits": {
+      "max_memory_mb": 512,
+      "max_cpu_percent": 80,
+      "max_network_mb": 100
+    }
+  },
+  "artifacts": {
+    "required_artifacts": ["log", "metadata"],
+    "artifact_format": {
+      "screenshots": "png",
+      "logs": "json",
+      "receipts": "json"
+    },
+    "retention_policy": {
+      "keep_artifacts_for_hours": 72,
+      "archive_to": null
+    }
+  },
+  "observability": {
+    "log_level": "info",
+    "metrics_to_collect": ["execution_time_ms", "queue_depth"],
+    "custom_tags": {
+      "domain": "ops",
+      "entrypoint": "housekeeper"
+    }
+  },
+  "dependencies": {},
+  "compatibility": {
+    "min_compatible_version": "0.1.0"
+  },
+  "metadata": {
+    "author": "Agent Control Plane Team",
+    "license": "MIT",
+    "tags": ["linux", "ops", "shell", "housekeeping"],
+    "categories": ["operations"]
+  }
+}

@@ -26,13 +26,16 @@ from autoresearch.core.repositories import SQLiteEvaluationRepository
 from autoresearch.core.services.admin_auth import AdminAuthService
 from autoresearch.core.services.admin_config import AdminConfigService
 from autoresearch.core.services.admin_secrets import AdminSecretCipher
+from autoresearch.core.services.agent_package_registry import AgentPackageRegistryService
 from autoresearch.core.services.agent_audit_trail import AgentAuditTrailService
 from autoresearch.core.services.approval_store import ApprovalStoreService
 from autoresearch.core.services.autoresearch_planner import AutoResearchPlannerService
 from autoresearch.core.services.claude_agents import ClaudeAgentService
+from autoresearch.core.services.control_plane_service import ControlPlaneService
 from autoresearch.core.services.evaluations import EvaluationService
 from autoresearch.core.services.executions import ExecutionService
 from autoresearch.core.services.github_issue_service import GitHubIssueService
+from autoresearch.core.services.linux_supervisor import LinuxSupervisorService
 from autoresearch.core.services.mirofish_prediction import MiroFishPredictionService
 from autoresearch.core.services.managed_skill_registry import ManagedSkillRegistryService
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
@@ -41,11 +44,13 @@ from autoresearch.core.services.openclaw_skills import OpenClawSkillService
 from autoresearch.core.services.openviking_memory import OpenVikingMemoryService
 from autoresearch.core.services.panel_access import PanelAccessService
 from autoresearch.core.services.panel_audit import PanelAuditService
+from autoresearch.core.services.personal_housekeeper import PersonalHousekeeperService
 from autoresearch.core.services.reports import ReportService
 from autoresearch.core.services.self_integration import SelfIntegrationService
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
 from autoresearch.core.services.upstream_watcher import UpstreamWatcherService
 from autoresearch.core.services.variants import VariantService
+from autoresearch.core.services.worker_registry import WorkerRegistryService
 from autoresearch.shared.models import (
     ClaudeAgentRunRead,
     AdminAgentConfigRead,
@@ -66,6 +71,7 @@ from autoresearch.shared.models import (
     ReportRead,
     VariantRead,
 )
+from autoresearch.shared.housekeeper_contract import ControlPlaneTaskRead, HousekeeperTaskRead
 from autoresearch.shared.autoresearch_planner_contract import AutoResearchPlanRead
 from autoresearch.shared.manager_agent_contract import ManagerDispatchRead
 from autoresearch.shared.store import SQLiteModelRepository
@@ -265,6 +271,55 @@ def get_openclaw_memory_service() -> OpenClawMemoryService:
 
 
 @lru_cache(maxsize=1)
+def get_agent_package_registry_service() -> AgentPackageRegistryService:
+    return AgentPackageRegistryService(repo_root=_repo_root())
+
+
+@lru_cache(maxsize=1)
+def get_linux_supervisor_service() -> LinuxSupervisorService:
+    return LinuxSupervisorService(repo_root=_repo_root())
+
+
+@lru_cache(maxsize=1)
+def get_worker_registry_service() -> WorkerRegistryService:
+    return WorkerRegistryService(
+        repo_root=_repo_root(),
+        linux_runtime_root=get_linux_supervisor_service().runtime_root,
+    )
+
+
+@lru_cache(maxsize=1)
+def get_control_plane_service() -> ControlPlaneService:
+    return ControlPlaneService(
+        repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="control_plane_tasks",
+            model_cls=ControlPlaneTaskRead,
+        ),
+        package_registry=get_agent_package_registry_service(),
+        worker_registry=get_worker_registry_service(),
+        approval_store=get_approval_store_service(),
+        manager_service=get_manager_agent_service(),
+        linux_supervisor_service=get_linux_supervisor_service(),
+    )
+
+
+@lru_cache(maxsize=1)
+def get_personal_housekeeper_service() -> PersonalHousekeeperService:
+    return PersonalHousekeeperService(
+        repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="housekeeper_tasks",
+            model_cls=HousekeeperTaskRead,
+        ),
+        openclaw_service=get_openclaw_compat_service(),
+        openclaw_memory_service=get_openclaw_memory_service(),
+        package_registry=get_agent_package_registry_service(),
+        control_plane_service=get_control_plane_service(),
+    )
+
+
+@lru_cache(maxsize=1)
 def get_approval_store_service() -> ApprovalStoreService:
     return ApprovalStoreService(
         repository=SQLiteModelRepository(
@@ -431,6 +486,11 @@ def clear_dependency_caches() -> None:
     get_github_issue_service.cache_clear()
     get_openclaw_compat_service.cache_clear()
     get_openclaw_memory_service.cache_clear()
+    get_agent_package_registry_service.cache_clear()
+    get_linux_supervisor_service.cache_clear()
+    get_worker_registry_service.cache_clear()
+    get_control_plane_service.cache_clear()
+    get_personal_housekeeper_service.cache_clear()
     get_capability_provider_registry.cache_clear()
     get_managed_skill_registry_service.cache_clear()
     get_openclaw_skill_service.cache_clear()

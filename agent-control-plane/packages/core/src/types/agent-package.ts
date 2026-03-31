@@ -24,6 +24,11 @@ export enum RiskLevel {
 export type WorkerType = 'linux' | 'mac' | 'win_yingdao' | 'openclaw';
 
 /**
+ * 执行后端
+ */
+export type ExecutionBackend = 'manager_agent' | 'linux_supervisor' | 'win_yingdao' | 'openclaw_runtime';
+
+/**
  * Fallback 策略
  */
 export enum FallbackStrategy {
@@ -216,6 +221,30 @@ export interface Compatibility {
   min_compatible_version: string;
   deprecated_in?: string;
   deprecated_features?: string[];
+}
+
+/**
+ * AgentPackage
+ */
+export interface AgentPackage {
+  id: string;
+  name: string;
+  description: string;
+  version: string;
+  execution_backend: ExecutionBackend;      // 走哪条执行链
+  input_schema: JSONSchema7;
+  output_schema: JSONSchema7;
+  required_capabilities: CapabilityRequirements;  // 接单 worker 必备能力
+  supported_worker_types: WorkerType[];          // 哪些 worker 物种可接
+  worker_requirements?: WorkerRequirements;
+  governance: GovernanceRules;
+  failure_handling: FailureHandling;
+  execution: ExecutionConfig;
+  artifacts?: ArtifactsConfig;
+  observability?: ObservabilityConfig;
+  dependencies?: Dependencies;
+  compatibility: Compatibility;
+  metadata: Metadata;
 }
 
 /**
