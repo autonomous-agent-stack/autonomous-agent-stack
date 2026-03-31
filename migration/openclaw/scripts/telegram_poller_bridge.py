@@ -138,7 +138,7 @@ def main() -> int:
 
     webhook_url = os.getenv(
         "TELEGRAM_BRIDGE_LOCAL_WEBHOOK_URL",
-        "http://127.0.0.1:8000/api/v1/gateway/telegram/webhook",
+        "http://127.0.0.1:8001/api/v1/gateway/telegram/webhook",
     )
     secret_token = os.getenv("AUTORESEARCH_TELEGRAM_SECRET_TOKEN", "").strip() or None
 
