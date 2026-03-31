@@ -349,6 +349,39 @@ class UpstreamWatcherSettings(_BaseApiSettings):
         return path or Path("/Volumes/AI_LAB/ai_lab/workspace")
 
 
+class HousekeeperSettings(_BaseApiSettings):
+    timezone_name: str = Field(default="Asia/Shanghai", validation_alias="AUTORESEARCH_HOUSEKEEPER_TIMEZONE")
+    summary_chat_id: str | None = Field(default=None, validation_alias="AUTORESEARCH_HOUSEKEEPER_SUMMARY_CHAT_ID")
+
+
+class MediaSettings(_BaseApiSettings):
+    media_root: Path = Field(default=Path("/home/lisa/media"), validation_alias="AUTORESEARCH_MEDIA_ROOT")
+    allowed_domains: set[str] = Field(
+        default_factory=lambda: {
+            "youtube.com",
+            "youtu.be",
+            "bilibili.com",
+            "vimeo.com",
+            "tiktok.com",
+            "douyin.com",
+        },
+        validation_alias="AUTORESEARCH_MEDIA_ALLOWED_DOMAINS",
+    )
+    yt_dlp_bin: str = Field(default="yt-dlp", validation_alias="AUTORESEARCH_MEDIA_YT_DLP_BIN")
+    ffmpeg_bin: str = Field(default="ffmpeg", validation_alias="AUTORESEARCH_MEDIA_FFMPEG_BIN")
+
+    @field_validator("media_root", mode="before")
+    @classmethod
+    def _normalize_media_root(cls, value: Any) -> Path:
+        path = _parse_path(value)
+        return path or Path("/home/lisa/media")
+
+    @field_validator("allowed_domains", mode="before")
+    @classmethod
+    def _normalize_allowed_domains(cls, value: Any) -> set[str]:
+        return _parse_csv_set(value)
+
+
 def load_runtime_settings() -> RuntimeSettings:
     return RuntimeSettings()
 
@@ -373,6 +406,14 @@ def load_admin_settings() -> AdminSettings:
 
 def load_upstream_watcher_settings() -> UpstreamWatcherSettings:
     return UpstreamWatcherSettings()
+
+
+def load_housekeeper_settings() -> HousekeeperSettings:
+    return HousekeeperSettings()
+
+
+def load_media_settings() -> MediaSettings:
+    return MediaSettings()
 
 
 @lru_cache(maxsize=1)
@@ -405,6 +446,16 @@ def get_upstream_watcher_settings() -> UpstreamWatcherSettings:
     return load_upstream_watcher_settings()
 
 
+@lru_cache(maxsize=1)
+def get_housekeeper_settings() -> HousekeeperSettings:
+    return load_housekeeper_settings()
+
+
+@lru_cache(maxsize=1)
+def get_media_settings() -> MediaSettings:
+    return load_media_settings()
+
+
 def clear_settings_caches() -> None:
     get_runtime_settings.cache_clear()
     get_telegram_settings.cache_clear()
@@ -412,4 +463,6 @@ def clear_settings_caches() -> None:
     get_feature_settings.cache_clear()
     get_admin_settings.cache_clear()
     get_upstream_watcher_settings.cache_clear()
+    get_housekeeper_settings.cache_clear()
+    get_media_settings.cache_clear()
     _WARNED_DEPRECATED_ALIASES.clear()

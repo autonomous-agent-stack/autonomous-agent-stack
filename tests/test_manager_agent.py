@@ -7,8 +7,10 @@ from fastapi.testclient import TestClient
 
 from autoresearch.agent_protocol.models import DriverResult, JobSpec, RunSummary, ValidationReport
 from autoresearch.agents.manager_agent import ManagerAgentService
-from autoresearch.api.dependencies import get_manager_agent_service
+from autoresearch.api.dependencies import get_housekeeper_service, get_manager_agent_service
 from autoresearch.api.main import app
+from autoresearch.core.services.housekeeper import HousekeeperService
+from autoresearch.shared.housekeeper_contract import HousekeeperChangeReason, HousekeeperMode, HousekeeperModeUpdateRequest
 from autoresearch.shared.manager_agent_contract import (
     ManagerDispatchRequest,
     ManagerPlanStrategy,
@@ -37,6 +39,23 @@ def _successful_run_summary(job: JobSpec) -> RunSummary:
         validation=ValidationReport(run_id=job.run_id, passed=True),
         promotion_patch_uri="/tmp/manager-dispatch.patch",
     )
+
+
+def _night_housekeeper_service() -> HousekeeperService:
+    service = HousekeeperService(
+        state_repository=InMemoryRepository(),
+        budget_repository=InMemoryRepository(),
+        exploration_repository=InMemoryRepository(),
+    )
+    service.update_mode(
+        HousekeeperModeUpdateRequest(
+            action="set_manual_override",
+            target_mode=HousekeeperMode.NIGHT_READONLY_EXPLORE,
+            changed_by="test",
+            reason=HousekeeperChangeReason.MANUAL_API,
+        )
+    )
+    return service
 
 
 def _seed_basic_panel_repo(repo_root: Path) -> None:
@@ -219,6 +238,7 @@ def test_manager_agent_api_dispatch_executes_background_plan(tmp_path: Path) -> 
     )
 
     app.dependency_overrides[get_manager_agent_service] = lambda: service
+    app.dependency_overrides[get_housekeeper_service] = _night_housekeeper_service
     with TestClient(app) as client:
         response = client.post(
             "/api/v1/agents/manager/dispatch",

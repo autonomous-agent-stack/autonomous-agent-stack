@@ -1,0 +1,9 @@
+[Unit]
+Description=Switch housekeeper to night_readonly_explore
+After=aas-api.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/autonomous-agent-stack
+EnvironmentFile=-/opt/autonomous-agent-stack/.env.linux
+ExecStart=/opt/autonomous-agent-stack/scripts/housekeeper_api.sh mode-night
