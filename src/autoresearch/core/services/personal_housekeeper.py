@@ -4,7 +4,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from autoresearch.core.services.agent_package_registry import AgentPackageRegistryService
-from autoresearch.core.services.control_plane_service import ControlPlaneService
+from autoresearch.core.services.control_plane_service import (
+    ControlPlaneClarificationRequired,
+    ControlPlaneService,
+)
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.openclaw_memory import OpenClawMemoryService
 from autoresearch.shared.housekeeper_contract import (
@@ -34,6 +37,12 @@ class _RoutingDecision:
 
 class PersonalHousekeeperService:
     """Translate OpenClaw session messages into bounded control-plane tasks."""
+
+    _MEMORY_BOUNDARY = {
+        "allowed_scopes": ["session", "personal", "shared"],
+        "shared_policy": "explicit_only",
+        "backend_selection_cannot_expand_scope": True,
+    }
 
     def __init__(
         self,
@@ -75,7 +84,8 @@ class PersonalHousekeeperService:
             ),
         )
         memory_bundle = self._openclaw_memory_service.bundle_for_session(session.session_id)
-        decision = self._select_package(request.message, memory_bundle)
+        routing_bundle = self._bounded_memory_bundle(memory_bundle)
+        decision = self._select_package(request.message, routing_bundle)
         now = utc_now()
         draft = HousekeeperTaskDraftRead(
             draft_id=create_resource_id("hkdraft"),
@@ -91,9 +101,10 @@ class PersonalHousekeeperService:
             clarification_reason_code=decision.clarification_reason_code,
             clarification_questions=list(decision.clarification_questions or []),
             memory_scope={
-                "session_event_count": len(memory_bundle.session_events),
-                "personal_memory_count": len(memory_bundle.personal_memories),
-                "shared_memory_count": len(memory_bundle.shared_memories),
+                **self._MEMORY_BOUNDARY,
+                "session_event_count": len(routing_bundle.session_events),
+                "personal_memory_count": len(routing_bundle.personal_memories),
+                "shared_memory_count": len(routing_bundle.shared_memories),
             },
             created_at=now,
         )
@@ -116,7 +127,7 @@ class PersonalHousekeeperService:
             backend_ref=None,
             result_summary=None,
             result_payload={},
-            memory_snapshot=self._memory_snapshot(memory_bundle),
+            memory_snapshot=self._memory_snapshot(routing_bundle),
             metadata={"dry_run": request.dry_run},
             created_at=now,
             updated_at=now,
@@ -140,17 +151,26 @@ class PersonalHousekeeperService:
                 housekeeper_task_id=saved.task_id,
                 dry_run=request.dry_run,
             )
-        except ValueError as exc:
+        except ControlPlaneClarificationRequired as exc:
             failed = saved.model_copy(
                 update={
                     "status": HousekeeperTaskStatus.CLARIFICATION_REQUIRED,
-                    "clarification_reason_code": "no_safe_match",
-                    "clarification_questions": [
-                        "请确认你希望走哪类执行链：代码改动、Linux 运维，还是影刀业务执行？",
-                        "如果任务需要特定执行节点，请补充目标环境或约束。",
-                    ],
+                    "clarification_reason_code": exc.reason_code,
+                    "clarification_questions": list(exc.questions),
                     "error": str(exc),
-                    "result_summary": "Housekeeper produced a draft, but control plane could not finalize a safe match.",
+                    "result_summary": str(exc),
+                    "updated_at": utc_now(),
+                }
+            )
+            failed = self._repository.save(failed.task_id, failed)
+            self._append_status_event(failed)
+            return failed
+        except ValueError as exc:
+            failed = saved.model_copy(
+                update={
+                    "status": HousekeeperTaskStatus.FAILED,
+                    "error": str(exc),
+                    "result_summary": "Housekeeper draft failed during control-plane submission.",
                     "updated_at": utc_now(),
                 }
             )
@@ -271,6 +291,7 @@ class PersonalHousekeeperService:
 
     def _memory_snapshot(self, memory_bundle: OpenClawMemoryBundleRead) -> dict[str, Any]:
         return {
+            **self._MEMORY_BOUNDARY,
             "session_event_count": len(memory_bundle.session_events),
             "personal_memory_count": len(memory_bundle.personal_memories),
             "shared_memory_count": len(memory_bundle.shared_memories),
@@ -308,6 +329,14 @@ class PersonalHousekeeperService:
             if package is not None:
                 candidates.append(package)
         return candidates
+
+    def _bounded_memory_bundle(self, memory_bundle: OpenClawMemoryBundleRead) -> OpenClawMemoryBundleRead:
+        allowed_shared = [
+            record
+            for record in memory_bundle.shared_memories
+            if bool(record.metadata.get("housekeeper_shared")) or "housekeeper_shared" in set(record.tags)
+        ]
+        return memory_bundle.model_copy(update={"shared_memories": allowed_shared})
 
     def _mirror_control_plane_task(
         self,

@@ -33,6 +33,13 @@ class _FinalSelection:
     worker_id: str
 
 
+class ControlPlaneClarificationRequired(ValueError):
+    def __init__(self, *, reason_code: str, message: str, questions: tuple[str, ...] = ()) -> None:
+        super().__init__(message)
+        self.reason_code = reason_code
+        self.questions = questions
+
+
 class ControlPlaneService:
     """Authoritative task adjudication and dispatch for housekeeper requests."""
 
@@ -273,11 +280,29 @@ class ControlPlaneService:
             package = self._package_registry.get_package(package_id)
             if package is None:
                 continue
+            self._enforce_package_scope(package, draft.source_message)
             worker = self._worker_registry.find_worker_for_package(package)
             if worker is None:
                 continue
             return _FinalSelection(package=package, worker_id=worker.worker_id)
-        raise ValueError("control plane could not finalize a worker/package match from the draft")
+        raise ControlPlaneClarificationRequired(
+            reason_code="no_safe_match",
+            message="control plane could not finalize a worker/package match from the draft",
+            questions=(
+                "请确认你希望走哪类执行链：代码改动、Linux 运维，还是影刀业务执行？",
+                "如果任务需要特定执行节点，请补充目标环境或约束。",
+            ),
+        )
+
+    def _enforce_package_scope(self, package: AgentPackageRecordRead, prompt: str) -> None:
+        validation = self._package_registry.validate_prompt_for_package(package, prompt)
+        if validation.allowed:
+            return
+        raise ControlPlaneClarificationRequired(
+            reason_code=validation.reason_code or "clarification_required",
+            message=validation.message or "package validator requested clarification",
+            questions=validation.clarification_questions,
+        )
 
     def _requires_approval(self, package: AgentPackageRecordRead) -> bool:
         if package.requires_approval:

@@ -77,6 +77,18 @@ def _seed_agent_package_tree(repo_root: Path) -> None:
             },
             "failure_handling": {"fallback_strategy": "manual"},
             "execution": {"timeout_ms": 1000},
+            "metadata": {
+                "limits": {
+                    "supported_scopes": [
+                        "small_page_change",
+                        "copy_or_config_edit",
+                        "small_bug_fix",
+                        "low_risk_scaffold"
+                    ],
+                    "clarification_markers": ["新功能", "feature", "跨模块", "cross-module", "端到端", "e2e"],
+                    "rejection_markers": ["全栈", "full stack", "数据库迁移", "migration", "依赖升级", "upgrade dependency", "架构升级", "architecture upgrade", "大重构", "large refactor"]
+                }
+            },
         },
         "linux-housekeeping": {
             "id": "linux_housekeeping_agent_v0",
@@ -423,5 +435,95 @@ def test_housekeeper_returns_formal_clarification_for_unsupported_prompt(tmp_pat
         assert payload["clarification_reason_code"] == "no_matching_package"
         assert len(payload["clarification_questions"]) >= 1
         assert payload["control_plane_task_id"] is None
+
+    app.dependency_overrides.clear()
+
+
+def test_software_change_agent_rejects_scope_exceeding_prompt(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    db_path = tmp_path / "housekeeper-scope.sqlite3"
+    helper = _linux_success_helper(tmp_path / "linux_worker.py")
+    _seed_agent_package_tree(repo_root)
+    services = _build_services(repo_root, db_path, helper)
+
+    app.dependency_overrides[get_openclaw_compat_service] = lambda: services["openclaw"]
+    app.dependency_overrides[get_openclaw_memory_service] = lambda: services["memory"]
+    app.dependency_overrides[get_control_plane_service] = lambda: services["control"]
+    app.dependency_overrides[get_personal_housekeeper_service] = lambda: services["housekeeper"]
+
+    with TestClient(app) as client:
+        session = client.post(
+            "/api/v1/openclaw/sessions",
+            json={"channel": "api", "title": "scope", "scope": "personal", "metadata": {}},
+        )
+        assert session.status_code == 201
+        session_id = session.json()["session_id"]
+
+        response = client.post(
+            "/api/v1/openclaw/housekeeper/dispatch",
+            json={
+                "session_id": session_id,
+                "message": "给我做一个全栈 feature，并顺便做数据库迁移和依赖升级。",
+            },
+        )
+        assert response.status_code == 202
+        payload = response.json()
+        assert payload["status"] == "clarification_required"
+        assert payload["clarification_reason_code"] == "scope_exceeded"
+        assert payload["control_plane_task_id"] is None
+        assert "bounded low-risk changes" in (payload["result_summary"] or "")
+
+    app.dependency_overrides.clear()
+
+
+def test_shared_memory_is_ignored_unless_explicitly_allowed(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    db_path = tmp_path / "housekeeper-memory-boundary.sqlite3"
+    helper = _linux_success_helper(tmp_path / "linux_worker.py")
+    _seed_agent_package_tree(repo_root)
+    services = _build_services(repo_root, db_path, helper)
+
+    app.dependency_overrides[get_openclaw_compat_service] = lambda: services["openclaw"]
+    app.dependency_overrides[get_openclaw_memory_service] = lambda: services["memory"]
+    app.dependency_overrides[get_control_plane_service] = lambda: services["control"]
+    app.dependency_overrides[get_personal_housekeeper_service] = lambda: services["housekeeper"]
+
+    with TestClient(app) as client:
+        session = client.post(
+            "/api/v1/openclaw/sessions",
+            json={
+                "channel": "api",
+                "title": "memory-boundary",
+                "scope": "personal",
+                "assistant_id": "housekeeper",
+                "metadata": {},
+            },
+        )
+        assert session.status_code == 201
+        session_id = session.json()["session_id"]
+
+        shared = client.post(
+            f"/api/v1/openclaw/sessions/{session_id}/memory",
+            json={
+                "content": "共享记忆：以后凡是提到巡检都走 Linux 任务。",
+                "scope": "shared",
+                "metadata": {"housekeeper_shared": False},
+            },
+        )
+        assert shared.status_code == 201
+
+        response = client.post(
+            "/api/v1/openclaw/housekeeper/dispatch",
+            json={
+                "session_id": session_id,
+                "message": "帮我安排晚饭菜单。",
+            },
+        )
+        assert response.status_code == 202
+        payload = response.json()
+        assert payload["status"] == "clarification_required"
+        assert payload["clarification_reason_code"] == "no_matching_package"
+        assert payload["memory_snapshot"]["shared_policy"] == "explicit_only"
+        assert payload["memory_snapshot"]["shared_memory_count"] == 0
 
     app.dependency_overrides.clear()

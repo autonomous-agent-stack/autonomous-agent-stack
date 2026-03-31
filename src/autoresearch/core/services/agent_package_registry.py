@@ -1,10 +1,19 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import json
 from pathlib import Path
 from typing import Any
 
 from autoresearch.shared.housekeeper_contract import AgentPackageRecordRead, HousekeeperBackendKind
+
+
+@dataclass(frozen=True, slots=True)
+class PackagePromptValidationResult:
+    allowed: bool
+    reason_code: str | None = None
+    message: str | None = None
+    clarification_questions: tuple[str, ...] = ()
 
 
 class AgentPackageRegistryService:
@@ -35,6 +44,38 @@ class AgentPackageRegistryService:
 
     def find_by_backend(self, backend_kind: HousekeeperBackendKind) -> list[AgentPackageRecordRead]:
         return [item for item in self.list_packages() if item.execution_backend is backend_kind]
+
+    def validate_prompt_for_package(
+        self,
+        package: AgentPackageRecordRead,
+        prompt: str,
+    ) -> PackagePromptValidationResult:
+        normalized = prompt.strip().lower()
+        limits = dict(package.raw_manifest.get("metadata", {}).get("limits") or {})
+        rejection_markers = self._string_list(limits.get("rejection_markers"))
+        clarification_markers = self._string_list(limits.get("clarification_markers"))
+
+        if any(marker.lower() in normalized for marker in rejection_markers):
+            return PackagePromptValidationResult(
+                allowed=False,
+                reason_code="scope_exceeded",
+                message=f"{package.package_id} only supports bounded low-risk changes in v0.",
+                clarification_questions=(
+                    "请把需求收敛到小页面、小文案/配置、小 bug，或低风险 scaffold。",
+                    "如果这是跨模块 feature、数据库迁移、依赖升级或架构升级，请改走更高等级流程。",
+                ),
+            )
+        if any(marker.lower() in normalized for marker in clarification_markers):
+            return PackagePromptValidationResult(
+                allowed=False,
+                reason_code="clarification_required",
+                message=f"{package.package_id} detected a request that exceeds the default safe scope.",
+                clarification_questions=(
+                    "请确认这是小范围改动，而不是跨模块 feature 或大重构。",
+                    "请补充允许变更的目录/模块边界。",
+                ),
+            )
+        return PackagePromptValidationResult(allowed=True)
 
     def _load_manifest(self, path: Path) -> AgentPackageRecordRead | None:
         try:

@@ -94,6 +94,26 @@
         "small_bug_fix",
         "low_risk_scaffold"
       ],
+      "clarification_markers": [
+        "新功能",
+        "feature",
+        "跨模块",
+        "cross-module",
+        "端到端",
+        "e2e"
+      ],
+      "rejection_markers": [
+        "全栈",
+        "full stack",
+        "数据库迁移",
+        "migration",
+        "依赖升级",
+        "upgrade dependency",
+        "架构升级",
+        "architecture upgrade",
+        "大重构",
+        "large refactor"
+      ],
       "unsupported_scopes": [
         "full_stack_feature",
         "large_refactor",
