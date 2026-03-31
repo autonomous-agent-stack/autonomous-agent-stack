@@ -77,6 +77,7 @@ OPENHANDS_RUNTIME=host make start
 更完整的落地清单、环境变量建议和远端使用姿势见：
 
 - [Linux Remote Worker Guide](./docs/linux-remote-worker.md)
+- [cc-switch Usage Guide](./docs/cc-switch-usage.md)
 - [OpenHands Controlled Backend Integration](./docs/openhands-cli-integration.md)
 
 ## 常用命令
@@ -125,6 +126,14 @@ openhands --exp --headless -t "你的任务"
 `make agent-run` 走 AEP v0 统一执行内核：`JobSpec -> driver adapter -> patch gate -> decision`，OpenHands/Codex/本地脚本都可作为 driver 接入。
 
 `make review-gates-local` 会在本地运行 reviewer 核心模块的 `mypy + bandit + semgrep`，与 CI 的 `Quality Gates` 流程保持一致。
+
+## 本地 CLI 切换工具的边界
+
+像 `cc-switch` 这类工具，适合放在本地开发工作台，用来切换 `Codex`、`OpenClaw`、`Claude Code` 等 CLI 进行人工调试和 prompt 试验。
+
+但它不应该替代本仓库的执行主链。这里真正负责受控执行的是 `make agent-run`、`make openhands-controlled`、AEP runner、validator 和 promotion gate。
+
+如果你想把 `cc-switch` 接进日常工作流，推荐只做旁路工作台，不要改写 `drivers/openhands_adapter.sh` 或 `scripts/openhands_start.sh` 的主逻辑。详细边界见 [cc-switch Usage Guide](./docs/cc-switch-usage.md)。
 
 ## PR 审查与门禁
 
