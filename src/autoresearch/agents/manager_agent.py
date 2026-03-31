@@ -10,6 +10,7 @@ from autoresearch.agent_protocol.models import JobSpec, RunSummary
 from autoresearch.core.services.openhands_worker import OpenHandsWorkerService
 from autoresearch.core.services.writer_lease import WriterLeaseService
 from autoresearch.executions.runner import AgentExecutionRunner
+from autoresearch.shared.housekeeper_contract import AdmissionRiskLevel, TaskAdmissionAssessmentRead
 from autoresearch.shared.manager_agent_contract import (
     ManagerDispatchRead,
     ManagerDispatchRequest,
@@ -297,6 +298,33 @@ class ManagerAgentService:
             error=None,
         )
         return self._repository.save(dispatch.dispatch_id, dispatch)
+
+    def assess_request(self, request: ManagerDispatchRequest) -> TaskAdmissionAssessmentRead:
+        intent = self._select_intent(request.prompt)
+        execution_plan = self._build_execution_plan(
+            dispatch_id="mgrpreview",
+            request=request.model_copy(update={"auto_dispatch": False}),
+            intent=intent,
+        )
+        fanout_count = max(1, len(execution_plan.tasks))
+        estimated_runtime_minutes = 10 if execution_plan.strategy is ManagerPlanStrategy.SINGLE_TASK else fanout_count * 20
+        if intent.intent_id in {"product_landing_page", "admin_dashboard"} and execution_plan.strategy is ManagerPlanStrategy.TASK_DAG:
+            estimated_runtime_minutes += 15
+
+        risk_level = AdmissionRiskLevel.LOW
+        if fanout_count > 1:
+            risk_level = AdmissionRiskLevel.HIGH
+        elif intent.intent_id in {"worker_execution", "approval_surface", "telegram_surface"}:
+            risk_level = AdmissionRiskLevel.MEDIUM
+
+        return TaskAdmissionAssessmentRead(
+            plan_shape=execution_plan.strategy.value,
+            estimated_runtime_minutes=estimated_runtime_minutes,
+            requires_repo_write=True,
+            requires_network=request.pipeline_target == "draft_pr",
+            fanout_count=fanout_count,
+            risk_level=risk_level,
+        )
 
     def list_dispatches(self) -> list[ManagerDispatchRead]:
         return self._repository.list()

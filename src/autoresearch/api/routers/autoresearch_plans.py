@@ -6,10 +6,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from autoresearch.api.dependencies import (
     get_autoresearch_planner_service,
+    get_housekeeper_service,
     get_panel_access_service,
     get_telegram_notifier_service,
 )
 from autoresearch.core.services.autoresearch_planner import AutoResearchPlannerService
+from autoresearch.core.services.housekeeper import HousekeeperService
 from autoresearch.core.services.panel_access import PanelAccessService
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
 from autoresearch.shared.autoresearch_planner_contract import (
@@ -30,11 +32,13 @@ router = APIRouter(prefix="/api/v1/autoresearch/plans", tags=["autoresearch-plan
 def create_autoresearch_plan(
     payload: AutoResearchPlannerRequest,
     service: AutoResearchPlannerService = Depends(get_autoresearch_planner_service),
+    housekeeper_service: HousekeeperService = Depends(get_housekeeper_service),
     panel_access_service: PanelAccessService = Depends(get_panel_access_service),
     notifier: TelegramNotifierService = Depends(get_telegram_notifier_service),
 ) -> AutoResearchPlanRead:
-    telegram_uid = _select_plan_notification_uid(payload=payload, panel_access_service=panel_access_service)
-    plan = service.create(payload.model_copy(update={"telegram_uid": telegram_uid}))
+    prepared, _, _ = housekeeper_service.prepare_planner_request(payload, trigger_source="api")
+    telegram_uid = _select_plan_notification_uid(payload=prepared, panel_access_service=panel_access_service)
+    plan = service.create(prepared.model_copy(update={"telegram_uid": telegram_uid}))
     panel_action_url = None
     notification_sent = False
 

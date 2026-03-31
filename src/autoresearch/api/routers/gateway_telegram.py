@@ -14,7 +14,9 @@ from autoresearch.api.dependencies import (
     get_capability_provider_registry,
     get_claude_agent_service,
     get_github_issue_service,
+    get_housekeeper_service,
     get_manager_agent_service,
+    get_media_job_service,
     get_openclaw_compat_service,
     get_openclaw_memory_service,
     get_panel_access_service,
@@ -27,7 +29,9 @@ from autoresearch.core.services.approval_store import ApprovalStoreService
 from autoresearch.core.services.claude_agents import ClaudeAgentService
 from autoresearch.core.services.github_issue_service import GitHubIssueRead, GitHubIssueService
 from autoresearch.core.services.group_access import GroupAccessManager
+from autoresearch.core.services.housekeeper import HousekeeperService
 from autoresearch.agents.manager_agent import ManagerAgentService
+from autoresearch.core.services.media_jobs import MediaJobService
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.openclaw_memory import OpenClawMemoryService
 from autoresearch.core.services.panel_access import PanelAccessService
@@ -58,6 +62,7 @@ from autoresearch.shared.models import (
     TelegramWebhookAck,
 )
 from autoresearch.shared.manager_agent_contract import ManagerDispatchRead, ManagerDispatchRequest
+from autoresearch.shared.media_job_contract import MediaJobRead, MediaJobStatus
 
 
 router = APIRouter(prefix="/api/v1/gateway/telegram", tags=["gateway", "telegram"])
@@ -88,7 +93,9 @@ def telegram_webhook(
     memory_service: OpenClawMemoryService = Depends(get_openclaw_memory_service),
     approval_service: ApprovalStoreService = Depends(get_approval_store_service),
     agent_service: ClaudeAgentService = Depends(get_claude_agent_service),
+    housekeeper_service: HousekeeperService = Depends(get_housekeeper_service),
     manager_service: ManagerAgentService = Depends(get_manager_agent_service),
+    media_job_service: MediaJobService = Depends(get_media_job_service),
     github_issue_service: GitHubIssueService = Depends(get_github_issue_service),
     capability_registry: CapabilityProviderRegistry = Depends(get_capability_provider_registry),
     panel_access_service: PanelAccessService = Depends(get_panel_access_service),
@@ -103,7 +110,9 @@ def telegram_webhook(
         memory_service=memory_service,
         approval_service=approval_service,
         agent_service=agent_service,
+        housekeeper_service=housekeeper_service,
         manager_service=manager_service,
+        media_job_service=media_job_service,
         github_issue_service=github_issue_service,
         capability_registry=capability_registry,
         panel_access_service=panel_access_service,
@@ -125,7 +134,9 @@ def legacy_telegram_webhook(
     memory_service: OpenClawMemoryService = Depends(get_openclaw_memory_service),
     approval_service: ApprovalStoreService = Depends(get_approval_store_service),
     agent_service: ClaudeAgentService = Depends(get_claude_agent_service),
+    housekeeper_service: HousekeeperService = Depends(get_housekeeper_service),
     manager_service: ManagerAgentService = Depends(get_manager_agent_service),
+    media_job_service: MediaJobService = Depends(get_media_job_service),
     github_issue_service: GitHubIssueService = Depends(get_github_issue_service),
     capability_registry: CapabilityProviderRegistry = Depends(get_capability_provider_registry),
     panel_access_service: PanelAccessService = Depends(get_panel_access_service),
@@ -140,7 +151,9 @@ def legacy_telegram_webhook(
         memory_service=memory_service,
         approval_service=approval_service,
         agent_service=agent_service,
+        housekeeper_service=housekeeper_service,
         manager_service=manager_service,
+        media_job_service=media_job_service,
         github_issue_service=github_issue_service,
         capability_registry=capability_registry,
         panel_access_service=panel_access_service,
@@ -158,7 +171,9 @@ def _handle_telegram_webhook(
     memory_service: OpenClawMemoryService,
     approval_service: ApprovalStoreService,
     agent_service: ClaudeAgentService,
+    housekeeper_service: HousekeeperService,
     manager_service: ManagerAgentService,
+    media_job_service: MediaJobService,
     github_issue_service: GitHubIssueService,
     capability_registry: CapabilityProviderRegistry,
     panel_access_service: PanelAccessService,
@@ -254,7 +269,9 @@ def _handle_telegram_webhook(
             background_tasks=background_tasks,
             openclaw_service=openclaw_service,
             approval_service=approval_service,
+            housekeeper_service=housekeeper_service,
             manager_service=manager_service,
+            media_job_service=media_job_service,
             github_issue_service=github_issue_service,
             notifier=notifier,
             session_identity=session_identity,
@@ -658,7 +675,9 @@ def _handle_task_command(
     background_tasks: BackgroundTasks,
     openclaw_service: OpenClawCompatService,
     approval_service: ApprovalStoreService,
+    housekeeper_service: HousekeeperService,
     manager_service: ManagerAgentService,
+    media_job_service: MediaJobService,
     github_issue_service: GitHubIssueService,
     notifier: TelegramNotifierService,
     session_identity: TelegramSessionIdentityRead,
@@ -712,6 +731,70 @@ def _handle_task_command(
             text="`--approve` 仅对 owner/partner 生效；本次仍按常规审批流执行。",
         )
 
+    media_request = media_job_service.parse_telegram_task(task_query)
+    if media_request is not None:
+        media_request = media_request.model_copy(
+            update={
+                "metadata": {
+                    **media_request.metadata,
+                    "source": "telegram_media_task",
+                    "telegram_chat_id": chat_id,
+                    "telegram_user_id": session_identity.actor.user_id,
+                    "telegram_session_id": session.session_id,
+                    "telegram_scope": session_identity.scope.value,
+                    "raw_task_query": task_query,
+                }
+            }
+        )
+        media_job = media_job_service.create(media_request)
+        openclaw_service.append_event(
+            session_id=session.session_id,
+            request=OpenClawSessionEventAppendRequest(
+                role="status",
+                content=f"media job queued: {media_job.job_id}",
+                metadata={
+                    "source": "telegram_media_task",
+                    "job_id": media_job.job_id,
+                    "mode": media_job.mode.value,
+                    "target_bucket": media_job.target_bucket.value,
+                },
+            ),
+        )
+        openclaw_service.set_status(
+            session_id=session.session_id,
+            status=JobStatus.QUEUED,
+            metadata_updates={"latest_media_job_id": media_job.job_id},
+        )
+        if notifier.enabled:
+            background_tasks.add_task(
+                notifier.send_message,
+                chat_id=chat_id,
+                text=_build_media_job_queued_message(media_job),
+            )
+        background_tasks.add_task(
+            _execute_media_job_and_notify,
+            media_job_service=media_job_service,
+            housekeeper_service=housekeeper_service,
+            openclaw_service=openclaw_service,
+            notifier=notifier,
+            chat_id=chat_id,
+            session_id=session.session_id,
+            job_id=media_job.job_id,
+        )
+        return TelegramWebhookAck(
+            accepted=True,
+            update_id=_safe_int(update.get("update_id")),
+            chat_id=chat_id,
+            session_id=session.session_id,
+            metadata={
+                "source": "telegram_media_task",
+                "job_id": media_job.job_id,
+                "mode": media_job.mode.value,
+                "target_bucket": media_job.target_bucket.value,
+                "scope": session_identity.scope.value,
+            },
+        )
+
     if task_query.casefold().startswith("issue "):
         issue_reference, operator_note = _extract_issue_task_parts(task_query)
         try:
@@ -734,7 +817,7 @@ def _handle_task_command(
         issue_reference = issue.reference.display
         issue_url = issue.url
 
-    dispatch = manager_service.create_dispatch(
+    dispatch_request, _, _ = housekeeper_service.prepare_manager_request(
         ManagerDispatchRequest(
             prompt=manager_prompt,
             approval_granted=approval_granted,
@@ -755,8 +838,11 @@ def _handle_task_command(
                 "approval_granted": approval_granted,
                 "approval_source": "telegram_task_flag" if approval_granted else None,
             },
-        )
+        ),
+        manager_service=manager_service,
+        trigger_source="telegram",
     )
+    dispatch = manager_service.create_dispatch(dispatch_request)
     openclaw_service.append_event(
         session_id=session.session_id,
         request=OpenClawSessionEventAppendRequest(
@@ -772,7 +858,7 @@ def _handle_task_command(
     )
     openclaw_service.set_status(
         session_id=session.session_id,
-        status=JobStatus.QUEUED,
+        status=JobStatus.QUEUED if dispatch_request.auto_dispatch else JobStatus.CREATED,
         metadata_updates={"latest_manager_dispatch_id": dispatch.dispatch_id},
     )
 
@@ -783,21 +869,22 @@ def _handle_task_command(
             text=_build_manager_dispatch_queued_message(dispatch, issue_reference=issue_reference),
         )
 
-    background_tasks.add_task(
-        _execute_manager_dispatch_and_notify,
-        manager_service=manager_service,
-        approval_service=approval_service,
-        openclaw_service=openclaw_service,
-        notifier=notifier,
-        chat_id=chat_id,
-        session_id=session.session_id,
-        approval_uid=session_identity.actor.user_id or chat_id,
-        assistant_scope=session_identity.scope,
-        dispatch_id=dispatch.dispatch_id,
-        issue_reference=issue_reference,
-        issue_url=issue_url,
-        issue_title=issue.title if issue is not None else None,
-    )
+    if dispatch_request.auto_dispatch:
+        background_tasks.add_task(
+            _execute_manager_dispatch_and_notify,
+            manager_service=manager_service,
+            approval_service=approval_service,
+            openclaw_service=openclaw_service,
+            notifier=notifier,
+            chat_id=chat_id,
+            session_id=session.session_id,
+            approval_uid=session_identity.actor.user_id or chat_id,
+            assistant_scope=session_identity.scope,
+            dispatch_id=dispatch.dispatch_id,
+            issue_reference=issue_reference,
+            issue_url=issue_url,
+            issue_title=issue.title if issue is not None else None,
+        )
 
     return TelegramWebhookAck(
         accepted=True,
@@ -1504,6 +1591,43 @@ def _execute_manager_dispatch_and_notify(
         )
 
 
+def _execute_media_job_and_notify(
+    *,
+    media_job_service: MediaJobService,
+    housekeeper_service: HousekeeperService,
+    openclaw_service: OpenClawCompatService,
+    notifier: TelegramNotifierService,
+    chat_id: str,
+    session_id: str,
+    job_id: str,
+) -> None:
+    job = media_job_service.execute(job_id)
+    housekeeper_service.record_media_job_outcome(
+        job=job,
+        notifier=notifier,
+        media_jobs=media_job_service.list(),
+    )
+    openclaw_service.append_event(
+        session_id=session_id,
+        request=OpenClawSessionEventAppendRequest(
+            role="status",
+            content=f"media job finished: {job.job_id}",
+            metadata={
+                "source": "telegram_media_task",
+                "job_id": job.job_id,
+                "status": job.status.value,
+            },
+        ),
+    )
+    openclaw_service.set_status(
+        session_id=session_id,
+        status=JobStatus.COMPLETED if job.status is MediaJobStatus.COMPLETED else JobStatus.FAILED,
+        metadata_updates={"latest_media_job_status": job.status.value},
+    )
+    if notifier.enabled:
+        notifier.send_message(chat_id=chat_id, text=_build_media_job_result_message(job))
+
+
 def _build_manager_dispatch_queued_message(
     dispatch: ManagerDispatchRead,
     *,
@@ -1518,7 +1642,42 @@ def _build_manager_dispatch_queued_message(
     ]
     if issue_reference:
         lines.append(f"issue: {issue_reference}")
-    lines.append("已接收，开始拆解并执行。")
+    deferred_reason = str(dispatch.metadata.get("deferred_reason") or "").strip()
+    if deferred_reason:
+        lines.append(f"deferred: {deferred_reason}")
+        lines.append("已接收，当前不自动执行，等待夜间窗口或人工放行。")
+    else:
+        lines.append("已接收，开始拆解并执行。")
+    return _truncate_telegram_text("\n".join(lines))
+
+
+def _build_media_job_queued_message(job: MediaJobRead) -> str:
+    return _truncate_telegram_text(
+        "\n".join(
+            [
+                "[Media Job]",
+                f"job: {job.job_id}",
+                f"status: {job.status.value}",
+                f"target_bucket: {job.target_bucket.value}",
+                f"mode: {job.mode.value}",
+            ]
+        )
+    )
+
+
+def _build_media_job_result_message(job: MediaJobRead) -> str:
+    lines = [
+        "[Media Job]",
+        f"job: {job.job_id}",
+        f"status: {job.status.value}",
+        f"target_bucket: {job.target_bucket.value}",
+        f"mode: {job.mode.value}",
+    ]
+    if job.output_files:
+        lines.extend(["", "output_files:"])
+        lines.extend(f"- {path}" for path in job.output_files[:8])
+    if job.error:
+        lines.extend(["", "error:", job.error.strip()])
     return _truncate_telegram_text("\n".join(lines))
 
 

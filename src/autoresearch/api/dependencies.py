@@ -8,6 +8,8 @@ from fastapi import Depends
 from autoresearch.api.settings import (
     get_admin_settings,
     get_feature_settings,
+    get_housekeeper_settings,
+    get_media_settings,
     get_panel_settings,
     get_runtime_settings,
     get_telegram_settings,
@@ -33,8 +35,10 @@ from autoresearch.core.services.claude_agents import ClaudeAgentService
 from autoresearch.core.services.evaluations import EvaluationService
 from autoresearch.core.services.executions import ExecutionService
 from autoresearch.core.services.github_issue_service import GitHubIssueService
+from autoresearch.core.services.housekeeper import HousekeeperService
 from autoresearch.core.services.mirofish_prediction import MiroFishPredictionService
 from autoresearch.core.services.managed_skill_registry import ManagedSkillRegistryService
+from autoresearch.core.services.media_jobs import MediaJobService
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.openclaw_memory import OpenClawMemoryService
 from autoresearch.core.services.openclaw_skills import OpenClawSkillService
@@ -67,7 +71,9 @@ from autoresearch.shared.models import (
     VariantRead,
 )
 from autoresearch.shared.autoresearch_planner_contract import AutoResearchPlanRead
+from autoresearch.shared.housekeeper_contract import ExplorationRecordRead, HousekeeperStateRead, NightBudgetStateRead
 from autoresearch.shared.manager_agent_contract import ManagerDispatchRead
+from autoresearch.shared.media_job_contract import MediaJobEventRead, MediaJobRead
 from autoresearch.shared.store import SQLiteModelRepository
 from autoresearch.train.services.experiments import ExperimentService
 from autoresearch.train.services.optimizations import OptimizationService
@@ -171,6 +177,51 @@ def get_manager_agent_service() -> ManagerAgentService:
             model_cls=ManagerDispatchRead,
         ),
         repo_root=_repo_root(),
+    )
+
+
+@lru_cache(maxsize=1)
+def get_housekeeper_service() -> HousekeeperService:
+    settings = get_housekeeper_settings()
+    return HousekeeperService(
+        state_repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="housekeeper_state",
+            model_cls=HousekeeperStateRead,
+        ),
+        budget_repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="night_budget_state",
+            model_cls=NightBudgetStateRead,
+        ),
+        exploration_repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="housekeeper_exploration_records",
+            model_cls=ExplorationRecordRead,
+        ),
+        timezone_name=settings.timezone_name,
+        summary_chat_id=settings.summary_chat_id,
+    )
+
+
+@lru_cache(maxsize=1)
+def get_media_job_service() -> MediaJobService:
+    settings = get_media_settings()
+    return MediaJobService(
+        repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="media_jobs",
+            model_cls=MediaJobRead,
+        ),
+        event_repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="media_job_events",
+            model_cls=MediaJobEventRead,
+        ),
+        media_root=settings.media_root,
+        allowed_domains=settings.allowed_domains,
+        yt_dlp_bin=settings.yt_dlp_bin,
+        ffmpeg_bin=settings.ffmpeg_bin,
     )
 
 
@@ -427,7 +478,9 @@ def clear_dependency_caches() -> None:
     get_optimization_service.cache_clear()
     get_experiment_service.cache_clear()
     get_execution_service.cache_clear()
+    get_housekeeper_service.cache_clear()
     get_manager_agent_service.cache_clear()
+    get_media_job_service.cache_clear()
     get_github_issue_service.cache_clear()
     get_openclaw_compat_service.cache_clear()
     get_openclaw_memory_service.cache_clear()
