@@ -61,6 +61,7 @@ def test_media_job_service_parses_explicit_and_bare_urls(tmp_path: Path) -> None
     assert bare.mode is MediaJobMode.VIDEO
 
     assert service.parse_telegram_task("https://example.com/article") is None
+    assert service.parse_telegram_task("audio https://example.com/file.mp3") is None
 
 
 def test_media_job_service_executes_with_whitelisted_template_and_writes_metadata(tmp_path: Path) -> None:
@@ -84,7 +85,31 @@ def test_media_job_service_executes_with_whitelisted_template_and_writes_metadat
     assert Path(completed.metadata_path).exists()
     assert completed.output_files
     assert Path(completed.output_files[0]).exists()
+    assert Path(completed.output_files[0]).parent.name == job.job_id
     assert len(runner.commands) == 2
+
+
+def test_media_job_service_only_returns_files_for_current_job(tmp_path: Path) -> None:
+    runner = _FakeRunner()
+    service = _service(tmp_path, runner=runner)
+    bucket_dir = tmp_path / "media" / "audio"
+    bucket_dir.mkdir(parents=True, exist_ok=True)
+    (bucket_dir / "stale.mp3").write_text("stale", encoding="utf-8")
+
+    job = service.create(
+        MediaJobRequest(
+            url="https://youtu.be/demo",
+            mode=MediaJobMode.AUDIO,
+            target_bucket=MediaTargetBucket.AUDIO,
+            filename_template="{title}-{id}",
+        )
+    )
+
+    completed = service.execute(job.job_id)
+
+    assert completed.status.value == "completed"
+    assert all("stale.mp3" not in path for path in completed.output_files)
+    assert all(f"/audio/{job.job_id}/" in path for path in completed.output_files)
 
 
 def test_media_job_request_rejects_unapproved_template_tokens() -> None:
