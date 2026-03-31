@@ -16,6 +16,7 @@ env:
     src/autoresearch/api/routers
     src/autoresearch/executions/runner.py
     src/autoresearch/shared/task_contract.py
+    src/autoresearch/shared/worker_contract.py
     src/gateway
     src/gatekeeper
     scripts/agent_run.py
@@ -30,6 +31,7 @@ env:
     tests/test_openclaw_compat.py
     tests/test_openhands_controlled_backend.py
     tests/test_task_contract.py
+    tests/test_worker_contract.py
   CORE_TEST_PATHS: >-
     tests/gateway/test_message_mirror.py
     tests/test_agent_protocol_models.py
@@ -42,6 +44,7 @@ env:
     tests/test_openclaw_compat.py
     tests/test_openhands_controlled_backend.py
     tests/test_task_contract.py
+    tests/test_worker_contract.py
 
 jobs:
   lint-test-audit:
