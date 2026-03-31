@@ -117,7 +117,7 @@ class MediaJobService:
             url = parts[1].strip()
         if not _URL_RE.match(url):
             return None
-        if explicit_mode is None and not self.is_supported_url(url):
+        if not self.is_supported_url(url):
             return None
         mode = explicit_mode or MediaJobMode.VIDEO
         bucket = {
@@ -145,7 +145,7 @@ class MediaJobService:
         return any(host == domain or host.endswith(f".{domain}") for domain in self._allowed_domains)
 
     def _execute_job(self, *, running: MediaJobRead, metadata: dict[str, object]) -> list[str]:
-        output_dir = self._bucket_dir(running.target_bucket)
+        output_dir = self._job_bucket_dir(running)
         output_template = output_dir / f"{self._translate_template(running.filename_template)}.%(ext)s"
         commands = self._build_commands(running=running, output_template=output_template)
         for command in commands:
@@ -153,7 +153,7 @@ class MediaJobService:
             if result.returncode != 0:
                 raise RuntimeError(result.stderr.strip() or result.stdout.strip() or "media command failed")
 
-        output_files = sorted(path.as_posix() for path in output_dir.glob("*") if path.is_file())
+        output_files = sorted(path.as_posix() for path in output_dir.rglob("*") if path.is_file())
         if running.mode is MediaJobMode.METADATA:
             output_files = []
         return output_files
@@ -190,6 +190,9 @@ class MediaJobService:
 
     def _metadata_path_for_job(self, job: MediaJobRead) -> Path:
         return self._bucket_dir(MediaTargetBucket.META) / f"{job.job_id}.json"
+
+    def _job_bucket_dir(self, job: MediaJobRead) -> Path:
+        return self._bucket_dir(job.target_bucket) / job.job_id
 
     def _record_event(self, *, job_id: str, stage: str, status: str, detail: str) -> None:
         event = MediaJobEventRead(

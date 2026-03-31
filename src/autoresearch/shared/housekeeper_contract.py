@@ -43,6 +43,7 @@ class DeferredReason(str, Enum):
 
 
 class ExplorationBlockerReason(str, Enum):
+    CIRCUIT_BREAKER_OPEN = "circuit_breaker_open"
     ENV_MISSING = "env_missing"
     PERMISSION_DENIED = "permission_denied"
     EMPTY_SCOPE = "empty_scope"
