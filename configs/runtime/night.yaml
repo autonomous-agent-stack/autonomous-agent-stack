@@ -1,0 +1,10 @@
+preferred_lane: remote
+max_workers: 1
+max_concurrency: 2
+allow_exploration: true
+allow_patch: true
+allow_draft_pr: true
+require_high_risk_approval: true
+step_budget: 16
+token_budget: 80000
+timeout_sec: 3600

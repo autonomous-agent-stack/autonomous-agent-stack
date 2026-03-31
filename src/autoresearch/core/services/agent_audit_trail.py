@@ -189,6 +189,7 @@ class AgentAuditTrailService:
         contexts: list[_AuditEntryContext] = []
         for plan in self._planner_service.list():
             run_summary = plan.run_summary
+            dispatch_run = plan.dispatch_run
             patch_uri = run_summary.promotion_patch_uri if run_summary is not None else None
             patch_text, patch_truncated = self._load_patch_text(patch_uri)
             changed_paths = self._extract_changed_paths(run_summary)
@@ -221,6 +222,26 @@ class AgentAuditTrailService:
                             ),
                             "source_path": (
                                 plan.selected_candidate.source_path if plan.selected_candidate is not None else None
+                            ),
+                            "dispatch_requested_lane": (
+                                dispatch_run.requested_lane.value if dispatch_run is not None else None
+                            ),
+                            "dispatch_lane": dispatch_run.lane.value if dispatch_run is not None else None,
+                            "dispatch_remote_status": (
+                                dispatch_run.status.value if dispatch_run is not None else None
+                            ),
+                            "dispatch_failure_class": (
+                                dispatch_run.failure_class.value
+                                if dispatch_run is not None and dispatch_run.failure_class is not None
+                                else None
+                            ),
+                            "dispatch_recovery_action": (
+                                dispatch_run.recovery_action.value
+                                if dispatch_run is not None and dispatch_run.recovery_action is not None
+                                else None
+                            ),
+                            "dispatch_fallback_reason": (
+                                dispatch_run.fallback_reason if dispatch_run is not None else None
                             ),
                         },
                     ),

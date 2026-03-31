@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
 import re
 from typing import Callable
 
 from autoresearch.agent_protocol.models import JobSpec, RunSummary
+from autoresearch.core.dispatch.fake_remote_adapter import FakeRemoteAdapter
+from autoresearch.core.dispatch.failure_classifier import classify_remote_terminal
+from autoresearch.core.dispatch.remote_adapter import RemoteDispatchAdapter
+from autoresearch.core.runtime.select_mode import SelectedRuntimeMode, select_mode
 from autoresearch.core.services.writer_lease import WriterLeaseService
 from autoresearch.executions.runner import AgentExecutionRunner
 from autoresearch.core.services.openhands_worker import OpenHandsWorkerService
@@ -19,8 +24,14 @@ from autoresearch.shared.autoresearch_planner_contract import (
     UpstreamWatchDecision,
     UpstreamWatchRead,
 )
-from autoresearch.shared.models import JobStatus, utc_now
+from autoresearch.shared.models import GitPromotionMode, JobStatus, utc_now
 from autoresearch.shared.openhands_worker_contract import OpenHandsWorkerJobSpec
+from autoresearch.shared.remote_run_contract import (
+    RemoteRunRecord,
+    RemoteRunStatus,
+    RemoteRunSummary,
+    RemoteTaskSpec,
+)
 from autoresearch.shared.store import Repository, create_resource_id
 
 
@@ -65,6 +76,14 @@ class _MarkerOccurrence:
 class AutoResearchPlannerService:
     """Scan the repository for bounded patch-only work and emit worker-ready specs."""
 
+    _TERMINAL_REMOTE_STATUSES = {
+        RemoteRunStatus.SUCCEEDED,
+        RemoteRunStatus.FAILED,
+        RemoteRunStatus.STALLED,
+        RemoteRunStatus.TIMED_OUT,
+    }
+    _MAX_DISPATCH_POLLS = 8
+
     def __init__(
         self,
         repository: Repository[AutoResearchPlanRead],
@@ -72,6 +91,7 @@ class AutoResearchPlannerService:
         repo_root: Path | None = None,
         worker_service: OpenHandsWorkerService | None = None,
         dispatch_runner: Callable[[JobSpec], RunSummary] | None = None,
+        remote_adapter: RemoteDispatchAdapter | None = None,
         writer_lease: WriterLeaseService | None = None,
         upstream_watcher: UpstreamWatcherService | None = None,
     ) -> None:
@@ -79,6 +99,10 @@ class AutoResearchPlannerService:
         self._repo_root = (repo_root or Path(__file__).resolve().parents[4]).resolve()
         self._worker_service = worker_service or OpenHandsWorkerService()
         self._dispatch_runner = dispatch_runner or self._default_dispatch_runner
+        self._remote_adapter = remote_adapter or FakeRemoteAdapter(
+            repo_root=self._repo_root,
+            local_runner=self._dispatch_runner,
+        )
         self._writer_lease = writer_lease or WriterLeaseService()
         self._upstream_watcher = upstream_watcher
 
@@ -128,6 +152,7 @@ class AutoResearchPlannerService:
                 dispatch_requested_at=None,
                 dispatch_completed_at=None,
                 dispatch_requested_by=None,
+                dispatch_run=None,
                 run_summary=None,
                 dispatch_error=None,
                 metadata={
@@ -159,6 +184,7 @@ class AutoResearchPlannerService:
                 dispatch_requested_at=None,
                 dispatch_completed_at=None,
                 dispatch_requested_by=None,
+                dispatch_run=None,
                 run_summary=None,
                 dispatch_error=None,
                 metadata={
@@ -225,13 +251,19 @@ class AutoResearchPlannerService:
             if plan.dispatch_status is AutoResearchPlanDispatchStatus.DISPATCHED:
                 raise ValueError("plan has already been dispatched")
 
+            dispatch_job, selected_mode, task_spec = self._prepare_dispatch(plan)
             now = utc_now()
             updated = plan.model_copy(
                 update={
+                    "agent_job": dispatch_job,
                     "dispatch_status": AutoResearchPlanDispatchStatus.DISPATCHING,
                     "dispatch_requested_at": now,
                     "dispatch_requested_by": requested_by.strip(),
                     "dispatch_completed_at": None,
+                    "dispatch_run": self._queued_dispatch_run(
+                        task_spec=task_spec,
+                        selected_mode=selected_mode,
+                    ),
                     "dispatch_error": None,
                     "updated_at": now,
                     "metadata": {
@@ -247,40 +279,37 @@ class AutoResearchPlannerService:
         if plan.worker_spec is None:
             raise ValueError("plan does not have a worker spec")
 
-        job = self._worker_service.build_agent_job_spec(plan.worker_spec)
+        dispatch_job, _, task_spec = self._prepare_dispatch(plan)
         try:
-            summary = self._dispatch_runner(job)
+            self._remote_adapter.dispatch(task_spec)
+            remote_summary = self._await_remote_summary(task_spec)
         except Exception as exc:
+            remote_summary = self._dispatch_exception_summary(task_spec, exc)
             with self._writer_lease.acquire(f"autoresearch-plan:{plan_id}"):
                 current = self._require_plan(plan_id)
                 updated = current.model_copy(
                     update={
-                        "dispatch_status": AutoResearchPlanDispatchStatus.FAILED,
+                        "agent_job": dispatch_job,
+                        "dispatch_status": self._derive_dispatch_status(remote_summary),
                         "dispatch_completed_at": utc_now(),
-                        "dispatch_error": str(exc),
+                        "dispatch_run": self._record_from_summary(remote_summary),
+                        "run_summary": remote_summary.run_summary,
+                        "dispatch_error": self._dispatch_error_from_summary(remote_summary),
                         "updated_at": utc_now(),
                     }
                 )
                 return self._repository.save(updated.plan_id, updated)
 
-        dispatch_status = (
-            AutoResearchPlanDispatchStatus.DISPATCHED
-            if summary.final_status in {"ready_for_promotion", "promoted"}
-            else AutoResearchPlanDispatchStatus.FAILED
-        )
-        dispatch_error = None
-        if dispatch_status is AutoResearchPlanDispatchStatus.FAILED:
-            dispatch_error = summary.driver_result.error or summary.final_status
-
         with self._writer_lease.acquire(f"autoresearch-plan:{plan_id}"):
             current = self._require_plan(plan_id)
             updated = current.model_copy(
                 update={
-                    "agent_job": job,
-                    "dispatch_status": dispatch_status,
+                    "agent_job": dispatch_job,
+                    "dispatch_status": self._derive_dispatch_status(remote_summary),
                     "dispatch_completed_at": utc_now(),
-                    "run_summary": summary,
-                    "dispatch_error": dispatch_error,
+                    "dispatch_run": self._record_from_summary(remote_summary),
+                    "run_summary": remote_summary.run_summary,
+                    "dispatch_error": self._dispatch_error_from_summary(remote_summary),
                     "updated_at": utc_now(),
                 }
             )
@@ -470,6 +499,223 @@ class AutoResearchPlannerService:
     def _default_dispatch_runner(self, job: JobSpec) -> RunSummary:
         runner = AgentExecutionRunner(repo_root=self._repo_root)
         return runner.run_job(job)
+
+    def _prepare_dispatch(
+        self,
+        plan: AutoResearchPlanRead,
+    ) -> tuple[JobSpec, SelectedRuntimeMode, RemoteTaskSpec]:
+        if plan.worker_spec is None:
+            raise ValueError("plan does not have a dispatchable worker contract")
+        base_job = plan.agent_job or self._worker_service.build_agent_job_spec(plan.worker_spec)
+        selected_mode = self._select_dispatch_mode(plan)
+        dispatch_job = self._apply_mode_policy(base_job, selected_mode)
+        task_spec = RemoteTaskSpec(
+            run_id=dispatch_job.run_id,
+            requested_lane=selected_mode.requested_lane,
+            lane=selected_mode.lane,
+            runtime_mode=selected_mode.name,
+            planner_plan_id=plan.plan_id,
+            planner_candidate_id=(
+                plan.selected_candidate.candidate_id if plan.selected_candidate is not None else None
+            ),
+            job=dispatch_job,
+            metadata={
+                **plan.metadata,
+                "runtime_mode": selected_mode.name,
+                "fallback_reason": selected_mode.fallback_reason,
+            },
+        )
+        return dispatch_job, selected_mode, task_spec
+
+    def _select_dispatch_mode(self, plan: AutoResearchPlanRead) -> SelectedRuntimeMode:
+        requested_mode = str(plan.metadata.get("runtime_mode") or "").strip() or None
+        remote_available = self._coerce_bool(
+            plan.metadata.get("remote_available", os.environ.get("AUTORESEARCH_REMOTE_AVAILABLE")),
+            default=False,
+        )
+        return select_mode(
+            self._repo_root,
+            requested_mode=requested_mode,
+            remote_available=remote_available,
+        )
+
+    def _apply_mode_policy(self, job: JobSpec, selected_mode: SelectedRuntimeMode) -> JobSpec:
+        metadata = {
+            **job.metadata,
+            "runtime_mode": selected_mode.name,
+            "dispatch_requested_lane": selected_mode.requested_lane.value,
+            "dispatch_lane": selected_mode.lane.value,
+            "dispatch_max_workers": selected_mode.policy.max_workers,
+            "dispatch_max_concurrency": selected_mode.policy.max_concurrency,
+            "dispatch_allow_exploration": selected_mode.policy.allow_exploration,
+            "dispatch_allow_draft_pr": selected_mode.policy.allow_draft_pr,
+            "dispatch_token_budget": selected_mode.policy.token_budget,
+        }
+        if selected_mode.fallback_reason:
+            metadata["dispatch_fallback_reason"] = selected_mode.fallback_reason
+
+        preferred_mode = str(metadata.get("pipeline_target") or GitPromotionMode.PATCH.value).strip().lower()
+        if not selected_mode.policy.allow_draft_pr and preferred_mode == GitPromotionMode.DRAFT_PR.value:
+            metadata["pipeline_target"] = GitPromotionMode.PATCH.value
+            metadata["dispatch_pipeline_target_downgraded"] = GitPromotionMode.PATCH.value
+
+        policy = job.policy.model_copy(
+            update={
+                "timeout_sec": min(job.policy.timeout_sec, selected_mode.policy.timeout_sec),
+                "max_steps": min(job.policy.max_steps, selected_mode.policy.step_budget),
+            }
+        )
+        return job.model_copy(update={"policy": policy, "metadata": metadata})
+
+    def _queued_dispatch_run(
+        self,
+        *,
+        task_spec: RemoteTaskSpec,
+        selected_mode: SelectedRuntimeMode,
+    ) -> RemoteRunRecord:
+        return RemoteRunRecord(
+            run_id=task_spec.run_id,
+            requested_lane=task_spec.requested_lane,
+            lane=task_spec.lane,
+            status=RemoteRunStatus.QUEUED,
+            summary=f"dispatch queued for {task_spec.lane.value} lane",
+            fallback_reason=selected_mode.fallback_reason,
+            metadata={
+                "runtime_mode": selected_mode.name,
+                "dispatch_max_concurrency": selected_mode.policy.max_concurrency,
+                "dispatch_token_budget": selected_mode.policy.token_budget,
+            },
+        )
+
+    def _await_remote_summary(self, task_spec: RemoteTaskSpec) -> RemoteRunSummary:
+        last_record: RemoteRunRecord | None = None
+        for _ in range(self._MAX_DISPATCH_POLLS):
+            last_record = self._remote_adapter.poll(task_spec.run_id)
+            if last_record.status in self._TERMINAL_REMOTE_STATUSES:
+                break
+        if last_record is None:
+            return self._planner_stalled_summary(task_spec, detail="remote adapter returned no dispatch record")
+        if last_record.status not in self._TERMINAL_REMOTE_STATUSES:
+            return self._planner_stalled_summary(
+                task_spec,
+                detail="dispatch polling exhausted before reaching a terminal state",
+            )
+        try:
+            return self._remote_adapter.fetch_summary(task_spec.run_id)
+        except FileNotFoundError as exc:
+            return self._missing_summary_summary(task_spec, last_record=last_record, exc=exc)
+
+    def _planner_stalled_summary(self, task_spec: RemoteTaskSpec, *, detail: str) -> RemoteRunSummary:
+        disposition = classify_remote_terminal(status=RemoteRunStatus.STALLED, stage="planner")
+        now = utc_now()
+        return RemoteRunSummary(
+            run_id=task_spec.run_id,
+            requested_lane=task_spec.requested_lane,
+            lane=task_spec.lane,
+            status=RemoteRunStatus.STALLED,
+            failure_class=disposition.failure_class,
+            recovery_action=disposition.recovery_action,
+            summary=detail,
+            started_at=now,
+            updated_at=now,
+            finished_at=now,
+            fallback_reason=str(task_spec.metadata.get("fallback_reason") or "").strip() or None,
+            metadata={"runtime_mode": task_spec.runtime_mode},
+        )
+
+    def _missing_summary_summary(
+        self,
+        task_spec: RemoteTaskSpec,
+        *,
+        last_record: RemoteRunRecord,
+        exc: Exception,
+    ) -> RemoteRunSummary:
+        disposition = classify_remote_terminal(
+            status=RemoteRunStatus.FAILED,
+            error_text=str(exc),
+        )
+        now = utc_now()
+        return RemoteRunSummary(
+            run_id=task_spec.run_id,
+            requested_lane=last_record.requested_lane,
+            lane=last_record.lane,
+            status=RemoteRunStatus.FAILED,
+            failure_class=disposition.failure_class,
+            recovery_action=disposition.recovery_action,
+            artifact_paths=last_record.artifact_paths,
+            summary=f"dispatch result fetch failed: {exc}",
+            started_at=last_record.started_at,
+            updated_at=now,
+            finished_at=now,
+            fallback_reason=last_record.fallback_reason,
+            metadata=last_record.metadata,
+        )
+
+    def _dispatch_exception_summary(
+        self,
+        task_spec: RemoteTaskSpec,
+        exc: Exception,
+    ) -> RemoteRunSummary:
+        disposition = classify_remote_terminal(status=RemoteRunStatus.FAILED, error_text=str(exc))
+        now = utc_now()
+        return RemoteRunSummary(
+            run_id=task_spec.run_id,
+            requested_lane=task_spec.requested_lane,
+            lane=task_spec.lane,
+            status=RemoteRunStatus.FAILED,
+            failure_class=disposition.failure_class,
+            recovery_action=disposition.recovery_action,
+            summary=f"dispatch failed before completion: {exc}",
+            started_at=now,
+            updated_at=now,
+            finished_at=now,
+            fallback_reason=str(task_spec.metadata.get("fallback_reason") or "").strip() or None,
+            metadata={"runtime_mode": task_spec.runtime_mode},
+        )
+
+    @staticmethod
+    def _record_from_summary(summary: RemoteRunSummary) -> RemoteRunRecord:
+        return RemoteRunRecord.model_validate(summary.model_dump(mode="json", exclude={"run_summary"}))
+
+    @classmethod
+    def _derive_dispatch_status(cls, summary: RemoteRunSummary) -> AutoResearchPlanDispatchStatus:
+        if summary.status is not RemoteRunStatus.SUCCEEDED:
+            return AutoResearchPlanDispatchStatus.FAILED
+        if summary.run_summary is None:
+            return AutoResearchPlanDispatchStatus.DISPATCHED
+        if summary.run_summary.final_status in {"ready_for_promotion", "promoted"}:
+            return AutoResearchPlanDispatchStatus.DISPATCHED
+        return AutoResearchPlanDispatchStatus.FAILED
+
+    @staticmethod
+    def _dispatch_error_from_summary(summary: RemoteRunSummary) -> str | None:
+        if summary.status is RemoteRunStatus.SUCCEEDED:
+            if summary.run_summary is None or summary.run_summary.final_status in {"ready_for_promotion", "promoted"}:
+                return None
+        if summary.run_summary is not None:
+            error_text = str(summary.run_summary.driver_result.error or "").strip()
+            if error_text:
+                return error_text
+            if summary.run_summary.final_status not in {"ready_for_promotion", "promoted"}:
+                return summary.run_summary.final_status
+        if summary.failure_class is not None:
+            return summary.failure_class.value
+        return summary.summary or None
+
+    @staticmethod
+    def _coerce_bool(value: object, *, default: bool) -> bool:
+        if value is None:
+            return default
+        if isinstance(value, bool):
+            return value
+        normalized = str(value).strip().lower()
+        if not normalized:
+            return default
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+        return default
 
     def _inspect_upstream(self, request: AutoResearchPlannerRequest) -> UpstreamWatchRead | None:
         if not request.include_upstream_watch or self._upstream_watcher is None:

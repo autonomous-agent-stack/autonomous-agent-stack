@@ -446,12 +446,43 @@ def test_planner_dispatch_lifecycle_records_run_summary(tmp_path: Path) -> None:
     dispatched = service.execute_dispatch(plan.plan_id)
 
     assert queued.dispatch_status is AutoResearchPlanDispatchStatus.DISPATCHING
+    assert queued.dispatch_run is not None
+    assert queued.dispatch_run.status.value == "queued"
+    assert queued.dispatch_run.lane.value == "local"
     assert dispatched.dispatch_status is AutoResearchPlanDispatchStatus.DISPATCHED
     assert dispatched.dispatch_requested_by == "10001"
     assert dispatched.dispatch_completed_at is not None
+    assert dispatched.dispatch_run is not None
+    assert dispatched.dispatch_run.status.value == "succeeded"
     assert dispatched.run_summary is not None
     assert dispatched.run_summary.final_status == "ready_for_promotion"
     assert dispatched.run_summary.promotion_patch_uri == "/tmp/autoresearch.patch"
+
+
+def test_request_dispatch_records_remote_fallback_preview(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    _write(
+        repo_root / "src" / "autoresearch" / "core" / "services" / "fallback_target.py",
+        "def check() -> bool:\n    # FIXME: run through fallback preview\n    return True\n",
+    )
+    service = AutoResearchPlannerService(
+        repository=InMemoryRepository(),
+        repo_root=repo_root,
+        dispatch_runner=_successful_run_summary,
+    )
+
+    plan = service.create(
+        AutoResearchPlannerRequest(
+            telegram_uid="10001",
+            metadata={"runtime_mode": "night", "remote_available": False},
+        )
+    )
+    queued = service.request_dispatch(plan.plan_id, requested_by="10001")
+
+    assert queued.dispatch_run is not None
+    assert queued.dispatch_run.requested_lane.value == "remote"
+    assert queued.dispatch_run.lane.value == "local"
+    assert queued.dispatch_run.fallback_reason is not None
 
 
 def test_autoresearch_plan_api_sends_low_noise_upstream_skip_report(tmp_path: Path) -> None:

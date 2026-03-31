@@ -351,7 +351,10 @@ def test_admin_audit_trail_lists_recent_worker_activity(admin_client: TestClient
     _write(repo_root / "tests" / "test_admin_managed_skills.py", "def test_admin_ok():\n    assert True\n")
 
     plan = planner_service.create(
-        AutoResearchPlannerRequest(goal="Find the next audit trail hardening task.")
+        AutoResearchPlannerRequest(
+            goal="Find the next audit trail hardening task.",
+            metadata={"runtime_mode": "night", "remote_available": False},
+        )
     )
     planner_service.request_dispatch(plan.plan_id, requested_by="admin-ui")
     planner_service.execute_dispatch(plan.plan_id)
@@ -485,6 +488,12 @@ def test_admin_audit_trail_lists_recent_worker_activity(admin_client: TestClient
     assert planner_item["first_progress_ms"] == 300
     assert planner_item["first_scoped_write_ms"] == 900
     assert planner_item["first_state_heartbeat_ms"] == 300
+    assert planner_item["metadata"]["dispatch_requested_lane"] == "remote"
+    assert planner_item["metadata"]["dispatch_lane"] == "local"
+    assert planner_item["metadata"]["dispatch_remote_status"] == "succeeded"
+    assert planner_item["metadata"]["dispatch_failure_class"] is None
+    assert planner_item["metadata"]["dispatch_recovery_action"] is None
+    assert planner_item["metadata"]["dispatch_fallback_reason"] is not None
 
     manager_backend = next(
         item
@@ -514,6 +523,10 @@ def test_admin_audit_trail_lists_recent_worker_activity(admin_client: TestClient
     assert "diff --git" in detail_payload["patch_text"]
     assert detail_payload["patch_truncated"] is False
     assert detail_payload["entry"]["first_progress_ms"] == 300
+    assert detail_payload["raw_record"]["autoresearch_plan"]["dispatch_run"]["requested_lane"] == "remote"
+    assert detail_payload["raw_record"]["autoresearch_plan"]["dispatch_run"]["lane"] == "local"
+    assert detail_payload["raw_record"]["autoresearch_plan"]["dispatch_run"]["status"] == "succeeded"
+    assert detail_payload["raw_record"]["autoresearch_plan"]["run_summary"]["final_status"] == "ready_for_promotion"
 
     failed_response = admin_client.get("/api/v1/admin/audit-trail?limit=20&status_filter=failed&agent_role=worker")
     assert failed_response.status_code == 200

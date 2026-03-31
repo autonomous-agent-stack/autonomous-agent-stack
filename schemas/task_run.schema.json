@@ -1,0 +1,378 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "log",
+            "report",
+            "plan",
+            "patch",
+            "compliance",
+            "custom"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sha256"
+        },
+        "uri": {
+          "title": "Uri",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "kind",
+        "uri"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "DispatchLane": {
+      "enum": [
+        "local",
+        "remote"
+      ],
+      "title": "DispatchLane",
+      "type": "string"
+    },
+    "ExecutionPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "allow_binary_changes": {
+          "default": false,
+          "title": "Allow Binary Changes",
+          "type": "boolean"
+        },
+        "allowed_paths": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowed Paths",
+          "type": "array"
+        },
+        "cleanup_on_success": {
+          "default": true,
+          "title": "Cleanup On Success",
+          "type": "boolean"
+        },
+        "forbidden_paths": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Forbidden Paths",
+          "type": "array"
+        },
+        "max_changed_files": {
+          "default": 20,
+          "maximum": 1000,
+          "minimum": 0,
+          "title": "Max Changed Files",
+          "type": "integer"
+        },
+        "max_patch_lines": {
+          "default": 2000,
+          "maximum": 100000,
+          "minimum": 0,
+          "title": "Max Patch Lines",
+          "type": "integer"
+        },
+        "max_steps": {
+          "default": 1,
+          "maximum": 20,
+          "minimum": 1,
+          "title": "Max Steps",
+          "type": "integer"
+        },
+        "network": {
+          "default": "disabled",
+          "enum": [
+            "disabled",
+            "allowlist",
+            "full"
+          ],
+          "title": "Network",
+          "type": "string"
+        },
+        "network_allowlist": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Network Allowlist",
+          "type": "array"
+        },
+        "retain_workspace_on_failure": {
+          "default": true,
+          "title": "Retain Workspace On Failure",
+          "type": "boolean"
+        },
+        "timeout_sec": {
+          "default": 900,
+          "maximum": 7200,
+          "minimum": 1,
+          "title": "Timeout Sec",
+          "type": "integer"
+        },
+        "tool_allowlist": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Tool Allowlist",
+          "type": "array"
+        }
+      },
+      "title": "ExecutionPolicy",
+      "type": "object"
+    },
+    "FallbackStep": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "retry",
+            "fallback_agent",
+            "human_review",
+            "reject"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "agent_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Id"
+        },
+        "max_attempts": {
+          "default": 1,
+          "maximum": 20,
+          "minimum": 1,
+          "title": "Max Attempts",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "title": "FallbackStep",
+      "type": "object"
+    },
+    "JobSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_id": {
+          "title": "Agent Id",
+          "type": "string"
+        },
+        "fallback": {
+          "items": {
+            "$ref": "#/$defs/FallbackStep"
+          },
+          "title": "Fallback",
+          "type": "array"
+        },
+        "input_artifacts": {
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "title": "Input Artifacts",
+          "type": "array"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        },
+        "mode": {
+          "default": "patch_only",
+          "enum": [
+            "plan_only",
+            "patch_only",
+            "apply_in_workspace",
+            "review_only"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "parent_run_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Run Id"
+        },
+        "policy": {
+          "$ref": "#/$defs/ExecutionPolicy"
+        },
+        "protocol_version": {
+          "const": "aep/v0",
+          "default": "aep/v0",
+          "title": "Protocol Version",
+          "type": "string"
+        },
+        "role": {
+          "default": "executor",
+          "enum": [
+            "planner",
+            "executor",
+            "reviewer",
+            "analyst"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        },
+        "task": {
+          "title": "Task",
+          "type": "string"
+        },
+        "validators": {
+          "items": {
+            "$ref": "#/$defs/ValidatorSpec"
+          },
+          "title": "Validators",
+          "type": "array"
+        }
+      },
+      "required": [
+        "run_id",
+        "agent_id",
+        "task"
+      ],
+      "title": "JobSpec",
+      "type": "object"
+    },
+    "ValidatorSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Command"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "builtin",
+            "command",
+            "human"
+          ],
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind"
+      ],
+      "title": "ValidatorSpec",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "job": {
+      "$ref": "#/$defs/JobSpec"
+    },
+    "lane": {
+      "$ref": "#/$defs/DispatchLane",
+      "default": "local"
+    },
+    "metadata": {
+      "additionalProperties": true,
+      "title": "Metadata",
+      "type": "object"
+    },
+    "planner_candidate_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Planner Candidate Id"
+    },
+    "planner_plan_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Planner Plan Id"
+    },
+    "protocol_version": {
+      "const": "remote-run/v1",
+      "default": "remote-run/v1",
+      "title": "Protocol Version",
+      "type": "string"
+    },
+    "requested_lane": {
+      "$ref": "#/$defs/DispatchLane",
+      "default": "local"
+    },
+    "run_id": {
+      "minLength": 1,
+      "title": "Run Id",
+      "type": "string"
+    },
+    "runtime_mode": {
+      "default": "day",
+      "minLength": 1,
+      "title": "Runtime Mode",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "job"
+  ],
+  "title": "RemoteTaskSpec",
+  "type": "object"
+}

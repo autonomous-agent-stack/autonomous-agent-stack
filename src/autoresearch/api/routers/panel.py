@@ -534,6 +534,11 @@ def _execute_autoresearch_plan_and_notify(
         f"- plan: {result.plan_id}",
         f"- audit: {audit_entry_id}",
     ]
+    if result.dispatch_run is not None:
+        lines.append(f"- lane: {result.dispatch_run.lane.value}")
+        lines.append(f"- remote_status: {result.dispatch_run.status.value}")
+        if result.dispatch_run.failure_class is not None:
+            lines.append(f"- failure_class: {result.dispatch_run.failure_class.value}")
     if result.run_summary is not None:
         lines.append(f"- final_status: {result.run_summary.final_status}")
         if result.run_summary.promotion_patch_uri:
