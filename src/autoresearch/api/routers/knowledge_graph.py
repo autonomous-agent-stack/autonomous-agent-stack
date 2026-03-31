@@ -6,11 +6,10 @@ Reuses DAG rendering logic with light-themed UI.
 
 from __future__ import annotations
 
-import json
 from typing import Any, Dict, List, Optional
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 
 from autoresearch.core.memory import LocalGraphMemory
 from autoresearch.core.initialization.malu_brand_graph import (
@@ -39,6 +38,7 @@ def get_graph() -> LocalGraphMemory:
 # ========================================================================
 # Graph Query Endpoints
 # ========================================================================
+
 
 @router.get("/health")
 def knowledge_graph_health() -> Dict[str, str]:
@@ -113,6 +113,7 @@ def check_text_compliance(
 # Visualization Endpoints (DAG Format)
 # ========================================================================
 
+
 @router.get("/visualize/dag")
 def get_graph_as_dag(
     root_entity: Optional[str] = Query(default=None),
@@ -120,13 +121,13 @@ def get_graph_as_dag(
     graph: LocalGraphMemory = Depends(get_graph),
 ) -> Dict[str, Any]:
     """Get graph in DAG format for visualization.
-    
+
     Reuses existing DAG rendering logic with light-themed UI.
-    
+
     Args:
         root_entity: Root entity for subgraph (optional, default: full graph)
         depth: Traversal depth
-        
+
     Returns:
         DAG-formatted graph data
     """
@@ -137,38 +138,42 @@ def get_graph_as_dag(
     else:
         nodes_data = [graph.get_node(n).to_dict() for n in graph.list_nodes() if graph.get_node(n)]
         edges_data = [e.to_dict() for e in graph.list_edges()]
-    
+
     # Convert to DAG format (compatible with existing DAG renderer)
     dag_nodes = []
     for node_data in nodes_data:
-        dag_nodes.append({
-            "id": node_data["id"],
-            "label": node_data["id"],
-            "type": node_data.get("entity_type", "entity"),
-            "properties": node_data.get("properties", {}),
-            # Light-themed colors
-            "color": _get_node_color(node_data.get("entity_type", "entity")),
-            "style": {
-                "backgroundColor": "#f8f9fa",
-                "borderColor": "#dee2e6",
-                "textColor": "#495057",
-            },
-        })
-    
+        dag_nodes.append(
+            {
+                "id": node_data["id"],
+                "label": node_data["id"],
+                "type": node_data.get("entity_type", "entity"),
+                "properties": node_data.get("properties", {}),
+                # Light-themed colors
+                "color": _get_node_color(node_data.get("entity_type", "entity")),
+                "style": {
+                    "backgroundColor": "#f8f9fa",
+                    "borderColor": "#dee2e6",
+                    "textColor": "#495057",
+                },
+            }
+        )
+
     dag_edges = []
     for edge_data in edges_data:
-        dag_edges.append({
-            "id": f"{edge_data['subject']}-{edge_data['predicate']}-{edge_data['object']}",
-            "source": edge_data["subject"],
-            "target": edge_data["object"],
-            "label": edge_data["predicate"],
-            "type": "arrow",
-            "style": {
-                "color": "#6c757d",
-                "width": 2,
-            },
-        })
-    
+        dag_edges.append(
+            {
+                "id": f"{edge_data['subject']}-{edge_data['predicate']}-{edge_data['object']}",
+                "source": edge_data["subject"],
+                "target": edge_data["object"],
+                "label": edge_data["predicate"],
+                "type": "arrow",
+                "style": {
+                    "color": "#6c757d",
+                    "width": 2,
+                },
+            }
+        )
+
     return {
         "nodes": dag_nodes,
         "edges": dag_edges,
@@ -186,10 +191,10 @@ def _get_node_color(entity_type: str) -> str:
     """Get node color based on entity type (light-themed)."""
     colors = {
         "entity": "#e3f2fd",  # Light blue
-        "brand": "#fff3e0",   # Light orange
-        "product": "#e8f5e9", # Light green
-        "feature": "#fce4ec", # Light pink
-        "tone": "#f3e5f5",    # Light purple
+        "brand": "#fff3e0",  # Light orange
+        "product": "#e8f5e9",  # Light green
+        "feature": "#fce4ec",  # Light pink
+        "tone": "#f3e5f5",  # Light purple
     }
     return colors.get(entity_type, "#f8f9fa")
 
@@ -197,6 +202,7 @@ def _get_node_color(entity_type: str) -> str:
 # ========================================================================
 # Graph Management Endpoints
 # ========================================================================
+
 
 @router.post("/admin/clear")
 def clear_graph(

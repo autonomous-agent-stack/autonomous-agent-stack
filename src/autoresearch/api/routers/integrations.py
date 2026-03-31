@@ -14,7 +14,6 @@ from autoresearch.shared.models import (
     IntegrationSecureFetchRequest,
 )
 
-
 router = APIRouter(prefix="/api/v1/integrations", tags=["self-integration"])
 
 
@@ -45,7 +44,9 @@ def prototype_integration(
     try:
         return service.prototype(payload)
     except KeyError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Discovery not found") from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Discovery not found"
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -63,7 +64,9 @@ def secure_fetch_integration_dependencies(
     try:
         return service.secure_fetch(prototype_id=prototype_id, request=payload)
     except KeyError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Prototype not found") from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Prototype not found"
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -80,6 +83,8 @@ def promote_integration(
     try:
         return service.promote(payload)
     except KeyError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Prototype not found") from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Prototype not found"
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc

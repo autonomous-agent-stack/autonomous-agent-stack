@@ -6,7 +6,6 @@ from autoresearch.api.dependencies import get_optimization_service
 from autoresearch.shared.models import OptimizationCreateRequest, OptimizationRead
 from autoresearch.train.services.optimizations import OptimizationService
 
-
 router = APIRouter(prefix="/api/v1/optimizations", tags=["optimizations"])
 
 

@@ -179,7 +179,9 @@ exit 0
         for line in events_path.read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
-    started_agents = [item["agent_id"] for item in attempts if item.get("type") == "attempt_started"]
+    started_agents = [
+        item["agent_id"] for item in attempts if item.get("type") == "attempt_started"
+    ]
 
     assert summary.final_status == "ready_for_promotion"
     assert summary.driver_result.agent_id == "secondary"

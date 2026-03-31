@@ -6,7 +6,6 @@ from autoresearch.api.dependencies import get_manager_agent_service
 from autoresearch.agents.manager_agent import ManagerAgentService
 from autoresearch.shared.manager_agent_contract import ManagerDispatchRead, ManagerDispatchRequest
 
-
 router = APIRouter(prefix="/api/v1/agents/manager", tags=["manager-agent"])
 
 
@@ -40,5 +39,7 @@ def get_manager_dispatch(
 ) -> ManagerDispatchRead:
     dispatch = service.get_dispatch(dispatch_id)
     if dispatch is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Manager dispatch not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Manager dispatch not found"
+        )
     return dispatch

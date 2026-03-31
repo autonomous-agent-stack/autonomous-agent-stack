@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
 import subprocess
 import sys
@@ -139,7 +138,9 @@ def test_failed_test_command_stays_failed_after_max_iterations(tmp_path: Path) -
     assert result.workspace_retained is False
 
 
-def test_openhands_cli_env_strips_git_credentials(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_openhands_cli_env_strips_git_credentials(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
     _create_min_repo(repo_root)
@@ -225,7 +226,9 @@ def test_strict_workspace_uses_overlay_for_allowed_file(tmp_path: Path) -> None:
 
     service = OpenHandsControlledBackendService(repo_root=repo_root, run_root=run_root)
 
-    def _assert_permissions(*, prompt: str, workspace: Path, log_file: Path, allowed_paths: list[str]):
+    def _assert_permissions(
+        *, prompt: str, workspace: Path, log_file: Path, allowed_paths: list[str]
+    ):
         _ = prompt, allowed_paths
         writable_target = workspace / "src" / "landing_pages.py"
         blocked_target = workspace / "src" / "models.py"

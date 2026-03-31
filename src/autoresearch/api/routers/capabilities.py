@@ -22,7 +22,6 @@ from autoresearch.core.adapters.contracts import (
 )
 from autoresearch.shared.models import OpenClawSkillDetailRead
 
-
 router = APIRouter(prefix="/api/v1/capabilities", tags=["capabilities"])
 
 
@@ -99,7 +98,9 @@ def query_provider_calendar_events(
     )
 
 
-@router.get("/providers/{provider_id}/github/search", response_model=GitHubRepositorySearchResultRead)
+@router.get(
+    "/providers/{provider_id}/github/search", response_model=GitHubRepositorySearchResultRead
+)
 async def search_provider_github_repositories(
     provider_id: str,
     query: str = Query(..., min_length=1),
@@ -124,33 +125,50 @@ async def search_provider_github_repositories(
 def _get_provider_or_404(*, registry: CapabilityProviderRegistry, provider_id: str):
     provider = registry.get(provider_id)
     if provider is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Capability provider not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Capability provider not found"
+        )
     return provider
 
 
-def _require_skill_provider(*, registry: CapabilityProviderRegistry, provider_id: str) -> SkillProvider:
+def _require_skill_provider(
+    *, registry: CapabilityProviderRegistry, provider_id: str
+) -> SkillProvider:
     provider = _get_provider_or_404(registry=registry, provider_id=provider_id)
     if not isinstance(provider, SkillProvider):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Capability provider has no skill catalog")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Capability provider has no skill catalog"
+        )
     return provider
 
 
 def _require_mcp_provider(*, registry: CapabilityProviderRegistry, provider_id: str) -> MCPProvider:
     provider = _get_provider_or_404(registry=registry, provider_id=provider_id)
     if not isinstance(provider, MCPProvider):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Capability provider has no tool catalog")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Capability provider has no tool catalog"
+        )
     return provider
 
 
-def _require_calendar_provider(*, registry: CapabilityProviderRegistry, provider_id: str) -> CalendarAdapter:
+def _require_calendar_provider(
+    *, registry: CapabilityProviderRegistry, provider_id: str
+) -> CalendarAdapter:
     provider = _get_provider_or_404(registry=registry, provider_id=provider_id)
     if not isinstance(provider, CalendarAdapter):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Capability provider has no calendar query")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Capability provider has no calendar query",
+        )
     return provider
 
 
-def _require_github_provider(*, registry: CapabilityProviderRegistry, provider_id: str) -> GitHubAdapter:
+def _require_github_provider(
+    *, registry: CapabilityProviderRegistry, provider_id: str
+) -> GitHubAdapter:
     provider = _get_provider_or_404(registry=registry, provider_id=provider_id)
     if not isinstance(provider, GitHubAdapter):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Capability provider has no github search")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Capability provider has no github search"
+        )
     return provider

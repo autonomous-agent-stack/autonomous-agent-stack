@@ -39,7 +39,6 @@ from autoresearch.shared.models import (
     utc_now,
 )
 
-
 router = APIRouter(prefix="/api/v1/panel", tags=["panel"])
 
 
@@ -132,7 +131,9 @@ def get_panel_state(
     planner_service: AutoResearchPlannerService = Depends(get_autoresearch_planner_service),
     capability_registry: CapabilityProviderRegistry = Depends(get_capability_provider_registry),
 ) -> PanelStateRead:
-    sessions = _sessions_for_uid(openclaw_service=openclaw_service, telegram_uid=access.telegram_uid)
+    sessions = _sessions_for_uid(
+        openclaw_service=openclaw_service, telegram_uid=access.telegram_uid
+    )
     session_ids = {session.session_id for session in sessions}
     runs = [run for run in agent_service.list() if run.session_id in session_ids]
     runs.sort(key=lambda item: item.updated_at, reverse=True)
@@ -327,8 +328,12 @@ def dispatch_panel_autoresearch_plan(
         request_ip=_request_ip(request),
         user_agent=request.headers.get("user-agent"),
         metadata={
-            "plan_title": plan.selected_candidate.title if plan.selected_candidate is not None else None,
-            "plan_source_path": plan.selected_candidate.source_path if plan.selected_candidate is not None else None,
+            "plan_title": (
+                plan.selected_candidate.title if plan.selected_candidate is not None else None
+            ),
+            "plan_source_path": (
+                plan.selected_candidate.source_path if plan.selected_candidate is not None else None
+            ),
             "auth_method": access.auth_method,
             "token_id": access.token_id,
         },
@@ -475,12 +480,16 @@ def _authorized_agent_run(
 ) -> ClaudeAgentRunRead:
     run = agent_service.get(agent_run_id)
     if run is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Claude agent run not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Claude agent run not found"
+        )
     if run.session_id is None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="forbidden")
     session = openclaw_service.get_session(run.session_id)
     if session is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="OpenClaw session not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="OpenClaw session not found"
+        )
     if session.channel != "telegram" or session.external_id != telegram_uid:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="forbidden")
     return run
@@ -508,7 +517,9 @@ def _authorized_plan(
 ) -> AutoResearchPlanRead:
     plan = planner_service.get(plan_id)
     if plan is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="autoresearch plan not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="autoresearch plan not found"
+        )
     if plan.telegram_uid not in {None, telegram_uid}:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="forbidden")
     return plan

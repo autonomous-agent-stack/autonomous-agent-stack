@@ -9,7 +9,6 @@ from fastapi.responses import StreamingResponse
 
 from autoresearch.shared.models import utc_now
 
-
 router = APIRouter(prefix="/api/v1/stream", tags=["streaming"])
 
 

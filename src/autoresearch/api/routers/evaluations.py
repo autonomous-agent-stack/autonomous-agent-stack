@@ -6,7 +6,6 @@ from autoresearch.api.dependencies import get_evaluation_service
 from autoresearch.core.services.evaluations import EvaluationService
 from autoresearch.shared.models import EvaluationCreateRequest, EvaluationRead
 
-
 router = APIRouter(prefix="/api/v1/evaluations", tags=["evaluations"])
 
 

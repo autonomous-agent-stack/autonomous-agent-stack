@@ -10,7 +10,6 @@ import asyncio
 import logging
 import os
 import re
-from typing import Dict, Any
 
 import httpx
 from fastapi import APIRouter, Request
@@ -48,17 +47,15 @@ async def telegram_webhook(request: Request):
             logger.info("[Webhook] 拦截到审查指令，启动工作流...")
 
             # 提取仓库名
-            repo_match = re.search(r'执行审查[:\s]+([^\s]+)', text)
+            repo_match = re.search(r"执行审查[:\s]+([^\s]+)", text)
             if not repo_match:
-                repo_match = re.search(r'#1[:\s]+([^\s]+)', text)
+                repo_match = re.search(r"#1[:\s]+([^\s]+)", text)
 
             if repo_match:
                 target_repo = repo_match.group(1).strip()
 
                 # 启动工作流（异步执行）
-                asyncio.create_task(
-                    execute_and_deliver_workflow(target_repo, chat_id)
-                )
+                asyncio.create_task(execute_and_deliver_workflow(target_repo, chat_id))
 
                 return {"status": "workflow_started", "repo": target_repo}
             else:
@@ -83,17 +80,16 @@ async def execute_and_deliver_workflow(target_repo: str, chat_id: int):
         logger.info(f"[Workflow] 启动审查流水线: {target_repo}")
 
         # 执行工作流
-        report_text = await run_workflow(
-            "repo_analysis",
-            {"repo": target_repo}
-        )
+        report_text = await run_workflow("repo_analysis", {"repo": target_repo})
 
-        logger.info(f"[Workflow] 工作流执行完成，准备投递...")
+        logger.info("[Workflow] 工作流执行完成，准备投递...")
         delivery_ok = await _deliver_report_to_telegram(chat_id=chat_id, report_text=report_text)
         if delivery_ok:
             logger.info("[Workflow] ✅ 报告已投递 Telegram（%s 字符）", len(report_text))
         else:
-            logger.warning("[Workflow] ⚠️ 报告投递失败或未配置 Telegram（%s 字符）", len(report_text))
+            logger.warning(
+                "[Workflow] ⚠️ 报告投递失败或未配置 Telegram（%s 字符）", len(report_text)
+            )
 
     except Exception as e:
         logger.error(f"[Workflow] 执行失败: {e}")
@@ -130,14 +126,14 @@ WORKFLOW_COMMANDS = {
         "syntax": "执行审查: owner/repo",
         "example": "执行审查: srxly888-creator/autonomous-agent-stack",
         "description": "深度审查 GitHub 代码库",
-        "workflow": "repo_analysis"
+        "workflow": "repo_analysis",
     },
     "#1": {
         "syntax": "#1 owner/repo",
         "example": "#1 srxly888-creator/autonomous-agent-stack",
         "description": "快捷指令 - 代码库审查",
-        "workflow": "repo_analysis"
-    }
+        "workflow": "repo_analysis",
+    },
 }
 
 

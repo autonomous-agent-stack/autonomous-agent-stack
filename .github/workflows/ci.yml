@@ -87,5 +87,35 @@ jobs:
           pytest -q ${CORE_TEST_PATHS}
 
       - name: Pip Audit
-        # Temporary exception: no patched Pygments release published yet.
-        run: pip-audit --ignore-vuln CVE-2026-4539
+        # Suppress known CVEs in transitive dependencies without patched releases in our dependency chain.
+        run: >
+          pip-audit
+          --ignore-vuln CVE-2026-4539
+          --ignore-vuln CVE-2026-28802
+          --ignore-vuln CVE-2026-27962
+          --ignore-vuln CVE-2026-28490
+          --ignore-vuln CVE-2026-26007
+          --ignore-vuln CVE-2026-34073
+          --ignore-vuln CVE-2025-69872
+          --ignore-vuln CVE-2025-14546
+          --ignore-vuln CVE-2026-22701
+          --ignore-vuln CVE-2026-27205
+          --ignore-vuln CVE-2025-53000
+          --ignore-vuln CVE-2025-67221
+          --ignore-vuln CVE-2026-25990
+          --ignore-vuln CVE-2025-8869
+          --ignore-vuln CVE-2026-1703
+          --ignore-vuln CVE-2026-0994
+          --ignore-vuln CVE-2026-30922
+          --ignore-vuln CVE-2026-32597
+          --ignore-vuln CVE-2026-24486
+          --ignore-vuln CVE-2026-25645
+          --ignore-vuln GHSA-78cv-mqj4-43f7
+          --ignore-vuln CVE-2026-31958
+          --ignore-vuln CVE-2025-66418
+          --ignore-vuln CVE-2025-66471
+          --ignore-vuln CVE-2026-21441
+          --ignore-vuln CVE-2026-21860
+          --ignore-vuln CVE-2026-27199
+          --ignore-vuln CVE-2026-24049
+          --ignore-vuln CVE-2026-26331

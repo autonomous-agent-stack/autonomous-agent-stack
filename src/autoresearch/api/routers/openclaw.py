@@ -32,10 +32,7 @@ from autoresearch.shared.models import (
     OpenClawSkillDetailRead,
     OpenClawSkillRead,
     OpenClawSessionRead,
-    OpenVikingCompactRequest,
-    OpenVikingMemoryProfileRead,
 )
-
 
 router = APIRouter(prefix="/api/v1/openclaw", tags=["openclaw-compat"])
 
@@ -66,7 +63,9 @@ def get_session(
 ) -> OpenClawSessionRead:
     session = service.get_session(session_id)
     if session is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="OpenClaw session not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="OpenClaw session not found"
+        )
     return session
 
 
@@ -105,7 +104,11 @@ def get_session_memory(
         ) from exc
 
 
-@router.post("/sessions/{session_id}/memory", response_model=OpenClawMemoryRecordRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/sessions/{session_id}/memory",
+    response_model=OpenClawMemoryRecordRead,
+    status_code=status.HTTP_201_CREATED,
+)
 def remember_for_session(
     session_id: str,
     payload: OpenClawMemoryRecordCreateRequest,
@@ -136,7 +139,9 @@ def get_openclaw_skill(
 ) -> OpenClawSkillDetailRead:
     skill = service.get_skill(skill_name)
     if skill is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="OpenClaw skill not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="OpenClaw skill not found"
+        )
     return skill
 
 
@@ -149,7 +154,9 @@ def load_session_skills(
 ) -> OpenClawSessionRead:
     session = openclaw_service.get_session(session_id)
     if session is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="OpenClaw session not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="OpenClaw session not found"
+        )
 
     resolved, missing = skill_service.resolve_skill_names(payload.skill_names)
     if missing:
@@ -267,7 +274,9 @@ def get_claude_agent(
 ) -> ClaudeAgentRunRead:
     run = service.get(agent_run_id)
     if run is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Claude agent run not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Claude agent run not found"
+        )
     return run
 
 
@@ -280,7 +289,9 @@ def cancel_claude_agent(
     try:
         return service.cancel(agent_run_id=agent_run_id, request=payload)
     except KeyError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Claude agent run not found") from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Claude agent run not found"
+        ) from exc
 
 
 @router.post(
@@ -297,7 +308,9 @@ def retry_claude_agent(
     try:
         replay_run, replay_request = service.retry(agent_run_id=agent_run_id, request=payload)
     except KeyError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Claude agent run not found") from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Claude agent run not found"
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except RuntimeError as exc:

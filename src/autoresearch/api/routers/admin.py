@@ -2,10 +2,19 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-from typing import Any, Literal
+from typing import Literal
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Request, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    status,
+)
 from fastapi.responses import HTMLResponse
 
 from autoresearch.api.dependencies import (
@@ -19,7 +28,13 @@ from autoresearch.api.dependencies import (
     get_panel_access_service,
     get_telegram_notifier_service,
 )
-from autoresearch.core.adapters import CalendarAdapter, CapabilityProviderRegistry, GitHubAdapter, MCPProvider, SkillProvider
+from autoresearch.core.adapters import (
+    CalendarAdapter,
+    CapabilityProviderRegistry,
+    GitHubAdapter,
+    MCPProvider,
+    SkillProvider,
+)
 from autoresearch.core.services.admin_auth import AdminAccessClaims, AdminAuthService
 from autoresearch.core.services.admin_config import AdminConfigService
 from autoresearch.core.services.approval_store import ApprovalStoreService
@@ -65,7 +80,6 @@ from autoresearch.shared.models import (
 )
 from autoresearch.shared.store import create_resource_id
 
-
 router = APIRouter(prefix="/api/v1/admin", tags=["admin-config"])
 
 _ADMIN_READ_ROLES = {"viewer", "editor", "admin", "owner"}
@@ -95,7 +109,9 @@ def _require_admin_roles(
 ) -> AdminAccessClaims:
     token = _extract_bearer_token(request)
     if not token:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="missing admin bearer token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="missing admin bearer token"
+        )
     try:
         return auth_service.verify_token(token, required_roles=required_roles)
     except PermissionError as exc:
@@ -106,21 +122,27 @@ def _require_admin_read(
     request: Request,
     auth_service: AdminAuthService = Depends(get_admin_auth_service),
 ) -> AdminAccessClaims:
-    return _require_admin_roles(request, required_roles=_ADMIN_READ_ROLES, auth_service=auth_service)
+    return _require_admin_roles(
+        request, required_roles=_ADMIN_READ_ROLES, auth_service=auth_service
+    )
 
 
 def _require_admin_write(
     request: Request,
     auth_service: AdminAuthService = Depends(get_admin_auth_service),
 ) -> AdminAccessClaims:
-    return _require_admin_roles(request, required_roles=_ADMIN_WRITE_ROLES, auth_service=auth_service)
+    return _require_admin_roles(
+        request, required_roles=_ADMIN_WRITE_ROLES, auth_service=auth_service
+    )
 
 
 def _require_admin_high_risk(
     request: Request,
     auth_service: AdminAuthService = Depends(get_admin_auth_service),
 ) -> AdminAccessClaims:
-    return _require_admin_roles(request, required_roles=_ADMIN_HIGH_ROLES, auth_service=auth_service)
+    return _require_admin_roles(
+        request, required_roles=_ADMIN_HIGH_ROLES, auth_service=auth_service
+    )
 
 
 def _extract_telegram_init_data(request: Request) -> str:
@@ -142,11 +164,15 @@ def _require_managed_skill_install(
 ) -> ManagedSkillInstallRead:
     install = registry.get_install(install_id)
     if install is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="managed skill install not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="managed skill install not found"
+        )
     return install
 
 
-def _group_managed_skill_installs(installs: list[ManagedSkillInstallRead]) -> list[AdminManagedSkillStatusGroupRead]:
+def _group_managed_skill_installs(
+    installs: list[ManagedSkillInstallRead],
+) -> list[AdminManagedSkillStatusGroupRead]:
     grouped: dict[ManagedSkillInstallStatus, list[ManagedSkillInstallRead]] = {
         state: [] for state in _MANAGED_SKILL_GROUP_ORDER
     }
@@ -314,13 +340,21 @@ def _require_valid_managed_skill_action_binding(
     action_hash = str(approval.metadata.get("action_hash", "")).strip().lower()
     action_issued_at = str(approval.metadata.get("action_issued_at", "")).strip()
     if not action_nonce or not action_hash or not action_issued_at:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="approval action binding is missing")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="approval action binding is missing"
+        )
     if approval.metadata.get("action_consumed_at"):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="approval action binding already consumed")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="approval action binding already consumed"
+        )
     if not hmac.compare_digest(payload.action_nonce.strip(), action_nonce):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="action nonce mismatch")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="action nonce mismatch"
+        )
     if not hmac.compare_digest(payload.action_issued_at.strip(), action_issued_at):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="action issued_at mismatch")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="action issued_at mismatch"
+        )
 
     expected_hash = _compute_managed_skill_action_hash(
         approval_id=approval.approval_id,
@@ -332,7 +366,9 @@ def _require_valid_managed_skill_action_binding(
     if not hmac.compare_digest(payload.action_hash.strip().lower(), action_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="action hash mismatch")
     if not hmac.compare_digest(action_hash, expected_hash):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="action hash verification failed")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="action hash verification failed"
+        )
 
 
 @router.get("/health")
@@ -415,7 +451,9 @@ def admin_approve_request(
             ),
         )
     except KeyError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="approval not found") from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="approval not found"
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -442,7 +480,9 @@ def admin_reject_request(
             ),
         )
     except KeyError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="approval not found") from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="approval not found"
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -501,7 +541,9 @@ def admin_request_managed_skill_promotion(
             detail=f"managed skill is not cold_validated: {install_id}",
         )
 
-    telegram_uid = _select_skill_promotion_uid(request_payload, panel_access_service=panel_access_service)
+    telegram_uid = _select_skill_promotion_uid(
+        request_payload, panel_access_service=panel_access_service
+    )
     approval = approval_service.create_request(
         ApprovalRequestCreateRequest(
             title=f"Promote managed skill {install.skill_id}@{install.version}",
@@ -602,11 +644,17 @@ def admin_execute_managed_skill_promotion(
     if approval.telegram_uid != claims.telegram_uid:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="forbidden")
     if approval.status is not ApprovalStatus.APPROVED:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="approval is not approved")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="approval is not approved"
+        )
     if approval.metadata.get("action_type") != "managed_skill_promote":
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="approval action_type mismatch")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="approval action_type mismatch"
+        )
     if str(approval.metadata.get("install_id", "")).strip() != install_id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="approval install_id mismatch")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="approval install_id mismatch"
+        )
     _require_valid_managed_skill_action_binding(
         approval=approval,
         install_id=install_id,
@@ -615,7 +663,9 @@ def admin_execute_managed_skill_promotion(
     )
 
     if install.status is ManagedSkillInstallStatus.PROMOTED:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="managed skill already promoted")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="managed skill already promoted"
+        )
     if install.status is not ManagedSkillInstallStatus.COLD_VALIDATED:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -708,7 +758,9 @@ def update_agent_config(
     try:
         return service.update_agent(agent_id=agent_id, request=payload)
     except KeyError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent config not found") from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Agent config not found"
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -728,7 +780,9 @@ def activate_agent_config(
             reason=payload.reason,
         )
     except KeyError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent config not found") from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Agent config not found"
+        ) from exc
 
 
 @router.post("/agents/{agent_id}/deactivate", response_model=AdminAgentConfigRead)
@@ -746,7 +800,9 @@ def deactivate_agent_config(
             reason=payload.reason,
         )
     except KeyError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent config not found") from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Agent config not found"
+        ) from exc
 
 
 @router.post("/agents/{agent_id}/rollback", response_model=AdminAgentConfigRead)
@@ -759,7 +815,9 @@ def rollback_agent_config(
     try:
         return service.rollback_agent(agent_id=agent_id, request=payload)
     except KeyError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent config not found") from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Agent config not found"
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -793,9 +851,13 @@ def launch_agent_from_config(
     if config is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent config not found")
     if config.status != "active":
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Agent config is inactive")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Agent config is inactive"
+        )
 
-    prompt = payload.prompt_override if payload.prompt_override is not None else config.prompt_template
+    prompt = (
+        payload.prompt_override if payload.prompt_override is not None else config.prompt_template
+    )
     metadata = {
         **config.metadata,
         **payload.metadata_updates,
@@ -834,7 +896,9 @@ def launch_agent_from_config(
     return run
 
 
-@router.post("/channels", response_model=AdminChannelConfigRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/channels", response_model=AdminChannelConfigRead, status_code=status.HTTP_201_CREATED
+)
 def create_channel_config(
     payload: AdminChannelConfigCreateRequest,
     access: AdminAccessClaims = Depends(_require_admin_write),
@@ -845,7 +909,9 @@ def create_channel_config(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except RuntimeError as exc:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
 
 
 @router.get("/channels", response_model=list[AdminChannelConfigRead])
@@ -864,7 +930,9 @@ def get_channel_config(
 ) -> AdminChannelConfigRead:
     item = service.get_channel(channel_id)
     if item is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Channel config not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Channel config not found"
+        )
     return item
 
 
@@ -878,11 +946,15 @@ def update_channel_config(
     try:
         return service.update_channel(channel_id=channel_id, request=payload)
     except KeyError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Channel config not found") from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Channel config not found"
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except RuntimeError as exc:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
 
 
 @router.post("/channels/{channel_id}/activate", response_model=AdminChannelConfigRead)
@@ -900,7 +972,9 @@ def activate_channel_config(
             reason=payload.reason,
         )
     except KeyError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Channel config not found") from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Channel config not found"
+        ) from exc
 
 
 @router.post("/channels/{channel_id}/deactivate", response_model=AdminChannelConfigRead)
@@ -918,7 +992,9 @@ def deactivate_channel_config(
             reason=payload.reason,
         )
     except KeyError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Channel config not found") from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Channel config not found"
+        ) from exc
 
 
 @router.post("/channels/{channel_id}/rollback", response_model=AdminChannelConfigRead)
@@ -931,7 +1007,9 @@ def rollback_channel_config(
     try:
         return service.rollback_channel(channel_id=channel_id, request=payload)
     except KeyError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Channel config not found") from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Channel config not found"
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -944,16 +1022,18 @@ def list_channel_history(
     service: AdminConfigService = Depends(get_admin_config_service),
 ) -> list[AdminConfigRevisionRead]:
     if service.get_channel(channel_id) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Channel config not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Channel config not found"
+        )
     return service.list_revisions(target_type="channel", target_id=channel_id, limit=limit)
 
 
 @router.get("/audit-trail", response_model=AdminAgentAuditTrailSnapshotRead)
 def get_agent_audit_trail(
     limit: int = Query(default=20, ge=1, le=200),
-    status_filter: Literal["all", "success", "failed", "pending", "running", "review"] | None = Query(
-        default=None
-    ),
+    status_filter: (
+        Literal["all", "success", "failed", "pending", "running", "review"] | None
+    ) = Query(default=None),
     agent_role: Literal["all", "manager", "planner", "worker"] | None = Query(default=None),
     access: AdminAccessClaims = Depends(_require_admin_read),
     service=Depends(get_agent_audit_trail_service),
@@ -970,7 +1050,9 @@ def get_agent_audit_trail_detail(
     try:
         return service.detail(entry_id)
     except KeyError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="audit trail entry not found") from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="audit trail entry not found"
+        ) from exc
 
 
 @router.get("/revisions", response_model=list[AdminConfigRevisionRead])

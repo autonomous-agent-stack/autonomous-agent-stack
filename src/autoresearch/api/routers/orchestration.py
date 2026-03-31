@@ -49,7 +49,9 @@ async def execute_prompt_orchestration(
         "goal": payload.goal,
         "graph_id": graph_id,
     }
-    if payload.max_concurrency is not None and _supports_kwarg(create_graph_from_prompt, "max_concurrency"):
+    if payload.max_concurrency is not None and _supports_kwarg(
+        create_graph_from_prompt, "max_concurrency"
+    ):
         create_kwargs["max_concurrency"] = payload.max_concurrency
     try:
         graph = create_graph_from_prompt(payload.prompt, **create_kwargs)
