@@ -15,7 +15,13 @@ from autoresearch.shared.housekeeper_contract import (
     HousekeeperTaskDraftRead,
     HousekeeperTaskStatus,
 )
+from autoresearch.shared.linux_supervisor_bridge import (
+    supervisor_conclusion_to_gate_outcome,
+    supervisor_conclusion_to_run_status,
+    supervisor_summary_to_gate_checks,
+)
 from autoresearch.shared.linux_supervisor_contract import LinuxSupervisorTaskCreateRequest
+from autoresearch.shared.task_gate_contract import make_gate_verdict
 from autoresearch.shared.manager_agent_contract import ManagerDispatchRequest
 from autoresearch.shared.models import (
     ApprovalDecisionRequest,
@@ -60,7 +66,9 @@ class ControlPlaneService:
         self._manager_service = manager_service
         self._linux_supervisor_service = linux_supervisor_service
 
-    def list_tasks(self, *, session_id: str | None = None, limit: int = 100) -> list[ControlPlaneTaskRead]:
+    def list_tasks(
+        self, *, session_id: str | None = None, limit: int = 100
+    ) -> list[ControlPlaneTaskRead]:
         normalized_session_id = (session_id or "").strip() or None
         items = self._repository.list()
         if normalized_session_id is not None:
@@ -145,7 +153,9 @@ class ControlPlaneService:
             return self._repository.save(dry.task_id, dry)
         return self._execute(saved)
 
-    def approve_task(self, task_id: str, request: HousekeeperApprovalRequest) -> ControlPlaneTaskRead:
+    def approve_task(
+        self, task_id: str, request: HousekeeperApprovalRequest
+    ) -> ControlPlaneTaskRead:
         task = self._require_task(task_id)
         if task.approval_id is None:
             raise ValueError("control-plane task does not have a pending approval")
@@ -168,7 +178,9 @@ class ControlPlaneService:
         saved = self._repository.save(queued.task_id, queued)
         return self._execute(saved)
 
-    def reject_task(self, task_id: str, request: HousekeeperApprovalRequest) -> ControlPlaneTaskRead:
+    def reject_task(
+        self, task_id: str, request: HousekeeperApprovalRequest
+    ) -> ControlPlaneTaskRead:
         task = self._require_task(task_id)
         if task.approval_id is None:
             raise ValueError("control-plane task does not have a pending approval")
@@ -193,7 +205,9 @@ class ControlPlaneService:
         return self._repository.save(rejected.task_id, rejected)
 
     def _execute(self, task: ControlPlaneTaskRead) -> ControlPlaneTaskRead:
-        running = task.model_copy(update={"status": HousekeeperTaskStatus.RUNNING, "updated_at": utc_now()})
+        running = task.model_copy(
+            update={"status": HousekeeperTaskStatus.RUNNING, "updated_at": utc_now()}
+        )
         running = self._repository.save(running.task_id, running)
         package = self._package_registry.get_package(running.agent_package_id)
         if package is None:
@@ -253,12 +267,34 @@ class ControlPlaneService:
                     }
                 )
                 return self._repository.save(failed.task_id, failed)
+            # Evaluate gate through unified contracts
+            gate_outcome = supervisor_conclusion_to_gate_outcome(summary.conclusion)
+            gate_checks = supervisor_summary_to_gate_checks(summary)
+            run_status = supervisor_conclusion_to_run_status(summary.conclusion)
+            verdict = make_gate_verdict(
+                gate_outcome,
+                reason=summary.message or f"conclusion={summary.conclusion.value}",
+                checks=gate_checks,
+            )
+            result_payload = summary.model_dump(mode="json")
+            result_payload["gate_evaluation"] = {
+                "gate_outcome": gate_outcome.value,
+                "gate_action": verdict.action.value,
+                "run_status": run_status.value,
+                "gate_checks": [c.model_dump() for c in gate_checks],
+                "gate_verdict_reason": verdict.reason,
+            }
+
             updated = running.model_copy(
                 update={
-                    "status": HousekeeperTaskStatus.COMPLETED if summary.success else HousekeeperTaskStatus.FAILED,
+                    "status": (
+                        HousekeeperTaskStatus.COMPLETED
+                        if summary.success
+                        else HousekeeperTaskStatus.FAILED
+                    ),
                     "backend_ref": linux_task.task_id,
                     "summary": summary.message,
-                    "result_payload": summary.model_dump(mode="json"),
+                    "result_payload": result_payload,
                     "updated_at": utc_now(),
                     "error": None if summary.success else summary.conclusion.value,
                 }
