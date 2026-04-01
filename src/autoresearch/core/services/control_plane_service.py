@@ -301,6 +301,7 @@ class ControlPlaneService:
                 run_rec["started_at"] = run_rec["started_at"].isoformat()
             if run_rec.get("completed_at") is not None:
                 run_rec["completed_at"] = run_rec["completed_at"].isoformat()
+            run_rec["status"] = bridge_run.status.value
             run_rec["run_status"] = bridge_run.status.value
 
             updated = running.model_copy(
