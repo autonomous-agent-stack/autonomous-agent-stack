@@ -67,6 +67,9 @@ JSON
     summary = runner.run_job(JobSpec(run_id="run-failed", agent_id="failed", task="demo"))
 
     assert summary.final_status == "failed"
+    assert summary.run_dir_created is not None
+    assert summary.business_assertion_status == "failed"
+    assert summary.artifacts_produced
     checks = {item.id: item for item in summary.validation.checks}
     assert checks["builtin.driver_success"].passed is False
 
@@ -115,6 +118,110 @@ def test_runner_persists_summary_when_attempt_crashes_unexpectedly(
         if line.strip()
     ]
     assert any(item.get("type") == "runner_exception" for item in events)
+
+
+def test_summary_json_includes_root_cause_fields_and_round_trips_legacy_payload(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    (repo_root / "src").mkdir(parents=True)
+    (repo_root / "src" / "base.py").write_text("x = 1\n", encoding="utf-8")
+
+    adapter = repo_root / "drivers" / "summary_adapter.sh"
+    adapter.parent.mkdir(parents=True, exist_ok=True)
+    adapter.write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+cat > "$AEP_RESULT_PATH" <<'JSON'
+{
+  "protocol_version": "aep/v0",
+  "run_id": "run-summary",
+  "agent_id": "summary",
+  "attempt": 1,
+  "status": "succeeded",
+  "summary": "adapter completed",
+  "changed_paths": ["src/base.py"],
+  "output_artifacts": [],
+  "metrics": {
+    "duration_ms": 25,
+    "steps": 1,
+    "commands": 1,
+    "prompt_tokens": null,
+    "completion_tokens": null,
+    "first_progress_ms": 5
+  },
+  "recommended_action": "promote",
+  "error": null
+}
+JSON
+""",
+        encoding="utf-8",
+    )
+    adapter.chmod(0o755)
+    _write_manifest(repo_root, "summary", "drivers/summary_adapter.sh")
+
+    runner = AgentExecutionRunner(
+        repo_root=repo_root,
+        runtime_root=tmp_path / "runtime",
+        manifests_dir=repo_root / "configs" / "agents",
+    )
+    summary = runner.run_job(
+        JobSpec(
+            run_id="run-summary",
+            agent_id="summary",
+            task="demo",
+            validators=[
+                ValidatorSpec(
+                    id="worker.test_command",
+                    kind="command",
+                    command=f"{sys.executable} -c 'print(\"ok\")'",
+                )
+            ],
+            metadata={"model_provider": "mock-provider"},
+        )
+    )
+    payload = json.loads(
+        (tmp_path / "runtime" / "run-summary" / "summary.json").read_text(encoding="utf-8")
+    )
+
+    assert "failure_layer" in payload
+    assert payload["failure_layer"] in {None, "business_validation"}
+    assert "failure_stage" in payload
+    assert "model_provider" in payload
+    assert payload["fallback_chain"] == ["summary"]
+    assert payload["first_progress_at"] is not None
+    assert payload["last_progress_at"] is not None
+    assert payload["run_dir_created"] is not None
+    assert payload["artifacts_produced"]
+    assert payload["business_assertion_status"] in {"passed", "failed"}
+    assert summary.model_provider == "mock-provider"
+    assert summary.business_assertion_status in {"passed", "failed"}
+
+    from autoresearch.agent_protocol.models import RunSummary
+
+    legacy_payload = {
+        "run_id": "legacy-run",
+        "final_status": "failed",
+        "driver_result": {
+            "protocol_version": "aep/v0",
+            "run_id": "legacy-run",
+            "agent_id": "legacy",
+            "attempt": 1,
+            "status": "failed",
+            "summary": "legacy",
+            "changed_paths": [],
+            "output_artifacts": [],
+            "metrics": {"duration_ms": 1, "steps": 0, "commands": 0},
+            "recommended_action": "fallback",
+            "error": "boom",
+        },
+        "validation": {"run_id": "legacy-run", "passed": False, "checks": []},
+    }
+    restored = RunSummary.model_validate(legacy_payload)
+    assert restored.failure_layer is None
+    assert restored.artifacts_produced == []
 
 
 def test_zero_change_success_is_blocked(tmp_path: Path) -> None:

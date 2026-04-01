@@ -146,6 +146,15 @@ class RunSummary(StrictModel):
     promotion_patch_uri: str | None = None
     promotion_preflight: PromotionPreflight | None = None
     promotion: PromotionResult | None = None
+    failure_layer: Literal["infra", "orchestration", "model", "business_validation"] | None = None
+    failure_stage: str | None = None
+    model_provider: str | None = None
+    fallback_chain: list[str] = Field(default_factory=list)
+    first_progress_at: str | None = None
+    last_progress_at: str | None = None
+    run_dir_created: str | None = None
+    artifacts_produced: list[str] = Field(default_factory=list)
+    business_assertion_status: str | None = None
 
 
 class AgentManifest(StrictModel):

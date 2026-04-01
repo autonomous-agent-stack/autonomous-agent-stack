@@ -118,6 +118,7 @@ class AgentExecutionRunner:
         summary_path = run_dir / "summary.json"
         events_path = run_dir / "events.ndjson"
         patch_path = artifacts_dir / "promotion.patch"
+        run_dir_created = time.time()
 
         if run_dir.exists():
             self._rmtree_force(run_dir)
@@ -347,6 +348,22 @@ class AgentExecutionRunner:
                         promotion_patch_uri=str(patch_path),
                         promotion_preflight=promotion_preflight,
                         promotion=promotion,
+                        failure_layer=self._infer_failure_layer(final_status, driver_result, validation),
+                        failure_stage=self._infer_failure_stage(driver_result, validation),
+                        model_provider=self._infer_model_provider(job),
+                        fallback_chain=self._build_fallback_chain(job),
+                        first_progress_at=self._format_progress_at(run_dir_created, driver_result.metrics.first_progress_ms),
+                        last_progress_at=self._format_progress_at(run_dir_created, driver_result.metrics.duration_ms),
+                        run_dir_created=self._format_timestamp(run_dir_created),
+                        artifacts_produced=self._build_artifacts_produced(
+                            summary_path=summary_path,
+                            job_path=job_path,
+                            policy_path=policy_path,
+                            result_path=result_path,
+                            events_path=events_path,
+                            patch_path=patch_path,
+                        ),
+                        business_assertion_status=self._build_business_assertion_status(validation),
                     )
                     cleanup_success = True
                     break
@@ -364,6 +381,26 @@ class AgentExecutionRunner:
                     promotion_patch_uri=str(patch_path) if patch_path.exists() else None,
                     promotion_preflight=None,
                     promotion=None,
+                    failure_layer=self._infer_failure_layer(final_status, last_result, last_validation),
+                    failure_stage=self._infer_failure_stage(last_result, last_validation),
+                    model_provider=self._infer_model_provider(job),
+                    fallback_chain=self._build_fallback_chain(job),
+                    first_progress_at=self._format_progress_at(
+                        run_dir_created, last_result.metrics.first_progress_ms
+                    ),
+                    last_progress_at=self._format_progress_at(
+                        run_dir_created, last_result.metrics.duration_ms
+                    ),
+                    run_dir_created=self._format_timestamp(run_dir_created),
+                    artifacts_produced=self._build_artifacts_produced(
+                        summary_path=summary_path,
+                        job_path=job_path,
+                        policy_path=policy_path,
+                        result_path=result_path,
+                        events_path=events_path,
+                        patch_path=patch_path if patch_path.exists() else None,
+                    ),
+                    business_assertion_status=self._build_business_assertion_status(last_validation),
                 )
         except Exception as exc:
             error_message = f"runner crashed: {exc.__class__.__name__}: {exc}"
@@ -390,6 +427,26 @@ class AgentExecutionRunner:
                 promotion_patch_uri=str(patch_path) if patch_path.exists() else None,
                 promotion_preflight=None,
                 promotion=None,
+                failure_layer=self._infer_failure_layer("failed", last_result, last_validation),
+                failure_stage=self._infer_failure_stage(last_result, last_validation),
+                model_provider=self._infer_model_provider(job),
+                fallback_chain=self._build_fallback_chain(job),
+                first_progress_at=self._format_progress_at(
+                    run_dir_created, last_result.metrics.first_progress_ms
+                ),
+                last_progress_at=self._format_progress_at(
+                    run_dir_created, last_result.metrics.duration_ms
+                ),
+                run_dir_created=self._format_timestamp(run_dir_created),
+                artifacts_produced=self._build_artifacts_produced(
+                    summary_path=summary_path,
+                    job_path=job_path,
+                    policy_path=policy_path,
+                    result_path=result_path,
+                    events_path=events_path,
+                    patch_path=patch_path if patch_path.exists() else None,
+                ),
+                business_assertion_status=self._build_business_assertion_status(last_validation),
             )
         finally:
             if final_summary is None:
@@ -401,6 +458,30 @@ class AgentExecutionRunner:
                     promotion_patch_uri=str(patch_path) if patch_path.exists() else None,
                     promotion_preflight=None,
                     promotion=None,
+                    failure_layer=self._infer_failure_layer(
+                        forced_final_status or derive_terminal_status(last_result, last_validation),
+                        last_result,
+                        last_validation,
+                    ),
+                    failure_stage=self._infer_failure_stage(last_result, last_validation),
+                    model_provider=self._infer_model_provider(job),
+                    fallback_chain=self._build_fallback_chain(job),
+                    first_progress_at=self._format_progress_at(
+                        run_dir_created, last_result.metrics.first_progress_ms
+                    ),
+                    last_progress_at=self._format_progress_at(
+                        run_dir_created, last_result.metrics.duration_ms
+                    ),
+                    run_dir_created=self._format_timestamp(run_dir_created),
+                    artifacts_produced=self._build_artifacts_produced(
+                        summary_path=summary_path,
+                        job_path=job_path,
+                        policy_path=policy_path,
+                        result_path=result_path,
+                        events_path=events_path,
+                        patch_path=patch_path if patch_path.exists() else None,
+                    ),
+                    business_assertion_status=self._build_business_assertion_status(last_validation),
                 )
             self._write_summary(summary_path=summary_path, summary=final_summary)
             self._cleanup_workspace(
@@ -418,6 +499,78 @@ class AgentExecutionRunner:
             json.dumps(summary.model_dump(mode="json"), ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+
+    @staticmethod
+    def _format_timestamp(epoch_seconds: float) -> str:
+        return time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime(epoch_seconds))
+
+    def _format_progress_at(self, run_dir_created: float, progress_ms: int | None) -> str | None:
+        if progress_ms is None:
+            return None
+        return self._format_timestamp(run_dir_created + (progress_ms / 1000.0))
+
+    @staticmethod
+    def _infer_model_provider(job: JobSpec) -> str | None:
+        provider = str(job.metadata.get("model_provider") or "").strip()
+        return provider or None
+
+    @staticmethod
+    def _build_fallback_chain(job: JobSpec) -> list[str]:
+        chain = [job.agent_id]
+        chain.extend(step.agent_id for step in job.fallback if step.agent_id)
+        return chain
+
+    @staticmethod
+    def _build_business_assertion_status(validation: ValidationReport) -> str:
+        return "passed" if validation.passed else "failed"
+
+    @staticmethod
+    def _infer_failure_stage(driver_result: DriverResult, validation: ValidationReport) -> str | None:
+        if not validation.passed:
+            for check in validation.checks:
+                if not check.passed:
+                    return check.id
+            return "validation"
+        if driver_result.status == "contract_error":
+            return "adapter"
+        if driver_result.status in {"timed_out", "stalled_no_progress"}:
+            return driver_result.status
+        if driver_result.status == "policy_blocked":
+            return "policy"
+        if driver_result.status == "failed":
+            return "driver"
+        return None
+
+    @staticmethod
+    def _infer_failure_layer(
+        final_status: str,
+        driver_result: DriverResult,
+        validation: ValidationReport,
+    ) -> str | None:
+        if validation.checks and not validation.passed:
+            return "business_validation"
+        if final_status in {"blocked", "human_review"}:
+            return "orchestration"
+        if driver_result.status in {"contract_error", "timed_out", "stalled_no_progress"}:
+            return "infra"
+        if driver_result.status == "failed":
+            return "model"
+        return None
+
+    @staticmethod
+    def _build_artifacts_produced(
+        *,
+        summary_path: Path,
+        job_path: Path,
+        policy_path: Path,
+        result_path: Path,
+        events_path: Path,
+        patch_path: Path | None,
+    ) -> list[str]:
+        produced = [str(path) for path in (summary_path, job_path, policy_path, result_path, events_path) if path.exists()]
+        if patch_path is not None and patch_path.exists():
+            produced.append(str(patch_path))
+        return produced
 
     @staticmethod
     def _has_policy_violation(validation: ValidationReport) -> bool:
