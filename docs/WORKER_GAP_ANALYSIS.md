@@ -344,9 +344,11 @@ CI 路径已包含在 `.github/workflows/ci.yml` 的 `CORE_LINT_PATHS` 和 `CORE
 2. ~~将 RunRecord 接入 ControlPlaneService._execute()~~ ✅ 已完成 (commit 89639d9, c11c78f)
    → 真实执行后产生 result_payload["run_record"]，包含 unified RunStatus/RunRecord 兼容数据
 
-3. 将 WorkerHeartbeat 接入 WorkerRegistryService
-   → 统一 heartbeat 格式，替换硬编码阈值
-   → bridge 函数 supervisor_heartbeat_to_worker_heartbeat() 已存在但未被生产路径调用
+3. ~~将 WorkerHeartbeat 接入 WorkerRegistryService~~ ✅ 已完成
+   → `WorkerRegistryService.get_worker_heartbeat("linux_housekeeper")` 现在读取真实
+     `supervisor_status.json` / `supervisor_heartbeat.json` 并调用
+     `supervisor_heartbeat_to_worker_heartbeat()`
+   → 现有 worker 选择 / 调度逻辑保持不变，未扩到 WorkerRegistration
 
 4. 将 is_valid_transition() 接入 task status 变更点
    → 让非法转换在生产中抛异常而非静默通过
@@ -364,7 +366,7 @@ CI 路径已包含在 `.github/workflows/ci.yml` 的 `CORE_LINT_PATHS` 和 `CORE
 | GateVerdict | `make_gate_verdict()` | ✅ 同上 | ✅ 同上 | ❌ 仅存储 (无 retry/fallback 消费) |
 | RunStatus | `supervisor_conclusion_to_run_status()` | ✅ 同上 | ✅ `gate_evaluation.run_status` + `run_record.run_status` | ❌ 仅存储 |
 | RunRecord | `supervisor_summary_to_run_record()` | ✅ 同上 | ✅ `result_payload["run_record"]` | ❌ 仅存储 |
-| WorkerHeartbeat | `supervisor_heartbeat_to_worker_heartbeat()` | ❌ 未接线 | ❌ 无独立持久化 | ❌ |
+| WorkerHeartbeat | `supervisor_heartbeat_to_worker_heartbeat()` | ✅ `WorkerRegistryService.get_worker_heartbeat()` | ❌ 无独立持久化 | ❌ 仅服务层可读 |
 | WorkerRegistration | `supervisor_heartbeat_to_worker_registration()` | ❌ 未接线 | ❌ 无独立持久化 | ❌ |
 
 **关键限制**：
@@ -372,4 +374,5 @@ CI 路径已包含在 `.github/workflows/ci.yml` 的 `CORE_LINT_PATHS` 和 `CORE
 - `run_record.completed_at` = `summary.finished_at`
 - `queued_at` / `leased_at` 不存在 — LinuxSupervisor 无 lease 概念
 - `gate_evaluation` 中的 verdict 不驱动 retry/fallback — 仅记录决策建议
-- Heartbeat 和 Registration 的 bridge 函数已实现并有测试，但未被任何生产代码调用
+- `WorkerHeartbeat` bridge 已接到 `WorkerRegistryService.get_worker_heartbeat()`，但尚未独立持久化或被 downstream API 消费
+- `WorkerRegistration` bridge 仍未接线

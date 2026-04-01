@@ -9,12 +9,16 @@ from autoresearch.shared.housekeeper_contract import (
     WorkerAvailabilityStatus,
     WorkerRegistrationRead,
 )
+from autoresearch.shared.linux_supervisor_bridge import (
+    supervisor_heartbeat_to_worker_heartbeat,
+)
 from autoresearch.shared.linux_supervisor_contract import (
     LinuxSupervisorProcessHeartbeatRead,
     LinuxSupervisorProcessStatusRead,
 )
 from autoresearch.shared.models import utc_now
 from autoresearch.shared.worker_contract import (
+    WorkerHeartbeat,
     WorkerStatus,
     worker_status_rank,
 )
@@ -45,6 +49,20 @@ class WorkerRegistryService:
             if worker.worker_id == normalized:
                 return worker
         return None
+
+    def get_worker_heartbeat(self, worker_id: str) -> WorkerHeartbeat | None:
+        normalized = worker_id.strip()
+        if normalized != "linux_housekeeper":
+            return None
+        process_status, heartbeat = self._read_linux_supervisor_state()
+        if process_status is None or heartbeat is None:
+            return None
+        return supervisor_heartbeat_to_worker_heartbeat(
+            heartbeat,
+            process_status,
+            worker_id="linux_housekeeper",
+            now=utc_now(),
+        )
 
     def find_worker_for_backend(
         self, backend_kind: HousekeeperBackendKind
@@ -137,6 +155,15 @@ class WorkerRegistryService:
             last_heartbeat=last_heartbeat,
             metadata=metadata,
         )
+
+    def _read_linux_supervisor_state(
+        self,
+    ) -> tuple[LinuxSupervisorProcessStatusRead | None, LinuxSupervisorProcessHeartbeatRead | None]:
+        status_path = self._linux_runtime_root / "state" / "supervisor_status.json"
+        heartbeat_path = self._linux_runtime_root / "state" / "supervisor_heartbeat.json"
+        process_status = self._read_model(status_path, LinuxSupervisorProcessStatusRead)
+        heartbeat = self._read_model(heartbeat_path, LinuxSupervisorProcessHeartbeatRead)
+        return process_status, heartbeat
 
     def _openclaw_runtime_worker(self) -> WorkerRegistrationRead:
         now = utc_now()
