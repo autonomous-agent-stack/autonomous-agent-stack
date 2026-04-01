@@ -32,7 +32,7 @@ PROMOTE_OPEN_DRAFT_PR ?= 0
 
 .PHONY: help setup doctor doctor-linux start test-quick clean
 .PHONY: ai-lab ai-lab-setup ai-lab-check ai-lab-up ai-lab-down ai-lab-status ai-lab-shell ai-lab-run masfactory-flight hygiene-check openhands openhands-dry-run openhands-controlled openhands-controlled-dry-run openhands-demo agent-run promote-run
-.PHONY: review-gates-local
+.PHONY: review-gates-local linux-housekeeper-start linux-housekeeper-stop linux-housekeeper-status linux-housekeeper-run-once linux-housekeeper-repair linux-housekeeper-enqueue-test
 
 help:
 	@echo "Autonomous Agent Stack - common commands"
@@ -56,6 +56,12 @@ help:
 	@echo "  make openhands-demo OH_BACKEND=mock Run minimal closed-loop demo (contract + failure policy)"
 	@echo "  make agent-run AEP_AGENT=openhands AEP_TASK='...' Run AEP v0 runner entrypoint"
 	@echo "  make promote-run PROMOTE_RUN_ID='...' Turn a ready AEP run into branch/commit/draft PR payload"
+	@echo "  make linux-housekeeper-start Start resident Linux execution supervisor"
+	@echo "  make linux-housekeeper-stop Stop resident Linux execution supervisor"
+	@echo "  make linux-housekeeper-status Show resident Linux execution supervisor state"
+	@echo "  make linux-housekeeper-run-once Process one queued Linux supervisor task"
+	@echo "  make linux-housekeeper-repair Mark orphaned running Linux tasks as infra_error"
+	@echo "  make linux-housekeeper-enqueue-test Enqueue one Linux supervisor smoke task"
 	@echo "  make hygiene-check FAIL_ON_FINDINGS=1 Run prompt hygiene audit for src/"
 	@echo "  make review-gates-local Run mypy/bandit/semgrep on reviewer core modules"
 	@echo "  make test-quick  Run quick smoke tests"
@@ -212,6 +218,24 @@ promote-run:
 		echo "Usage: make promote-run PROMOTE_RUN_ID='<run-id>'"; \
 		exit 1; \
 	fi
+
+linux-housekeeper-start:
+	bash ./scripts/linux_housekeeper.sh start
+
+linux-housekeeper-stop:
+	bash ./scripts/linux_housekeeper.sh stop
+
+linux-housekeeper-status:
+	bash ./scripts/linux_housekeeper.sh status
+
+linux-housekeeper-run-once:
+	bash ./scripts/linux_housekeeper.sh run-once
+
+linux-housekeeper-repair:
+	bash ./scripts/linux_housekeeper.sh repair
+
+linux-housekeeper-enqueue-test:
+	bash ./scripts/linux_housekeeper.sh enqueue-test
 	@CMD_ARGS="--run-id \"$(PROMOTE_RUN_ID)\" --base-ref \"$(PROMOTE_BASE_REF)\" --branch-prefix \"$(PROMOTE_BRANCH_PREFIX)\""; \
 	if [[ "$(PROMOTE_PUSH)" == "1" ]]; then CMD_ARGS="$$CMD_ARGS --push"; fi; \
 	if [[ "$(PROMOTE_OPEN_DRAFT_PR)" == "1" ]]; then CMD_ARGS="$$CMD_ARGS --open-draft-pr"; fi; \

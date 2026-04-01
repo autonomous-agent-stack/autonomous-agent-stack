@@ -101,6 +101,10 @@ make openhands-controlled-dry-run
 make openhands-controlled OH_TASK="Create src/demo_math.py with add(a,b), then run validation."
 make openhands-demo OH_BACKEND=mock OH_TASK="Create src/demo_math.py with add(a,b)."
 make agent-run AEP_AGENT=openhands AEP_TASK="Create src/demo_math.py with add(a,b)."
+make linux-housekeeper-start
+make linux-housekeeper-status
+make linux-housekeeper-enqueue-test
+make linux-housekeeper-run-once
 make hygiene-check
 make review-gates-local
 ```
@@ -124,6 +128,8 @@ openhands --exp --headless -t "你的任务"
 `make openhands-controlled` 会走最窄闭环：创建隔离 workspace、执行 OpenHands 子任务、运行校验、输出 promotion patch 与审计摘要（不直接污染主仓库）。
 
 `make agent-run` 走 AEP v0 统一执行内核：`JobSpec -> driver adapter -> patch gate -> decision`，OpenHands/Codex/本地脚本都可作为 driver 接入。
+
+`make linux-housekeeper-start` / `make linux-housekeeper-status` / `make linux-housekeeper-enqueue-test` 提供 Linux 常驻 supervisor MVP 的最小入口：文件任务协议、heartbeat、timeout/watchdog、run summary。详细见 [Linux Remote Worker Guide](./docs/linux-remote-worker.md)。
 
 `make review-gates-local` 会在本地运行 reviewer 核心模块的 `mypy + bandit + semgrep`，与 CI 的 `Quality Gates` 流程保持一致。
 

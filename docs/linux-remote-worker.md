@@ -52,6 +52,14 @@ make setup
 OPENHANDS_RUNTIME=host make doctor-linux
 ```
 
+如果你想保留一份本地 Linux 节点配置，可以直接参考仓库里的示例文件：
+
+```bash
+cp .env.linux.example .env.linux
+```
+
+`.env.linux` 只留在本地，不进版本库；提交时保留 `.env.linux.example` 这种去敏模板。
+
 `make doctor-linux` 会额外检查几件对 Linux 节点最关键的事：
 
 - 当前是否真在 Linux 上
@@ -106,6 +114,15 @@ OPENHANDS_RUNTIME=host make agent-run \
   AEP_TASK="Create apps/demo/lead_capture.py with tests."
 ```
 
+Linux supervisor MVP：
+
+```bash
+make linux-housekeeper-start
+make linux-housekeeper-status
+make linux-housekeeper-enqueue-test
+make linux-housekeeper-run-once
+```
+
 promotion：
 
 ```bash
@@ -143,6 +160,44 @@ cd /path/to/autonomous-agent-stack
 source .venv/bin/activate
 OPENHANDS_RUNTIME=host make start
 ```
+
+### 模式 2.5: Linux 常驻 supervisor
+
+如果你已经不满足“SSH 上去手工跑一次”，而是想把 Linux 变成最小可运行的常驻执行面，先用 supervisor MVP。
+
+它的职责很克制：
+
+- 轮询任务目录
+- 接到任务后触发一次受控执行
+- 定时写 `heartbeat.json`
+- 不论成功、超时还是卡死，都写 `summary.json`
+
+当前任务目录协议固定在：
+
+- `.masfactory_runtime/linux-housekeeper/queue/<task_id>/task.json`
+- `.masfactory_runtime/linux-housekeeper/queue/<task_id>/status.json`
+- `.masfactory_runtime/linux-housekeeper/queue/<task_id>/heartbeat.json`
+- `.masfactory_runtime/linux-housekeeper/queue/<task_id>/summary.json`
+- `.masfactory_runtime/linux-housekeeper/queue/<task_id>/artifacts/`
+
+常用命令：
+
+```bash
+make linux-housekeeper-start
+make linux-housekeeper-status
+make linux-housekeeper-enqueue-test
+bash scripts/dispatch_to_linux.sh "Create apps/demo/lead_capture.py with tests."
+```
+
+第一版刻意不做这些：
+
+- day/night 自动切档
+- 自动开 PR
+- Telegram 自动接管
+- video-agent
+- 高并发 worker
+
+先证明 Linux 常驻执行面能稳定接任务、执行、落心跳和 summary，再往上叠功能。
 
 ### 模式 3: Linux 作为 promotion / CI 预演机
 
