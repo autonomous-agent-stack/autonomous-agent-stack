@@ -368,7 +368,7 @@ CI 路径已包含在 `.github/workflows/ci.yml` 的 `CORE_LINT_PATHS` 和 `CORE
 | RunStatus | `supervisor_conclusion_to_run_status()` | ✅ 同上 | ✅ `gate_evaluation.run_status` + `run_record.run_status` | ❌ 仅存储 |
 | RunRecord | `supervisor_summary_to_run_record()` | ✅ 同上 | ✅ `result_payload["run_record"]` | ❌ 仅存储 |
 | WorkerHeartbeat | `supervisor_heartbeat_to_worker_heartbeat()` | ✅ `get_worker_heartbeat()` + `_linux_housekeeper_worker()` (86de697 + 6307136) | ❌ 无独立持久化 | ❌ 仅服务层可读 |
-| WorkerRegistration | `supervisor_heartbeat_to_worker_registration()` | ❌ 未接线 | ❌ 无独立持久化 | ❌ |
+| WorkerRegistration | `supervisor_heartbeat_to_worker_registration()` | ✅ `get_worker_registration()` + `_linux_housekeeper_worker()` (`fd9e720`) | ❌ 无独立持久化 | ❌ |
 
 **关键限制**：
 - `run_record.started_at` = `summary.started_at`（子进程启动时间，非排队时间）
@@ -376,7 +376,7 @@ CI 路径已包含在 `.github/workflows/ci.yml` 的 `CORE_LINT_PATHS` 和 `CORE
 - `queued_at` / `leased_at` 不存在 — LinuxSupervisor 无 lease 概念
 - `gate_evaluation` 中的 verdict 不驱动 retry/fallback — 仅记录决策建议
 - `WorkerHeartbeat` bridge 已接到 `get_worker_heartbeat()`（有 5 个集成测试），但 `list_workers()` 路径仍用 inline 阈值逻辑 + 错误文件名，两者状态可能不一致
-- `WorkerRegistration` bridge 仍未接线
+- `WorkerRegistration` bridge 已接线，但 `/workers` API 仍返回 legacy `WorkerRegistrationRead`
 
 ---
 
@@ -479,11 +479,19 @@ CI 路径已包含在 `.github/workflows/ci.yml` 的 `CORE_LINT_PATHS` 和 `CORE
 
 ---
 
-## 7. WorkerRegistration 接线差距审计 (2026-04-01)
+## 7. WorkerRegistration 接线状态审计 (2026-04-01)
 
 ### 7.1 当前状态
 
-`supervisor_heartbeat_to_worker_registration()` bridge 函数存在于 `linux_supervisor_bridge.py`（line 269），但**从未被任何生产代码调用**。所有生产路径（`list_workers()`、`get_worker()`）通过 `_linux_housekeeper_worker()` 返回 legacy `WorkerRegistrationRead`（8 字段）。
+`supervisor_heartbeat_to_worker_registration()` 现在已被生产代码调用：
+
+- `WorkerRegistryService.get_worker_registration("linux_housekeeper")` 读取真实
+  `supervisor_status.json` / `supervisor_heartbeat.json`，返回 unified
+  `WorkerRegistration`
+- `_linux_housekeeper_worker()` 复用 unified registration 结果，并向下兼容映射为
+  legacy `WorkerRegistrationRead`
+
+因此当前生产路径已经完成最小接线，但仍保留 legacy API 返回面。
 
 ### 7.2 类型对比
 
@@ -506,34 +514,35 @@ CI 路径已包含在 `.github/workflows/ci.yml` 的 `CORE_LINT_PATHS` 和 `CORE
 | `max_concurrent_tasks` | **无此字段** | `int` | ❌ legacy 不支持 |
 | `errors` | **无此字段** (埋在 metadata 中) | `list[str]` | ❌ legacy 不支持 |
 
-### 7.3 Bridge 函数差距
+### 7.3 仍保留的限制
 
-`supervisor_heartbeat_to_worker_registration()` 存在以下问题：
+当前 registration 路径仍有以下限制：
 
 | 问题 | 级别 | 说明 |
 |------|------|------|
-| `metadata = {}` | **High** | 丢弃了 legacy 的所有丰富元数据（queue_depth / process_status / message / current_task_id / last_task_id / heartbeat_age_seconds） |
-| `errors = []` | **High** | 始终为空，未从 process_status.message 或 stopped 状态推导 errors |
-| `process_status` 参数未使用 | Medium | 函数签名接收 `process_status` 但内部从未读取任何字段 |
+| API 仍返回 legacy 类型 | Medium | `/workers` / `get_worker()` 仍是 `WorkerRegistrationRead`，不是 unified `WorkerRegistration` |
+| `registered_at = utc_now()` | Low | 非持久化，每次调用重新生成 |
 | `metrics` 全部为 0 | Low | supervisor 不采集 CPU/内存 |
 | `timeout_defaults` 用默认值 | Low | 不从 supervisor 配置读取 |
-| `registered_at = utc_now()` | Low | 非持久化，每次调用重新生成 |
 
-**关键发现**: bridge 函数比 legacy 代码**丢失了信息**。当前 `_linux_housekeeper_worker()` 通过 unified heartbeat 的 metadata 和 process_status 构建了 7 个 metadata key。bridge 函数全部丢弃。
+当前生产适配层会在 bridge 结果之上补充 legacy 兼容 metadata 和 stopped 错误信息，
+因此不会再丢失 queue / pid / task / message 这些字段。
 
-### 7.4 最小接线点
+### 7.4 已采用的最小接线点
 
-**推荐方案**: 新增 `WorkerRegistryService.get_worker_registration()` 方法（类似已有的 `get_worker_heartbeat()`），调用 bridge 函数并补充 metadata。
+**实际方案**: 新增 `WorkerRegistryService.get_worker_registration()` 方法（类似已有的
+`get_worker_heartbeat()`），调用 bridge 函数并补充 metadata；然后让
+`_linux_housekeeper_worker()` 复用 unified registration 结果。
 
 **改动范围**:
-- `worker_registry.py`: 新增 `get_worker_registration()` 方法（~15 行）
-- `linux_supervisor_bridge.py`: 修复 `supervisor_heartbeat_to_worker_registration()` 以填充 metadata 和 errors（~15 行改动）
-- 新增集成测试文件 `tests/test_worker_registration_integration.py`
+- `worker_registry.py`: 新增 `get_worker_registration()`，并让 `_linux_housekeeper_worker()` 复用它
+- 新增集成测试文件 `tests/test_worker_registry_registration_integration.py`
+- `.github/workflows/ci.yml`: 将新 integration test 纳入 lint/test
 
 **不动**:
-- `_linux_housekeeper_worker()` — 保持返回 `WorkerRegistrationRead`，不破坏 `list_workers()` 接口
 - `list_workers()` — 不改变返回类型
 - `worker_contract.py`、`housekeeper_contract.py` — 不改变模型定义
+- `linux_supervisor_bridge.py` — 保持 bridge 纯函数，不在本轮扩写第二套逻辑
 
 ### 7.5 字段映射方案
 
@@ -558,20 +567,19 @@ CI 路径已包含在 `.github/workflows/ci.yml` 的 `CORE_LINT_PATHS` 和 `CORE
 
 | 风险 | 级别 | 说明 |
 |------|------|------|
-| Bridge 丢失 metadata | **High** | 如果直接使用当前 bridge 函数，`list_workers()` 的丰富元数据将丢失 |
 | 两套类型并存 | Medium | `WorkerRegistrationRead`（legacy）和 `WorkerRegistration`（unified）字段不一致，下游消费者需适配 |
 | `registered_at` 非持久 | Low | 每次调用 `utc_now()`，不代表真实注册时间 |
 | `allowed_actions` 硬编码 | Low | 不可配置，不适配多 supervisor 场景 |
 
-### 7.7 建议的集成测试（供 Codex 实现）
+### 7.7 已实现的集成测试
 
 | # | 测试名 | 验证内容 | 优先级 |
 |---|--------|---------|--------|
-| R1 | `test_idle_fresh_returns_online_registration` | idle + fresh → `WorkerRegistration.status == ONLINE`, `worker_type == LINUX` | P0 |
-| R2 | `test_running_fresh_returns_busy_registration` | running + fresh → `status == BUSY`, `max_concurrent_tasks == 1` | P0 |
-| R3 | `test_stopped_returns_offline_registration` | stopped → `status == OFFLINE`, `errors` 非空 | P0 |
-| R4 | `test_registration_required_fields_present` | 验证 worker_id / name / worker_type / capabilities / allowed_actions / backend_kind / registered_at 全部非空 | P0 |
-| R5 | `test_registration_metadata_preserves_process_info` | `metadata` 包含 queue_depth / process_status / message / current_task_id（不丢失 legacy 信息） | P1 |
+| R1 | `test_fresh_idle_registration_reflects_real_status` | idle + fresh → `WorkerRegistration.status == ONLINE`, `worker_type == LINUX` | P0 |
+| R2 | `test_running_registration_reflects_real_status_and_queue_pid_metadata` | running + fresh → `status == BUSY`, metadata 保留 queue / pid / task | P0 |
+| R3 | `test_stopped_registration_reflects_real_status` | stopped → `status == OFFLINE` | P0 |
+| R4 | `test_registration_shape_includes_unified_compat_fields` | 验证 capabilities / allowed_actions / backend_kind / registered_at / max_concurrent_tasks | P0 |
+| R5 | `test_registration_status_matches_heartbeat_and_list_workers` | registration / heartbeat / list_workers 核心状态一致 | P0 |
 
 ### 7.8 超出范围
 
