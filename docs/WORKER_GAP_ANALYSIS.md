@@ -362,11 +362,11 @@ CI 路径已包含在 `.github/workflows/ci.yml` 的 `CORE_LINT_PATHS` 和 `CORE
 
 | 统一合约功能 | Bridge 函数 | 生产路径接线 | 持久化 | 被 downstream 消费 |
 |-------------|-------------|-------------|--------|-------------------|
-| GateOutcome | `supervisor_conclusion_to_gate_outcome()` | ✅ `_execute()` LINUX_SUPERVISOR | ✅ `result_payload["gate_evaluation"]` | ❌ 仅存储 |
-| GateCheck[] | `supervisor_summary_to_gate_checks()` | ✅ 同上 | ✅ 同上 | ❌ 仅存储 |
-| GateVerdict | `make_gate_verdict()` | ✅ 同上 | ✅ 同上 | ❌ 仅存储 (无 retry/fallback 消费) |
-| RunStatus | `supervisor_conclusion_to_run_status()` | ✅ 同上 | ✅ `gate_evaluation.run_status` + `run_record.run_status` | ❌ 仅存储 |
-| RunRecord | `supervisor_summary_to_run_record()` | ✅ 同上 | ✅ `result_payload["run_record"]` | ❌ 仅存储 |
+| GateOutcome | `supervisor_conclusion_to_gate_outcome()` | ✅ `_execute()` LINUX_SUPERVISOR | ✅ `result_payload["gate_evaluation"]` | ✅ task read APIs 通过 metadata 消费 |
+| GateCheck[] | `supervisor_summary_to_gate_checks()` | ✅ 同上 | ✅ 同上 | ❌ 仍仅存储 |
+| GateVerdict | `make_gate_verdict()` | ✅ 同上 | ✅ 同上 | ❌ 仍不驱动 retry/fallback |
+| RunStatus | `supervisor_conclusion_to_run_status()` | ✅ 同上 | ✅ `gate_evaluation.run_status` + `run_record.run_status` | ✅ task read APIs 通过 metadata 消费 |
+| RunRecord | `supervisor_summary_to_run_record()` | ✅ 同上 | ✅ `result_payload["run_record"]` | ✅ downstream task APIs 保留并透传 |
 | WorkerHeartbeat | `supervisor_heartbeat_to_worker_heartbeat()` | ✅ `get_worker_heartbeat()` + `_linux_housekeeper_worker()` (86de697 + 6307136) | ❌ 无独立持久化 | ❌ 仅服务层可读 |
 | WorkerRegistration | `supervisor_heartbeat_to_worker_registration()` | ✅ `get_worker_registration()` + `_linux_housekeeper_worker()` (`fd9e720`) | ❌ 无独立持久化 | ❌ |
 

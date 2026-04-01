@@ -298,3 +298,53 @@ This round adds API-level integration coverage and CI coverage for that compatib
 - legacy top-level fields remain unchanged
 - metadata keeps `queue_depth` / `pid` / `current_task_id` / `message`
 - API payload still remains `WorkerRegistrationRead`, not unified `WorkerRegistration`
+
+---
+
+## Changelog: Downstream Task API Consumption
+
+### What changed
+
+Existing downstream task APIs now consume the already-persisted unified Linux
+execution data without changing their external response models:
+
+1. `ControlPlaneTaskRead.metadata` now includes `run_status`, `gate_outcome`,
+   and `gate_action`, derived from persisted `result_payload["run_record"]` and
+   `result_payload["gate_evaluation"]`
+2. `HousekeeperTaskRead.metadata` mirrors the same derived fields from the
+   control-plane task while preserving existing legacy fields like `dry_run`
+3. `result_payload` remains unchanged and still carries the full persisted
+   `gate_evaluation` + `run_record` payloads
+
+### Before
+
+```text
+/api/v1/control-plane/tasks/{id}
+  → could read result_payload
+  → did not surface run_status / gate_outcome / gate_action in a compatibility field
+
+/api/v1/openclaw/housekeeper/tasks/{id}
+  → mirrored result_payload
+  → metadata only carried frontdesk-local fields like dry_run
+```
+
+### After
+
+```text
+/api/v1/control-plane/tasks/{id}
+  → metadata.run_status
+  → metadata.gate_outcome
+  → metadata.gate_action
+  → result_payload unchanged
+
+/api/v1/openclaw/housekeeper/tasks/{id}
+  → same metadata projection
+  → legacy top-level fields unchanged
+  → result_payload unchanged
+```
+
+### Tests
+
+- `test_control_plane_task_detail_consumes_run_and_gate_metadata`
+- `test_housekeeper_task_detail_consumes_run_and_gate_metadata_without_breaking_legacy_fields`
+- `test_housekeeper_task_detail_preserves_result_payload_and_summary_fields`

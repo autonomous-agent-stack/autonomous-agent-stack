@@ -59,7 +59,9 @@ class PersonalHousekeeperService:
         self._package_registry = package_registry
         self._control_plane_service = control_plane_service
 
-    def list_tasks(self, *, session_id: str | None = None, limit: int = 100) -> list[HousekeeperTaskRead]:
+    def list_tasks(
+        self, *, session_id: str | None = None, limit: int = 100
+    ) -> list[HousekeeperTaskRead]:
         normalized_session_id = (session_id or "").strip() or None
         tasks = self._repository.list()
         if normalized_session_id is not None:
@@ -121,7 +123,9 @@ class PersonalHousekeeperService:
             clarification_questions=list(decision.clarification_questions or []),
             approval_status=None,
             approval_id=None,
-            agent_package_id=decision.candidate_package_ids[0] if decision.candidate_package_ids else None,
+            agent_package_id=(
+                decision.candidate_package_ids[0] if decision.candidate_package_ids else None
+            ),
             selected_worker_id=None,
             backend_kind=None,
             backend_ref=None,
@@ -182,7 +186,9 @@ class PersonalHousekeeperService:
         self._append_status_event(mirrored)
         return mirrored
 
-    def approve_task(self, task_id: str, request: HousekeeperApprovalRequest) -> HousekeeperTaskRead:
+    def approve_task(
+        self, task_id: str, request: HousekeeperApprovalRequest
+    ) -> HousekeeperTaskRead:
         task = self._require_task(task_id)
         if task.control_plane_task_id is None:
             raise ValueError("housekeeper task does not reference a control-plane task")
@@ -253,7 +259,9 @@ class PersonalHousekeeperService:
         )
         yingdao_markers = ("影刀", "yingdao", "erp", "录入", "表单")
 
-        if any(marker in normalized for marker in linux_markers) or any(marker in memory_hints for marker in linux_markers):
+        if any(marker in normalized for marker in linux_markers) or any(
+            marker in memory_hints for marker in linux_markers
+        ):
             package = packages.get("linux_housekeeping_agent_v0")
             if package is not None:
                 return _RoutingDecision(
@@ -261,7 +269,9 @@ class PersonalHousekeeperService:
                     normalized_intent="linux_housekeeping",
                     routing_reason="Matched Linux ops/shell markers.",
                 )
-        if any(marker in message for marker in yingdao_markers) or any(marker in normalized for marker in yingdao_markers):
+        if any(marker in message for marker in yingdao_markers) or any(
+            marker in normalized for marker in yingdao_markers
+        ):
             package = packages.get("yingdao_form_fill_agent_v0")
             if package is not None:
                 return _RoutingDecision(
@@ -269,7 +279,9 @@ class PersonalHousekeeperService:
                     normalized_intent="yingdao_structured_task",
                     routing_reason="Matched Yingdao/ERP markers.",
                 )
-        if any(marker in normalized for marker in software_markers) or any(marker in memory_hints for marker in software_markers):
+        if any(marker in normalized for marker in software_markers) or any(
+            marker in memory_hints for marker in software_markers
+        ):
             package = packages.get("software_change_agent_v0")
             if package is not None:
                 return _RoutingDecision(
@@ -295,7 +307,9 @@ class PersonalHousekeeperService:
             "session_event_count": len(memory_bundle.session_events),
             "personal_memory_count": len(memory_bundle.personal_memories),
             "shared_memory_count": len(memory_bundle.shared_memories),
-            "personal_memory_preview": [item.content for item in memory_bundle.personal_memories[:2]],
+            "personal_memory_preview": [
+                item.content for item in memory_bundle.personal_memories[:2]
+            ],
             "shared_memory_preview": [item.content for item in memory_bundle.shared_memories[:2]],
         }
 
@@ -311,7 +325,9 @@ class PersonalHousekeeperService:
                     "housekeeper_task_id": task.task_id,
                     "status": task.status.value,
                     "agent_package_id": task.agent_package_id,
-                    "backend_kind": task.backend_kind.value if task.backend_kind is not None else None,
+                    "backend_kind": (
+                        task.backend_kind.value if task.backend_kind is not None else None
+                    ),
                 },
             ),
         )
@@ -330,11 +346,14 @@ class PersonalHousekeeperService:
                 candidates.append(package)
         return candidates
 
-    def _bounded_memory_bundle(self, memory_bundle: OpenClawMemoryBundleRead) -> OpenClawMemoryBundleRead:
+    def _bounded_memory_bundle(
+        self, memory_bundle: OpenClawMemoryBundleRead
+    ) -> OpenClawMemoryBundleRead:
         allowed_shared = [
             record
             for record in memory_bundle.shared_memories
-            if bool(record.metadata.get("housekeeper_shared")) or "housekeeper_shared" in set(record.tags)
+            if bool(record.metadata.get("housekeeper_shared"))
+            or "housekeeper_shared" in set(record.tags)
         ]
         return memory_bundle.model_copy(update={"shared_memories": allowed_shared})
 
@@ -343,6 +362,11 @@ class PersonalHousekeeperService:
         front_task: HousekeeperTaskRead,
         control_task,
     ) -> HousekeeperTaskRead:
+        metadata = dict(front_task.metadata)
+        for key in ("run_status", "gate_outcome", "gate_action"):
+            value = control_task.metadata.get(key)
+            if isinstance(value, str) and value.strip():
+                metadata[key] = value
         return front_task.model_copy(
             update={
                 "control_plane_task_id": control_task.task_id,
@@ -355,6 +379,7 @@ class PersonalHousekeeperService:
                 "approval_id": control_task.approval_id,
                 "result_summary": control_task.summary,
                 "result_payload": control_task.result_payload,
+                "metadata": metadata,
                 "updated_at": utc_now(),
                 "error": control_task.error,
             }

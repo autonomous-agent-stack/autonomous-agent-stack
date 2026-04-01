@@ -83,6 +83,9 @@ before any PR can merge and before the stack can be called "demo-ready".
 | G7.7 | `run_record` fields (task_id / run_id / started_at / completed_at) match original summary | `pytest tests/test_linux_run_lifecycle_integration.py::test_run_record_fields_match_summary` |
 | G7.8 | `run_record.result_data` contains bridge fields (artifacts / conclusion / duration_seconds) | `pytest tests/test_linux_run_lifecycle_integration.py::test_run_record_result_data_contains_bridge_fields` |
 | G7.9 | `run_record.run_status` is consistent with `gate_evaluation.run_status` | `pytest tests/test_linux_run_lifecycle_integration.py::test_run_record_run_status_matches_gate_evaluation` |
+| G7.10 | `/api/v1/control-plane/tasks/{id}` 在 metadata 中暴露 `run_status / gate_outcome / gate_action`，且与 persisted `result_payload` 一致 | `pytest tests/test_task_result_downstream_api_integration.py::test_control_plane_task_detail_consumes_run_and_gate_metadata` |
+| G7.11 | `/api/v1/openclaw/housekeeper/tasks/{id}` 在 metadata 中暴露相同字段，且 legacy 顶层字段不破坏 | `pytest tests/test_task_result_downstream_api_integration.py::test_housekeeper_task_detail_consumes_run_and_gate_metadata_without_breaking_legacy_fields` |
+| G7.12 | downstream API 消费 unified 数据时不丢已有 `result_payload` 内容 | `pytest tests/test_task_result_downstream_api_integration.py::test_housekeeper_task_detail_preserves_result_payload_and_summary_fields` |
 
 ### G8. Heartbeat Production Path (WorkerHeartbeat ← LinuxSupervisor)
 

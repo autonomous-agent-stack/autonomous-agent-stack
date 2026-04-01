@@ -313,6 +313,10 @@ class ControlPlaneService:
                     ),
                     "backend_ref": linux_task.task_id,
                     "summary": summary.message,
+                    "metadata": {
+                        **running.metadata,
+                        **self._result_payload_observability_metadata(result_payload),
+                    },
                     "result_payload": result_payload,
                     "updated_at": utc_now(),
                     "error": None if summary.success else summary.conclusion.value,
@@ -329,6 +333,26 @@ class ControlPlaneService:
             }
         )
         return self._repository.save(failed.task_id, failed)
+
+    def _result_payload_observability_metadata(
+        self,
+        result_payload: dict[str, object],
+    ) -> dict[str, str]:
+        gate = result_payload.get("gate_evaluation")
+        run_record = result_payload.get("run_record")
+        derived: dict[str, str] = {}
+        if isinstance(run_record, dict):
+            run_status = str(run_record.get("run_status") or run_record.get("status") or "").strip()
+            if run_status:
+                derived["run_status"] = run_status
+        if isinstance(gate, dict):
+            gate_outcome = str(gate.get("gate_outcome") or "").strip()
+            gate_action = str(gate.get("gate_action") or "").strip()
+            if gate_outcome:
+                derived["gate_outcome"] = gate_outcome
+            if gate_action:
+                derived["gate_action"] = gate_action
+        return derived
 
     def _finalize_selection(self, draft: HousekeeperTaskDraftRead) -> _FinalSelection:
         for package_id in draft.candidate_package_ids:
