@@ -19,6 +19,7 @@ from autoresearch.shared.linux_supervisor_bridge import (
     supervisor_conclusion_to_gate_outcome,
     supervisor_conclusion_to_run_status,
     supervisor_summary_to_gate_checks,
+    supervisor_summary_to_run_record,
 )
 from autoresearch.shared.linux_supervisor_contract import LinuxSupervisorTaskCreateRequest
 from autoresearch.shared.task_gate_contract import make_gate_verdict
@@ -284,6 +285,23 @@ class ControlPlaneService:
                 "gate_checks": [c.model_dump() for c in gate_checks],
                 "gate_verdict_reason": verdict.reason,
             }
+
+            # Unified run record from bridge
+            from dataclasses import asdict
+
+            bridge_run = supervisor_summary_to_run_record(
+                summary,
+                worker_id=running.selected_worker_id or "linux_housekeeper",
+                retry_attempt=1,
+            )
+            result_payload["run_record"] = asdict(bridge_run)
+            # Serialize datetime fields to ISO strings for JSON compatibility
+            run_rec = result_payload["run_record"]
+            if run_rec.get("started_at") is not None:
+                run_rec["started_at"] = run_rec["started_at"].isoformat()
+            if run_rec.get("completed_at") is not None:
+                run_rec["completed_at"] = run_rec["completed_at"].isoformat()
+            run_rec["run_status"] = bridge_run.status.value
 
             updated = running.model_copy(
                 update={
