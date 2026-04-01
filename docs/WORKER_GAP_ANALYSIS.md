@@ -338,14 +338,15 @@ CI 路径已包含在 `.github/workflows/ci.yml` 的 `CORE_LINT_PATHS` 和 `CORE
 ### 接入优先级建议
 
 ```
-1. 将 make_gate_verdict() 接入 LinuxSupervisorService._finalize_task()
-   → 让真实执行结果走 gate 决策
+1. ~~将 make_gate_verdict() 接入 ControlPlaneService._execute()~~ ✅ 已完成 (commit 10d1dcd)
+   → 真实执行结果现在走 gate 决策，存入 result_payload["gate_evaluation"]
 
-2. 将 RunRecord 接入 ControlPlaneService._execute()
-   → 让 run 有真实的状态生命周期
+2. ~~将 RunRecord 接入 ControlPlaneService._execute()~~ ✅ 已完成 (commit 89639d9, c11c78f)
+   → 真实执行后产生 result_payload["run_record"]，包含 unified RunStatus/RunRecord 兼容数据
 
 3. 将 WorkerHeartbeat 接入 WorkerRegistryService
    → 统一 heartbeat 格式，替换硬编码阈值
+   → bridge 函数 supervisor_heartbeat_to_worker_heartbeat() 已存在但未被生产路径调用
 
 4. 将 is_valid_transition() 接入 task status 变更点
    → 让非法转换在生产中抛异常而非静默通过
@@ -353,3 +354,22 @@ CI 路径已包含在 `.github/workflows/ci.yml` 的 `CORE_LINT_PATHS` 和 `CORE
 5. 动态 worker 注册
    → 替换硬编码的 list_workers()
 ```
+
+### 已接线 vs 未接线状态 (2026-04-01)
+
+| 统一合约功能 | Bridge 函数 | 生产路径接线 | 持久化 | 被 downstream 消费 |
+|-------------|-------------|-------------|--------|-------------------|
+| GateOutcome | `supervisor_conclusion_to_gate_outcome()` | ✅ `_execute()` LINUX_SUPERVISOR | ✅ `result_payload["gate_evaluation"]` | ❌ 仅存储 |
+| GateCheck[] | `supervisor_summary_to_gate_checks()` | ✅ 同上 | ✅ 同上 | ❌ 仅存储 |
+| GateVerdict | `make_gate_verdict()` | ✅ 同上 | ✅ 同上 | ❌ 仅存储 (无 retry/fallback 消费) |
+| RunStatus | `supervisor_conclusion_to_run_status()` | ✅ 同上 | ✅ `gate_evaluation.run_status` + `run_record.run_status` | ❌ 仅存储 |
+| RunRecord | `supervisor_summary_to_run_record()` | ✅ 同上 | ✅ `result_payload["run_record"]` | ❌ 仅存储 |
+| WorkerHeartbeat | `supervisor_heartbeat_to_worker_heartbeat()` | ❌ 未接线 | ❌ 无独立持久化 | ❌ |
+| WorkerRegistration | `supervisor_heartbeat_to_worker_registration()` | ❌ 未接线 | ❌ 无独立持久化 | ❌ |
+
+**关键限制**：
+- `run_record.started_at` = `summary.started_at`（子进程启动时间，非排队时间）
+- `run_record.completed_at` = `summary.finished_at`
+- `queued_at` / `leased_at` 不存在 — LinuxSupervisor 无 lease 概念
+- `gate_evaluation` 中的 verdict 不驱动 retry/fallback — 仅记录决策建议
+- Heartbeat 和 Registration 的 bridge 函数已实现并有测试，但未被任何生产代码调用

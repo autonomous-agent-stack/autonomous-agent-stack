@@ -70,6 +70,20 @@ before any PR can merge and before the stack can be called "demo-ready".
 | G6.6 | Heartbeat → WorkerRegistration produces LINUX type | `pytest tests/test_linux_supervisor_bridge.py::TestHeartbeatToRegistration` |
 | G6.7 | Full chain: summary → gate_outcome → gate_checks → make_gate_verdict → verdict for all 7 conclusions | `pytest tests/test_linux_supervisor_bridge.py::TestFullChainEndToEnd` |
 
+### G7. Production Path Integration (Linux Supervisor → Control Plane)
+
+| # | 条件 | 验证方式 |
+|---|------|----------|
+| G7.1 | Real Linux success dispatch produces `result_payload["gate_evaluation"]` with `gate_outcome == "success"` | `pytest tests/test_linux_gate_integration.py::test_successful_dispatch_produces_gate_accept` |
+| G7.2 | Real Linux timeout dispatch produces `gate_outcome == "timeout"`, `gate_action == "retry"` | `pytest tests/test_linux_gate_integration.py::test_timeout_dispatch_produces_gate_retry` |
+| G7.3 | Real Linux infra error dispatch produces `gate_outcome == "needs_human_confirm"`, `gate_action == "needs_review"` | `pytest tests/test_linux_gate_integration.py::test_infra_error_dispatch_produces_needs_review` |
+| G7.4 | Real Linux dispatch produces `result_payload["run_record"]` with `run_status == "succeeded"` | `pytest tests/test_linux_run_lifecycle_integration.py::test_success_produces_run_status_succeeded` |
+| G7.5 | Real Linux timeout produces `run_record.run_status == "failed"` | `pytest tests/test_linux_run_lifecycle_integration.py::test_timeout_produces_run_status_failed` |
+| G7.6 | Real Linux unknown conclusion produces `run_record.run_status == "needs_review"` | `pytest tests/test_linux_run_lifecycle_integration.py::test_unknown_conclusion_produces_run_status_needs_review` |
+| G7.7 | `run_record` fields (task_id / run_id / started_at / completed_at) match original summary | `pytest tests/test_linux_run_lifecycle_integration.py::test_run_record_fields_match_summary` |
+| G7.8 | `run_record.result_data` contains bridge fields (artifacts / conclusion / duration_seconds) | `pytest tests/test_linux_run_lifecycle_integration.py::test_run_record_result_data_contains_bridge_fields` |
+| G7.9 | `run_record.run_status` is consistent with `gate_evaluation.run_status` | `pytest tests/test_linux_run_lifecycle_integration.py::test_run_record_run_status_matches_gate_evaluation` |
+
 ---
 
 ## 2. Fail-Fast 条件
