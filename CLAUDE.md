@@ -61,3 +61,12 @@ Deferred:
 - Run relevant Python tests
 - Update docs when APIs or schemas change
 - Add a short change summary
+
+## gstack
+
+Use gstack's `/browse` skill for **all** web browsing tasks. Never use `mcp__claude-in-chrome__*` tools.
+
+If gstack skills don't work, run `cd .claude/skills/gstack && ./setup` to build binaries and register skills.
+
+Available skills:
+`/office-hours` `/plan-ceo-review` `/plan-eng-review` `/plan-design-review` `/design-consultation` `/design-shotgun` `/design-html` `/review` `/ship` `/land-and-deploy` `/canary` `/benchmark` `/browse` `/connect-chrome` `/qa` `/qa-only` `/design-review` `/setup-browser-cookies` `/setup-deploy` `/retro` `/investigate` `/document-release` `/codex` `/cso` `/autoplan` `/careful` `/freeze` `/guard` `/unfreeze` `/gstack-upgrade` `/learn`
