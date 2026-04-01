@@ -1,12 +1,12 @@
-"""Integration tests: WorkerRegistryService emits unified WorkerHeartbeat data.
+"""Integration tests: WorkerRegistryService reflects real Linux heartbeat state.
 
 These tests exercise the real disk-backed Linux supervisor state files under
-``.masfactory_runtime/linux-housekeeper/state`` and assert that
-``WorkerRegistryService`` exposes a unified ``WorkerHeartbeat``-compatible
-shape for the real Linux worker.
+``.masfactory_runtime/linux-housekeeper/state`` and assert both:
 
-They are expected to FAIL until ``supervisor_heartbeat_to_worker_heartbeat()``
-is wired into the production registry path.
+1. ``get_worker_heartbeat()`` exposes a unified ``WorkerHeartbeat``-compatible
+   shape for the real Linux worker.
+2. ``list_workers()`` reports a linux_housekeeper status consistent with that
+   unified heartbeat view.
 """
 
 from __future__ import annotations
@@ -164,3 +164,104 @@ class TestWorkerRegistryHeartbeatIntegration:
             "errors",
             "metadata",
         }
+
+
+def _linux_worker_from_list(registry: WorkerRegistryService):
+    for worker in registry.list_workers():
+        if worker.worker_id == "linux_housekeeper":
+            return worker
+    raise AssertionError("linux_housekeeper not found in list_workers()")
+
+
+class TestWorkerRegistryListWorkersHeartbeatConsistency:
+    def test_running_fresh_list_workers_is_not_offline(self, tmp_path: Path) -> None:
+        repo_root = tmp_path / "repo"
+        runtime_root = repo_root / ".masfactory_runtime" / "linux-housekeeper"
+        observed_at = datetime.now(timezone.utc) - timedelta(seconds=5)
+        _seed_supervisor_state(
+            runtime_root,
+            observed_at=observed_at,
+            heartbeat_status="running",
+            process_status="running",
+            current_task_id="task-001",
+            queue_depth=1,
+        )
+        registry = WorkerRegistryService(repo_root=repo_root, linux_runtime_root=runtime_root)
+
+        worker = _linux_worker_from_list(registry)
+
+        assert worker.status.value != WorkerStatus.OFFLINE.value
+
+    def test_idle_fresh_status_matches_unified_heartbeat(self, tmp_path: Path) -> None:
+        repo_root = tmp_path / "repo"
+        runtime_root = repo_root / ".masfactory_runtime" / "linux-housekeeper"
+        observed_at = datetime.now(timezone.utc) - timedelta(seconds=5)
+        _seed_supervisor_state(
+            runtime_root,
+            observed_at=observed_at,
+            heartbeat_status="idle",
+            process_status="idle",
+            queue_depth=2,
+        )
+        registry = WorkerRegistryService(repo_root=repo_root, linux_runtime_root=runtime_root)
+
+        worker = _linux_worker_from_list(registry)
+        heartbeat = registry.get_worker_heartbeat("linux_housekeeper")
+
+        assert worker.status.value == heartbeat.status.value
+
+    def test_stopped_status_matches_unified_heartbeat(self, tmp_path: Path) -> None:
+        repo_root = tmp_path / "repo"
+        runtime_root = repo_root / ".masfactory_runtime" / "linux-housekeeper"
+        observed_at = datetime.now(timezone.utc) - timedelta(seconds=5)
+        _seed_supervisor_state(
+            runtime_root,
+            observed_at=observed_at,
+            heartbeat_status="stopped",
+            process_status="stopped",
+            message="worker crashed",
+        )
+        registry = WorkerRegistryService(repo_root=repo_root, linux_runtime_root=runtime_root)
+
+        worker = _linux_worker_from_list(registry)
+        heartbeat = registry.get_worker_heartbeat("linux_housekeeper")
+
+        assert worker.status.value == heartbeat.status.value
+
+    def test_stale_status_matches_unified_heartbeat(self, tmp_path: Path) -> None:
+        repo_root = tmp_path / "repo"
+        runtime_root = repo_root / ".masfactory_runtime" / "linux-housekeeper"
+        observed_at = datetime.now(timezone.utc) - timedelta(seconds=130)
+        _seed_supervisor_state(
+            runtime_root,
+            observed_at=observed_at,
+            heartbeat_status="idle",
+            process_status="idle",
+        )
+        registry = WorkerRegistryService(repo_root=repo_root, linux_runtime_root=runtime_root)
+
+        worker = _linux_worker_from_list(registry)
+        heartbeat = registry.get_worker_heartbeat("linux_housekeeper")
+
+        assert worker.status.value == heartbeat.status.value
+
+    def test_list_workers_and_unified_heartbeat_agree_for_same_worker(self, tmp_path: Path) -> None:
+        repo_root = tmp_path / "repo"
+        runtime_root = repo_root / ".masfactory_runtime" / "linux-housekeeper"
+        observed_at = datetime.now(timezone.utc) - timedelta(seconds=5)
+        _seed_supervisor_state(
+            runtime_root,
+            observed_at=observed_at,
+            heartbeat_status="running",
+            process_status="running",
+            current_task_id="task-001",
+            queue_depth=1,
+        )
+        registry = WorkerRegistryService(repo_root=repo_root, linux_runtime_root=runtime_root)
+
+        worker = registry.get_worker("linux_housekeeper")
+        heartbeat = registry.get_worker_heartbeat("linux_housekeeper")
+
+        assert worker is not None
+        assert heartbeat is not None
+        assert worker.status.value == heartbeat.status.value

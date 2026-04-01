@@ -118,28 +118,26 @@ class WorkerRegistryService:
         )
 
     def _linux_housekeeper_worker(self) -> WorkerRegistrationRead:
-        status_path = self._linux_runtime_root / "state" / "status.json"
-        heartbeat_path = self._linux_runtime_root / "state" / "heartbeat.json"
-        process_status = self._read_model(status_path, LinuxSupervisorProcessStatusRead)
-        heartbeat = self._read_model(heartbeat_path, LinuxSupervisorProcessHeartbeatRead)
+        process_status, process_heartbeat = self._read_linux_supervisor_state()
         worker_status = WorkerAvailabilityStatus.OFFLINE
         last_heartbeat = None
         metadata: dict[str, object] = {"source": "linux_supervisor"}
 
-        if heartbeat is not None:
-            last_heartbeat = heartbeat.observed_at
-            age_seconds = max(0.0, (utc_now() - heartbeat.observed_at).total_seconds())
+        if process_status is not None and process_heartbeat is not None:
+            unified_heartbeat = supervisor_heartbeat_to_worker_heartbeat(
+                process_heartbeat,
+                process_status,
+                worker_id="linux_housekeeper",
+                now=utc_now(),
+            )
+            worker_status = WorkerAvailabilityStatus(unified_heartbeat.status.value)
+            last_heartbeat = process_heartbeat.observed_at
+            age_seconds = max(0.0, (utc_now() - process_heartbeat.observed_at).total_seconds())
             metadata["heartbeat_age_seconds"] = age_seconds
-            metadata["queue_depth"] = heartbeat.queue_depth
-            metadata["process_status"] = heartbeat.status
-            if age_seconds <= 30:
-                worker_status = (
-                    WorkerAvailabilityStatus.BUSY
-                    if heartbeat.status == "running"
-                    else WorkerAvailabilityStatus.ONLINE
-                )
-            elif age_seconds <= 120:
-                worker_status = WorkerAvailabilityStatus.DEGRADED
+            metadata["queue_depth"] = unified_heartbeat.metadata.get("queue_depth")
+            metadata["process_status"] = unified_heartbeat.metadata.get("process_status")
+            if unified_heartbeat.errors:
+                metadata["errors"] = list(unified_heartbeat.errors)
         if process_status is not None:
             metadata["message"] = process_status.message
             metadata["current_task_id"] = process_status.current_task_id
