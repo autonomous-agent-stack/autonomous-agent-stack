@@ -1,0 +1,75 @@
+{
+  "suite_name": "live-run-stability",
+  "version": 1,
+  "tasks": [
+    {
+      "task_id": "queue-queue-smoke",
+      "name": "queue smoke: complete a simple linux housekeeper run",
+      "prompt": "Run a minimal linux housekeeper job that exercises the queue-based supervisor path and finishes with a real summary artifact.",
+      "expected_artifacts": [
+        "summary.json",
+        "status.json",
+        "heartbeat.json",
+        "artifacts/"
+      ],
+      "pass_conditions": [
+        "summary.json exists",
+        "summary.final_status == completed",
+        "summary.artifact_count >= 1",
+        "summary.root_cause is empty"
+      ],
+      "max_duration_seconds": 300
+    },
+    {
+      "task_id": "queue-summary-audit",
+      "name": "summary audit: inspect a live run and extract failure signals",
+      "prompt": "Inspect a real live run directory, read the terminal summary, and produce a compact root-cause note with the observed status, artifact shape, and failure signals.",
+      "expected_artifacts": [
+        "summary.json",
+        "artifacts/root_cause.json",
+        "artifacts/failure_notes.md"
+      ],
+      "pass_conditions": [
+        "summary.json exists",
+        "summary.final_status is one of completed, failed, stalled, timed_out",
+        "summary.root_cause.kind is set",
+        "root-cause note references at least one concrete artifact path"
+      ],
+      "max_duration_seconds": 240
+    },
+    {
+      "task_id": "queue-regression-diff",
+      "name": "regression diff: compare two live-run summaries",
+      "prompt": "Compare a baseline live-run summary against a new run and emit a regression matrix that highlights what changed in status, root cause, and artifacts.",
+      "expected_artifacts": [
+        "summary.json",
+        "artifacts/regression_matrix.json",
+        "artifacts/regression_matrix.md"
+      ],
+      "pass_conditions": [
+        "summary.json exists",
+        "summary.regression_matrix.generated == true",
+        "regression matrix contains baseline and head rows",
+        "matrix records status and root_cause deltas"
+      ],
+      "max_duration_seconds": 360
+    },
+    {
+      "task_id": "queue-stall-classifier",
+      "name": "stall classifier: explain a timed out or stalled live run",
+      "prompt": "Take a live run that did not complete cleanly and classify whether it stalled, timed out, fell back to a mock path, or failed an assertion.",
+      "expected_artifacts": [
+        "summary.json",
+        "artifacts/failure_classification.json",
+        "artifacts/failure_classification.md"
+      ],
+      "pass_conditions": [
+        "summary.json exists",
+        "summary.root_cause.kind is set",
+        "failure classification includes a stable label",
+        "failure classification cites the decisive signal"
+      ],
+      "max_duration_seconds": 240
+    }
+  ]
+}
