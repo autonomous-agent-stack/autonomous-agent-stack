@@ -9,6 +9,7 @@ from autoresearch.benchmarks.live_run_stability_matrix import (
     render_live_run_regression_matrix_markdown,
     write_live_run_regression_matrix,
 )
+from autoresearch.benchmarks.live_run_stability_runner import run_live_run_stability_benchmark
 
 
 def test_matrix_generates_from_missing_and_present_summaries(tmp_path: Path) -> None:
@@ -91,3 +92,105 @@ def test_matrix_writer_emits_baseline_files(tmp_path: Path) -> None:
     assert md_path.exists()
     assert json.loads(json_path.read_text(encoding="utf-8")) == []
     assert "Live-Run Regression Matrix" not in md_path.read_text(encoding="utf-8")
+
+
+def test_live_run_benchmark_runner_writes_run_dirs_and_matrix(tmp_path: Path) -> None:
+    tasks_path = tmp_path / "benchmarks" / "tasks.json"
+    tasks_path.parent.mkdir(parents=True, exist_ok=True)
+    tasks_path.write_text(
+        json.dumps(
+            {
+                "suite_name": "live-run-stability",
+                "tasks": [
+                    {"task_id": "ok", "name": "ok task"},
+                    {"task_id": "partial", "name": "partial task"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def executor(task: dict[str, object], run_dir: Path) -> dict[str, object]:
+        task_id = str(task["task_id"])
+        if task_id == "ok":
+            return {
+                "final_status": "completed",
+                "result": "completed",
+                "duration_seconds": 1.5,
+                "driver_result": {
+                    "run_id": task_id,
+                    "agent_id": "agent",
+                    "status": "succeeded",
+                    "summary": "ok",
+                    "metrics": {"duration_ms": 1500, "steps": 1, "commands": 1},
+                    "recommended_action": "promote",
+                },
+                "validation": {"run_id": task_id, "passed": True, "checks": []},
+                "metadata": {},
+            }
+        return {
+            "final_status": "failed",
+            "result": "failed",
+            "driver_result": {
+                "run_id": task_id,
+                "agent_id": "agent",
+                "status": "contract_error",
+                "summary": "boom",
+                "metrics": {"duration_ms": 0, "steps": 0, "commands": 0},
+                "recommended_action": "human_review",
+            },
+            "validation": {"run_id": task_id, "passed": True, "checks": []},
+        }
+
+    result = run_live_run_stability_benchmark(
+        tasks_path=tasks_path,
+        run_root=tmp_path / "runs",
+        matrix_json_path=tmp_path / "artifacts" / "live-run-stability" / "regression-matrix.json",
+        matrix_markdown_path=tmp_path / "artifacts" / "live-run-stability" / "regression-matrix.md",
+        executor=executor,
+    )
+
+    assert result.task_count == 2
+    assert (tmp_path / "runs" / "ok" / "summary.json").exists()
+    assert (tmp_path / "runs" / "ok" / "task.json").exists()
+    assert (tmp_path / "artifacts" / "live-run-stability" / "regression-matrix.json").exists()
+    assert (tmp_path / "artifacts" / "live-run-stability" / "regression-matrix.md").exists()
+    matrix = json.loads(
+        (tmp_path / "artifacts" / "live-run-stability" / "regression-matrix.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert matrix[0]["task_id"] == "ok"
+    assert matrix[0]["result"] == "completed"
+    assert matrix[1]["failure_status"] == "infra_error"
+
+
+def test_live_run_benchmark_runner_handles_partial_summaries_conservatively(
+    tmp_path: Path,
+) -> None:
+    tasks_path = tmp_path / "tasks.json"
+    tasks_path.write_text(
+        json.dumps({"suite_name": "live-run-stability", "tasks": [{"task_id": "partial", "name": "partial"}]}),
+        encoding="utf-8",
+    )
+
+    def executor(task: dict[str, object], run_dir: Path) -> dict[str, object]:
+        _ = task, run_dir
+        return {"final_status": "failed"}
+
+    run_live_run_stability_benchmark(
+        tasks_path=tasks_path,
+        run_root=tmp_path / "runs",
+        matrix_json_path=tmp_path / "artifacts" / "live-run-stability" / "regression-matrix.json",
+        matrix_markdown_path=tmp_path / "artifacts" / "live-run-stability" / "regression-matrix.md",
+        executor=executor,
+    )
+
+    matrix = json.loads(
+        (tmp_path / "artifacts" / "live-run-stability" / "regression-matrix.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert matrix[0]["task_id"] == "partial"
+    assert matrix[0]["result"] == "failed"
+    assert matrix[0]["failure_status"] is None
