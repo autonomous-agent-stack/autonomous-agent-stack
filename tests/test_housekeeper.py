@@ -691,6 +691,64 @@ def test_housekeeper_post_run_fallback_approval_reruns_linux_path(tmp_path: Path
     app.dependency_overrides.clear()
 
 
+def test_housekeeper_post_run_gated_reject_stays_rejected_without_rerun(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    db_path = tmp_path / "housekeeper-linux-reject.sqlite3"
+    helper = _linux_timeout_then_success_helper(tmp_path / "linux_worker.py")
+    _seed_agent_package_tree(repo_root, linux_max_retry_count=0)
+    services = _build_services(repo_root, db_path, helper)
+
+    app.dependency_overrides[get_openclaw_compat_service] = lambda: services["openclaw"]
+    app.dependency_overrides[get_openclaw_memory_service] = lambda: services["memory"]
+    app.dependency_overrides[get_manager_agent_service] = lambda: services["manager"]
+    app.dependency_overrides[get_linux_supervisor_service] = lambda: services["linux"]
+    app.dependency_overrides[get_agent_package_registry_service] = lambda: services["packages"]
+    app.dependency_overrides[get_worker_registry_service] = lambda: services["workers"]
+    app.dependency_overrides[get_approval_store_service] = lambda: services["approval"]
+    app.dependency_overrides[get_control_plane_service] = lambda: services["control"]
+    app.dependency_overrides[get_personal_housekeeper_service] = lambda: services["housekeeper"]
+
+    with TestClient(app) as client:
+        session = client.post(
+            "/api/v1/openclaw/sessions",
+            json={"channel": "api", "title": "linux", "scope": "personal", "metadata": {}},
+        )
+        assert session.status_code == 201
+        session_id = session.json()["session_id"]
+
+        response = client.post(
+            "/api/v1/openclaw/housekeeper/dispatch",
+            json={
+                "session_id": session_id,
+                "message": "请巡检一下 Linux 服务状态并收集最近错误日志。",
+            },
+        )
+        assert response.status_code == 202
+        payload = response.json()
+        assert payload["status"] == "approval_required"
+        assert payload["metadata"]["gate_action"] == "fallback"
+        assert payload["result_payload"]["gate_evaluation"]["gate_action"] == "fallback"
+        original_backend_ref = payload["backend_ref"]
+        original_result_payload = payload["result_payload"]
+        original_run_id = payload["result_payload"]["run_id"]
+
+        rejected = client.post(
+            f"/api/v1/openclaw/housekeeper/tasks/{payload['task_id']}/reject",
+            json={"decided_by": "owner", "note": "reject gated fallback"},
+        )
+        assert rejected.status_code == 200
+        rejected_payload = rejected.json()
+        assert rejected_payload["status"] == "rejected"
+        assert rejected_payload["approval_status"] == "rejected"
+        assert rejected_payload["backend_ref"] == original_backend_ref
+        assert rejected_payload["result_payload"] == original_result_payload
+        assert rejected_payload["result_payload"]["run_id"] == original_run_id
+        assert rejected_payload["result_payload"]["gate_evaluation"]["gate_action"] == "fallback"
+        assert rejected_payload["error"] == "reject gated fallback"
+
+    app.dependency_overrides.clear()
+
+
 def test_housekeeper_returns_formal_clarification_for_unsupported_prompt(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     db_path = tmp_path / "housekeeper-unsupported.sqlite3"
