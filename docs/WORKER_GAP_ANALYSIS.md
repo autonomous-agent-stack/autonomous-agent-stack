@@ -270,6 +270,71 @@ max_concurrent_tasks = 1  # RPA 通常单线程
 3. **RunStatus 不在生产路径** — `RunRecord.transition_to()` 只在测试中被调用。真实路径没有 run-level 状态机。
 4. **Heartbeat 是文件轮询** — 不是推送协议。`WorkerRegistryService.list_workers()` 每次调用都读磁盘文件，不适合高频监控。
 
+---
+
+## 5. Linux Supervisor Bridge（已实现）
+
+`src/autoresearch/shared/linux_supervisor_bridge.py` 提供 6 个纯函数，将
+`LinuxSupervisor` 的生产输出形状映射到 unified contract 类型。
+**不修改任何生产服务或 unified contract 模型。**
+
+### 函数清单
+
+| 函数 | 输入 | 输出 | 用途 |
+|------|------|------|------|
+| `supervisor_conclusion_to_gate_outcome()` | `LinuxSupervisorConclusion` | `GateOutcome` | 7 种 conclusion → 5 种 outcome |
+| `supervisor_summary_to_gate_checks()` | `LinuxSupervisorTaskSummaryRead` | `list[GateCheck]` | 从 summary 提取 5 项 gate check |
+| `supervisor_conclusion_to_run_status()` | `LinuxSupervisorConclusion` | `RunStatus` | 7 种 conclusion → 3 种 run status |
+| `supervisor_summary_to_run_record()` | `LinuxSupervisorTaskSummaryRead` | `BridgeRunRecord` | summary → 带 timing/artifacts 的 run record |
+| `supervisor_heartbeat_to_worker_heartbeat()` | `LinuxSupervisorProcessHeartbeatRead` + `LinuxSupervisorProcessStatusRead` | `WorkerHeartbeat` | 进程心跳 → 统一心跳 |
+| `supervisor_heartbeat_to_worker_registration()` | 同上 | `WorkerRegistration` | 进程心跳 → worker 注册信息 |
+
+### Gate Check 规则
+
+| check_id | 通过条件 | 失败 severity |
+|----------|---------|---------------|
+| `aep_final_status` | `ready_for_promotion` 或 `promoted` | critical |
+| `process_exit` | returncode ∈ {0, 2, None} | critical |
+| `agent_completed` | conclusion == SUCCEEDED | critical |
+| `no_mock_fallback` | `used_mock_fallback == False` | warning |
+| `artifacts_present` | `bool(artifacts)` | warning |
+
+### Conclusion 映射表
+
+| LinuxSupervisorConclusion | GateOutcome | RunStatus | GateAction (default) |
+|---------------------------|-------------|-----------|---------------------|
+| SUCCEEDED | SUCCESS | SUCCEEDED | ACCEPT |
+| TIMED_OUT | TIMEOUT | FAILED | RETRY |
+| STALLED_NO_PROGRESS | TIMEOUT | FAILED | RETRY |
+| MOCK_FALLBACK | MISSING_ARTIFACTS | FAILED | RETRY |
+| ASSERTION_FAILED | OVERREACH | FAILED | REJECT |
+| INFRA_ERROR | NEEDS_HUMAN_CONFIRM | FAILED | NEEDS_REVIEW |
+| UNKNOWN | NEEDS_HUMAN_CONFIRM | NEEDS_REVIEW | NEEDS_REVIEW |
+
+### Heartbeat 状态推导
+
+使用与 `worker_registry.py` 一致的阈值：
+
+- `process_status == "stopped"` → `OFFLINE`
+- heartbeat age > 120s → `OFFLINE`
+- `process_status == "running"` + fresh → `BUSY`
+- `process_status == "idle"` + fresh → `ONLINE`
+
+### 测试覆盖
+
+43 个测试在 `tests/test_linux_supervisor_bridge.py`，7 个 test class：
+
+1. `TestConclusionToGateOutcome` — 7 parametrized
+2. `TestSummaryToGateChecks` — 6 tests (succeeded/failed/mock/empty artifacts/bad returncode/None returncode)
+3. `TestConclusionToRunStatus` — 7 parametrized
+4. `TestSummaryToRunRecord` — 4 tests (fields/error/unknown/result_data)
+5. `TestHeartbeatConversion` — 6 tests (idle/running/stopped/stale/very_stale/metadata)
+6. `TestHeartbeatToRegistration` — 4 tests (type/backend/capabilities/max_concurrent)
+7. `TestFullChainEndToEnd` — 9 tests (all 7 conclusions + retry exhaustion + no fallback)
+
+CI 路径已包含在 `.github/workflows/ci.yml` 的 `CORE_LINT_PATHS` 和 `CORE_TEST_PATHS` 中。
+验收门已包含在 `docs/ACCEPTANCE_CRITERIA.md` 的 G6 gate 中（G6.1–G6.7）。
+
 ### 接入优先级建议
 
 ```

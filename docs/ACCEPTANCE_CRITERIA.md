@@ -58,6 +58,18 @@ before any PR can merge and before the stack can be called "demo-ready".
 | G5.4 | Run detail + logs/artifacts/gate verdict | `pytest tests/test_console.py::TestRunDetail` |
 | G5.5 | Approval approve/reject/retry/fallback 操作 | `pytest tests/test_console.py::TestApprovalActions` |
 
+### G6. Bridge Coverage (Linux Supervisor → Unified Contracts)
+
+| # | 条件 | 验证方式 |
+|---|------|----------|
+| G6.1 | All 7 LinuxSupervisorConclusion values map to correct GateOutcome | `pytest tests/test_linux_supervisor_bridge.py::TestConclusionToGateOutcome` |
+| G6.2 | Summary produces valid GateChecks for succeeded/failed/mock scenarios | `pytest tests/test_linux_supervisor_bridge.py::TestSummaryToGateChecks` |
+| G6.3 | All 7 conclusions map to correct RunStatus | `pytest tests/test_linux_supervisor_bridge.py::TestConclusionToRunStatus` |
+| G6.4 | Summary → RunRecord conversion preserves all fields | `pytest tests/test_linux_supervisor_bridge.py::TestSummaryToRunRecord` |
+| G6.5 | Heartbeat → WorkerHeartbeat for idle/running/stopped/offline | `pytest tests/test_linux_supervisor_bridge.py::TestHeartbeatConversion` |
+| G6.6 | Heartbeat → WorkerRegistration produces LINUX type | `pytest tests/test_linux_supervisor_bridge.py::TestHeartbeatToRegistration` |
+| G6.7 | Full chain: summary → gate_outcome → gate_checks → make_gate_verdict → verdict for all 7 conclusions | `pytest tests/test_linux_supervisor_bridge.py::TestFullChainEndToEnd` |
+
 ---
 
 ## 2. Fail-Fast 条件
