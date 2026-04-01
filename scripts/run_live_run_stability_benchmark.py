@@ -47,6 +47,7 @@ def main() -> int:
     run_root = repo_root / "artifacts" / "live-run-stability" / "runs"
     matrix_json = repo_root / "artifacts" / "live-run-stability" / "regression-matrix.json"
     matrix_md = repo_root / "artifacts" / "live-run-stability" / "regression-matrix.md"
+    retry_overview_json = repo_root / "artifacts" / "live-run-stability" / "retry-overview.json"
     env = build_live_run_agent_env(repo_root)
 
     def executor(task: dict[str, object], run_dir: Path) -> dict[str, object]:
@@ -90,6 +91,7 @@ def main() -> int:
         run_root=run_root,
         matrix_json_path=matrix_json,
         matrix_markdown_path=matrix_md,
+        retry_overview_json_path=retry_overview_json,
         executor=executor,
     )
     print(
@@ -99,6 +101,7 @@ def main() -> int:
                 "run_root": str(result.run_root),
                 "matrix_json_path": str(result.matrix_json_path),
                 "matrix_markdown_path": str(result.matrix_markdown_path),
+                "retry_overview_json_path": str(result.retry_overview_json_path),
             },
             indent=2,
         )

@@ -21,6 +21,7 @@ class LiveRunBenchmarkResult:
     run_root: Path
     matrix_json_path: Path
     matrix_markdown_path: Path
+    retry_overview_json_path: Path
     task_count: int
 
 
@@ -49,6 +50,7 @@ def run_live_run_stability_benchmark(
     run_root: Path,
     matrix_json_path: Path,
     matrix_markdown_path: Path,
+    retry_overview_json_path: Path,
     executor: LiveRunTaskExecutor,
 ) -> LiveRunBenchmarkResult:
     tasks = json.loads(tasks_path.read_text(encoding="utf-8"))
@@ -68,17 +70,23 @@ def run_live_run_stability_benchmark(
         summary_path = run_dir / "summary.json"
         summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    write_live_run_regression_matrix(
+    rows = write_live_run_regression_matrix(
         tasks_path=tasks_path,
         run_roots=[run_root],
         json_path=matrix_json_path,
         markdown_path=matrix_markdown_path,
+    )
+    retry_overview_json_path.parent.mkdir(parents=True, exist_ok=True)
+    retry_overview_json_path.write_text(
+        json.dumps(build_live_run_retry_overview(rows), ensure_ascii=False, indent=2, sort_keys=True),
+        encoding="utf-8",
     )
     return LiveRunBenchmarkResult(
         tasks_path=tasks_path,
         run_root=run_root,
         matrix_json_path=matrix_json_path,
         matrix_markdown_path=matrix_markdown_path,
+        retry_overview_json_path=retry_overview_json_path,
         task_count=task_count,
     )
 
@@ -172,3 +180,39 @@ def _summary_succeeded(summary: dict[str, Any]) -> bool:
 
 def _summary_status(summary: dict[str, Any]) -> str:
     return str(summary.get("final_status") or summary.get("result") or "").strip()
+
+
+def build_live_run_retry_overview(rows: list[Any]) -> dict[str, Any]:
+    counts: dict[str, int] = {}
+    tasks: list[dict[str, Any]] = []
+    retry_requested_task_count = 0
+    retried_task_count = 0
+
+    for row in rows:
+        retry_result = str(getattr(row, "retry_result", None) or "unknown")
+        counts[retry_result] = counts.get(retry_result, 0) + 1
+        retry_budget = getattr(row, "retry_budget", None)
+        retry_attempts_used = getattr(row, "retry_attempts_used", None)
+        if isinstance(retry_budget, int) and retry_budget > 0:
+            retry_requested_task_count += 1
+        if isinstance(retry_attempts_used, int) and retry_attempts_used > 0:
+            retried_task_count += 1
+        tasks.append(
+            {
+                "task_id": getattr(row, "task_id", ""),
+                "task_name": getattr(row, "task_name", ""),
+                "result": getattr(row, "result", None),
+                "failure_status": getattr(row, "failure_status", None),
+                "retry_result": getattr(row, "retry_result", None),
+                "retry_budget": retry_budget,
+                "retry_attempts_used": retry_attempts_used,
+            }
+        )
+
+    return {
+        "task_count": len(rows),
+        "retry_requested_task_count": retry_requested_task_count,
+        "retried_task_count": retried_task_count,
+        "retry_result_counts": counts,
+        "tasks": tasks,
+    }
