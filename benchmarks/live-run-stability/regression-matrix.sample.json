@@ -1,0 +1,15 @@
+[
+  {
+    "task_id": "queue-queue-smoke",
+    "task_name": "queue smoke: complete a simple linux housekeeper run",
+    "lane": "benchmark",
+    "model_provider": null,
+    "result": "completed",
+    "failure_status": null,
+    "failure_layer": null,
+    "failure_stage": null,
+    "duration_sec": null,
+    "retry_result": null,
+    "notes": "sample baseline row"
+  }
+]
