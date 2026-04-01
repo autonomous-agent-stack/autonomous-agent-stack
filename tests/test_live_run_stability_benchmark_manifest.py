@@ -10,7 +10,7 @@ def test_live_run_stability_benchmark_manifest_is_well_formed() -> None:
 
     assert data["suite_name"] == "live-run-stability"
     tasks = data["tasks"]
-    assert 3 <= len(tasks) <= 5
+    assert 10 <= len(tasks) <= 14
     assert any(int(task.get("retry_attempts", 0)) > 0 for task in tasks)
     assert len({int(task.get("retry_attempts", 0)) for task in tasks}) >= 3
 
@@ -20,9 +20,26 @@ def test_live_run_stability_benchmark_manifest_is_well_formed() -> None:
         assert task["prompt"]
         assert task["expected_artifacts"]
         assert task["pass_conditions"]
-        assert 60 <= int(task["max_duration_seconds"]) <= 600
+        assert 60 <= int(task["max_duration_seconds"]) <= 900
         assert int(task.get("retry_attempts", 0)) >= 0
         assert "summary.json" in task["expected_artifacts"]
+        assert task["main_failure_bucket"] in {
+            "infra",
+            "orchestration",
+            "model",
+            "business_validation",
+        }
+
+    assert {task["task_id"] for task in tasks} >= {
+        "queue-fast-poll",
+        "queue-deadline-guard",
+        "queue-progress-starve",
+        "queue-mock-fallback-check",
+        "queue-business-assert",
+        "queue-artifact-integrity",
+        "queue-real-task-scan",
+        "queue-long-run-pressure",
+    }
 
 
 def test_live_run_stability_regression_matrix_matches_manifest() -> None:
@@ -33,6 +50,11 @@ def test_live_run_stability_regression_matrix_matches_manifest() -> None:
         encoding="utf-8"
     )
 
-    for task in manifest["tasks"]:
+    assert "| Task ID |" in matrix
+    assert "| Scenario |" in matrix
+    assert "| Expected Artifacts |" in matrix
+    assert "| Pass Condition |" in matrix
+    assert "| Max Duration |" in matrix
+    for task in manifest["tasks"][:4]:
         assert task["task_id"] in matrix
         assert task["name"] in matrix

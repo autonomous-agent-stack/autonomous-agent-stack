@@ -19,7 +19,8 @@
         "summary.root_cause is empty"
       ],
       "retry_attempts": 2,
-      "max_duration_seconds": 300
+      "max_duration_seconds": 300,
+      "main_failure_bucket": "orchestration"
     },
     {
       "task_id": "queue-summary-audit",
@@ -37,7 +38,8 @@
         "root-cause note references at least one concrete artifact path"
       ],
       "retry_attempts": 1,
-      "max_duration_seconds": 240
+      "max_duration_seconds": 240,
+      "main_failure_bucket": "orchestration"
     },
     {
       "task_id": "queue-regression-diff",
@@ -55,7 +57,8 @@
         "matrix records status and root_cause deltas"
       ],
       "retry_attempts": 0,
-      "max_duration_seconds": 360
+      "max_duration_seconds": 360,
+      "main_failure_bucket": "orchestration"
     },
     {
       "task_id": "queue-stall-classifier",
@@ -73,7 +76,161 @@
         "failure classification cites the decisive signal"
       ],
       "retry_attempts": 0,
-      "max_duration_seconds": 240
+      "max_duration_seconds": 240,
+      "main_failure_bucket": "orchestration"
+    },
+    {
+      "task_id": "queue-fast-poll",
+      "name": "fast poll: verify short-run execution and summary capture",
+      "prompt": "Run a short queue task that should complete quickly, produce a clean summary artifact, and confirm the benchmark path handles the minimal happy path without drift.",
+      "expected_artifacts": [
+        "summary.json",
+        "status.json",
+        "artifacts/"
+      ],
+      "pass_conditions": [
+        "summary.json exists",
+        "summary.final_status is one of completed, ready_for_promotion, promoted",
+        "summary.artifact_count >= 1",
+        "summary.root_cause is empty"
+      ],
+      "retry_attempts": 1,
+      "max_duration_seconds": 180,
+      "main_failure_bucket": "orchestration"
+    },
+    {
+      "task_id": "queue-deadline-guard",
+      "name": "deadline guard: hit the timeout boundary safely",
+      "prompt": "Run a queue task with a long but bounded execution window so the benchmark can observe timeout-edge behavior without changing the task logic.",
+      "expected_artifacts": [
+        "summary.json",
+        "status.json",
+        "heartbeat.json"
+      ],
+      "pass_conditions": [
+        "summary.json exists",
+        "summary.final_status is one of completed, failed, stalled, timed_out",
+        "summary.duration_seconds is set",
+        "summary.root_cause.kind is set when not completed"
+      ],
+      "retry_attempts": 0,
+      "max_duration_seconds": 600,
+      "main_failure_bucket": "infra"
+    },
+    {
+      "task_id": "queue-progress-starve",
+      "name": "progress starve: expose stalled_no_progress on sparse progress",
+      "prompt": "Run a task that intentionally has sparse visible progress markers so the live-run benchmark can observe whether stall detection remains stable under low-signal execution.",
+      "expected_artifacts": [
+        "summary.json",
+        "status.json",
+        "heartbeat.json",
+        "artifacts/"
+      ],
+      "pass_conditions": [
+        "summary.json exists",
+        "summary.final_status is one of completed, failed, stalled, timed_out",
+        "summary.first_progress_at is set or a stall root cause is recorded",
+        "summary.root_cause.kind is set when stalled"
+      ],
+      "retry_attempts": 0,
+      "max_duration_seconds": 420,
+      "main_failure_bucket": "orchestration"
+    },
+    {
+      "task_id": "queue-mock-fallback-check",
+      "name": "mock fallback check: verify fallback path visibility",
+      "prompt": "Run a task designed to surface model fallback behavior and confirm the summary records whether the run switched to a mock or fallback path.",
+      "expected_artifacts": [
+        "summary.json",
+        "artifacts/fallback_chain.json",
+        "artifacts/fallback_notes.md"
+      ],
+      "pass_conditions": [
+        "summary.json exists",
+        "summary.fallback_chain is set",
+        "summary.retry_result is set",
+        "summary.root_cause.kind is set when fallback affects outcome"
+      ],
+      "retry_attempts": 1,
+      "max_duration_seconds": 360,
+      "main_failure_bucket": "model"
+    },
+    {
+      "task_id": "queue-business-assert",
+      "name": "business assert: require the run to satisfy a business-level check",
+      "prompt": "Run a task that only passes when a business-level assertion is met so the matrix can separate execution success from business validation success.",
+      "expected_artifacts": [
+        "summary.json",
+        "artifacts/business_assertion.json"
+      ],
+      "pass_conditions": [
+        "summary.json exists",
+        "summary.business_assertion_status is one of passed, failed, unknown",
+        "summary.final_status is set",
+        "summary.root_cause.kind is set when validation fails"
+      ],
+      "retry_attempts": 1,
+      "max_duration_seconds": 300,
+      "main_failure_bucket": "business_validation"
+    },
+    {
+      "task_id": "queue-artifact-integrity",
+      "name": "artifact integrity: check that required outputs are complete",
+      "prompt": "Run a task that verifies required artifacts are present and complete, then record missing or partial artifact signals in the summary.",
+      "expected_artifacts": [
+        "summary.json",
+        "artifacts/artifact_manifest.json",
+        "artifacts/artifact_checks.md"
+      ],
+      "pass_conditions": [
+        "summary.json exists",
+        "summary.artifacts_produced is non-empty",
+        "summary.final_status is set",
+        "summary.root_cause.kind is set when artifacts are incomplete"
+      ],
+      "retry_attempts": 0,
+      "max_duration_seconds": 360,
+      "main_failure_bucket": "business_validation"
+    },
+    {
+      "task_id": "queue-real-task-scan",
+      "name": "real task scan: exercise a more realistic business-like run",
+      "prompt": "Run a more realistic task that combines execution, artifact production, and summary capture to approximate a small business workload rather than a toy benchmark.",
+      "expected_artifacts": [
+        "summary.json",
+        "artifacts/",
+        "status.json"
+      ],
+      "pass_conditions": [
+        "summary.json exists",
+        "summary.final_status is set",
+        "summary.artifact_count >= 1",
+        "summary.root_cause.kind is set when the run fails"
+      ],
+      "retry_attempts": 1,
+      "max_duration_seconds": 480,
+      "main_failure_bucket": "model"
+    },
+    {
+      "task_id": "queue-long-run-pressure",
+      "name": "long run pressure: keep the executor alive under a larger budget",
+      "prompt": "Run a longer queue task with a larger time budget so the benchmark can observe late-stage state transitions, retries, and cleanup behavior under pressure.",
+      "expected_artifacts": [
+        "summary.json",
+        "status.json",
+        "heartbeat.json",
+        "artifacts/"
+      ],
+      "pass_conditions": [
+        "summary.json exists",
+        "summary.final_status is set",
+        "summary.duration_seconds is set",
+        "summary.root_cause.kind is set when the run does not complete cleanly"
+      ],
+      "retry_attempts": 1,
+      "max_duration_seconds": 900,
+      "main_failure_bucket": "infra"
     }
   ]
 }
