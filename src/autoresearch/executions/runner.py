@@ -824,10 +824,15 @@ class AgentExecutionRunner:
             allowed_paths=policy.merged.allowed_paths,
         )
         last_state_progress_signature = self._runtime_heartbeat_signature(workspace_dir=workspace_dir)
+        last_log_progress_signature = self._log_progress_signature(
+            stdout_log=stdout_log,
+            stderr_log=stderr_log,
+        )
         last_progress_at = started
         first_progress_ms: int | None = None
         first_scoped_write_ms: int | None = None
         first_state_heartbeat_ms: int | None = None
+        first_log_progress_ms: int | None = None
         process_group_id: int | None = None
 
         with stdout_log.open("a", encoding="utf-8") as stdout_handle, stderr_log.open(
@@ -892,13 +897,18 @@ class AgentExecutionRunner:
                 current_state_progress_signature = self._runtime_heartbeat_signature(
                     workspace_dir=workspace_dir,
                 )
+                current_log_progress_signature = self._log_progress_signature(
+                    stdout_log=stdout_log,
+                    stderr_log=stderr_log,
+                )
                 scoped_progress_changed = (
                     current_scoped_progress_signature != last_scoped_progress_signature
                 )
                 state_progress_changed = (
                     current_state_progress_signature != last_state_progress_signature
                 )
-                if scoped_progress_changed or state_progress_changed:
+                log_progress_changed = current_log_progress_signature != last_log_progress_signature
+                if scoped_progress_changed or state_progress_changed or log_progress_changed:
                     if (
                         scoped_progress_changed
                         and first_scoped_write_ms is None
@@ -911,12 +921,19 @@ class AgentExecutionRunner:
                         and current_state_progress_signature
                     ):
                         first_state_heartbeat_ms = duration_ms
+                    if (
+                        log_progress_changed
+                        and first_log_progress_ms is None
+                        and current_log_progress_signature
+                    ):
+                        first_log_progress_ms = duration_ms
                     if first_progress_ms is None:
                         first_candidates = [
                             value
                             for value in (
                                 first_scoped_write_ms,
                                 first_state_heartbeat_ms,
+                                first_log_progress_ms,
                             )
                             if value is not None
                         ]
@@ -924,6 +941,7 @@ class AgentExecutionRunner:
                             first_progress_ms = min(first_candidates)
                     last_scoped_progress_signature = current_scoped_progress_signature
                     last_state_progress_signature = current_state_progress_signature
+                    last_log_progress_signature = current_log_progress_signature
                     last_progress_at = now
                 elif (now - last_progress_at) >= stall_timeout_sec:
                     self._terminate_process(process, process_group_id=process_group_id)
@@ -1247,6 +1265,19 @@ class AgentExecutionRunner:
         workspace_dir: Path,
     ) -> tuple[tuple[str, int, int], ...]:
         return self._state_heartbeat_signature(workspace_dir=workspace_dir)
+
+    @staticmethod
+    def _log_progress_signature(*, stdout_log: Path, stderr_log: Path) -> tuple[int, int, int, int]:
+        def _stat(path: Path) -> tuple[int, int]:
+            try:
+                stat_result = path.stat()
+            except FileNotFoundError:
+                return (0, 0)
+            return (int(stat_result.st_size), int(stat_result.st_mtime_ns))
+
+        stdout_size, stdout_mtime = _stat(stdout_log)
+        stderr_size, stderr_mtime = _stat(stderr_log)
+        return (stdout_size, stdout_mtime, stderr_size, stderr_mtime)
 
     def _changed_python_signature(
         self,

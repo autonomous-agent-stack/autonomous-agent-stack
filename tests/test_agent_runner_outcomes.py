@@ -224,6 +224,63 @@ JSON
     assert restored.artifacts_produced == []
 
 
+def test_stdout_progress_prevents_false_stall_classification(tmp_path: Path, monkeypatch) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    (repo_root / "src").mkdir(parents=True)
+    (repo_root / "src" / "base.py").write_text("x = 1\n", encoding="utf-8")
+
+    adapter = repo_root / "drivers" / "stdout_progress_adapter.sh"
+    adapter.parent.mkdir(parents=True, exist_ok=True)
+    adapter.write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+for i in 1 2 3 4 5; do
+  printf 'progress %s\\n' "$i"
+  sleep 0.3
+done
+cat > "$AEP_RESULT_PATH" <<'JSON'
+{
+  "protocol_version": "aep/v0",
+  "run_id": "run-stdout-progress",
+  "agent_id": "stdout-progress",
+  "attempt": 1,
+  "status": "succeeded",
+  "summary": "finished after stdout progress",
+  "changed_paths": ["src/base.py"],
+  "output_artifacts": [],
+  "metrics": {"duration_ms": 0, "steps": 0, "commands": 0, "prompt_tokens": null, "completion_tokens": null},
+  "recommended_action": "promote",
+  "error": null
+}
+JSON
+""",
+        encoding="utf-8",
+    )
+    adapter.chmod(0o755)
+    _write_manifest(repo_root, "stdout-progress", "drivers/stdout_progress_adapter.sh")
+
+    runner = AgentExecutionRunner(
+        repo_root=repo_root,
+        runtime_root=tmp_path / "runtime",
+        manifests_dir=repo_root / "configs" / "agents",
+    )
+    monkeypatch.setattr(runner, "_stall_progress_timeout_sec", lambda timeout_sec: 1)
+
+    summary = runner.run_job(
+        JobSpec(
+            run_id="run-stdout-progress",
+            agent_id="stdout-progress",
+            task="demo",
+            policy=ExecutionPolicy(allowed_paths=["src/base.py"], cleanup_on_success=False),
+        )
+    )
+
+    assert summary.driver_result.status == "succeeded"
+    assert summary.final_status in {"blocked", "ready_for_promotion", "promoted"}
+    assert summary.driver_result.metrics.first_progress_ms is not None
+
+
 def test_zero_change_success_is_blocked(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
