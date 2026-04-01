@@ -476,3 +476,111 @@ CI 路径已包含在 `.github/workflows/ci.yml` 的 `CORE_LINT_PATHS` 和 `CORE
 - DEGRADED 阈值修复（需统一 bridge 与 WorkerTimeoutDefaults）
 - Win/Yingdao worker
 - Console/UI 扩展
+
+---
+
+## 7. WorkerRegistration 接线差距审计 (2026-04-01)
+
+### 7.1 当前状态
+
+`supervisor_heartbeat_to_worker_registration()` bridge 函数存在于 `linux_supervisor_bridge.py`（line 269），但**从未被任何生产代码调用**。所有生产路径（`list_workers()`、`get_worker()`）通过 `_linux_housekeeper_worker()` 返回 legacy `WorkerRegistrationRead`（8 字段）。
+
+### 7.2 类型对比
+
+`WorkerRegistrationRead`（legacy, 8 字段）是 `WorkerRegistration`（unified, 14 字段）的严格子集：
+
+| 字段 | `WorkerRegistrationRead` | `WorkerRegistration` | 差距 |
+|------|-------------------------|---------------------|------|
+| `worker_id` | `str` (required) | `str` (required) | — |
+| `name` | `str` (required) | `str` (required) | — |
+| `worker_type` | `str` (required) | `WorkerType` (required) | 类型变化: str → enum |
+| `backend_kind` | `HousekeeperBackendKind \| None` | `str \| None` | 类型变化: enum → str |
+| `status` | `WorkerAvailabilityStatus` | `WorkerStatus` | 类型变化: legacy enum → unified enum (同值) |
+| `capabilities` | `list[str]` | `list[str]` | — |
+| `last_heartbeat` | `datetime \| None` | `datetime \| None` | — |
+| `metadata` | `dict[str, Any]` | `dict[str, Any]` | — |
+| `allowed_actions` | **无此字段** | `list[AllowedAction]` | ❌ legacy 不支持 |
+| `registered_at` | **无此字段** | `datetime` | ❌ legacy 不支持 |
+| `metrics` | **无此字段** | `WorkerMetrics` | ❌ legacy 不支持 |
+| `timeout_defaults` | **无此字段** | `WorkerTimeoutDefaults` | ❌ legacy 不支持 |
+| `max_concurrent_tasks` | **无此字段** | `int` | ❌ legacy 不支持 |
+| `errors` | **无此字段** (埋在 metadata 中) | `list[str]` | ❌ legacy 不支持 |
+
+### 7.3 Bridge 函数差距
+
+`supervisor_heartbeat_to_worker_registration()` 存在以下问题：
+
+| 问题 | 级别 | 说明 |
+|------|------|------|
+| `metadata = {}` | **High** | 丢弃了 legacy 的所有丰富元数据（queue_depth / process_status / message / current_task_id / last_task_id / heartbeat_age_seconds） |
+| `errors = []` | **High** | 始终为空，未从 process_status.message 或 stopped 状态推导 errors |
+| `process_status` 参数未使用 | Medium | 函数签名接收 `process_status` 但内部从未读取任何字段 |
+| `metrics` 全部为 0 | Low | supervisor 不采集 CPU/内存 |
+| `timeout_defaults` 用默认值 | Low | 不从 supervisor 配置读取 |
+| `registered_at = utc_now()` | Low | 非持久化，每次调用重新生成 |
+
+**关键发现**: bridge 函数比 legacy 代码**丢失了信息**。当前 `_linux_housekeeper_worker()` 通过 unified heartbeat 的 metadata 和 process_status 构建了 7 个 metadata key。bridge 函数全部丢弃。
+
+### 7.4 最小接线点
+
+**推荐方案**: 新增 `WorkerRegistryService.get_worker_registration()` 方法（类似已有的 `get_worker_heartbeat()`），调用 bridge 函数并补充 metadata。
+
+**改动范围**:
+- `worker_registry.py`: 新增 `get_worker_registration()` 方法（~15 行）
+- `linux_supervisor_bridge.py`: 修复 `supervisor_heartbeat_to_worker_registration()` 以填充 metadata 和 errors（~15 行改动）
+- 新增集成测试文件 `tests/test_worker_registration_integration.py`
+
+**不动**:
+- `_linux_housekeeper_worker()` — 保持返回 `WorkerRegistrationRead`，不破坏 `list_workers()` 接口
+- `list_workers()` — 不改变返回类型
+- `worker_contract.py`、`housekeeper_contract.py` — 不改变模型定义
+
+### 7.5 字段映射方案
+
+| WorkerRegistration 字段 | 来源 | 方式 |
+|------------------------|------|------|
+| `worker_id` | 调用方 | 硬编码 `"linux_housekeeper"` |
+| `name` | 调用方 | 硬编码 `"Linux Housekeeper"` |
+| `worker_type` | bridge | `WorkerType.LINUX` |
+| `capabilities` | bridge | `_LINUX_CAPABILITIES` 常量 |
+| `allowed_actions` | bridge | `_LINUX_ALLOWED_ACTIONS` 常量 |
+| `status` | bridge | `_derive_worker_status()` — 与 heartbeat 一致 |
+| `registered_at` | bridge | `utc_now()`（非持久） |
+| `last_heartbeat` | bridge | `process_hb.observed_at` |
+| `metrics` | bridge | `WorkerMetrics()`（全 0，无数据源） |
+| `timeout_defaults` | bridge | `WorkerTimeoutDefaults()`（默认值） |
+| `max_concurrent_tasks` | bridge | `1` |
+| `backend_kind` | bridge | `"linux_supervisor"` |
+| `errors` | **需补充** | 从 stopped status 的 process_status.message 推导 |
+| `metadata` | **需补充** | 从 process_status + heartbeat 传入 queue_depth / process_status / message / current_task_id / last_task_id |
+
+### 7.6 风险点
+
+| 风险 | 级别 | 说明 |
+|------|------|------|
+| Bridge 丢失 metadata | **High** | 如果直接使用当前 bridge 函数，`list_workers()` 的丰富元数据将丢失 |
+| 两套类型并存 | Medium | `WorkerRegistrationRead`（legacy）和 `WorkerRegistration`（unified）字段不一致，下游消费者需适配 |
+| `registered_at` 非持久 | Low | 每次调用 `utc_now()`，不代表真实注册时间 |
+| `allowed_actions` 硬编码 | Low | 不可配置，不适配多 supervisor 场景 |
+
+### 7.7 建议的集成测试（供 Codex 实现）
+
+| # | 测试名 | 验证内容 | 优先级 |
+|---|--------|---------|--------|
+| R1 | `test_idle_fresh_returns_online_registration` | idle + fresh → `WorkerRegistration.status == ONLINE`, `worker_type == LINUX` | P0 |
+| R2 | `test_running_fresh_returns_busy_registration` | running + fresh → `status == BUSY`, `max_concurrent_tasks == 1` | P0 |
+| R3 | `test_stopped_returns_offline_registration` | stopped → `status == OFFLINE`, `errors` 非空 | P0 |
+| R4 | `test_registration_required_fields_present` | 验证 worker_id / name / worker_type / capabilities / allowed_actions / backend_kind / registered_at 全部非空 | P0 |
+| R5 | `test_registration_metadata_preserves_process_info` | `metadata` 包含 queue_depth / process_status / message / current_task_id（不丢失 legacy 信息） | P1 |
+
+### 7.8 超出范围
+
+以下项目 **不在此轮接线范围**：
+- 动态 worker 注册（替换硬编码 `list_workers()`）
+- 真实 CPU/内存指标采集（需 psutil 集成）
+- `WorkerRegistration` 独立持久化（数据库存储）
+- `list_workers()` 返回类型改为 `WorkerRegistration`（破坏性变更）
+- `timeout_defaults` 从 supervisor 配置读取
+- retry/fallback 消费 registration 数据
+- Console/UI 扩展展示 `WorkerRegistration`
+- Win/Yingdao worker registration
