@@ -275,3 +275,26 @@ _linux_housekeeper_worker()
 - No independent persistence for WorkerRegistration data.
 - No CPU / memory metrics collection.
 - API response model for `/workers` remains `WorkerRegistrationRead`.
+
+---
+
+## Changelog: Control-Plane Worker API Compatibility
+
+### What changed
+
+No additional production wiring was required in this round. Audit plus endpoint-level
+integration tests confirmed that:
+
+1. `/api/v1/control-plane/workers` already consumes `WorkerRegistryService.list_workers()`
+2. `/api/v1/control-plane/workers/{worker_id}` already consumes `WorkerRegistryService.get_worker()`
+3. For `linux_housekeeper`, both paths already project from unified registration / heartbeat
+   sources while keeping the external response model as legacy `WorkerRegistrationRead`
+
+This round adds API-level integration coverage and CI coverage for that compatibility layer.
+
+### Verified compatibility
+
+- `status` stays aligned with unified heartbeat in idle / running / stopped scenarios
+- legacy top-level fields remain unchanged
+- metadata keeps `queue_depth` / `pid` / `current_task_id` / `message`
+- API payload still remains `WorkerRegistrationRead`, not unified `WorkerRegistration`
