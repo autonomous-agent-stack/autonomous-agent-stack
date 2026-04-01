@@ -6,6 +6,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
+from autoresearch.benchmarks.live_run_retry import (
+    LIVE_RUN_RETRY_RESULT_VALUES,
+    build_live_run_retry_result_counts,
+    resolve_live_run_retry_result,
+)
 from autoresearch.benchmarks.live_run_stability_matrix import write_live_run_regression_matrix
 
 _SUCCESS_SUMMARY_RESULTS = {"completed", "ready_for_promotion", "promoted", "succeeded"}
@@ -160,14 +165,12 @@ def _summary_retry_result(
     retry_budget: int,
     retry_attempts_used: int,
 ) -> str:
-    explicit = summary.get("retry_result")
-    if isinstance(explicit, str) and explicit.strip():
-        return explicit.strip()
-    if retry_budget <= 0:
-        return "not_requested"
-    if retry_attempts_used <= 0:
-        return "not_needed" if _summary_succeeded(summary) else "not_attempted"
-    return "recovered" if _summary_succeeded(summary) else "exhausted"
+    return resolve_live_run_retry_result(
+        explicit=summary.get("retry_result"),
+        succeeded=_summary_succeeded(summary),
+        retry_budget=retry_budget,
+        retry_attempts_used=retry_attempts_used,
+    )
 
 
 def _summary_succeeded(summary: dict[str, Any]) -> bool:
@@ -183,14 +186,15 @@ def _summary_status(summary: dict[str, Any]) -> str:
 
 
 def build_live_run_retry_overview(rows: list[Any]) -> dict[str, Any]:
-    counts: dict[str, int] = {}
+    counts = build_live_run_retry_result_counts()
     tasks: list[dict[str, Any]] = []
     retry_requested_task_count = 0
     retried_task_count = 0
 
     for row in rows:
-        retry_result = str(getattr(row, "retry_result", None) or "unknown")
-        counts[retry_result] = counts.get(retry_result, 0) + 1
+        retry_result = getattr(row, "retry_result", None)
+        if retry_result in LIVE_RUN_RETRY_RESULT_VALUES:
+            counts[str(retry_result)] += 1
         retry_budget = getattr(row, "retry_budget", None)
         retry_attempts_used = getattr(row, "retry_attempts_used", None)
         if isinstance(retry_budget, int) and retry_budget > 0:

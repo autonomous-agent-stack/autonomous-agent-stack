@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from autoresearch.agent_protocol.models import DriverResult, ValidationReport
+from autoresearch.benchmarks.live_run_retry import resolve_live_run_retry_result
 from autoresearch.executions.failure_classifier import classify_failure
 
 
@@ -71,7 +72,7 @@ def generate_live_run_regression_matrix(
                     failure_layer=_optional_string(run_summary.get("failure_layer")),
                     failure_stage=_optional_string(run_summary.get("failure_stage")),
                     duration_sec=_optional_float(run_summary.get("duration_seconds")),
-                    retry_result=_resolve_retry_result(run_summary, None),
+                    retry_result=_resolve_retry_result(task, run_summary, None),
                     retry_budget=_resolve_retry_budget(task, run_summary),
                     retry_attempts_used=_resolve_retry_attempts_used(run_summary, None),
                     notes="summary missing driver_result or validation",
@@ -97,7 +98,7 @@ def generate_live_run_regression_matrix(
                 failure_layer=_optional_string(run_summary.get("failure_layer")) or classification.failure_layer,
                 failure_stage=_optional_string(run_summary.get("failure_stage")),
                 duration_sec=_optional_float(run_summary.get("duration_seconds")),
-                retry_result=_resolve_retry_result(run_summary, driver_result),
+                retry_result=_resolve_retry_result(task, run_summary, driver_result),
                 retry_budget=_resolve_retry_budget(task, run_summary),
                 retry_attempts_used=_resolve_retry_attempts_used(run_summary, driver_result),
                 notes=_optional_string(run_summary.get("notes")),
@@ -194,21 +195,32 @@ def _retry_metadata(run_summary: dict[str, Any]) -> dict[str, Any]:
     return dict(retry_metadata) if isinstance(retry_metadata, dict) else {}
 
 
-def _resolve_retry_result(run_summary: dict[str, Any], driver_result: DriverResult | None) -> str | None:
+def _resolve_retry_result(
+    task: dict[str, Any],
+    run_summary: dict[str, Any],
+    driver_result: DriverResult | None,
+) -> str:
+    retry_budget = _resolve_retry_budget(task, run_summary)
+    retry_attempts_used = _resolve_retry_attempts_used(run_summary, driver_result)
+    if retry_attempts_used is None:
+        retry_attempts_used = 0
+
+    result = _optional_string(run_summary.get("final_status")) or _optional_string(run_summary.get("result"))
+    succeeded = result in {"completed", "ready_for_promotion", "promoted", "succeeded"}
+
+    if driver_result is not None and not succeeded:
+        succeeded = driver_result.status == "succeeded"
+
     explicit = _optional_string(run_summary.get("retry_result"))
-    if explicit is not None:
-        return explicit
-    metadata_result = _optional_string(_retry_metadata(run_summary).get("result"))
-    if metadata_result is not None:
-        return metadata_result
-    if driver_result is None:
-        return None
-    if driver_result.attempt > 1:
-        result = _optional_string(run_summary.get("final_status")) or _optional_string(run_summary.get("result"))
-        if result in {"completed", "ready_for_promotion", "promoted"}:
-            return "recovered"
-        return "retried"
-    return None
+    if explicit is None:
+        explicit = _optional_string(_retry_metadata(run_summary).get("result"))
+
+    return resolve_live_run_retry_result(
+        explicit=explicit,
+        succeeded=succeeded,
+        retry_budget=retry_budget or 0,
+        retry_attempts_used=retry_attempts_used,
+    )
 
 
 def _resolve_retry_budget(task: dict[str, Any], run_summary: dict[str, Any]) -> int | None:

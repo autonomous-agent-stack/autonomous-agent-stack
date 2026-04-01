@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 
 from autoresearch.agent_protocol.models import FallbackStep, JobSpec, ValidatorSpec
+from autoresearch.benchmarks.live_run_retry import LIVE_RUN_RETRY_RESULT_VALUES
 from autoresearch.benchmarks.live_run_stability_matrix import (
     generate_live_run_regression_matrix,
     render_live_run_regression_matrix_json,
@@ -475,6 +476,94 @@ def test_live_run_benchmark_runner_records_exhausted_retry_artifacts(tmp_path: P
     assert retry_overview["tasks"][0]["retry_result"] == "exhausted"
 
 
+def test_retry_overview_json_has_stable_schema(tmp_path: Path) -> None:
+    tasks_path = tmp_path / "tasks.json"
+    tasks_path.write_text(
+        json.dumps(
+            {
+                "suite_name": "live-run-stability",
+                "tasks": [
+                    {"task_id": "one", "name": "one", "retry_attempts": 0},
+                    {"task_id": "two", "name": "two", "retry_attempts": 1},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def executor(task: dict[str, object], run_dir: Path) -> dict[str, object]:
+        _ = run_dir
+        task_id = str(task["task_id"])
+        if task_id == "one":
+            return {
+                "final_status": "completed",
+                "result": "completed",
+                "driver_result": {
+                    "run_id": task_id,
+                    "agent_id": "agent",
+                    "attempt": 1,
+                    "status": "succeeded",
+                    "summary": "clean pass",
+                    "metrics": {"duration_ms": 5, "steps": 1, "commands": 1},
+                    "recommended_action": "promote",
+                },
+                "validation": {"run_id": task_id, "passed": True, "checks": []},
+            }
+        return {
+            "final_status": "failed",
+            "result": "failed",
+            "driver_result": {
+                "run_id": task_id,
+                "agent_id": "agent",
+                "attempt": 2,
+                "status": "failed",
+                "summary": "retry exhausted",
+                "metrics": {"duration_ms": 5, "steps": 2, "commands": 2},
+                "recommended_action": "human_review",
+                "error": "still broken",
+            },
+            "validation": {"run_id": task_id, "passed": False, "checks": []},
+        }
+
+    run_live_run_stability_benchmark(
+        tasks_path=tasks_path,
+        run_root=tmp_path / "runs",
+        matrix_json_path=tmp_path / "artifacts" / "live-run-stability" / "regression-matrix.json",
+        matrix_markdown_path=tmp_path / "artifacts" / "live-run-stability" / "regression-matrix.md",
+        retry_overview_json_path=tmp_path / "artifacts" / "live-run-stability" / "retry-overview.json",
+        executor=executor,
+    )
+
+    retry_overview = json.loads(
+        (tmp_path / "artifacts" / "live-run-stability" / "retry-overview.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert set(retry_overview) == {
+        "task_count",
+        "retry_requested_task_count",
+        "retried_task_count",
+        "retry_result_counts",
+        "tasks",
+    }
+    assert set(retry_overview["retry_result_counts"]) == set(LIVE_RUN_RETRY_RESULT_VALUES)
+    assert retry_overview["retry_result_counts"]["not_requested"] == 1
+    assert retry_overview["retry_result_counts"]["exhausted"] == 1
+    assert all(
+        set(item) == {
+            "task_id",
+            "task_name",
+            "result",
+            "failure_status",
+            "retry_result",
+            "retry_budget",
+            "retry_attempts_used",
+        }
+        for item in retry_overview["tasks"]
+    )
+
+
 def test_matrix_derives_retry_result_from_attempt_count(tmp_path: Path) -> None:
     tasks_path = tmp_path / "tasks.json"
     tasks_path.write_text(
@@ -510,6 +599,45 @@ def test_matrix_derives_retry_result_from_attempt_count(tmp_path: Path) -> None:
 
     assert rows[0].retry_result == "recovered"
     assert rows[0].retry_budget == 2
+    assert rows[0].retry_attempts_used == 1
+
+
+def test_matrix_normalizes_legacy_retried_result_to_stable_enum(tmp_path: Path) -> None:
+    tasks_path = tmp_path / "tasks.json"
+    tasks_path.write_text(
+        json.dumps(
+            {"suite_name": "live-run-stability", "tasks": [{"task_id": "retry", "name": "retry", "retry_attempts": 1}]}
+        ),
+        encoding="utf-8",
+    )
+
+    run_root = tmp_path / "runs"
+    (run_root / "retry").mkdir(parents=True)
+    (run_root / "retry" / "summary.json").write_text(
+        json.dumps(
+            {
+                "final_status": "completed",
+                "result": "completed",
+                "retry_result": "retried",
+                "driver_result": {
+                    "run_id": "retry",
+                    "agent_id": "agent",
+                    "attempt": 2,
+                    "status": "succeeded",
+                    "summary": "legacy retried payload",
+                    "metrics": {"duration_ms": 20, "steps": 2, "commands": 2},
+                    "recommended_action": "promote",
+                },
+                "validation": {"run_id": "retry", "passed": True, "checks": []},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    rows = generate_live_run_regression_matrix(tasks_path=tasks_path, run_roots=[run_root])
+
+    assert rows[0].retry_result == "recovered"
+    assert rows[0].retry_budget == 1
     assert rows[0].retry_attempts_used == 1
 
 
