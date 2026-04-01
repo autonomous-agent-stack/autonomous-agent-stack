@@ -9,7 +9,10 @@ from autoresearch.benchmarks.live_run_stability_matrix import (
     render_live_run_regression_matrix_markdown,
     write_live_run_regression_matrix,
 )
-from autoresearch.benchmarks.live_run_stability_runner import run_live_run_stability_benchmark
+from autoresearch.benchmarks.live_run_stability_runner import (
+    build_live_run_agent_env,
+    run_live_run_stability_benchmark,
+)
 
 
 def test_matrix_generates_from_missing_and_present_summaries(tmp_path: Path) -> None:
@@ -194,3 +197,14 @@ def test_live_run_benchmark_runner_handles_partial_summaries_conservatively(
     assert matrix[0]["task_id"] == "partial"
     assert matrix[0]["result"] == "failed"
     assert matrix[0]["failure_status"] is None
+
+
+def test_live_run_agent_env_prefers_repo_venv_and_src(tmp_path: Path, monkeypatch) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    (repo_root / ".venv" / "bin").mkdir(parents=True)
+    monkeypatch.setenv("PYTHONPATH", "/foreign/path")
+    env = build_live_run_agent_env(repo_root)
+
+    assert str(repo_root / ".venv" / "bin") in env["PATH"]
+    assert str(repo_root / "src") in env["PYTHONPATH"]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -59,3 +60,12 @@ def run_live_run_stability_benchmark(
         matrix_markdown_path=matrix_markdown_path,
         task_count=task_count,
     )
+
+
+def build_live_run_agent_env(repo_root: Path) -> dict[str, str]:
+    env = dict(os.environ)
+    src_path = str((repo_root / "src").resolve())
+    pythonpath = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = f"{src_path}:{pythonpath}" if pythonpath else src_path
+    env["PATH"] = f"{(repo_root / '.venv' / 'bin').resolve()}:{env.get('PATH', '')}"
+    return env
