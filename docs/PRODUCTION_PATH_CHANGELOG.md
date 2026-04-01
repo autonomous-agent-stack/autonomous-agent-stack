@@ -4,7 +4,9 @@
 
 `ControlPlaneService._execute()` (LINUX_SUPERVISOR branch) calls bridge
 functions from `linux_supervisor_bridge.py` after each real Linux execution,
-producing unified contract artifacts stored in `result_payload`.
+producing unified contract artifacts stored in `result_payload`. The
+`run_record` payload is normalized to the same JSON-safe string shape used by
+the surrounding summary fields.
 
 ## Before
 
@@ -63,10 +65,10 @@ Task status decision logic is unchanged -- still uses `summary.success`.
   "run_id": "run-001",
   "task_id": "task-001",
   "worker_id": "linux_housekeeper",
-  "status": "RunStatus.SUCCEEDED",
+  "status": "succeeded",
   "run_status": "succeeded",
-  "started_at": "2026-04-01T12:00:00+00:00",
-  "completed_at": "2026-04-01T12:00:10+00:00",
+  "started_at": "2026-04-01T12:00:00Z",
+  "completed_at": "2026-04-01T12:00:10Z",
   "error_message": null,
   "result_data": {
     "artifacts": {"stdout.log": "/tmp/stdout.log"},
@@ -107,10 +109,13 @@ tracking is added to the supervisor in the future, these should be backfilled.
 
 | File | Change |
 |------|--------|
-| `src/autoresearch/core/services/control_plane_service.py` | Bridge calls in `_execute()` LINUX_SUPERVISOR branch |
+| `src/autoresearch/core/services/control_plane_service.py` | Bridge calls in `_execute()` LINUX_SUPERVISOR branch plus JSON normalization for `run_record` status/timestamps |
 | `tests/test_linux_gate_integration.py` | 6 integration tests proving gate evaluation |
 | `tests/test_linux_run_lifecycle_integration.py` | 8 integration tests proving run lifecycle |
-| `.github/workflows/ci.yml` | New test paths in CORE_LINT_PATHS + CORE_TEST_PATHS |
+
+CI audit note: `.github/workflows/ci.yml` already included
+`tests/test_linux_run_lifecycle_integration.py` in both `CORE_LINT_PATHS` and
+`CORE_TEST_PATHS`, so this follow-up did not need a workflow edit.
 
 ## Verification
 

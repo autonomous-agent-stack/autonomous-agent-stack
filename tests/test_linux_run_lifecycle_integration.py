@@ -347,11 +347,11 @@ class TestLinuxRunLifecycleIntegration:
         # Cross-check with original summary fields
         assert rr["task_id"] == payload["task_id"]
         assert rr["run_id"] == payload["run_id"]
-        assert rr["started_at"] is not None
-        assert rr["completed_at"] is not None
+        assert rr["started_at"] == payload["started_at"]
+        assert rr["completed_at"] == payload["finished_at"]
 
     def test_run_record_result_data_contains_bridge_fields(self, tmp_path: Path):
-        """run_record.result_data includes artifacts, conclusion, duration_seconds."""
+        """run_record.result_data matches bridge-selected summary fields."""
         repo_root = tmp_path / "repo"
         helper = _linux_success_helper(tmp_path / "success.py")
         _seed_agent_package_tree(repo_root)
@@ -361,13 +361,16 @@ class TestLinuxRunLifecycleIntegration:
 
         rr = task.result_payload["run_record"]
         rd = rr["result_data"]
-        assert "artifacts" in rd
-        assert "conclusion" in rd
-        assert "duration_seconds" in rd
-        assert "process_returncode" in rd
+        payload = task.result_payload
+        assert rd["artifacts"] == payload["artifacts"]
+        assert rd["conclusion"] == payload["conclusion"]
+        assert rd["duration_seconds"] == payload["duration_seconds"]
+        assert rd["process_returncode"] == payload["process_returncode"]
+        assert rd["aep_final_status"] == payload["aep_final_status"]
+        assert rd["aep_driver_status"] == payload["aep_driver_status"]
 
     def test_run_record_run_status_matches_gate_evaluation(self, tmp_path: Path):
-        """run_record.run_status is consistent with gate_evaluation.run_status."""
+        """run_record status fields stay aligned with gate_evaluation.run_status."""
         repo_root = tmp_path / "repo"
         helper = _linux_success_helper(tmp_path / "success.py")
         _seed_agent_package_tree(repo_root)
@@ -376,7 +379,10 @@ class TestLinuxRunLifecycleIntegration:
         task = _dispatch(services, "巡检 Linux 服务状态")
 
         gate_status = task.result_payload["gate_evaluation"]["run_status"]
+        status = task.result_payload["run_record"]["status"]
         run_status = task.result_payload["run_record"]["run_status"]
+        assert type(status) is str
+        assert status == run_status
         assert gate_status == run_status
 
     def test_failed_run_record_has_error_message(self, tmp_path: Path):

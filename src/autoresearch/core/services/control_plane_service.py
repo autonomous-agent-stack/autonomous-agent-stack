@@ -298,9 +298,9 @@ class ControlPlaneService:
             # Serialize datetime fields to ISO strings for JSON compatibility
             run_rec = result_payload["run_record"]
             if run_rec.get("started_at") is not None:
-                run_rec["started_at"] = run_rec["started_at"].isoformat()
+                run_rec["started_at"] = run_rec["started_at"].isoformat().replace("+00:00", "Z")
             if run_rec.get("completed_at") is not None:
-                run_rec["completed_at"] = run_rec["completed_at"].isoformat()
+                run_rec["completed_at"] = run_rec["completed_at"].isoformat().replace("+00:00", "Z")
             run_rec["status"] = bridge_run.status.value
             run_rec["run_status"] = bridge_run.status.value
 
