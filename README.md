@@ -1,6 +1,53 @@
-# Autonomous Agent Stack
+# autonomous-agent-stack: Agent Execution Control Plane
 
-一个面向多智能体编排、工作流触发、自集成验证和零信任加固的工程化仓库。
+`autonomous-agent-stack` 不是另一个个人 agent runtime，也不是另一个 memory system、training framework 或 channel OS。
+
+它的主定位是一个受控的 agent execution control plane：把 OpenClaw 兼容层、Claude CLI、OpenHands、Linux worker、Windows RPA worker、浏览器自动化和脚本 worker 纳入统一执行面，提供任务路由、隔离执行、审批、审计、回滚和迁移能力。
+
+当前仓库的 4 个关键词：
+
+- **Control Plane**: 统一任务契约、worker registry、状态流转与入口路由
+- **Worker Fabric**: 接不同 runtime/worker，而不是绑定单一 agent runtime
+- **Governance Layer**: 提供隔离、审批、验证、审计、回滚与幂等重放边界
+- **Migration Hub**: 平滑承接 OpenClaw 的 session、skills、Telegram 与 workflow，并支持分阶段迁移和回滚
+
+## 它不是什么
+
+- 不是另一个个人 agent runtime
+- 不是另一个长程记忆系统
+- 不是另一个训练或自进化框架
+- 不是另一个多渠道 channel OS
+- 不要求你先推倒现有 OpenClaw 或 CLI 工作流再接入
+
+## 它替代什么
+
+- 替代散落在 shell 脚本、tmux 会话、人工 SSH 和临时 glue code 里的执行编排
+- 替代 runtime 各自为政、缺少统一审批、审计与回滚边界的真实执行链
+- 替代“要么全量迁移、要么完全不动”的高风险切换方式
+
+## 它依赖什么
+
+- 它依赖现成 runtime/worker 干活：OpenClaw、Claude CLI、OpenHands、本地脚本、浏览器自动化、Linux/Windows worker
+- 它依赖执行边界基础设施：Docker 或 host runtime、独立 workspace、validator、patch gate、approval surface
+- 它依赖兼容层，而不是自造全套生态：session/skills/Telegram 兼容、上游 workflow 挂载、分阶段迁移
+
+## 它的最小闭环
+
+1. 控制面接收任务并选择合适的 worker 或 adapter
+2. 在隔离 workspace 或受控队列中执行任务
+3. 产出 patch、artifacts、summary 和 heartbeat
+4. 经过 validator、approval 和 audit 后决定 promote、retry、fallback、human_review 或 rollback
+
+## 项目方向
+
+更多长期边界和吸收规则见 [Project Direction](./docs/project-direction.md)。
+面向投资人的版本见 [Investor Brief](./docs/investor-brief.md) 与 [投资人一页纸](./docs/investor-one-pager.md)。
+
+当前项目只保留三条硬规则：
+
+- prompt orchestration 只做计划层，不替代 control plane
+- self-exploration 只做受控研究执行，不绕过 gate / acceptance
+- memory 只分三层：run checkpoint state、replay / audit stream、knowledge memory
 
 ## 运行时要求
 
@@ -205,9 +252,9 @@ PORT=8010 make start
 4. 如果是端口问题，执行 `PORT=8010 make start`
 5. 如果是导入问题，确认通过 `make start` 启动（脚本会自动设置 `PYTHONPATH=src`）
 
-## 🎯 灵感来源（Inspirations）
+## 🎯 生态来源与设计边界
 
-本项目深受以下 6 个优秀开源库的启发：
+这些项目提供了局部灵感，但本仓库当前不试图复刻它们完整的 runtime、memory、channel 或 self-evolution 叙事。最终收敛的是一个受控执行控制面。
 
 ### 1. **MASFactory** - 多智能体编排框架
 **GitHub**: https://github.com/BUPT-GAMMA/MASFactory  
@@ -279,20 +326,20 @@ PORT=8010 make start
 
 ---
 
-### 整合价值
+### 这些灵感如何收敛到当前定位
 
 | 开源库 | 核心价值 | 应用到本项目 |
 |--------|---------|-------------|
-| **MASFactory** | 多智能体编排 | 4 节点图结构 + MCP 网关 |
-| **deer-flow** | 并发编排 + 沙盒 | Lead Agent + Docker 沙盒 |
-| **OpenSage** | 自演化机制 | OpenSage 模块 + 动态工具合成 |
-| **OpenClaw** | 渠道接入 | Telegram Webhook + 技能系统 |
-| **OpenSpace** | SOP 演化引擎 | Markdown 技能库 + AUTO-LEARN |
-| **AutoResearch** | Karpathy 循环 | Propose-Train-Evaluate-Repeat |
+| **MASFactory** | 任务图与编排思路 | 图式拆解与执行链路设计 |
+| **deer-flow** | 并发编排 + 沙盒 | 隔离执行与 worker 编排边界 |
+| **OpenSage** | 动态工具与自适应思路 | 受控 adapter / patch 工作流 |
+| **OpenClaw** | 渠道、session、skills | 兼容层与迁移入口 |
+| **OpenSpace** | SOP 积累方式 | 可审计的文档化治理与操作清单 |
+| **AutoResearch** | promote / reject 循环 | validator、promotion、rollback 决策链 |
 
 ---
 
-**价值主张**: "构建无需人类干预、通过多渠道自我优化的超级智能体网络"
+**当前价值主张**: "让不同 agent/runtime/worker 在真实环境里可控、可回滚、可审计地干活"
 
 ---
 
@@ -302,6 +349,9 @@ PORT=8010 make start
 - [架构总图](./ARCHITECTURE.md)
 - [Admin View 字段填写教程](./docs/admin-view-field-guide.md)
 - [状态与发布说明](./STATUS_AND_RELEASE_NOTES.md)
+- [项目方向](./docs/project-direction.md)
+- [投资人简报](./docs/investor-brief.md)
+- [投资人一页纸](./docs/investor-one-pager.md)
 - [工作流引擎验证报告](./docs/WORKFLOW_ENGINE_VERIFICATION_REPORT.md)
 - [自集成协议](./docs/p4-self-integration-protocol.md)
 - [零信任实施方案](./docs/zero-trust-implementation-plan-v2.md)

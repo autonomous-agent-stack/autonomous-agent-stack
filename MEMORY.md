@@ -5,6 +5,38 @@
 - 时区：Asia/Taipei
 - 偏好沟通风格：干练
 
+## autonomous-agent-stack 定位收敛（2026-04-01）
+- 主叙事收敛为受控的 `Agent Execution Control Plane`，而不是“另一个个人 agent runtime”。
+- 4 个锚点词：
+  - Control Plane
+  - Worker Fabric
+  - Governance Layer
+  - Migration Hub
+- 明确避免把仓库主定位放在：
+  - personal runtime
+  - memory system
+  - training framework
+  - channel OS
+- 核心价值应强调：
+  - 统一 worker 编排
+  - 安全、审批、审计、回滚边界
+  - OpenClaw 兼容与迁移
+  - 多 runtime 适配器治理
+- Prompt orchestration 只能作为 control plane 之前的计划层，不应替代 control plane。
+- 允许的 prompt orchestration 范围：
+  - 任务分解
+  - 角色分配
+  - 候选方案生成
+  - 验证要求生成
+- 不允许的方向：
+  - 自由协商后直接改生产代码
+  - 用 prompt runtime 覆盖 gate / registry / acceptance / rollback
+  - 把自治 prompt 系统当成系统宪法层
+- Memory 需要明确三层拆分：
+  - run checkpoint state
+  - replay / audit stream
+  - knowledge memory
+
 ## v1 收敛原则（2026-03-27）
 - 当前最优策略是冻结“硬核版 v1 定义”，优先落地可运行的工程规格，而不是继续扩需求。
 - 倾向的核心取舍：
