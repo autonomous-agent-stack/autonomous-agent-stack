@@ -53,6 +53,7 @@ env:
     tests/test_linux_gate_integration.py
     tests/test_linux_run_lifecycle_integration.py
     tests/test_worker_registry_heartbeat_integration.py
+    tests/test_worker_registry_registration_integration.py
   CORE_TEST_PATHS: >-
     tests/gateway/test_message_mirror.py
     tests/test_agent_protocol_models.py
@@ -82,6 +83,7 @@ env:
     tests/test_linux_gate_integration.py
     tests/test_linux_run_lifecycle_integration.py
     tests/test_worker_registry_heartbeat_integration.py
+    tests/test_worker_registry_registration_integration.py
 
 jobs:
   lint-test-audit:

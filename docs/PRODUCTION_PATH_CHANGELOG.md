@@ -212,3 +212,63 @@ Both paths now share the same file reader and bridge function, ensuring status c
 ```bash
 PYTHONPATH=src pytest tests/test_worker_registry_heartbeat_integration.py -v
 ```
+
+---
+
+## Changelog: Registration Integration
+
+### What changed
+
+Linux supervisor registration is now wired into the real production registry path:
+
+1. `WorkerRegistryService.get_worker_registration("linux_housekeeper")`
+   reads the real `supervisor_status.json` / `supervisor_heartbeat.json` files
+   and calls `supervisor_heartbeat_to_worker_registration()`.
+2. `_linux_housekeeper_worker()` now reuses that unified registration result and
+   down-maps it back to legacy `WorkerRegistrationRead`, so `get_worker_registration()`,
+   `get_worker()` and `list_workers()` stay aligned.
+3. Added 5 integration tests covering idle / running / stopped status, metadata,
+   and consistency against `get_worker_heartbeat()` and `list_workers()`.
+4. Added the new integration test file to CI.
+
+### Before
+
+```text
+get_worker_registration("linux_housekeeper")
+  → AttributeError / no production path
+
+_linux_housekeeper_worker()
+  → hand-built WorkerRegistrationRead only
+  → did not call supervisor_heartbeat_to_worker_registration()
+```
+
+### After
+
+```text
+get_worker_registration("linux_housekeeper")
+  → _read_linux_supervisor_state()
+  → supervisor_heartbeat_to_worker_registration()
+  → WorkerRegistration
+  → metadata enriched with queue_depth / process_status / pid / task ids / message
+
+_linux_housekeeper_worker()
+  → get_worker_registration("linux_housekeeper")
+  → WorkerRegistrationRead  (legacy-compatible projection)
+```
+
+### Tests (5 total)
+
+| Test | Condition | Expected |
+|------|-----------|----------|
+| `test_fresh_idle_registration_reflects_real_status` | idle + 5s age | `WorkerRegistration.status == ONLINE`, `worker_type == LINUX` |
+| `test_running_registration_reflects_real_status_and_queue_pid_metadata` | running + task_id + pid | `status == BUSY`, metadata keeps queue / pid / task |
+| `test_stopped_registration_reflects_real_status` | stopped + message | `status == OFFLINE` |
+| `test_registration_status_matches_heartbeat_and_list_workers` | running | registration / heartbeat / list_workers status agree |
+| `test_registration_shape_includes_unified_compat_fields` | idle | allowed_actions / capabilities / max_concurrent_tasks / registered_at / backend_kind present |
+
+### Not changed
+
+- No retry/fallback consumption.
+- No independent persistence for WorkerRegistration data.
+- No CPU / memory metrics collection.
+- API response model for `/workers` remains `WorkerRegistrationRead`.

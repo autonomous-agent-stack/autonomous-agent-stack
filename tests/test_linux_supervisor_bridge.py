@@ -276,7 +276,9 @@ class TestHeartbeatConversion:
     def test_idle_fresh_is_online(self):
         hb = _process_hb(status="idle")
         ps = _process_status(status="idle")
-        whb = supervisor_heartbeat_to_worker_heartbeat(hb, ps, worker_id="linux_housekeeper")
+        whb = supervisor_heartbeat_to_worker_heartbeat(
+            hb, ps, worker_id="linux_housekeeper", now=_NOW
+        )
         assert isinstance(whb, WorkerHeartbeat)
         assert whb.worker_id == "linux_housekeeper"
         assert whb.status == WorkerStatus.ONLINE
@@ -285,7 +287,9 @@ class TestHeartbeatConversion:
     def test_running_fresh_is_busy(self):
         hb = _process_hb(status="running", current_task_id="task-001")
         ps = _process_status(status="running", current_task_id="task-001")
-        whb = supervisor_heartbeat_to_worker_heartbeat(hb, ps, worker_id="linux_housekeeper")
+        whb = supervisor_heartbeat_to_worker_heartbeat(
+            hb, ps, worker_id="linux_housekeeper", now=_NOW
+        )
         assert whb.status == WorkerStatus.BUSY
         assert whb.metrics.active_tasks == 1
         assert "task-001" in whb.active_task_ids

@@ -99,31 +99,35 @@ before any PR can merge and before the stack can be called "demo-ready".
 | G8.6 | `list_workers()` 中 linux_housekeeper 的 status 与 `get_worker_heartbeat()` 一致（idle/running/stopped/stale 四种场景） | `pytest tests/test_worker_registry_heartbeat_integration.py::TestWorkerRegistryListWorkersHeartbeatConsistency` |
 | G8.7 | `WorkerHeartbeat.active_task_ids` 从 `process_status.current_task_id` 填充（idle 时为空列表） | 已覆盖在 G8.1 / G8.2 中 |
 
-### G9. Worker Registration Production Path (WorkerRegistration ← LinuxSupervisor) — 待接线
+### G9. Worker Registration Production Path (WorkerRegistration ← LinuxSupervisor) — 已接线
 
-> **状态**: 全部待实现。`supervisor_heartbeat_to_worker_registration()` bridge 函数存在但从未被生产代码调用。
-> 当前 `_linux_housekeeper_worker()` 返回 legacy `WorkerRegistrationRead`（8 字段），不含 allowed_actions / metrics / timeout_defaults / max_concurrent_tasks / registered_at / errors。
+> **状态**: `WorkerRegistryService.get_worker_registration("linux_housekeeper")` 现在读取真实
+> `supervisor_status.json` / `supervisor_heartbeat.json`，并调用
+> `supervisor_heartbeat_to_worker_registration()` 产出 unified `WorkerRegistration`。
+> `_linux_housekeeper_worker()` 继续返回 legacy `WorkerRegistrationRead`，但已复用 unified registration
+> 结果做最小向下兼容映射，因此 `get_worker_registration()` / `get_worker()` / `list_workers()` 的核心状态一致。
 
 | # | 条件 | 验证方式 |
 |---|------|----------|
-| G9.1 | Supervisor idle + fresh heartbeat → `get_worker_registration()` 返回 `WorkerRegistration` with `status == "online"`, `worker_type == WorkerType.LINUX` | 待实现 |
-| G9.2 | Supervisor running + fresh heartbeat → `WorkerRegistration.status == "busy"`, `max_concurrent_tasks == 1` | 待实现 |
-| G9.3 | Supervisor stopped → `WorkerRegistration.status == "offline"` | 待实现 |
-| G9.4 | `WorkerRegistration.allowed_actions` 包含 `[EXECUTE_TASK, RUN_SCRIPT, COLLECT_LOGS]` | 待实现 |
-| G9.5 | `WorkerRegistration.capabilities` 包含 `["shell", "script_runner", "log_collection", "ops_inspection"]` | 待实现 |
-| G9.6 | `WorkerRegistration.metadata` 保留 legacy 的丰富元数据（queue_depth / process_status / message / current_task_id / last_task_id），不丢失信息 | 待实现 |
-| G9.7 | `WorkerRegistration.registered_at` 非空（可为动态生成 `utc_now()`） | 待实现 |
-| G9.8 | `WorkerRegistration.backend_kind == "linux_supervisor"` | 待实现 |
+| G9.1 | Supervisor idle + fresh heartbeat → `get_worker_registration()` 返回 `WorkerRegistration` with `status == "online"`, `worker_type == WorkerType.LINUX` | `pytest tests/test_worker_registry_registration_integration.py::TestWorkerRegistryRegistrationIntegration::test_fresh_idle_registration_reflects_real_status` |
+| G9.2 | Supervisor running + fresh heartbeat → `WorkerRegistration.status == "busy"`, `max_concurrent_tasks == 1` | `pytest tests/test_worker_registry_registration_integration.py::TestWorkerRegistryRegistrationIntegration::test_running_registration_reflects_real_status_and_queue_pid_metadata` |
+| G9.3 | Supervisor stopped → `WorkerRegistration.status == "offline"` | `pytest tests/test_worker_registry_registration_integration.py::TestWorkerRegistryRegistrationIntegration::test_stopped_registration_reflects_real_status` |
+| G9.4 | `WorkerRegistration.allowed_actions` 包含 `[EXECUTE_TASK, RUN_SCRIPT, COLLECT_LOGS]` | `pytest tests/test_worker_registry_registration_integration.py::TestWorkerRegistryRegistrationIntegration::test_registration_shape_includes_unified_compat_fields` |
+| G9.5 | `WorkerRegistration.capabilities` 包含 `["shell", "script_runner", "log_collection", "ops_inspection"]` | `pytest tests/test_worker_registry_registration_integration.py::TestWorkerRegistryRegistrationIntegration::test_registration_shape_includes_unified_compat_fields` |
+| G9.6 | `WorkerRegistration.metadata` 保留 legacy 的丰富元数据（queue_depth / process_status / message / current_task_id / last_task_id）且含 `pid` | `pytest tests/test_worker_registry_registration_integration.py::TestWorkerRegistryRegistrationIntegration::test_running_registration_reflects_real_status_and_queue_pid_metadata` |
+| G9.7 | `WorkerRegistration.registered_at` 非空（可为动态生成 `utc_now()`） | `pytest tests/test_worker_registry_registration_integration.py::TestWorkerRegistryRegistrationIntegration::test_registration_shape_includes_unified_compat_fields` |
+| G9.8 | `WorkerRegistration.backend_kind == "linux_supervisor"` | `pytest tests/test_worker_registry_registration_integration.py::TestWorkerRegistryRegistrationIntegration::test_registration_shape_includes_unified_compat_fields` |
 
-**前置条件**:
-- `supervisor_heartbeat_to_worker_registration()` bridge 函数已存在（`linux_supervisor_bridge.py` line 269）
-- 需新增 `get_worker_registration()` 方法到 `WorkerRegistryService`
-- 需修复 bridge 函数：当前丢弃 `process_status` 的所有字段，`metadata={}`，`errors=[]`
+**实现方式**:
+- 新增 `WorkerRegistryService.get_worker_registration()`，复用已有 supervisor 磁盘状态读取。
+- 生产路径调用 `supervisor_heartbeat_to_worker_registration()` 生成 unified `WorkerRegistration`。
+- `_linux_housekeeper_worker()` 复用 unified registration，并向下兼容映射回 `WorkerRegistrationRead`。
 
 **已知限制**:
 - `metrics` 字段全部为 0（supervisor 不采集 CPU/内存）
 - `timeout_defaults` 使用 model 默认值（不从 supervisor 配置读取）
 - `registered_at` 为调用时 `utc_now()`（非持久化，重启后重置）
+- API `/workers` 和 `/workers/{id}` 仍返回 legacy `WorkerRegistrationRead`，不是 unified `WorkerRegistration`
 
 ---
 

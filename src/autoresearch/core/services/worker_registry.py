@@ -11,6 +11,7 @@ from autoresearch.shared.housekeeper_contract import (
 )
 from autoresearch.shared.linux_supervisor_bridge import (
     supervisor_heartbeat_to_worker_heartbeat,
+    supervisor_heartbeat_to_worker_registration,
 )
 from autoresearch.shared.linux_supervisor_contract import (
     LinuxSupervisorProcessHeartbeatRead,
@@ -19,6 +20,7 @@ from autoresearch.shared.linux_supervisor_contract import (
 from autoresearch.shared.models import utc_now
 from autoresearch.shared.worker_contract import (
     WorkerHeartbeat,
+    WorkerRegistration,
     WorkerStatus,
     worker_status_rank,
 )
@@ -62,6 +64,30 @@ class WorkerRegistryService:
             process_status,
             worker_id="linux_housekeeper",
             now=utc_now(),
+        )
+
+    def get_worker_registration(self, worker_id: str) -> WorkerRegistration | None:
+        normalized = worker_id.strip()
+        if normalized != "linux_housekeeper":
+            return None
+        process_status, heartbeat = self._read_linux_supervisor_state()
+        if process_status is None or heartbeat is None:
+            return None
+        errors = []
+        if process_status.message and process_status.status == "stopped":
+            errors.append(process_status.message)
+        return supervisor_heartbeat_to_worker_registration(
+            heartbeat,
+            process_status,
+            worker_id="linux_housekeeper",
+        ).model_copy(
+            update={
+                "errors": errors,
+                "metadata": self._linux_supervisor_metadata(
+                    process_status=process_status,
+                    process_heartbeat=heartbeat,
+                ),
+            }
         )
 
     def find_worker_for_backend(
@@ -118,41 +144,62 @@ class WorkerRegistryService:
         )
 
     def _linux_housekeeper_worker(self) -> WorkerRegistrationRead:
-        process_status, process_heartbeat = self._read_linux_supervisor_state()
-        worker_status = WorkerAvailabilityStatus.OFFLINE
-        last_heartbeat = None
-        metadata: dict[str, object] = {"source": "linux_supervisor"}
-
-        if process_status is not None and process_heartbeat is not None:
-            unified_heartbeat = supervisor_heartbeat_to_worker_heartbeat(
-                process_heartbeat,
-                process_status,
-                worker_id="linux_housekeeper",
-                now=utc_now(),
+        registration = self.get_worker_registration("linux_housekeeper")
+        if registration is not None:
+            metadata = dict(registration.metadata)
+            metadata["allowed_actions"] = [action.value for action in registration.allowed_actions]
+            metadata["max_concurrent_tasks"] = registration.max_concurrent_tasks
+            metadata["registered_at"] = registration.registered_at
+            if registration.errors:
+                metadata["errors"] = list(registration.errors)
+            return WorkerRegistrationRead(
+                worker_id=registration.worker_id,
+                name=registration.name,
+                worker_type=registration.worker_type.value,
+                backend_kind=(
+                    HousekeeperBackendKind(registration.backend_kind)
+                    if registration.backend_kind
+                    else None
+                ),
+                status=WorkerAvailabilityStatus(registration.status.value),
+                capabilities=list(registration.capabilities),
+                last_heartbeat=registration.last_heartbeat,
+                metadata=metadata,
             )
-            worker_status = WorkerAvailabilityStatus(unified_heartbeat.status.value)
-            last_heartbeat = process_heartbeat.observed_at
-            age_seconds = max(0.0, (utc_now() - process_heartbeat.observed_at).total_seconds())
-            metadata["heartbeat_age_seconds"] = age_seconds
-            metadata["queue_depth"] = unified_heartbeat.metadata.get("queue_depth")
-            metadata["process_status"] = unified_heartbeat.metadata.get("process_status")
-            if unified_heartbeat.errors:
-                metadata["errors"] = list(unified_heartbeat.errors)
-        if process_status is not None:
-            metadata["message"] = process_status.message
-            metadata["current_task_id"] = process_status.current_task_id
-            metadata["last_task_id"] = process_status.last_task_id
 
+        metadata: dict[str, object] = {"source": "linux_supervisor"}
         return WorkerRegistrationRead(
             worker_id="linux_housekeeper",
             name="Linux Housekeeper",
             worker_type="linux",
             backend_kind=HousekeeperBackendKind.LINUX_SUPERVISOR,
-            status=worker_status,
+            status=WorkerAvailabilityStatus.OFFLINE,
             capabilities=["shell", "script_runner", "log_collection", "ops_inspection"],
-            last_heartbeat=last_heartbeat,
+            last_heartbeat=None,
             metadata=metadata,
         )
+
+    def _linux_supervisor_metadata(
+        self,
+        *,
+        process_status: LinuxSupervisorProcessStatusRead,
+        process_heartbeat: LinuxSupervisorProcessHeartbeatRead,
+    ) -> dict[str, object]:
+        age_seconds = max(0.0, (utc_now() - process_heartbeat.observed_at).total_seconds())
+        return {
+            "source": "linux_supervisor",
+            "heartbeat_age_seconds": age_seconds,
+            "queue_depth": process_heartbeat.queue_depth,
+            "process_status": process_status.status,
+            "pid": process_status.pid if process_status.pid is not None else process_heartbeat.pid,
+            "current_task_id": (
+                process_status.current_task_id
+                if process_status.current_task_id is not None
+                else process_heartbeat.current_task_id
+            ),
+            "last_task_id": process_status.last_task_id,
+            "message": process_status.message,
+        }
 
     def _read_linux_supervisor_state(
         self,
