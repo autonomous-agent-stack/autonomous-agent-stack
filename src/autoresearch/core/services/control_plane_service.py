@@ -160,6 +160,7 @@ class ControlPlaneService:
         task = self._require_task(task_id)
         if task.approval_id is None:
             raise ValueError("control-plane task does not have a pending approval")
+        gate_action = self._post_run_gate_action(task)
         approval = self._approval_store.resolve_request(
             task.approval_id,
             ApprovalDecisionRequest(
@@ -169,6 +170,17 @@ class ControlPlaneService:
                 metadata={"control_plane_task_id": task_id},
             ),
         )
+        if gate_action == GateAction.NEEDS_REVIEW.value:
+            completed = task.model_copy(
+                update={
+                    "approval_status": approval.status,
+                    "status": HousekeeperTaskStatus.COMPLETED,
+                    "updated_at": utc_now(),
+                    "error": None,
+                }
+            )
+            return self._repository.save(completed.task_id, completed)
+
         queued = task.model_copy(
             update={
                 "approval_status": approval.status,
@@ -394,6 +406,26 @@ class ControlPlaneService:
             if gate_action:
                 derived["gate_action"] = gate_action
         return derived
+
+    def _post_run_gate_action(self, task: ControlPlaneTaskRead) -> str | None:
+        gate = task.result_payload.get("gate_evaluation")
+        if isinstance(gate, dict):
+            gate_action = str(gate.get("gate_action") or "").strip()
+            if gate_action:
+                return gate_action
+
+        gate_action = str(task.metadata.get("gate_action") or "").strip()
+        if gate_action:
+            return gate_action
+
+        if task.approval_id is not None:
+            approval = self._approval_store.get_request(task.approval_id)
+            if approval is not None:
+                approval_gate_action = str(approval.metadata.get("gate_action") or "").strip()
+                if approval_gate_action:
+                    return approval_gate_action
+
+        return None
 
     def _package_max_retry_count(self, package: AgentPackageRecordRead, *, default: int) -> int:
         raw_manifest = package.raw_manifest if isinstance(package.raw_manifest, dict) else {}
