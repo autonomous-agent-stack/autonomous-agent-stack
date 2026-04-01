@@ -12,6 +12,7 @@ def test_live_run_stability_benchmark_manifest_is_well_formed() -> None:
     tasks = data["tasks"]
     assert 3 <= len(tasks) <= 5
     assert any(int(task.get("retry_attempts", 0)) > 0 for task in tasks)
+    assert len({int(task.get("retry_attempts", 0)) for task in tasks}) >= 3
 
     for task in tasks:
         assert task["task_id"]

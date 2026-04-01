@@ -12,6 +12,7 @@ from autoresearch.benchmarks.live_run_stability_matrix import (
 from autoresearch.benchmarks.live_run_stability_runner import (
     build_live_run_agent_command,
     build_live_run_agent_env,
+    normalize_live_run_summary,
     run_live_run_stability_benchmark,
 )
 
@@ -43,11 +44,14 @@ def test_matrix_generates_from_missing_and_present_summaries(tmp_path: Path) -> 
                 "failure_stage": "adapter",
                 "duration_seconds": 3.5,
                 "model_provider": "mock-provider",
-                "retry_result": "retry",
+                "retry_result": "exhausted",
+                "retry_budget": 2,
+                "retry_attempts_used": 2,
                 "notes": "stable",
                 "driver_result": {
                     "run_id": "a",
                     "agent_id": "agent",
+                    "attempt": 3,
                     "status": "contract_error",
                     "summary": "boom",
                     "metrics": {"duration_ms": 1, "steps": 0, "commands": 0},
@@ -65,12 +69,17 @@ def test_matrix_generates_from_missing_and_present_summaries(tmp_path: Path) -> 
     assert rows[0].task_id == "a"
     assert rows[0].failure_status == "infra_error"
     assert rows[0].failure_layer == "infra"
+    assert rows[0].retry_result == "exhausted"
+    assert rows[0].retry_budget == 2
+    assert rows[0].retry_attempts_used == 2
     assert rows[1].result == "missing"
     assert rows[1].notes == "no summary.json found"
 
     json_text = render_live_run_regression_matrix_json(rows)
     md_text = render_live_run_regression_matrix_markdown(rows)
     assert '"task_id": "a"' in json_text
+    assert '"retry_budget": 2' in json_text
+    assert "retry_attempts_used" in md_text
     assert "| a | task a |" in md_text
     assert "| b | task b |" in md_text
 
@@ -166,6 +175,9 @@ def test_live_run_benchmark_runner_writes_run_dirs_and_matrix(tmp_path: Path) ->
     )
     assert matrix[0]["task_id"] == "ok"
     assert matrix[0]["result"] == "completed"
+    assert matrix[0]["retry_result"] == "not_requested"
+    assert matrix[0]["retry_budget"] == 0
+    assert matrix[0]["retry_attempts_used"] == 0
     assert matrix[1]["failure_status"] == "infra_error"
 
 
@@ -262,10 +274,98 @@ def test_build_live_run_agent_command_omits_retry_when_task_does_not_request_it(
     ]
 
 
+def test_normalize_live_run_summary_persists_stable_retry_metadata() -> None:
+    summary = normalize_live_run_summary(
+        task={"task_id": "retry", "retry_attempts": 2},
+        summary={
+            "final_status": "completed",
+            "result": "completed",
+            "driver_result": {
+                "run_id": "retry",
+                "agent_id": "agent",
+                "attempt": 2,
+                "status": "succeeded",
+                "summary": "recovered after retry",
+                "metrics": {"duration_ms": 20, "steps": 2, "commands": 2},
+                "recommended_action": "promote",
+            },
+            "validation": {"run_id": "retry", "passed": True, "checks": []},
+        },
+    )
+
+    assert summary["retry_result"] == "recovered"
+    assert summary["retry_budget"] == 2
+    assert summary["retry_attempts_used"] == 1
+    assert summary["metadata"]["live_run_retry"] == {
+        "requested": True,
+        "budget": 2,
+        "attempts_used": 1,
+        "final_attempt": 2,
+        "result": "recovered",
+        "succeeded": True,
+        "final_status": "completed",
+    }
+
+
+def test_live_run_benchmark_runner_records_retry_artifacts_for_recovered_attempt(tmp_path: Path) -> None:
+    tasks_path = tmp_path / "tasks.json"
+    tasks_path.write_text(
+        json.dumps(
+            {
+                "suite_name": "live-run-stability",
+                "tasks": [{"task_id": "retry", "name": "retry", "retry_attempts": 2}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def executor(task: dict[str, object], run_dir: Path) -> dict[str, object]:
+        _ = task, run_dir
+        return {
+            "final_status": "completed",
+            "result": "completed",
+            "driver_result": {
+                "run_id": "retry",
+                "agent_id": "agent",
+                "attempt": 2,
+                "status": "succeeded",
+                "summary": "recovered after transient failure",
+                "metrics": {"duration_ms": 20, "steps": 2, "commands": 2},
+                "recommended_action": "promote",
+            },
+            "validation": {"run_id": "retry", "passed": True, "checks": []},
+        }
+
+    run_live_run_stability_benchmark(
+        tasks_path=tasks_path,
+        run_root=tmp_path / "runs",
+        matrix_json_path=tmp_path / "artifacts" / "live-run-stability" / "regression-matrix.json",
+        matrix_markdown_path=tmp_path / "artifacts" / "live-run-stability" / "regression-matrix.md",
+        executor=executor,
+    )
+
+    summary = json.loads((tmp_path / "runs" / "retry" / "summary.json").read_text(encoding="utf-8"))
+    matrix = json.loads(
+        (tmp_path / "artifacts" / "live-run-stability" / "regression-matrix.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert summary["retry_result"] == "recovered"
+    assert summary["retry_budget"] == 2
+    assert summary["retry_attempts_used"] == 1
+    assert summary["metadata"]["live_run_retry"]["result"] == "recovered"
+    assert matrix[0]["retry_result"] == "recovered"
+    assert matrix[0]["retry_budget"] == 2
+    assert matrix[0]["retry_attempts_used"] == 1
+
+
 def test_matrix_derives_retry_result_from_attempt_count(tmp_path: Path) -> None:
     tasks_path = tmp_path / "tasks.json"
     tasks_path.write_text(
-        json.dumps({"suite_name": "live-run-stability", "tasks": [{"task_id": "retry", "name": "retry"}]}),
+        json.dumps(
+            {"suite_name": "live-run-stability", "tasks": [{"task_id": "retry", "name": "retry", "retry_attempts": 2}]}
+        ),
         encoding="utf-8",
     )
 
@@ -293,4 +393,6 @@ def test_matrix_derives_retry_result_from_attempt_count(tmp_path: Path) -> None:
 
     rows = generate_live_run_regression_matrix(tasks_path=tasks_path, run_roots=[run_root])
 
-    assert rows[0].retry_result == "retried"
+    assert rows[0].retry_result == "recovered"
+    assert rows[0].retry_budget == 2
+    assert rows[0].retry_attempts_used == 1

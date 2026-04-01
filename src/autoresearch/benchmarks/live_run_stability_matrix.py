@@ -21,6 +21,8 @@ class LiveRunMatrixRow:
     failure_stage: str | None
     duration_sec: float | None
     retry_result: str | None
+    retry_budget: int | None
+    retry_attempts_used: int | None
     notes: str | None
 
 
@@ -48,6 +50,8 @@ def generate_live_run_regression_matrix(
                     failure_stage=None,
                     duration_sec=None,
                     retry_result=None,
+                    retry_budget=_optional_int(task.get("retry_attempts")),
+                    retry_attempts_used=None,
                     notes="no summary.json found",
                 )
             )
@@ -67,7 +71,9 @@ def generate_live_run_regression_matrix(
                     failure_layer=_optional_string(run_summary.get("failure_layer")),
                     failure_stage=_optional_string(run_summary.get("failure_stage")),
                     duration_sec=_optional_float(run_summary.get("duration_seconds")),
-                    retry_result=_optional_string(run_summary.get("retry_result")),
+                    retry_result=_resolve_retry_result(run_summary, None),
+                    retry_budget=_resolve_retry_budget(task, run_summary),
+                    retry_attempts_used=_resolve_retry_attempts_used(run_summary, None),
                     notes="summary missing driver_result or validation",
                 )
             )
@@ -81,20 +87,22 @@ def generate_live_run_regression_matrix(
             metadata=run_summary.get("metadata") if isinstance(run_summary.get("metadata"), dict) else None,
         )
         rows.append(
-                LiveRunMatrixRow(
-                    task_id=task_id,
-                    task_name=task_name,
-                    lane=str(task.get("lane") or "benchmark"),
-                    model_provider=_optional_string(run_summary.get("model_provider")),
-                    result=str(run_summary.get("final_status") or run_summary.get("result") or "unknown"),
-                    failure_status=_optional_string(run_summary.get("failure_status")) or classification.failure_status,
-                    failure_layer=_optional_string(run_summary.get("failure_layer")) or classification.failure_layer,
-                    failure_stage=_optional_string(run_summary.get("failure_stage")),
-                    duration_sec=_optional_float(run_summary.get("duration_seconds")),
-                    retry_result=_resolve_retry_result(run_summary, driver_result),
-                    notes=_optional_string(run_summary.get("notes")),
-                )
+            LiveRunMatrixRow(
+                task_id=task_id,
+                task_name=task_name,
+                lane=str(task.get("lane") or "benchmark"),
+                model_provider=_optional_string(run_summary.get("model_provider")),
+                result=str(run_summary.get("final_status") or run_summary.get("result") or "unknown"),
+                failure_status=_optional_string(run_summary.get("failure_status")) or classification.failure_status,
+                failure_layer=_optional_string(run_summary.get("failure_layer")) or classification.failure_layer,
+                failure_stage=_optional_string(run_summary.get("failure_stage")),
+                duration_sec=_optional_float(run_summary.get("duration_seconds")),
+                retry_result=_resolve_retry_result(run_summary, driver_result),
+                retry_budget=_resolve_retry_budget(task, run_summary),
+                retry_attempts_used=_resolve_retry_attempts_used(run_summary, driver_result),
+                notes=_optional_string(run_summary.get("notes")),
             )
+        )
     return rows
 
 
@@ -103,8 +111,8 @@ def render_live_run_regression_matrix_json(rows: list[LiveRunMatrixRow]) -> str:
 
 
 def render_live_run_regression_matrix_markdown(rows: list[LiveRunMatrixRow]) -> str:
-    header = "| task_id | task_name | lane | model_provider | result | failure_status | failure_layer | failure_stage | duration_sec | retry_result | notes |"
-    divider = "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"
+    header = "| task_id | task_name | lane | model_provider | result | failure_status | failure_layer | failure_stage | duration_sec | retry_result | retry_budget | retry_attempts_used | notes |"
+    divider = "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"
     lines = [header, divider]
     for row in rows:
         cells = [
@@ -118,6 +126,8 @@ def render_live_run_regression_matrix_markdown(rows: list[LiveRunMatrixRow]) -> 
             _md(row.failure_stage),
             _md(None if row.duration_sec is None else f"{row.duration_sec:.3f}"),
             _md(row.retry_result),
+            _md(None if row.retry_budget is None else str(row.retry_budget)),
+            _md(None if row.retry_attempts_used is None else str(row.retry_attempts_used)),
             _md(row.notes),
         ]
         lines.append(
@@ -167,11 +177,60 @@ def _optional_float(value: Any) -> float | None:
         return None
 
 
-def _resolve_retry_result(run_summary: dict[str, Any], driver_result: DriverResult) -> str | None:
+def _optional_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _retry_metadata(run_summary: dict[str, Any]) -> dict[str, Any]:
+    metadata = run_summary.get("metadata")
+    if not isinstance(metadata, dict):
+        return {}
+    retry_metadata = metadata.get("live_run_retry")
+    return dict(retry_metadata) if isinstance(retry_metadata, dict) else {}
+
+
+def _resolve_retry_result(run_summary: dict[str, Any], driver_result: DriverResult | None) -> str | None:
     explicit = _optional_string(run_summary.get("retry_result"))
     if explicit is not None:
         return explicit
-    return "retried" if driver_result.attempt > 1 else None
+    metadata_result = _optional_string(_retry_metadata(run_summary).get("result"))
+    if metadata_result is not None:
+        return metadata_result
+    if driver_result is None:
+        return None
+    if driver_result.attempt > 1:
+        result = _optional_string(run_summary.get("final_status")) or _optional_string(run_summary.get("result"))
+        if result in {"completed", "ready_for_promotion", "promoted"}:
+            return "recovered"
+        return "retried"
+    return None
+
+
+def _resolve_retry_budget(task: dict[str, Any], run_summary: dict[str, Any]) -> int | None:
+    explicit = _optional_int(run_summary.get("retry_budget"))
+    if explicit is not None:
+        return explicit
+    metadata_budget = _optional_int(_retry_metadata(run_summary).get("budget"))
+    if metadata_budget is not None:
+        return metadata_budget
+    return _optional_int(task.get("retry_attempts"))
+
+
+def _resolve_retry_attempts_used(run_summary: dict[str, Any], driver_result: DriverResult | None) -> int | None:
+    explicit = _optional_int(run_summary.get("retry_attempts_used"))
+    if explicit is not None:
+        return explicit
+    metadata_attempts = _optional_int(_retry_metadata(run_summary).get("attempts_used"))
+    if metadata_attempts is not None:
+        return metadata_attempts
+    if driver_result is None:
+        return None
+    return max(int(driver_result.attempt) - 1, 0)
 
 
 def _md(value: str | None) -> str:

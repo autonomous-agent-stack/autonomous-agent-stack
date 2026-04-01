@@ -8,6 +8,8 @@ from typing import Any, Protocol
 
 from autoresearch.benchmarks.live_run_stability_matrix import write_live_run_regression_matrix
 
+_SUCCESS_SUMMARY_RESULTS = {"completed", "ready_for_promotion", "promoted", "succeeded"}
+
 
 class LiveRunTaskExecutor(Protocol):
     def __call__(self, task: dict[str, Any], run_dir: Path) -> dict[str, Any]: ...
@@ -62,7 +64,7 @@ def run_live_run_stability_benchmark(
         run_dir.mkdir(parents=True, exist_ok=True)
         (run_dir / "task.json").write_text(json.dumps(task, ensure_ascii=False, indent=2), encoding="utf-8")
 
-        summary = executor(task, run_dir)
+        summary = normalize_live_run_summary(task=task, summary=executor(task, run_dir))
         summary_path = run_dir / "summary.json"
         summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -98,3 +100,75 @@ def _task_retry_attempts(task: dict[str, Any]) -> int:
         return max(int(raw_value), 0)
     except (TypeError, ValueError):
         return 0
+
+
+def normalize_live_run_summary(*, task: dict[str, Any], summary: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(summary)
+    retry_budget = _task_retry_attempts(task)
+    final_attempt = _summary_attempt(normalized)
+    retry_attempts_used = max(final_attempt - 1, 0)
+    retry_result = _summary_retry_result(
+        summary=normalized,
+        retry_budget=retry_budget,
+        retry_attempts_used=retry_attempts_used,
+    )
+
+    normalized["retry_budget"] = retry_budget
+    normalized["retry_attempts_used"] = retry_attempts_used
+    normalized["retry_result"] = retry_result
+
+    metadata = dict(normalized.get("metadata")) if isinstance(normalized.get("metadata"), dict) else {}
+    retry_metadata = dict(metadata.get("live_run_retry")) if isinstance(metadata.get("live_run_retry"), dict) else {}
+    retry_metadata.update(
+        {
+            "requested": retry_budget > 0,
+            "budget": retry_budget,
+            "attempts_used": retry_attempts_used,
+            "final_attempt": final_attempt,
+            "result": retry_result,
+            "succeeded": _summary_succeeded(normalized),
+            "final_status": _summary_status(normalized),
+        }
+    )
+    metadata["live_run_retry"] = retry_metadata
+    normalized["metadata"] = metadata
+    return normalized
+
+
+def _summary_attempt(summary: dict[str, Any]) -> int:
+    driver_result = summary.get("driver_result")
+    if isinstance(driver_result, dict):
+        raw_attempt = driver_result.get("attempt")
+        try:
+            return max(int(raw_attempt), 1)
+        except (TypeError, ValueError):
+            return 1
+    return 1
+
+
+def _summary_retry_result(
+    *,
+    summary: dict[str, Any],
+    retry_budget: int,
+    retry_attempts_used: int,
+) -> str:
+    explicit = summary.get("retry_result")
+    if isinstance(explicit, str) and explicit.strip():
+        return explicit.strip()
+    if retry_budget <= 0:
+        return "not_requested"
+    if retry_attempts_used <= 0:
+        return "not_needed" if _summary_succeeded(summary) else "not_attempted"
+    return "recovered" if _summary_succeeded(summary) else "exhausted"
+
+
+def _summary_succeeded(summary: dict[str, Any]) -> bool:
+    status = _summary_status(summary)
+    if status in _SUCCESS_SUMMARY_RESULTS:
+        return True
+    driver_result = summary.get("driver_result")
+    return isinstance(driver_result, dict) and str(driver_result.get("status") or "").strip() == "succeeded"
+
+
+def _summary_status(summary: dict[str, Any]) -> str:
+    return str(summary.get("final_status") or summary.get("result") or "").strip()

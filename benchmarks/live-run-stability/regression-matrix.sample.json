@@ -9,7 +9,9 @@
     "failure_layer": null,
     "failure_stage": null,
     "duration_sec": null,
-    "retry_result": null,
+    "retry_result": "not_needed",
+    "retry_budget": 2,
+    "retry_attempts_used": 0,
     "notes": "sample baseline row"
   }
 ]
