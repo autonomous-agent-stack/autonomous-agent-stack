@@ -344,11 +344,12 @@ CI 路径已包含在 `.github/workflows/ci.yml` 的 `CORE_LINT_PATHS` 和 `CORE
 2. ~~将 RunRecord 接入 ControlPlaneService._execute()~~ ✅ 已完成 (commit 89639d9, c11c78f)
    → 真实执行后产生 result_payload["run_record"]，包含 unified RunStatus/RunRecord 兼容数据
 
-3. ~~将 WorkerHeartbeat 接入 WorkerRegistryService~~ ✅ 已完成
+3. ~~将 WorkerHeartbeat 接入 WorkerRegistryService~~ ✅ 已完成 (commit 86de697)
    → `WorkerRegistryService.get_worker_heartbeat("linux_housekeeper")` 现在读取真实
      `supervisor_status.json` / `supervisor_heartbeat.json` 并调用
      `supervisor_heartbeat_to_worker_heartbeat()`
-   → 现有 worker 选择 / 调度逻辑保持不变，未扩到 WorkerRegistration
+   → 5 个集成测试已实现：idle/running/stale/stopped/shape
+   → ⚠️ `_linux_housekeeper_worker()` (list_workers 路径) 仍读错误文件名，见 §6.2
 
 4. 将 is_valid_transition() 接入 task status 变更点
    → 让非法转换在生产中抛异常而非静默通过
@@ -366,7 +367,7 @@ CI 路径已包含在 `.github/workflows/ci.yml` 的 `CORE_LINT_PATHS` 和 `CORE
 | GateVerdict | `make_gate_verdict()` | ✅ 同上 | ✅ 同上 | ❌ 仅存储 (无 retry/fallback 消费) |
 | RunStatus | `supervisor_conclusion_to_run_status()` | ✅ 同上 | ✅ `gate_evaluation.run_status` + `run_record.run_status` | ❌ 仅存储 |
 | RunRecord | `supervisor_summary_to_run_record()` | ✅ 同上 | ✅ `result_payload["run_record"]` | ❌ 仅存储 |
-| WorkerHeartbeat | `supervisor_heartbeat_to_worker_heartbeat()` | ✅ `WorkerRegistryService.get_worker_heartbeat()` | ❌ 无独立持久化 | ❌ 仅服务层可读 |
+| WorkerHeartbeat | `supervisor_heartbeat_to_worker_heartbeat()` | ✅ `get_worker_heartbeat()` + `_linux_housekeeper_worker()` (86de697 + 6307136) | ❌ 无独立持久化 | ❌ 仅服务层可读 |
 | WorkerRegistration | `supervisor_heartbeat_to_worker_registration()` | ❌ 未接线 | ❌ 无独立持久化 | ❌ |
 
 **关键限制**：
@@ -374,5 +375,104 @@ CI 路径已包含在 `.github/workflows/ci.yml` 的 `CORE_LINT_PATHS` 和 `CORE
 - `run_record.completed_at` = `summary.finished_at`
 - `queued_at` / `leased_at` 不存在 — LinuxSupervisor 无 lease 概念
 - `gate_evaluation` 中的 verdict 不驱动 retry/fallback — 仅记录决策建议
-- `WorkerHeartbeat` bridge 已接到 `WorkerRegistryService.get_worker_heartbeat()`，但尚未独立持久化或被 downstream API 消费
+- `WorkerHeartbeat` bridge 已接到 `get_worker_heartbeat()`（有 5 个集成测试），但 `list_workers()` 路径仍用 inline 阈值逻辑 + 错误文件名，两者状态可能不一致
 - `WorkerRegistration` bridge 仍未接线
+
+---
+
+## 6. Heartbeat 接线差距审计 (2026-04-01)
+
+### 6.1 当前接线状态
+
+`WorkerRegistryService` 的两条代码路径均已接线，共享同一文件读取方法和 bridge 函数：
+
+| 方法 | 读取文件 | Bridge 调用 | 返回类型 | 状态 |
+|------|---------|------------|---------|------|
+| `_linux_housekeeper_worker()` (line 120-155) | `supervisor_status.json` + `supervisor_heartbeat.json` | ✅ `supervisor_heartbeat_to_worker_heartbeat()` | `WorkerRegistrationRead` | ✅ 已接线 |
+| `get_worker_heartbeat()` (line 53-65) | 同上 (via `_read_linux_supervisor_state()`) | ✅ 同上 | `WorkerHeartbeat` | ✅ 已接线 |
+
+两条路径都通过 `_read_linux_supervisor_state()` 读取 `supervisor_status.json` / `supervisor_heartbeat.json`，都调用 bridge 的 `supervisor_heartbeat_to_worker_heartbeat()`，状态推导一致。
+
+### 6.2 阈值差异（仍存在）
+
+两条路径都使用 bridge 的 `_derive_worker_status()`，但该函数的阈值与 contract default 不一致：
+
+| 来源 | fresh 上限 | stale/degraded 范围 | dead/offline 阈值 | DEGRADED 可达? |
+|------|-----------|---------------------|-------------------|---------------|
+| `linux_supervisor_bridge._derive_worker_status()` | ≤120s | — | >120s | ❌ 否 (STALE=DEAD=120) |
+| `WorkerTimeoutDefaults` (contract) | 30s | 120s stale | 300s dead | ✅ 是 |
+
+**影响**: DEGRADED 状态在当前接线中不可达。bridge 的 `_STALE_THRESHOLD_SEC = _DEAD_THRESHOLD_SEC = 120`，意味着任何 >120s 的 heartbeat 都直接判 OFFLINE，不会经过 DEGRADED。
+`WorkerTimeoutDefaults` 定义了 `heartbeat_dead_sec = 300`，但未被 bridge 使用。
+
+### 6.3 字段映射差距
+
+#### Disk shape → WorkerHeartbeat
+
+| Supervisor 字段 | WorkerHeartbeat 字段 | 映射方式 | 差距 |
+|-----------------|---------------------|---------|------|
+| `process_hb.observed_at` | (用于推导 status，不直接映射) | age 计算 | — |
+| `process_hb.status` | `status` | 通过 `_derive_worker_status()` | ✅ |
+| `process_hb.queue_depth` | `metrics.active_tasks` | 直接赋值 | ✅ |
+| `process_hb.current_task_id` | `active_task_ids` | `[current_task_id]` if not None | ✅ |
+| — | `metrics.cpu_usage_percent` | 硬编码 0.0 | ❌ 无数据源 |
+| — | `metrics.memory_usage_mb` | 硬编码 0.0 | ❌ 无数据源 |
+| — | `metrics.total_tasks_completed` | 硬编码 0 | ❌ 无数据源 |
+| — | `metrics.avg_task_duration_ms` | 硬编码 0.0 | ❌ 无数据源 |
+| `process_hb.status == "stopped"` | `errors` | `[process_status.message]` | ⚠️ 仅 stopped 时才填充 |
+
+#### Disk shape → WorkerRegistration
+
+`supervisor_heartbeat_to_worker_registration()` 仍未被生产代码调用。
+
+| 字段 | 映射方式 | 差距 |
+|------|---------|------|
+| `capabilities` | 硬编码 `["shell", "aep_runner"]` | ⚠️ 不可配置 |
+| `allowed_actions` | 硬编码 `[EXECUTE_TASK]` | ⚠️ 不可配置 |
+| `max_concurrent_tasks` | 硬编码 1 | ⚠️ 不可配置 |
+| `registered_at` | 动态生成 `utc_now()` | ⚠️ 非持久化 |
+
+### 6.4 已实现的集成测试
+
+以下测试在 `tests/test_worker_registry_heartbeat_integration.py` 中实现（commit 86de697 + 6307136）：
+
+**`TestWorkerRegistryHeartbeatIntegration`** (5 tests — `get_worker_heartbeat()` 路径):
+
+| # | 测试 | 验证内容 | 状态 |
+|---|------|---------|------|
+| T1 | `test_fresh_idle_heartbeat_is_unified_online` | idle + fresh → ONLINE, worker_id, metadata | ✅ |
+| T2 | `test_running_heartbeat_is_unified_busy_with_active_task` | running + fresh → BUSY, active_task_ids=["task-001"] | ✅ |
+| T3 | `test_stale_heartbeat_is_unified_offline` | observed_at 130s 前 → OFFLINE | ✅ |
+| T4 | `test_stopped_heartbeat_surfaces_unified_errors` | stopped → OFFLINE + errors=["worker crashed"] | ✅ |
+| T5 | `test_unified_heartbeat_uses_expected_top_level_shape` | 顶层字段集合完整 | ✅ |
+
+**`TestWorkerRegistryListWorkersHeartbeatConsistency`** (5 tests — `list_workers()` 一致性):
+
+| # | 测试 | 验证内容 | 状态 |
+|---|------|---------|------|
+| T6 | `test_running_fresh_list_workers_is_not_offline` | running 时 list_workers 不返回 OFFLINE | ✅ |
+| T7 | `test_idle_fresh_status_matches_unified_heartbeat` | idle 时 list_workers 与 get_worker_heartbeat 一致 | ✅ |
+| T8 | `test_stopped_status_matches_unified_heartbeat` | stopped 时一致 | ✅ |
+| T9 | `test_stale_status_matches_unified_heartbeat` | stale 时一致 | ✅ |
+| T10 | `test_list_workers_and_unified_heartbeat_agree_for_same_worker` | 综合：get_worker() 和 get_worker_heartbeat() 完全一致 | ✅ |
+
+### 6.5 风险点
+
+| 风险 | 级别 | 说明 |
+|------|------|------|
+| DEGRADED 状态不可达 | Medium | bridge 阈值 STALE=DEAD=120，DEGRADED 是死代码 |
+| WorkerMetrics 大部分字段为 0 | Low | supervisor 不采集 CPU/内存，bridge 无法填充 |
+| WorkerRegistration 未接线 | Low | `supervisor_heartbeat_to_worker_registration()` 从未被生产代码调用 |
+| WorkerRegistration.registered_at 非持久 | Low | 每次调用重新生成，不代表真实注册时间 |
+| Heartbeat 仅文件轮询 | Low | 非推送协议，不适配高频监控场景 |
+
+### 6.6 超出范围
+
+以下项目 **不在此轮接线范围**：
+- `WorkerRegistration` 接线（`supervisor_heartbeat_to_worker_registration()`）
+- 真实 CPU/内存指标采集（需 psutil 集成）
+- Heartbeat 推送协议（当前是文件轮询）
+- 动态 worker 注册（替换硬编码 `list_workers()`）
+- DEGRADED 阈值修复（需统一 bridge 与 WorkerTimeoutDefaults）
+- Win/Yingdao worker
+- Console/UI 扩展

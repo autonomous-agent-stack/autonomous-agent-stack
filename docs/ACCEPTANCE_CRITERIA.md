@@ -84,6 +84,21 @@ before any PR can merge and before the stack can be called "demo-ready".
 | G7.8 | `run_record.result_data` contains bridge fields (artifacts / conclusion / duration_seconds) | `pytest tests/test_linux_run_lifecycle_integration.py::test_run_record_result_data_contains_bridge_fields` |
 | G7.9 | `run_record.run_status` is consistent with `gate_evaluation.run_status` | `pytest tests/test_linux_run_lifecycle_integration.py::test_run_record_run_status_matches_gate_evaluation` |
 
+### G8. Heartbeat Production Path (WorkerHeartbeat ← LinuxSupervisor)
+
+> **状态**: ✅ 全部已实现（commit 86de697 + 6307136）。
+> `get_worker_heartbeat()` 和 `list_workers()` 都通过 bridge 推导 status，结果一致。
+
+| # | 条件 | 验证方式 |
+|---|------|----------|
+| G8.1 | Supervisor idle + fresh heartbeat → `WorkerHeartbeat.status == "online"`, `worker_id == "linux_housekeeper"` | `pytest tests/test_worker_registry_heartbeat_integration.py::test_fresh_idle_heartbeat_is_unified_online` |
+| G8.2 | Supervisor running + fresh heartbeat → `WorkerHeartbeat.status == "busy"`, `active_task_ids` populated | `pytest tests/test_worker_registry_heartbeat_integration.py::test_running_heartbeat_is_unified_busy_with_active_task` |
+| G8.3 | Supervisor stopped → `WorkerHeartbeat.status == "offline"`, `errors` 含 status message | `pytest tests/test_worker_registry_heartbeat_integration.py::test_stopped_heartbeat_surfaces_unified_errors` |
+| G8.4 | Stale heartbeat (>120s age) → `WorkerHeartbeat.status == "offline"` | `pytest tests/test_worker_registry_heartbeat_integration.py::test_stale_heartbeat_is_unified_offline` |
+| G8.5 | `WorkerHeartbeat` top-level shape 包含 worker_id / status / metrics / active_task_ids / errors / metadata | `pytest tests/test_worker_registry_heartbeat_integration.py::test_unified_heartbeat_uses_expected_top_level_shape` |
+| G8.6 | `list_workers()` 中 linux_housekeeper 的 status 与 `get_worker_heartbeat()` 一致（idle/running/stopped/stale 四种场景） | `pytest tests/test_worker_registry_heartbeat_integration.py::TestWorkerRegistryListWorkersHeartbeatConsistency` |
+| G8.7 | `WorkerHeartbeat.active_task_ids` 从 `process_status.current_task_id` 填充（idle 时为空列表） | 已覆盖在 G8.1 / G8.2 中 |
+
 ---
 
 ## 2. Fail-Fast 条件
