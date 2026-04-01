@@ -50,6 +50,7 @@ env:
     tests/test_linux_supervisor_bridge.py
     src/autoresearch/core/services/control_plane_service.py
     tests/test_linux_gate_integration.py
+    tests/test_linux_run_lifecycle_integration.py
   CORE_TEST_PATHS: >-
     tests/gateway/test_message_mirror.py
     tests/test_agent_protocol_models.py
@@ -77,6 +78,7 @@ env:
     tests/test_worker_contract_compliance.py
     tests/test_linux_supervisor_bridge.py
     tests/test_linux_gate_integration.py
+    tests/test_linux_run_lifecycle_integration.py
 
 jobs:
   lint-test-audit:
