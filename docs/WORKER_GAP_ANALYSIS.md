@@ -375,7 +375,7 @@ CI 路径已包含在 `.github/workflows/ci.yml` 的 `CORE_LINT_PATHS` 和 `CORE
 - `run_record.completed_at` = `summary.finished_at`
 - `queued_at` / `leased_at` 不存在 — LinuxSupervisor 无 lease 概念
 - `gate_evaluation` 中的 verdict 不驱动 retry/fallback — 仅记录决策建议
-- `WorkerHeartbeat` bridge 已接到 `get_worker_heartbeat()`（有 5 个集成测试），但 `list_workers()` 路径仍用 inline 阈值逻辑 + 错误文件名，两者状态可能不一致
+- `WorkerHeartbeat` bridge 已接到 `get_worker_heartbeat()` 和 `_linux_housekeeper_worker()`，两条路径状态已对齐
 - `WorkerRegistration` bridge 已接线，但 `/workers` API 仍返回 legacy `WorkerRegistrationRead`
 
 ---
@@ -560,8 +560,8 @@ CI 路径已包含在 `.github/workflows/ci.yml` 的 `CORE_LINT_PATHS` 和 `CORE
 | `timeout_defaults` | bridge | `WorkerTimeoutDefaults()`（默认值） |
 | `max_concurrent_tasks` | bridge | `1` |
 | `backend_kind` | bridge | `"linux_supervisor"` |
-| `errors` | **需补充** | 从 stopped status 的 process_status.message 推导 |
-| `metadata` | **需补充** | 从 process_status + heartbeat 传入 queue_depth / process_status / message / current_task_id / last_task_id |
+| `errors` | 服务适配层 | 从 stopped status 的 process_status.message 推导 |
+| `metadata` | 服务适配层 | 从 process_status + heartbeat 传入 queue_depth / process_status / message / pid / current_task_id / last_task_id |
 
 ### 7.6 风险点
 
