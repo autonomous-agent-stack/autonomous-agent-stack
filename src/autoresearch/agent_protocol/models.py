@@ -146,6 +146,7 @@ class RunSummary(StrictModel):
     promotion_patch_uri: str | None = None
     promotion_preflight: PromotionPreflight | None = None
     promotion: PromotionResult | None = None
+    failure_status: str | None = None
     failure_layer: Literal["infra", "orchestration", "model", "business_validation"] | None = None
     failure_stage: str | None = None
     model_provider: str | None = None

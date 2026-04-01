@@ -26,6 +26,7 @@ from autoresearch.agent_protocol.policy import EffectivePolicy, build_effective_
 from autoresearch.agent_protocol.registry import AgentRegistry
 from autoresearch.core.services.git_promotion_gate import GitPromotionGateService
 from autoresearch.core.services.writer_lease import WriterLeaseService
+from autoresearch.executions.failure_classifier import classify_failure
 from autoresearch.shared.models import GitPromotionMode, PromotionActorRole, PromotionIntent
 
 _RUNTIME_DENY_PREFIXES = (
@@ -348,6 +349,11 @@ class AgentExecutionRunner:
                         promotion_patch_uri=str(patch_path),
                         promotion_preflight=promotion_preflight,
                         promotion=promotion,
+                        failure_status=classify_failure(
+                            driver_result=driver_result,
+                            validation=validation,
+                            metadata=job.metadata,
+                        ).failure_status,
                         failure_layer=self._infer_failure_layer(final_status, driver_result, validation),
                         failure_stage=self._infer_failure_stage(driver_result, validation),
                         model_provider=self._infer_model_provider(job),
@@ -381,6 +387,11 @@ class AgentExecutionRunner:
                     promotion_patch_uri=str(patch_path) if patch_path.exists() else None,
                     promotion_preflight=None,
                     promotion=None,
+                    failure_status=classify_failure(
+                        driver_result=last_result,
+                        validation=last_validation,
+                        metadata=job.metadata,
+                    ).failure_status,
                     failure_layer=self._infer_failure_layer(final_status, last_result, last_validation),
                     failure_stage=self._infer_failure_stage(last_result, last_validation),
                     model_provider=self._infer_model_provider(job),
@@ -427,6 +438,11 @@ class AgentExecutionRunner:
                 promotion_patch_uri=str(patch_path) if patch_path.exists() else None,
                 promotion_preflight=None,
                 promotion=None,
+                failure_status=classify_failure(
+                    driver_result=last_result,
+                    validation=last_validation,
+                    metadata=job.metadata,
+                ).failure_status,
                 failure_layer=self._infer_failure_layer("failed", last_result, last_validation),
                 failure_stage=self._infer_failure_stage(last_result, last_validation),
                 model_provider=self._infer_model_provider(job),
@@ -458,6 +474,11 @@ class AgentExecutionRunner:
                     promotion_patch_uri=str(patch_path) if patch_path.exists() else None,
                     promotion_preflight=None,
                     promotion=None,
+                    failure_status=classify_failure(
+                        driver_result=last_result,
+                        validation=last_validation,
+                        metadata=job.metadata,
+                    ).failure_status,
                     failure_layer=self._infer_failure_layer(
                         forced_final_status or derive_terminal_status(last_result, last_validation),
                         last_result,
