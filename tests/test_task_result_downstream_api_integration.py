@@ -76,8 +76,20 @@ def _create_linux_housekeeper_task(client: TestClient) -> dict[str, object]:
     [
         (_linux_success_helper, "completed", "succeeded", "success", "accept"),
         (_linux_timeout_helper, "failed", "failed", "timeout", "retry"),
-        (_linux_unknown_helper, "failed", "needs_review", "needs_human_confirm", "needs_review"),
-        (_linux_infra_error_helper, "failed", "failed", "needs_human_confirm", "needs_review"),
+        (
+            _linux_unknown_helper,
+            "approval_required",
+            "needs_review",
+            "needs_human_confirm",
+            "needs_review",
+        ),
+        (
+            _linux_infra_error_helper,
+            "approval_required",
+            "failed",
+            "needs_human_confirm",
+            "needs_review",
+        ),
     ],
 )
 def test_control_plane_task_detail_consumes_run_and_gate_metadata(
@@ -129,8 +141,20 @@ def test_control_plane_task_detail_consumes_run_and_gate_metadata(
     [
         (_linux_success_helper, "completed", "succeeded", "success", "accept"),
         (_linux_timeout_helper, "failed", "failed", "timeout", "retry"),
-        (_linux_unknown_helper, "failed", "needs_review", "needs_human_confirm", "needs_review"),
-        (_linux_infra_error_helper, "failed", "failed", "needs_human_confirm", "needs_review"),
+        (
+            _linux_unknown_helper,
+            "approval_required",
+            "needs_review",
+            "needs_human_confirm",
+            "needs_review",
+        ),
+        (
+            _linux_infra_error_helper,
+            "approval_required",
+            "failed",
+            "needs_human_confirm",
+            "needs_review",
+        ),
     ],
 )
 def test_housekeeper_task_detail_consumes_run_and_gate_metadata_without_breaking_legacy_fields(

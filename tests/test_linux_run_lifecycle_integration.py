@@ -308,7 +308,7 @@ class TestLinuxRunLifecycleIntegration:
         assert rr["run_status"] == "failed"
 
     def test_infra_error_produces_run_status_failed(self, tmp_path: Path):
-        """INFRA_ERROR conclusion → run_record.run_status == "failed"."""
+        """INFRA_ERROR keeps run_status failed even when the task enters approval."""
         repo_root = tmp_path / "repo"
         helper = _linux_infra_error_helper(tmp_path / "infra.py")
         _seed_agent_package_tree(repo_root)
@@ -316,7 +316,7 @@ class TestLinuxRunLifecycleIntegration:
 
         task = _dispatch(services, "巡检 Linux 服务状态")
 
-        assert task.status == HousekeeperTaskStatus.FAILED
+        assert task.status == HousekeeperTaskStatus.APPROVAL_REQUIRED
         rr = task.result_payload["run_record"]
         assert rr["run_status"] == "failed"
 

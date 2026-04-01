@@ -271,7 +271,7 @@ _linux_housekeeper_worker()
 
 ### Not changed
 
-- No retry/fallback consumption.
+- No automatic retry/fallback execution.
 - No independent persistence for WorkerRegistration data.
 - No CPU / memory metrics collection.
 - API response model for `/workers` remains `WorkerRegistrationRead`.
@@ -348,3 +348,49 @@ execution data without changing their external response models:
 - `test_control_plane_task_detail_consumes_run_and_gate_metadata`
 - `test_housekeeper_task_detail_consumes_run_and_gate_metadata_without_breaking_legacy_fields`
 - `test_housekeeper_task_detail_preserves_result_payload_and_summary_fields`
+
+---
+
+## Changelog: Gate Verdict Manual Approval Routing
+
+### What changed
+
+The real Linux control-plane path now consumes persisted gate verdicts at the
+minimal control point in `ControlPlaneService._execute()`:
+
+1. `gate_action == needs_review` now routes the task into the existing
+   `APPROVAL_REQUIRED` channel
+2. exhausted timeout paths that evaluate to `gate_action == fallback` also route
+   into the same `APPROVAL_REQUIRED` channel
+3. `success` still follows the existing `COMPLETED` path
+4. `retry` still does not execute automatically in this round
+5. `result_payload["gate_evaluation"]` and `result_payload["run_record"]` remain
+   intact and are still mirrored downstream unchanged
+
+### Before
+
+```text
+Linux supervisor run
+  → gate_evaluation written into result_payload
+  → task status decided only by summary.success
+  → needs_review / fallback verdicts ended as FAILED
+```
+
+### After
+
+```text
+Linux supervisor run
+  → gate_evaluation written into result_payload
+  → if gate_action in {needs_review, fallback}
+       -> create approval request
+       -> task status = APPROVAL_REQUIRED
+  → else keep existing completed / failed behavior
+```
+
+### Tests
+
+- `test_infra_error_dispatch_routes_needs_review_into_approval`
+- `test_timeout_with_exhausted_manual_fallback_routes_into_approval`
+- `test_control_plane_task_detail_consumes_run_and_gate_metadata`
+- `test_housekeeper_task_detail_consumes_run_and_gate_metadata_without_breaking_legacy_fields`
+- `test_infra_error_produces_run_status_failed`

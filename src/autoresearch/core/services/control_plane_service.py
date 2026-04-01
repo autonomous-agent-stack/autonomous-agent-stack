@@ -22,7 +22,7 @@ from autoresearch.shared.linux_supervisor_bridge import (
     supervisor_summary_to_run_record,
 )
 from autoresearch.shared.linux_supervisor_contract import LinuxSupervisorTaskCreateRequest
-from autoresearch.shared.task_gate_contract import make_gate_verdict
+from autoresearch.shared.task_gate_contract import GateAction, make_gate_verdict
 from autoresearch.shared.manager_agent_contract import ManagerDispatchRequest
 from autoresearch.shared.models import (
     ApprovalDecisionRequest,
@@ -276,6 +276,9 @@ class ControlPlaneService:
                 gate_outcome,
                 reason=summary.message or f"conclusion={summary.conclusion.value}",
                 checks=gate_checks,
+                retry_attempt=0,
+                max_retries=self._package_max_retry_count(package, default=linux_task.retry),
+                fallback_agent_id=linux_task.fallback_agent,
             )
             result_payload = summary.model_dump(mode="json")
             result_payload["gate_evaluation"] = {
@@ -303,6 +306,44 @@ class ControlPlaneService:
                 run_rec["completed_at"] = run_rec["completed_at"].isoformat().replace("+00:00", "Z")
             run_rec["status"] = bridge_run.status.value
             run_rec["run_status"] = bridge_run.status.value
+
+            if verdict.action in {GateAction.NEEDS_REVIEW, GateAction.FALLBACK}:
+                approval = self._approval_store.create_request(
+                    ApprovalRequestCreateRequest(
+                        title=f"Review control-plane task {package.name}",
+                        summary=summary.message or running.metadata.get("source_message", "") or "",
+                        risk=ApprovalRisk.WRITE,
+                        source="control_plane",
+                        session_id=running.session_id,
+                        metadata={
+                            "housekeeper_task_id": running.housekeeper_task_id,
+                            "control_plane_task_id": running.task_id,
+                            "draft_id": running.draft_id,
+                            "agent_package_id": running.agent_package_id,
+                            "backend_ref": linux_task.task_id,
+                            "gate_action": verdict.action.value,
+                            "gate_outcome": gate_outcome.value,
+                            "run_status": run_status.value,
+                        },
+                    )
+                )
+                gated = running.model_copy(
+                    update={
+                        "status": HousekeeperTaskStatus.APPROVAL_REQUIRED,
+                        "approval_status": ApprovalStatus.PENDING,
+                        "approval_id": approval.approval_id,
+                        "backend_ref": linux_task.task_id,
+                        "summary": summary.message,
+                        "metadata": {
+                            **running.metadata,
+                            **self._result_payload_observability_metadata(result_payload),
+                        },
+                        "result_payload": result_payload,
+                        "updated_at": utc_now(),
+                        "error": None if summary.success else summary.conclusion.value,
+                    }
+                )
+                return self._repository.save(gated.task_id, gated)
 
             updated = running.model_copy(
                 update={
@@ -353,6 +394,26 @@ class ControlPlaneService:
             if gate_action:
                 derived["gate_action"] = gate_action
         return derived
+
+    def _package_max_retry_count(self, package: AgentPackageRecordRead, *, default: int) -> int:
+        raw_manifest = package.raw_manifest if isinstance(package.raw_manifest, dict) else {}
+        governance = raw_manifest.get("governance")
+        if isinstance(governance, dict):
+            permission_boundaries = governance.get("permission_boundaries")
+            if isinstance(permission_boundaries, dict):
+                max_retry = permission_boundaries.get("max_retry_count")
+                if isinstance(max_retry, int):
+                    return max(0, max_retry)
+
+        failure_handling = raw_manifest.get("failure_handling")
+        if isinstance(failure_handling, dict):
+            retry_policy = failure_handling.get("retry_policy")
+            if isinstance(retry_policy, dict):
+                max_retry = retry_policy.get("max_retries")
+                if isinstance(max_retry, int):
+                    return max(0, max_retry)
+
+        return max(0, default)
 
     def _finalize_selection(self, draft: HousekeeperTaskDraftRead) -> _FinalSelection:
         for package_id in draft.candidate_package_ids:

@@ -1,12 +1,13 @@
-"""Integration tests: real LinuxSupervisorService → ControlPlaneService → gate evaluation.
+"""Integration tests: real LinuxSupervisorService → ControlPlaneService gate handling.
 
 These tests prove that when a real Linux task executes through the control plane,
 the linux_supervisor_bridge functions are called and unified contract artifacts
 (GateOutcome, GateCheck[], GateVerdict, RunStatus) are produced and stored in
 result_payload["gate_evaluation"].
 
-The control plane's decision logic (COMPLETED/FAILED based on summary.success)
-is unchanged — gate evaluation is observational, not controlling.
+Success still follows the existing completed path. Manual review / fallback
+verdicts now route into the existing approval-required path without changing
+the external task schema.
 """
 
 from __future__ import annotations
@@ -40,7 +41,7 @@ def _write(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
-def _seed_agent_package_tree(repo_root: Path) -> None:
+def _seed_agent_package_tree(repo_root: Path, *, max_retry_count: int = 1) -> None:
     manifest = {
         "id": "linux_housekeeping_agent_v0",
         "name": "Linux Housekeeping Agent",
@@ -57,6 +58,9 @@ def _seed_agent_package_tree(repo_root: Path) -> None:
                 "requires_approval_for_write": False,
                 "requires_approval_for_delete": False,
                 "approval_threshold": 0,
+            },
+            "permission_boundaries": {
+                "max_retry_count": max_retry_count,
             },
         },
         "failure_handling": {"fallback_strategy": "manual"},
@@ -258,6 +262,8 @@ class TestLinuxGateIntegration:
         task = _dispatch_linux_task(services, "巡检 Linux 服务状态")
 
         assert task.status == HousekeeperTaskStatus.COMPLETED
+        assert task.approval_status is None
+        assert task.approval_id is None
         gate = task.result_payload["gate_evaluation"]
         assert gate["gate_outcome"] == "success"
         assert gate["gate_action"] == "accept"
@@ -282,8 +288,8 @@ class TestLinuxGateIntegration:
         # At least one check should fail for timeout
         assert any(not c["passed"] for c in gate["gate_checks"])
 
-    def test_infra_error_dispatch_produces_needs_review(self, tmp_path: Path):
-        """INFRA_ERROR conclusion → gate_outcome=needs_human_confirm, action=needs_review."""
+    def test_infra_error_dispatch_routes_needs_review_into_approval(self, tmp_path: Path):
+        """NEEDS_REVIEW verdict should enter the existing approval path."""
         repo_root = tmp_path / "repo"
         helper = _linux_infra_error_helper(tmp_path / "infra.py")
         _seed_agent_package_tree(repo_root)
@@ -291,11 +297,41 @@ class TestLinuxGateIntegration:
 
         task = _dispatch_linux_task(services, "巡检 Linux 服务状态")
 
-        assert task.status == HousekeeperTaskStatus.FAILED
+        assert task.status == HousekeeperTaskStatus.APPROVAL_REQUIRED
+        assert task.approval_status == "pending"
+        assert task.approval_id is not None
+        assert task.summary == task.result_payload["message"]
+        assert task.error == "infra_error"
         gate = task.result_payload["gate_evaluation"]
         assert gate["gate_outcome"] == "needs_human_confirm"
         assert gate["gate_action"] == "needs_review"
         assert gate["run_status"] == "failed"
+        assert len(gate["gate_checks"]) == 5
+        assert "task_id" in task.result_payload
+        assert "conclusion" in task.result_payload
+        assert "run_record" in task.result_payload
+
+    def test_timeout_with_exhausted_manual_fallback_routes_into_approval(self, tmp_path: Path):
+        """Exhausted manual fallback should land in approval instead of terminal failure."""
+        repo_root = tmp_path / "repo"
+        helper = _linux_timeout_helper(tmp_path / "timeout.py")
+        _seed_agent_package_tree(repo_root, max_retry_count=0)
+        services = _build_services(repo_root, helper)
+
+        task = _dispatch_linux_task(services, "巡检 Linux 服务状态")
+
+        assert task.status == HousekeeperTaskStatus.APPROVAL_REQUIRED
+        assert task.approval_status == "pending"
+        assert task.approval_id is not None
+        assert task.summary == task.result_payload["message"]
+        assert task.error == "timed_out"
+        gate = task.result_payload["gate_evaluation"]
+        assert gate["gate_outcome"] == "timeout"
+        assert gate["gate_action"] == "fallback"
+        assert gate["run_status"] == "failed"
+        assert "artifacts" in task.result_payload
+        assert "run_record" in task.result_payload
+        assert "gate_evaluation" in task.result_payload
 
     def test_gate_checks_match_bridge_output(self, tmp_path: Path):
         """Gate checks contain the 5 expected check_ids from bridge module."""
