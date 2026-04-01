@@ -9,6 +9,7 @@ from pathlib import Path
 
 from autoresearch.benchmarks.live_run_stability_runner import (
     build_live_run_agent_env,
+    build_live_run_agent_command,
     run_live_run_stability_benchmark,
 )
 
@@ -49,19 +50,9 @@ def main() -> int:
     env = build_live_run_agent_env(repo_root)
 
     def executor(task: dict[str, object], run_dir: Path) -> dict[str, object]:
-        prompt = str(task.get("prompt") or task.get("name") or "")
         task_id = str(task.get("task_id") or "unknown")
         completed = subprocess.run(
-            [
-                str(repo_root / ".venv" / "bin" / "python"),
-                "scripts/agent_run.py",
-                "--agent",
-                "openhands",
-                "--task",
-                prompt,
-                "--run-id",
-                task_id,
-            ],
+            build_live_run_agent_command(repo_root=repo_root, task=task),
             cwd=repo_root,
             env=env,
             capture_output=True,

@@ -11,6 +11,7 @@ def test_live_run_stability_benchmark_manifest_is_well_formed() -> None:
     assert data["suite_name"] == "live-run-stability"
     tasks = data["tasks"]
     assert 3 <= len(tasks) <= 5
+    assert any(int(task.get("retry_attempts", 0)) > 0 for task in tasks)
 
     for task in tasks:
         assert task["task_id"]
@@ -19,6 +20,7 @@ def test_live_run_stability_benchmark_manifest_is_well_formed() -> None:
         assert task["expected_artifacts"]
         assert task["pass_conditions"]
         assert 60 <= int(task["max_duration_seconds"]) <= 600
+        assert int(task.get("retry_attempts", 0)) >= 0
         assert "summary.json" in task["expected_artifacts"]
 
 

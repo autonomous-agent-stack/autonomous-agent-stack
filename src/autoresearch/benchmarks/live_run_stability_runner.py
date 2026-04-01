@@ -22,6 +22,25 @@ class LiveRunBenchmarkResult:
     task_count: int
 
 
+def build_live_run_agent_command(*, repo_root: Path, task: dict[str, Any]) -> list[str]:
+    prompt = str(task.get("prompt") or task.get("name") or "")
+    task_id = str(task.get("task_id") or "unknown")
+    command = [
+        str(repo_root / ".venv" / "bin" / "python"),
+        "scripts/agent_run.py",
+        "--agent",
+        "openhands",
+        "--task",
+        prompt,
+        "--run-id",
+        task_id,
+    ]
+    retry_attempts = _task_retry_attempts(task)
+    if retry_attempts > 0:
+        command.extend(["--retry", str(retry_attempts)])
+    return command
+
+
 def run_live_run_stability_benchmark(
     *,
     tasks_path: Path,
@@ -69,3 +88,13 @@ def build_live_run_agent_env(repo_root: Path) -> dict[str, str]:
     env["PYTHONPATH"] = f"{src_path}:{pythonpath}" if pythonpath else src_path
     env["PATH"] = f"{(repo_root / '.venv' / 'bin').resolve()}:{env.get('PATH', '')}"
     return env
+
+
+def _task_retry_attempts(task: dict[str, Any]) -> int:
+    raw_value = task.get("retry_attempts")
+    if raw_value is None:
+        return 0
+    try:
+        return max(int(raw_value), 0)
+    except (TypeError, ValueError):
+        return 0

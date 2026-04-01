@@ -81,20 +81,20 @@ def generate_live_run_regression_matrix(
             metadata=run_summary.get("metadata") if isinstance(run_summary.get("metadata"), dict) else None,
         )
         rows.append(
-            LiveRunMatrixRow(
-                task_id=task_id,
-                task_name=task_name,
-                lane=str(task.get("lane") or "benchmark"),
-                model_provider=_optional_string(run_summary.get("model_provider")),
-                result=str(run_summary.get("final_status") or run_summary.get("result") or "unknown"),
-                failure_status=_optional_string(run_summary.get("failure_status")) or classification.failure_status,
-                failure_layer=_optional_string(run_summary.get("failure_layer")) or classification.failure_layer,
-                failure_stage=_optional_string(run_summary.get("failure_stage")),
-                duration_sec=_optional_float(run_summary.get("duration_seconds")),
-                retry_result=_optional_string(run_summary.get("retry_result")),
-                notes=_optional_string(run_summary.get("notes")),
+                LiveRunMatrixRow(
+                    task_id=task_id,
+                    task_name=task_name,
+                    lane=str(task.get("lane") or "benchmark"),
+                    model_provider=_optional_string(run_summary.get("model_provider")),
+                    result=str(run_summary.get("final_status") or run_summary.get("result") or "unknown"),
+                    failure_status=_optional_string(run_summary.get("failure_status")) or classification.failure_status,
+                    failure_layer=_optional_string(run_summary.get("failure_layer")) or classification.failure_layer,
+                    failure_stage=_optional_string(run_summary.get("failure_stage")),
+                    duration_sec=_optional_float(run_summary.get("duration_seconds")),
+                    retry_result=_resolve_retry_result(run_summary, driver_result),
+                    notes=_optional_string(run_summary.get("notes")),
+                )
             )
-        )
     return rows
 
 
@@ -165,6 +165,13 @@ def _optional_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _resolve_retry_result(run_summary: dict[str, Any], driver_result: DriverResult) -> str | None:
+    explicit = _optional_string(run_summary.get("retry_result"))
+    if explicit is not None:
+        return explicit
+    return "retried" if driver_result.attempt > 1 else None
 
 
 def _md(value: str | None) -> str:

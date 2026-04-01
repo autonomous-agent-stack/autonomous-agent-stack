@@ -10,6 +10,7 @@ from autoresearch.benchmarks.live_run_stability_matrix import (
     write_live_run_regression_matrix,
 )
 from autoresearch.benchmarks.live_run_stability_runner import (
+    build_live_run_agent_command,
     build_live_run_agent_env,
     run_live_run_stability_benchmark,
 )
@@ -208,3 +209,88 @@ def test_live_run_agent_env_prefers_repo_venv_and_src(tmp_path: Path, monkeypatc
 
     assert str(repo_root / ".venv" / "bin") in env["PATH"]
     assert str(repo_root / "src") in env["PYTHONPATH"]
+
+
+def test_build_live_run_agent_command_includes_retry_when_task_requests_it(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    (repo_root / ".venv" / "bin").mkdir(parents=True)
+
+    command = build_live_run_agent_command(
+        repo_root=repo_root,
+        task={
+            "task_id": "queue-smoke",
+            "prompt": "run the queue smoke benchmark",
+            "retry_attempts": 2,
+        },
+    )
+
+    assert command == [
+        str(repo_root / ".venv" / "bin" / "python"),
+        "scripts/agent_run.py",
+        "--agent",
+        "openhands",
+        "--task",
+        "run the queue smoke benchmark",
+        "--run-id",
+        "queue-smoke",
+        "--retry",
+        "2",
+    ]
+
+
+def test_build_live_run_agent_command_omits_retry_when_task_does_not_request_it(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    (repo_root / ".venv" / "bin").mkdir(parents=True)
+
+    command = build_live_run_agent_command(
+        repo_root=repo_root,
+        task={
+            "task_id": "queue-summary-audit",
+            "name": "summary audit",
+        },
+    )
+
+    assert command == [
+        str(repo_root / ".venv" / "bin" / "python"),
+        "scripts/agent_run.py",
+        "--agent",
+        "openhands",
+        "--task",
+        "summary audit",
+        "--run-id",
+        "queue-summary-audit",
+    ]
+
+
+def test_matrix_derives_retry_result_from_attempt_count(tmp_path: Path) -> None:
+    tasks_path = tmp_path / "tasks.json"
+    tasks_path.write_text(
+        json.dumps({"suite_name": "live-run-stability", "tasks": [{"task_id": "retry", "name": "retry"}]}),
+        encoding="utf-8",
+    )
+
+    run_root = tmp_path / "runs"
+    (run_root / "retry").mkdir(parents=True)
+    (run_root / "retry" / "summary.json").write_text(
+        json.dumps(
+            {
+                "final_status": "completed",
+                "result": "completed",
+                "driver_result": {
+                    "run_id": "retry",
+                    "agent_id": "agent",
+                    "attempt": 2,
+                    "status": "succeeded",
+                    "summary": "recovered after retry",
+                    "metrics": {"duration_ms": 20, "steps": 2, "commands": 2},
+                    "recommended_action": "promote",
+                },
+                "validation": {"run_id": "retry", "passed": True, "checks": []},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    rows = generate_live_run_regression_matrix(tasks_path=tasks_path, run_roots=[run_root])
+
+    assert rows[0].retry_result == "retried"
