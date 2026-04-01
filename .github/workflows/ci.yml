@@ -45,6 +45,8 @@ env:
     tests/test_fake_workers.py
     src/autoresearch/testing/fake_workers.py
     tests/test_acceptance_harness.py
+    tests/test_acceptance_gaps.py
+    tests/test_worker_contract_compliance.py
   CORE_TEST_PATHS: >-
     tests/gateway/test_message_mirror.py
     tests/test_agent_protocol_models.py
@@ -68,6 +70,8 @@ env:
     tests/test_fake_workers.py
     src/autoresearch/testing/fake_workers.py
     tests/test_acceptance_harness.py
+    tests/test_acceptance_gaps.py
+    tests/test_worker_contract_compliance.py
 
 jobs:
   lint-test-audit:
