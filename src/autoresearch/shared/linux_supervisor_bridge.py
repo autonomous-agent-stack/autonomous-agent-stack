@@ -272,11 +272,15 @@ def supervisor_heartbeat_to_worker_registration(
     *,
     worker_id: str,
     name: str = "Linux Housekeeper",
+    now: datetime | None = None,
 ) -> WorkerRegistration:
     """Derive a WorkerRegistration from supervisor heartbeat + status."""
-    now = datetime.now(timezone.utc)
+    now = now or datetime.now(timezone.utc)
     age = (now - process_hb.observed_at).total_seconds()
     status = _derive_worker_status(process_hb.status, age)
+    errors: list[str] = []
+    if process_status.message and process_status.status == "stopped":
+        errors.append(process_status.message)
 
     return WorkerRegistration(
         worker_id=worker_id,
@@ -288,4 +292,19 @@ def supervisor_heartbeat_to_worker_registration(
         last_heartbeat=process_hb.observed_at,
         max_concurrent_tasks=1,
         backend_kind="linux_supervisor",
+        errors=errors,
+        metadata={
+            "source": "linux_supervisor",
+            "heartbeat_age_seconds": max(0.0, age),
+            "queue_depth": process_hb.queue_depth,
+            "process_status": process_status.status,
+            "pid": process_status.pid if process_status.pid is not None else process_hb.pid,
+            "current_task_id": (
+                process_status.current_task_id
+                if process_status.current_task_id is not None
+                else process_hb.current_task_id
+            ),
+            "last_task_id": process_status.last_task_id,
+            "message": process_status.message,
+        },
     )

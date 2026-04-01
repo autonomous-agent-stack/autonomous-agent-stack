@@ -423,7 +423,8 @@ CI 路径已包含在 `.github/workflows/ci.yml` 的 `CORE_LINT_PATHS` 和 `CORE
 
 #### Disk shape → WorkerRegistration
 
-`supervisor_heartbeat_to_worker_registration()` 仍未被生产代码调用。
+`supervisor_heartbeat_to_worker_registration()` 现已被生产代码调用，且 bridge 本体负责
+填充 registration 的 metadata / errors。
 
 | 字段 | 映射方式 | 差距 |
 |------|---------|------|
@@ -462,14 +463,14 @@ CI 路径已包含在 `.github/workflows/ci.yml` 的 `CORE_LINT_PATHS` 和 `CORE
 |------|------|------|
 | DEGRADED 状态不可达 | Medium | bridge 阈值 STALE=DEAD=120，DEGRADED 是死代码 |
 | WorkerMetrics 大部分字段为 0 | Low | supervisor 不采集 CPU/内存，bridge 无法填充 |
-| WorkerRegistration 未接线 | Low | `supervisor_heartbeat_to_worker_registration()` 从未被生产代码调用 |
+| WorkerRegistration 仍是 legacy API 出口 | Low | `/workers` / `get_worker()` 仍返回 `WorkerRegistrationRead` |
 | WorkerRegistration.registered_at 非持久 | Low | 每次调用重新生成，不代表真实注册时间 |
 | Heartbeat 仅文件轮询 | Low | 非推送协议，不适配高频监控场景 |
 
 ### 6.6 超出范围
 
 以下项目 **不在此轮接线范围**：
-- `WorkerRegistration` 接线（`supervisor_heartbeat_to_worker_registration()`）
+- `WorkerRegistration` API 升级为 unified 返回类型
 - 真实 CPU/内存指标采集（需 psutil 集成）
 - Heartbeat 推送协议（当前是文件轮询）
 - 动态 worker 注册（替换硬编码 `list_workers()`）
@@ -560,8 +561,8 @@ CI 路径已包含在 `.github/workflows/ci.yml` 的 `CORE_LINT_PATHS` 和 `CORE
 | `timeout_defaults` | bridge | `WorkerTimeoutDefaults()`（默认值） |
 | `max_concurrent_tasks` | bridge | `1` |
 | `backend_kind` | bridge | `"linux_supervisor"` |
-| `errors` | 服务适配层 | 从 stopped status 的 process_status.message 推导 |
-| `metadata` | 服务适配层 | 从 process_status + heartbeat 传入 queue_depth / process_status / message / pid / current_task_id / last_task_id |
+| `errors` | bridge | 从 stopped status 的 process_status.message 推导 |
+| `metadata` | bridge | 从 process_status + heartbeat 传入 queue_depth / process_status / message / pid / current_task_id / last_task_id |
 
 ### 7.6 风险点
 

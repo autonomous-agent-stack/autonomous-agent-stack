@@ -194,7 +194,7 @@ Both paths now share the same file reader and bridge function, ensuring status c
 
 ### Not changed
 
-- `supervisor_heartbeat_to_worker_registration()` remains unwired.
+- `supervisor_heartbeat_to_worker_registration()` 已在后续 registration 集成中接线；本节仅描述 heartbeat 主线。
 - Bridge threshold constants (`_STALE_THRESHOLD_SEC = _DEAD_THRESHOLD_SEC = 120`) unchanged — DEGRADED is unreachable.
 - Worker selection / dispatch logic unchanged.
 - No independent persistence for WorkerHeartbeat data.
@@ -230,6 +230,9 @@ Linux supervisor registration is now wired into the real production registry pat
 3. Added 5 integration tests covering idle / running / stopped status, metadata,
    and consistency against `get_worker_heartbeat()` and `list_workers()`.
 4. Added the new integration test file to CI.
+5. Registration metadata and stopped-state errors now come directly from
+   `supervisor_heartbeat_to_worker_registration()`, instead of being re-built in
+   `WorkerRegistryService`.
 
 ### Before
 

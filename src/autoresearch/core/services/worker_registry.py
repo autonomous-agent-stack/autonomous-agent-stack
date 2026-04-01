@@ -73,21 +73,11 @@ class WorkerRegistryService:
         process_status, heartbeat = self._read_linux_supervisor_state()
         if process_status is None or heartbeat is None:
             return None
-        errors = []
-        if process_status.message and process_status.status == "stopped":
-            errors.append(process_status.message)
         return supervisor_heartbeat_to_worker_registration(
             heartbeat,
             process_status,
             worker_id="linux_housekeeper",
-        ).model_copy(
-            update={
-                "errors": errors,
-                "metadata": self._linux_supervisor_metadata(
-                    process_status=process_status,
-                    process_heartbeat=heartbeat,
-                ),
-            }
+            now=utc_now(),
         )
 
     def find_worker_for_backend(
@@ -178,28 +168,6 @@ class WorkerRegistryService:
             last_heartbeat=None,
             metadata=metadata,
         )
-
-    def _linux_supervisor_metadata(
-        self,
-        *,
-        process_status: LinuxSupervisorProcessStatusRead,
-        process_heartbeat: LinuxSupervisorProcessHeartbeatRead,
-    ) -> dict[str, object]:
-        age_seconds = max(0.0, (utc_now() - process_heartbeat.observed_at).total_seconds())
-        return {
-            "source": "linux_supervisor",
-            "heartbeat_age_seconds": age_seconds,
-            "queue_depth": process_heartbeat.queue_depth,
-            "process_status": process_status.status,
-            "pid": process_status.pid if process_status.pid is not None else process_heartbeat.pid,
-            "current_task_id": (
-                process_status.current_task_id
-                if process_status.current_task_id is not None
-                else process_heartbeat.current_task_id
-            ),
-            "last_task_id": process_status.last_task_id,
-            "message": process_status.message,
-        }
 
     def _read_linux_supervisor_state(
         self,

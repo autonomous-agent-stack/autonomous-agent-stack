@@ -335,20 +335,26 @@ class TestHeartbeatToRegistration:
     def test_produces_linux_worker_type(self):
         hb = _process_hb()
         ps = _process_status()
-        reg = supervisor_heartbeat_to_worker_registration(hb, ps, worker_id="linux_housekeeper")
+        reg = supervisor_heartbeat_to_worker_registration(
+            hb, ps, worker_id="linux_housekeeper", now=_NOW
+        )
         assert isinstance(reg, WorkerRegistration)
         assert reg.worker_type == WorkerType.LINUX
 
     def test_backend_kind_is_linux_supervisor(self):
         hb = _process_hb()
         ps = _process_status()
-        reg = supervisor_heartbeat_to_worker_registration(hb, ps, worker_id="linux_housekeeper")
+        reg = supervisor_heartbeat_to_worker_registration(
+            hb, ps, worker_id="linux_housekeeper", now=_NOW
+        )
         assert reg.backend_kind == "linux_supervisor"
 
     def test_capabilities_match_registry(self):
         hb = _process_hb()
         ps = _process_status()
-        reg = supervisor_heartbeat_to_worker_registration(hb, ps, worker_id="linux_housekeeper")
+        reg = supervisor_heartbeat_to_worker_registration(
+            hb, ps, worker_id="linux_housekeeper", now=_NOW
+        )
         assert "shell" in reg.capabilities
         assert "script_runner" in reg.capabilities
         assert "log_collection" in reg.capabilities
@@ -357,8 +363,36 @@ class TestHeartbeatToRegistration:
     def test_max_concurrent_is_one(self):
         hb = _process_hb()
         ps = _process_status()
-        reg = supervisor_heartbeat_to_worker_registration(hb, ps, worker_id="linux_housekeeper")
+        reg = supervisor_heartbeat_to_worker_registration(
+            hb, ps, worker_id="linux_housekeeper", now=_NOW
+        )
         assert reg.max_concurrent_tasks == 1
+
+    def test_metadata_preserves_queue_pid_task_and_message(self):
+        hb = _process_hb(status="running", current_task_id="task-001", queue_depth=3)
+        ps = _process_status(status="running", current_task_id="task-001", message="still working")
+        reg = supervisor_heartbeat_to_worker_registration(
+            hb, ps, worker_id="linux_housekeeper", now=_NOW
+        )
+        assert reg.metadata == {
+            "source": "linux_supervisor",
+            "heartbeat_age_seconds": 0.0,
+            "queue_depth": 3,
+            "process_status": "running",
+            "pid": 12345,
+            "current_task_id": "task-001",
+            "last_task_id": None,
+            "message": "still working",
+        }
+
+    def test_stopped_registration_surfaces_errors(self):
+        hb = _process_hb(status="stopped")
+        ps = _process_status(status="stopped", message="worker crashed")
+        reg = supervisor_heartbeat_to_worker_registration(
+            hb, ps, worker_id="linux_housekeeper", now=_NOW
+        )
+        assert reg.status == WorkerStatus.OFFLINE
+        assert reg.errors == ["worker crashed"]
 
 
 # ===================================================================
