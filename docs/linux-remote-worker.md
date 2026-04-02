@@ -1,26 +1,33 @@
-# Linux Remote Worker Guide
+# Linux Primary Runtime Guide
 
-这份指南的目标很单纯：把一台 Linux 机器尽快变成这套仓库的稳定执行节点。
+这份指南的目标很单纯：把一台 Linux 机器尽快收口成这套仓库的默认运行面，而不是把它当成 Mac 的 worker。
 
-当前最推荐的拓扑不是“Linux 完全复制 Mac/Colima”，而是：
+固定拓扑：
 
-- Mac: 控制面
-  - Telegram
-  - 审批
-  - Review
-  - Memory
-- Linux: 执行面
-  - OpenHands
-  - pytest
-  - patch 生成
-  - promotion 前验证
+- `Linux = 主助理 / 主开发执行面 / 主值班面`
+- `Mac = 备用管家 / 备用执行面 / 控制台`
+- `同仓库、同 manifest、不同 runtime 配置`
+- 不允许分叉成两套实现
+
+默认分工：
+
+- Linux 跑 `OpenHands`、长任务、benchmark、`Telegram` 主值班
+- Linux 负责主执行链、主 `/task` 路径、主 agent 宿主
+- Mac 保留备用执行能力，但默认不常驻、不接主执行链
+
+故障切换：
+
+- 平时 Linux 主跑
+- Linux 掉线时，Mac 只接低到中风险、短时、可人工复核任务
+- Linux 恢复后切回 Linux
 
 ## 为什么 Linux 先走 `host`
 
-这个仓库在 Mac 上对 `ai-lab + Colima + 外置盘` 做了大量加固，但 Linux 节点的最佳起步路径更简单：
+这个仓库在 Mac 上对 `ai-lab + Colima + 外置盘` 做过加固，但 Linux 主运行面的默认起步路径更简单：
 
 - 避开 Colima / Mac socket 差异
 - 先验证真实 OpenHands 能写代码、跑测试、产 patch
+- 先把 Linux 主 `/task` 和主值班跑稳
 - 等业务链稳定后，再考虑把 Linux 执行面容器化
 
 所以第一阶段建议固定：
@@ -49,10 +56,13 @@ python3.11 -m venv .venv
 source .venv/bin/activate
 
 make setup
-OPENHANDS_RUNTIME=host make doctor-linux
+set -a
+source .env.linux
+set +a
+make doctor-linux
 ```
 
-`make doctor-linux` 会额外检查几件对 Linux 节点最关键的事：
+`make doctor-linux` 会额外检查几件对 Linux 主运行面最关键的事：
 
 - 当前是否真在 Linux 上
 - `OPENHANDS_RUNTIME` 是否设成 `host`
@@ -65,9 +75,20 @@ OPENHANDS_RUNTIME=host make doctor-linux
 最低限度：
 
 ```bash
+export AUTORESEARCH_RUNTIME_HOST=linux
+export AUTORESEARCH_EXECUTION_ROLE=primary
+export AUTORESEARCH_TASK_RISK_PROFILE=full
 export OPENHANDS_RUNTIME=host
 export AUTORESEARCH_API_HOST=0.0.0.0
 export AUTORESEARCH_API_PORT=8001
+```
+
+Mac 备用机只在本地覆盖 runtime 身份，不改单仓库实现：
+
+```bash
+export AUTORESEARCH_RUNTIME_HOST=macos
+export AUTORESEARCH_EXECUTION_ROLE=backup
+export AUTORESEARCH_TASK_RISK_PROFILE=low_medium
 ```
 
 如果 Linux 节点上已经准备好了独立 OpenHands CLI，可再补：
@@ -115,19 +136,19 @@ PYTHONPATH=src .venv/bin/python scripts/promote_run.py \
   --open-draft-pr
 ```
 
-## Linux 远端怎么用最值钱
+## Linux 主运行面怎么用最值钱
 
-最实用的用法不是“把 Linux 也当控制台”，而是明确分工。
+最实用的用法不是“把 Linux 也当第二控制台”，而是把默认运行面真正放到 Linux。
 
-### 模式 1: Mac 控制面 + Linux 执行面
+### 模式 1: Linux 主运行 + Mac 备用控制台
 
 最推荐。
 
-- Mac 继续收 Telegram
-- Mac 做审批和看板
-- Linux 专门负责跑 OpenHands / pytest / promotion 验证
+- Linux 继续收 Telegram
+- Linux 负责 OpenHands / pytest / promotion / benchmark
+- Mac 平时只做观察、调试、紧急接管
 
-### 模式 2: Linux 纯 worker 箱
+### 模式 2: Linux 长任务箱
 
 适合长任务。
 
@@ -144,13 +165,13 @@ source .venv/bin/activate
 OPENHANDS_RUNTIME=host make start
 ```
 
-### 模式 3: Linux 作为 promotion / CI 预演机
+### 模式 3: Mac 故障接管窗口
 
-适合把“能不能出 PR”这件事放到更干净的机器上验证。
+只在 Linux 掉线时启用。
 
-- Linux 跑 `pytest`
-- Linux 跑 `scripts/promote_run.py`
-- Mac 只看结果和审批
+- Mac 只接低到中风险、短时、可人工复核任务
+- 不在 Mac 上恢复主值班常驻
+- Linux 恢复后，主动切回 Linux
 
 ## 最佳实践
 
@@ -169,14 +190,15 @@ export OPENHANDS_RUNTIME=host
 - patch 能产出
 - promotion 能完成
 
-### 2. 把 Linux 当执行机，不当第二控制台
+### 2. 把 Linux 当主运行面，不当备用 worker
 
 最优分工是：
 
-- Mac 收 Telegram 和审批
+- Linux 收 Telegram 和主 `/task`
 - Linux 跑重任务和长测试
+- Mac 只做备用控制台和备用执行面
 
-这样能把“控制面”故障和“执行面”故障拆开。
+这样能把“默认运行面”故障和“备用控制台”故障拆开。
 
 ### 3. 永远先跑 `make doctor-linux`
 
@@ -198,15 +220,12 @@ OPENHANDS_RUNTIME=host make doctor-linux
 tmux new -s aas-worker
 ```
 
-### 5. 把 promotion 放到更干净的机器上
+### 5. 不要把 Mac 备用机扩成第二套实现
 
-如果 Mac 本地工作区经常是脏的，Linux 节点更适合承担：
-
-- 全量 pytest
-- promotion gate
-- draft PR 创建
-
-这样更容易避免因为本地临时改动导致降级成 patch-only。
+- 同一套仓库
+- 同一套 manifest
+- 同一套 agent 定义
+- 只通过本地 runtime 配置区分 Linux / Mac
 
 ### 6. 不要把 Mac 的运行态变量原样 rsync 过去
 

@@ -21,7 +21,7 @@
 ## 3 分钟上手
 
 ```bash
-cd /Volumes/PS1008/Github/autonomous-agent-stack
+cd /home/<user>/autonomous-agent-stack
 # 确保这里用的是 Python 3.11+
 make setup
 make doctor
@@ -54,31 +54,43 @@ AUTORESEARCH_TELEGRAM_MINI_APP_URL=https://你的面板域名/api/v1/panel/view
 
 ```bash
 AUTORESEARCH_UPSTREAM_WATCH_URL=https://github.com/openclaw/openclaw.git
-AUTORESEARCH_UPSTREAM_WATCH_WORKSPACE_ROOT=/Volumes/AI_LAB/ai_lab/workspace
+AUTORESEARCH_UPSTREAM_WATCH_WORKSPACE_ROOT=artifacts/upstream-watch/workspace
 AUTORESEARCH_UPSTREAM_WATCH_MAX_COMMITS=5
 ```
 
 当前代码会优先使用 `AUTORESEARCH_TELEGRAM_BOT_TOKEN`；旧变量 `TELEGRAM_BOT_TOKEN` 还能兼容，但已经是 deprecated。
 
-## Linux 远端节点
+## Linux 主运行面
 
-如果你准备把 Linux 当“执行面”来跑真实 OpenHands，最稳的第一步不是照搬 Mac/Colima，而是直接走 `host` runtime。
+默认拓扑只保留一套实现：
 
-最小路径：
+- `Linux = 主助理 / 主开发执行面 / 主值班面`
+- `Mac = 备用管家 / 备用执行面 / 控制台`
+- `同仓库、同 manifest、不同 runtime 配置`
+
+默认 bring-up 路径直接收口到 Linux：
+
+- Linux 跑 `OpenHands`、长任务、benchmark、`Telegram` 主值班
+- Linux 负责主执行链、主 `/task` 路径、主 agent 宿主
+- Mac 平时不常驻接单；只在 Linux 掉线时接低到中风险、短时、可人工复核任务
+
+最小 bring-up：
 
 ```bash
 python3.11 -m venv .venv
 source .venv/bin/activate
 make setup
-OPENHANDS_RUNTIME=host make doctor-linux
-OPENHANDS_RUNTIME=host make start
+set -a
+source .env.linux
+set +a
+make doctor-linux
+make start
 ```
 
-更完整的落地清单、环境变量建议和远端使用姿势见：
+具体边界、切换规则和 Linux-only 配置只保留在一处：
 
-- [Linux Remote Worker Guide](./docs/linux-remote-worker.md)
-- [cc-switch Usage Guide](./docs/cc-switch-usage.md)
-- [OpenHands Controlled Backend Integration](./docs/openhands-cli-integration.md)
+- [Linux Primary Runtime Guide](./docs/linux-remote-worker.md)
+- [`.env.linux`](./.env.linux)
 
 ## 常用命令
 
@@ -93,8 +105,8 @@ make ai-lab
 make ai-lab-check
 make ai-lab-setup
 make masfactory-flight
-make masfactory-flight GOAL="探测当前 M1 的 CPU 核心数"
-make masfactory-flight GOAL="探测当前 M1 的 CPU 核心数" WATCH=1
+make masfactory-flight GOAL="探测当前 Linux 主机的 CPU 核心数"
+make masfactory-flight GOAL="探测当前 Linux 主机的 CPU 核心数" WATCH=1
 make openhands-dry-run
 make openhands OH_TASK="Please scan /opt/workspace/src/autoresearch/core and fix TODOs with tests."
 make openhands-controlled-dry-run
@@ -117,7 +129,7 @@ SANDBOX_VOLUMES=/你的workspace:/workspace:rw \
 openhands --exp --headless -t "你的任务"
 ```
 
-实际执行时 launcher 会先 `cd` 到目标 worktree，再启动 CLI，所以 OpenHands 的 workspace 会对准当前任务目录。如果你要切回旧的“把 prompt 当位置参数”模式，可显式设置 `OPENHANDS_HEADLESS=0`；如果你明确想关闭 `--exp`，可设置 `OPENHANDS_EXPERIMENTAL=0`。`OPENHANDS_JSON=1` 仅适用于明确支持该 flag 的 CLI 版本；当前本地验证的 `OpenHands CLI 1.5.0` 默认不带它。如果要走真实 `ai-lab` 容器链，除了容器内 `openhands` 本身可用，还需要当前 shell 对配置的 Docker/Colima socket 有访问权限。`sandbox/ai-lab/Dockerfile` 也默认锁到同一个 `OpenHands CLI 1.5.0`，避免容器冷启动时漂移到未验证的新版本。
+实际执行时 launcher 会先 `cd` 到目标 worktree，再启动 CLI，所以 OpenHands 的 workspace 会对准当前任务目录。如果你要切回旧的“把 prompt 当位置参数”模式，可显式设置 `OPENHANDS_HEADLESS=0`；如果你明确想关闭 `--exp`，可设置 `OPENHANDS_EXPERIMENTAL=0`。`OPENHANDS_JSON=1` 仅适用于明确支持该 flag 的 CLI 版本；当前本地验证的 `OpenHands CLI 1.5.0` 默认不带它。如果要走真实 `ai-lab` 容器链，除了容器内 `openhands` 本身可用，还需要当前 shell 对配置的 Docker/Colima socket 有访问权限；这属于兼容路径，不是 Linux 默认 bring-up。`sandbox/ai-lab/Dockerfile` 也默认锁到同一个 `OpenHands CLI 1.5.0`，避免容器冷启动时漂移到未验证的新版本。
 
 `launch_ai_lab.sh` 也会显式识别 `DOCKER_HOST=unix://...` 这类 Colima socket。如果当前配置指向了一个当前用户不可访问的 Colima socket，它会先尝试安全回退：有外置盘 Colima store 时走 repo 自带的 `scripts/colima-external.sh`，否则直接回退到当前用户自己的 `~/.colima/<profile>/docker.sock`，而不是直接放宽宿主机 socket 权限。当前用户回退分支还会显式把 `/Volumes/AI_LAB` 挂进 Colima；如果你不想碰现有默认 profile，可直接用独立 profile，例如 `COLIMA_PROFILE=ai-lab bash ./scripts/launch_ai_lab.sh status`。
 
@@ -194,7 +206,7 @@ PORT=8010 make start
 ## 快速排错
 
 1. 先跑 `make doctor`，看是否有 `FAIL`
-2. Linux 远端执行节点先跑 `OPENHANDS_RUNTIME=host make doctor-linux`
+2. Linux 主运行机先跑 `make doctor-linux`
 3. 如果提示 Python 版本过低，先切到 Python 3.11+，再执行 `make setup`
 4. 如果是端口问题，执行 `PORT=8010 make start`
 5. 如果是导入问题，确认通过 `make start` 启动（脚本会自动设置 `PYTHONPATH=src`）
