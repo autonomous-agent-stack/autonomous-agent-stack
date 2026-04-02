@@ -36,6 +36,8 @@ def build_live_run_agent_command(*, repo_root: Path, task: dict[str, Any]) -> li
     command = [
         str(repo_root / ".venv" / "bin" / "python"),
         "scripts/agent_run.py",
+        "--repo-root",
+        str(repo_root),
         "--agent",
         "openhands",
         "--task",

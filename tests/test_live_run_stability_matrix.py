@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import subprocess
 import sys
 
 from autoresearch.agent_protocol.models import FallbackStep, JobSpec, ValidatorSpec
@@ -15,6 +17,7 @@ from autoresearch.benchmarks.live_run_stability_matrix import (
 from autoresearch.benchmarks.live_run_stability_runner import (
     build_live_run_agent_command,
     build_live_run_agent_env,
+    build_live_run_retry_overview,
     normalize_live_run_summary,
     run_live_run_stability_benchmark,
 )
@@ -293,6 +296,8 @@ def test_build_live_run_agent_command_includes_retry_when_task_requests_it(tmp_p
     assert command == [
         str(repo_root / ".venv" / "bin" / "python"),
         "scripts/agent_run.py",
+        "--repo-root",
+        str(repo_root),
         "--agent",
         "openhands",
         "--task",
@@ -319,6 +324,8 @@ def test_build_live_run_agent_command_omits_retry_when_task_does_not_request_it(
     assert command == [
         str(repo_root / ".venv" / "bin" / "python"),
         "scripts/agent_run.py",
+        "--repo-root",
+        str(repo_root),
         "--agent",
         "openhands",
         "--task",
@@ -564,6 +571,90 @@ def test_retry_overview_json_has_stable_schema(tmp_path: Path) -> None:
     )
 
 
+def test_retry_overview_handles_missing_summary_rows_without_forcing_retry_result(tmp_path: Path) -> None:
+    tasks_path = tmp_path / "tasks.json"
+    tasks_path.write_text(
+        json.dumps(
+            {
+                "suite_name": "live-run-stability",
+                "tasks": [{"task_id": "missing", "name": "missing", "retry_attempts": 2}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    rows = generate_live_run_regression_matrix(tasks_path=tasks_path, run_roots=[tmp_path / "runs"])
+    overview = build_live_run_retry_overview(rows)
+
+    assert rows[0].result == "missing"
+    assert rows[0].retry_result is None
+    assert rows[0].retry_budget == 2
+    assert rows[0].retry_attempts_used is None
+    assert overview["task_count"] == 1
+    assert overview["retry_requested_task_count"] == 1
+    assert overview["retried_task_count"] == 0
+    assert all(value == 0 for value in overview["retry_result_counts"].values())
+    assert overview["tasks"] == [
+        {
+            "task_id": "missing",
+            "task_name": "missing",
+            "result": "missing",
+            "failure_status": None,
+            "retry_result": None,
+            "retry_budget": 2,
+            "retry_attempts_used": None,
+        }
+    ]
+
+
+def test_retry_overview_marks_partial_summary_as_not_attempted_when_retry_budget_exists(tmp_path: Path) -> None:
+    tasks_path = tmp_path / "tasks.json"
+    tasks_path.write_text(
+        json.dumps(
+            {
+                "suite_name": "live-run-stability",
+                "tasks": [{"task_id": "partial", "name": "partial", "retry_attempts": 1}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def executor(task: dict[str, object], run_dir: Path) -> dict[str, object]:
+        _ = task, run_dir
+        return {"final_status": "failed"}
+
+    run_live_run_stability_benchmark(
+        tasks_path=tasks_path,
+        run_root=tmp_path / "runs",
+        matrix_json_path=tmp_path / "artifacts" / "live-run-stability" / "regression-matrix.json",
+        matrix_markdown_path=tmp_path / "artifacts" / "live-run-stability" / "regression-matrix.md",
+        retry_overview_json_path=tmp_path / "artifacts" / "live-run-stability" / "retry-overview.json",
+        executor=executor,
+    )
+
+    retry_overview = json.loads(
+        (tmp_path / "artifacts" / "live-run-stability" / "retry-overview.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert retry_overview["task_count"] == 1
+    assert retry_overview["retry_requested_task_count"] == 1
+    assert retry_overview["retried_task_count"] == 0
+    assert retry_overview["retry_result_counts"]["not_attempted"] == 1
+    assert retry_overview["tasks"] == [
+        {
+            "task_id": "partial",
+            "task_name": "partial",
+            "result": "failed",
+            "failure_status": None,
+            "retry_result": "not_attempted",
+            "retry_budget": 1,
+            "retry_attempts_used": 0,
+        }
+    ]
+
+
 def test_matrix_derives_retry_result_from_attempt_count(tmp_path: Path) -> None:
     tasks_path = tmp_path / "tasks.json"
     tasks_path.write_text(
@@ -744,3 +835,93 @@ result_path.write_text(json.dumps(payload), encoding="utf-8")
     assert summary["retry_attempts_used"] == 1
     assert summary["driver_result"]["attempt"] == 2
     assert retry_overview["retry_result_counts"]["recovered"] == 1
+
+
+def test_agent_run_script_supports_repo_root_for_cli_retry_integration(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    (repo_root / "src").mkdir(parents=True)
+    (repo_root / "src" / "flaky_target.py").write_text("VALUE = 'seed'\n", encoding="utf-8")
+
+    adapter = repo_root / "drivers" / "flaky_cli_adapter.py"
+    adapter.parent.mkdir(parents=True, exist_ok=True)
+    adapter.write_text(
+        """#!/usr/bin/env python3
+import json
+import os
+from pathlib import Path
+
+workspace = Path(os.environ["AEP_WORKSPACE"])
+result_path = Path(os.environ["AEP_RESULT_PATH"])
+attempt = int(os.environ["AEP_ATTEMPT"])
+target = workspace / "src" / "flaky_target.py"
+
+if attempt == 1:
+    target.write_text("raise RuntimeError('retry me')\\n", encoding="utf-8")
+    summary = "seeded transient failure"
+else:
+    target.write_text("VALUE = 'fixed'\\n", encoding="utf-8")
+    summary = "recovered on retry"
+
+payload = {
+    "protocol_version": "aep/v0",
+    "run_id": "cli-flaky",
+    "agent_id": "flaky",
+    "attempt": attempt,
+    "status": "succeeded",
+    "summary": summary,
+    "changed_paths": ["src/flaky_target.py"],
+    "output_artifacts": [],
+    "metrics": {"duration_ms": 0, "steps": attempt, "commands": attempt, "prompt_tokens": None, "completion_tokens": None},
+    "recommended_action": "promote",
+    "error": None,
+}
+result_path.write_text(json.dumps(payload), encoding="utf-8")
+""",
+        encoding="utf-8",
+    )
+    adapter.chmod(0o755)
+    _write_manifest(repo_root, "flaky", "drivers/flaky_cli_adapter.py")
+
+    workspace_root = Path(__file__).resolve().parents[1]
+    env = dict(os.environ)
+    src_path = str((workspace_root / "src").resolve())
+    pythonpath = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = f"{src_path}:{pythonpath}" if pythonpath else src_path
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(workspace_root / "scripts" / "agent_run.py"),
+            "--repo-root",
+            str(repo_root),
+            "--agent",
+            "flaky",
+            "--task",
+            "fix flaky target",
+            "--run-id",
+            "cli-flaky",
+            "--retry",
+            "1",
+            "--validator-cmd",
+            f"{sys.executable} src/flaky_target.py",
+        ],
+        cwd=workspace_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    summary = json.loads(completed.stdout)
+    persisted_summary = json.loads(
+        (repo_root / ".masfactory_runtime" / "runs" / "cli-flaky" / "summary.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert summary["final_status"] == "ready_for_promotion"
+    assert summary["driver_result"]["attempt"] == 2
+    assert summary["driver_result"]["summary"] == "recovered on retry"
+    assert persisted_summary["driver_result"]["attempt"] == 2

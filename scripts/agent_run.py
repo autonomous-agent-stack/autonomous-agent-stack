@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 
 from autoresearch.agent_protocol.models import FallbackStep, JobSpec, ValidatorSpec
 from autoresearch.executions.runner import AgentExecutionRunner
@@ -24,6 +25,7 @@ def _default_fallback_agent(agent: str, configured: str | None) -> str | None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run AEP v0 job with a registered agent adapter")
+    parser.add_argument("--repo-root", default=None, help="optional repository root for manifests/runtime")
     parser.add_argument("--agent", required=True, help="agent id from configs/agents/<id>.yaml")
     parser.add_argument("--task", required=True, help="execution task")
     parser.add_argument("--run-id", default=None, help="optional run id")
@@ -44,6 +46,7 @@ def main() -> int:
     args = parse_args()
     run_id = args.run_id or _default_run_id(args.agent)
     fallback_agent = _default_fallback_agent(args.agent, args.fallback_agent)
+    repo_root = Path(args.repo_root).resolve() if args.repo_root else None
 
     validators = [
         ValidatorSpec(id=f"cmd_{idx+1}", kind="command", command=command)
@@ -71,7 +74,7 @@ def main() -> int:
         metadata={"entrypoint": "scripts/agent_run.py"},
     )
 
-    runner = AgentExecutionRunner()
+    runner = AgentExecutionRunner(repo_root=repo_root)
     summary = runner.run_job(job)
     print(json.dumps(summary.model_dump(mode="json"), ensure_ascii=False, indent=2))
 
