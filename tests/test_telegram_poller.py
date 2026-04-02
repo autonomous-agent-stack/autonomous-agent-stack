@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 import sys
+import time
 
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "telegram_poller.py"
@@ -93,3 +94,158 @@ def test_main_returns_2_when_bot_token_missing(monkeypatch, capsys) -> None:
     assert module.main() == 2
     output = capsys.readouterr().out
     assert "missing TELEGRAM_BOT_TOKEN" in output
+
+
+def test_decide_active_controller_keeps_linux_primary_active_when_local_health_ok() -> None:
+    module = load_module()
+    identity = module.ControllerIdentity(runtime_host="linux", execution_role="primary", controller_name="linux")
+
+    decision = module.decide_active_controller(
+        identity=identity,
+        previous_active_controller=None,
+        local_controller_online=True,
+        primary_controller_online=None,
+        primary_probe_configured=False,
+    )
+
+    assert decision.active_controller == "linux"
+    assert decision.should_poll is True
+    assert decision.reason == "local_primary_online"
+    assert decision.notification_text is None
+
+
+def test_decide_active_controller_promotes_mac_backup_only_when_linux_unreachable() -> None:
+    module = load_module()
+    identity = module.ControllerIdentity(runtime_host="macos", execution_role="backup", controller_name="macos")
+
+    decision = module.decide_active_controller(
+        identity=identity,
+        previous_active_controller="linux",
+        local_controller_online=True,
+        primary_controller_online=False,
+        primary_probe_configured=True,
+    )
+
+    assert decision.active_controller == "macos"
+    assert decision.should_poll is True
+    assert decision.reason == "linux_primary_unreachable"
+    assert decision.notification_text is not None
+    assert "Mac 备用控制台开始接管" in decision.notification_text
+
+
+def test_decide_active_controller_releases_mac_backup_when_linux_recovers() -> None:
+    module = load_module()
+    identity = module.ControllerIdentity(runtime_host="macos", execution_role="backup", controller_name="macos")
+
+    decision = module.decide_active_controller(
+        identity=identity,
+        previous_active_controller="macos",
+        local_controller_online=True,
+        primary_controller_online=True,
+        primary_probe_configured=True,
+    )
+
+    assert decision.active_controller == "linux"
+    assert decision.should_poll is False
+    assert decision.reason == "linux_primary_online"
+    assert decision.notification_text is not None
+    assert "Linux 已恢复在线" in decision.notification_text
+
+
+def test_main_backup_skips_polling_when_linux_primary_is_online(monkeypatch, tmp_path: Path, capsys) -> None:
+    module = load_module()
+    controller_state_path = tmp_path / "active_controller.json"
+
+    monkeypatch.setattr(module, "load_default_env", lambda: None)
+    monkeypatch.setattr(module, "resolve_bot_token", lambda: "bot-token")
+    monkeypatch.setattr(module, "resolve_webhook_url", lambda: "http://127.0.0.1:8001/api/v1/gateway/telegram/webhook")
+    monkeypatch.setattr(module, "resolve_offset_file", lambda: tmp_path / "offset.txt")
+    monkeypatch.setattr(module, "resolve_controller_state_file", lambda: controller_state_path)
+    monkeypatch.setattr(module, "resolve_controller_identity", lambda: module.ControllerIdentity("macos", "backup", "macos"))
+    monkeypatch.setattr(module, "resolve_primary_probe_urls", lambda: ["http://linux-primary:8001/healthz"])
+    monkeypatch.setattr(module, "resolve_controller_notify_chat_id", lambda: None)
+    monkeypatch.setattr(module, "telegram_call", lambda token, method_name, params: {"ok": True, "result": {"username": "bota"}} if method_name == "getMe" else {"ok": True, "result": []})
+    monkeypatch.setattr(
+        module,
+        "controller_target_online",
+        lambda urls, timeout_seconds=5.0: True,
+    )
+
+    called = {"poll_once": False}
+
+    def fake_poll_once(**kwargs):
+        called["poll_once"] = True
+        return module.PollResult(offset=0, processed_updates=0)
+
+    monkeypatch.setattr(module, "poll_once", fake_poll_once)
+    monkeypatch.setattr(sys, "argv", [str(SCRIPT_PATH), "--once"])
+
+    assert module.main() == 0
+    assert called["poll_once"] is False
+    state = module.read_controller_state(controller_state_path)
+    assert state["active_controller"] == "linux"
+    assert state["should_poll"] is False
+    assert state["reason"] == "linux_primary_online"
+    assert "standby active=linux" in capsys.readouterr().out
+
+
+def test_controller_target_online_rejects_stale_primary_lease(monkeypatch) -> None:
+    module = load_module()
+    stale_payload = {
+        "status": "ok",
+        "controller_status": "stale",
+        "active_controller": "linux",
+    }
+    monkeypatch.setattr(module, "http_json", lambda **kwargs: (200, stale_payload))
+
+    assert module.controller_target_online(["http://linux-primary:8001/api/v1/cluster/health"]) is False
+
+
+def test_main_primary_reclaims_active_controller_and_emits_recovered_signal(
+    monkeypatch,
+    tmp_path: Path,
+    capsys,
+) -> None:
+    module = load_module()
+    controller_state_path = tmp_path / "active_controller.json"
+    previous_updated_at = int(time.time()) - 120
+    module.write_controller_state(
+        controller_state_path,
+        {
+            "active_controller": "linux",
+            "controller_name": "linux",
+            "execution_role": "primary",
+            "runtime_host": "linux",
+            "should_poll": False,
+            "reason": "local_primary_unhealthy",
+            "lease_ttl_seconds": 30,
+            "updated_at": previous_updated_at,
+        },
+    )
+
+    monkeypatch.setattr(module, "load_default_env", lambda: None)
+    monkeypatch.setattr(module, "resolve_bot_token", lambda: "bot-token")
+    monkeypatch.setattr(module, "resolve_webhook_url", lambda: "http://127.0.0.1:8001/api/v1/gateway/telegram/webhook")
+    monkeypatch.setattr(module, "resolve_offset_file", lambda: tmp_path / "offset.txt")
+    monkeypatch.setattr(module, "resolve_controller_state_file", lambda: controller_state_path)
+    monkeypatch.setattr(module, "resolve_controller_identity", lambda: module.ControllerIdentity("linux", "primary", "linux"))
+    monkeypatch.setattr(module, "resolve_primary_probe_urls", lambda: [])
+    monkeypatch.setattr(module, "resolve_controller_notify_chat_id", lambda: None)
+    monkeypatch.setattr(module, "resolve_local_health_urls", lambda: ["http://127.0.0.1:8001/healthz"])
+    monkeypatch.setattr(
+        module,
+        "telegram_call",
+        lambda token, method_name, params: {"ok": True, "result": {"username": "bota"}} if method_name == "getMe" else {"ok": True, "result": []},
+    )
+    monkeypatch.setattr(module, "controller_target_online", lambda urls, timeout_seconds=5.0: True)
+    monkeypatch.setattr(module, "poll_once", lambda **kwargs: module.PollResult(offset=0, processed_updates=0))
+    monkeypatch.setattr(sys, "argv", [str(SCRIPT_PATH), "--once"])
+
+    assert module.main() == 0
+    state = module.read_controller_state(controller_state_path)
+    assert state["active_controller"] == "linux"
+    assert state["controller_status"] == "online"
+    assert state["status_signal"] == "recovered"
+    assert state["lease_ttl_seconds"] == 30
+    assert state["lease_expires_at"] >= state["updated_at"]
+    assert "controller identity name=linux role=primary" in capsys.readouterr().out

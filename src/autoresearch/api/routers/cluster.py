@@ -18,6 +18,11 @@ from autoresearch.core.services.cluster_manager import (
     LoadBalanceStrategy,
     get_cluster_manager,
 )
+from autoresearch.core.services.controller_lease import (
+    evaluate_controller_state,
+    read_controller_state,
+    resolve_controller_state_path,
+)
 
 
 router = APIRouter(prefix="/api/v1/cluster", tags=["cluster"])
@@ -81,9 +86,26 @@ class ClusterStatusResponse(BaseModel):
 # ========================================================================
 
 @router.get("/health")
-def cluster_health() -> dict[str, str]:
+def cluster_health() -> dict[str, Any]:
     """集群健康检查"""
-    return {"status": "ok"}
+    controller = evaluate_controller_state(read_controller_state(resolve_controller_state_path()))
+    payload = {
+        "status": "ok",
+        "active_controller": controller.active_controller,
+        "controller_name": controller.controller_name,
+        "controller_status": controller.controller_status,
+        "execution_role": controller.execution_role,
+        "runtime_host": controller.runtime_host,
+        "should_poll": controller.should_poll,
+        "reason": controller.reason,
+        "updated_at": controller.updated_at,
+        "lease_ttl_seconds": controller.lease_ttl_seconds,
+        "lease_expires_at": controller.lease_expires_at,
+        "lease_age_seconds": controller.lease_age_seconds,
+        "status_signal": controller.status_signal,
+        "task_risk_profile": controller.task_risk_profile,
+    }
+    return payload
 
 
 @router.post("/nodes", response_model=NodeRead, status_code=status.HTTP_201_CREATED)
