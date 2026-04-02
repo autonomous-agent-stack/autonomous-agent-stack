@@ -283,3 +283,44 @@ def test_phase2_manifest_expected_artifacts_are_present_in_runtime_inventory(
 
         assert set(expected_paths).issubset(artifact_inventory)
         assert all(Path(path).exists() for path in expected_paths)
+
+
+def test_phase2_benchmark_outputs_do_not_leak_runner_runtime_paths(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    _copy_phase2_assets(repo_root)
+    benchmark_root = tmp_path / "phase2-benchmark"
+    monkeypatch.setattr(AgentExecutionRunner, "_stall_progress_timeout_sec", staticmethod(lambda _: 1))
+
+    run_live_run_stability_phase2_benchmark(
+        repo_root=repo_root,
+        benchmark_root=benchmark_root,
+    )
+
+    paths = build_live_run_stability_phase2_paths(
+        repo_root=repo_root,
+        benchmark_root=benchmark_root,
+    )
+    matrix_json_text = paths.matrix_json_path.read_text(encoding="utf-8")
+    matrix_md_text = paths.matrix_markdown_path.read_text(encoding="utf-8")
+    overview_json_text = paths.retry_overview_json_path.read_text(encoding="utf-8")
+    matrix = json.loads(matrix_json_text)
+    overview = json.loads(overview_json_text)
+
+    assert "runner-runtime" not in matrix_json_text
+    assert "runner-runtime" not in matrix_md_text
+    assert "runner-runtime" not in overview_json_text
+
+    matrix_task_ids = {row["task_id"] for row in matrix}
+    overview_task_ids = {row["task_id"] for row in overview["tasks"]}
+    run_dir_task_ids = {
+        run_dir.name
+        for run_dir in paths.run_root.iterdir()
+        if run_dir.is_dir() and (run_dir / "summary.json").exists()
+    }
+
+    assert matrix_task_ids == overview_task_ids
+    assert matrix_task_ids == run_dir_task_ids
