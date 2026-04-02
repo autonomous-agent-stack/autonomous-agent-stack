@@ -28,6 +28,8 @@ class LiveRunBenchmarkResult:
     matrix_markdown_path: Path
     retry_overview_json_path: Path
     task_count: int
+    gate_report_json_path: Path | None = None
+    gate_passed: bool | None = None
 
 
 def build_live_run_agent_command(*, repo_root: Path, task: dict[str, Any]) -> list[str]:

@@ -11,6 +11,7 @@ from autoresearch.benchmarks.live_run_stability_phase2 import (
     _phase2_artifacts_produced,
     _phase2_required_marker_validator_command,
     build_live_run_stability_phase2_paths,
+    write_live_run_stability_phase2_gate_report,
     run_live_run_stability_phase2_benchmark,
 )
 from autoresearch.executions.runner import AgentExecutionRunner
@@ -25,8 +26,10 @@ def _copy_phase2_assets(repo_root: Path) -> None:
     relative_paths = [
         "benchmarks/live-run-stability/phase-2/tasks.json",
         "configs/agents/phase2-stall-probe.yaml",
+        "configs/agents/phase2-timeout-probe.yaml",
         "configs/agents/phase2-business-assertion-probe.yaml",
         "drivers/live_run_phase2_stall_probe.py",
+        "drivers/live_run_phase2_timeout_probe.py",
         "drivers/live_run_phase2_business_assertion_probe.py",
     ]
     for relative_path in relative_paths:
@@ -292,6 +295,67 @@ def test_phase2_business_assertion_probe_produces_reported_validation_failure(tm
     ]
 
 
+def test_phase2_timeout_probe_produces_reported_timeout_failure(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    _copy_phase2_assets(repo_root)
+    tasks_path = _write_tasks_subset(repo_root, "fail-timeout-probe")
+    benchmark_root = tmp_path / "phase2-benchmark"
+
+    result = run_live_run_stability_phase2_benchmark(
+        repo_root=repo_root,
+        tasks_path=tasks_path,
+        benchmark_root=benchmark_root,
+    )
+
+    paths = build_live_run_stability_phase2_paths(
+        repo_root=repo_root,
+        tasks_path=tasks_path,
+        benchmark_root=benchmark_root,
+    )
+    run_dir = paths.run_root / "fail-timeout-probe"
+    summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
+    overview = json.loads(paths.retry_overview_json_path.read_text(encoding="utf-8"))
+    matrix = json.loads(paths.matrix_json_path.read_text(encoding="utf-8"))
+
+    assert result.task_count == 1
+    assert (run_dir / "events.ndjson").exists()
+    _assert_phase2_artifact_inventory(
+        summary=summary,
+        run_dir=run_dir,
+        expected_paths=[
+            run_dir / "summary.json",
+            run_dir / "events.ndjson",
+            run_dir / "status.json",
+            run_dir / "heartbeat.json",
+        ],
+    )
+    assert summary["final_status"] == "failed"
+    assert summary["driver_result"]["status"] == "timed_out"
+    assert summary["failure_status"] == "timed_out"
+    assert summary["failure_layer"] == "infra"
+    assert summary["failure_stage"] == "timed_out"
+    assert summary["retry_result"] == "not_requested"
+    assert overview["retry_result_counts"]["not_requested"] == 1
+    assert matrix == [
+        {
+            "duration_sec": None,
+            "failure_layer": "infra",
+            "failure_stage": "timed_out",
+            "failure_status": "timed_out",
+            "lane": "phase-2",
+            "model_provider": None,
+            "notes": None,
+            "result": "failed",
+            "retry_attempts_used": 0,
+            "retry_budget": 0,
+            "retry_result": "not_requested",
+            "task_id": "fail-timeout-probe",
+            "task_name": "timeout failure probe: keep progress alive until the hard timeout ends the run",
+        }
+    ]
+
+
 def test_phase2_business_probe_handles_partial_runtime_artifacts_conservatively(
     tmp_path: Path,
     monkeypatch,
@@ -384,10 +448,15 @@ def test_phase2_full_suite_artifact_inventory_stays_within_run_dirs(
     )
     overview = json.loads(paths.retry_overview_json_path.read_text(encoding="utf-8"))
 
-    assert result.task_count == 2
-    assert overview["task_count"] == 2
+    assert result.task_count == 3
+    assert overview["task_count"] == 3
+    assert result.gate_passed is True
+    assert result.gate_report_json_path == paths.gate_report_json_path
+    gate_report = json.loads(paths.gate_report_json_path.read_text(encoding="utf-8"))
+    assert gate_report["passed"] is True
+    assert gate_report["failed_task_count"] == 0
 
-    for task_id in ("fail-stall-no-progress", "fail-business-assertion-mismatch"):
+    for task_id in ("fail-timeout-probe", "fail-stall-no-progress", "fail-business-assertion-mismatch"):
         run_dir = paths.run_root / task_id
         summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
         artifact_paths = [Path(path) for path in summary["artifacts_produced"]]
@@ -511,3 +580,49 @@ def test_phase2_benchmark_outputs_do_not_leak_runner_runtime_paths(
 
     assert matrix_task_ids == overview_task_ids
     assert matrix_task_ids == run_dir_task_ids
+
+
+def test_phase2_gate_report_captures_structured_regression_reason(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    _copy_phase2_assets(repo_root)
+    benchmark_root = tmp_path / "phase2-benchmark"
+    monkeypatch.setattr(AgentExecutionRunner, "_stall_progress_timeout_sec", staticmethod(lambda _: 1))
+
+    run_live_run_stability_phase2_benchmark(
+        repo_root=repo_root,
+        benchmark_root=benchmark_root,
+    )
+
+    paths = build_live_run_stability_phase2_paths(
+        repo_root=repo_root,
+        benchmark_root=benchmark_root,
+    )
+    run_dir = paths.run_root / "fail-business-assertion-mismatch"
+    summary_path = run_dir / "summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary["failure_stage"] = "phase2.business_assertion.regressed"
+    summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    gate_report = write_live_run_stability_phase2_gate_report(
+        tasks_path=paths.tasks_path,
+        run_root=paths.run_root,
+        json_path=paths.gate_report_json_path,
+    )
+
+    assert gate_report["passed"] is False
+    assert gate_report["failed_task_count"] == 1
+    business_probe = next(task for task in gate_report["tasks"] if task["task_id"] == "fail-business-assertion-mismatch")
+    assert business_probe["passed"] is False
+    assert business_probe["mismatch_count"] == 1
+    assert business_probe["mismatches"] == [
+        {
+            "actual": "phase2.business_assertion.regressed",
+            "code": "unexpected_failure_stage",
+            "expected": "phase2.business_assertion.required_marker",
+            "field": "summary.failure_stage",
+        }
+    ]

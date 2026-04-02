@@ -22,7 +22,7 @@ def test_live_run_stability_phase2_manifest_is_well_formed() -> None:
 
     tasks = data["tasks"]
     assert isinstance(tasks, list)
-    assert len(tasks) == 2
+    assert len(tasks) == 3
 
     for task in tasks:
         assert task["task_id"]
@@ -41,8 +41,8 @@ def test_live_run_stability_phase2_manifest_is_well_formed() -> None:
 
         expected = task["expected_outcome"]
         assert expected["summary"]["final_status"] in {"failed", "human_review"}
-        assert expected["summary"]["driver_status"] in {"stalled_no_progress", "succeeded"}
-        assert expected["summary"]["business_assertion_status"] == "failed"
+        assert expected["summary"]["driver_status"] in {"stalled_no_progress", "succeeded", "timed_out"}
+        assert expected["summary"]["business_assertion_status"] in {"failed", "unknown", None}
         assert expected["failure_status"]
         assert expected["failure_layer"]
         assert expected["failure_stage"]
@@ -85,6 +85,31 @@ def test_phase2_manifest_failure_expectations_are_complete() -> None:
     assert "summary.final_status == failed" in stall["pass_conditions"]
     assert "summary.failure_status == stalled_no_progress" in stall["pass_conditions"]
     assert "events.ndjson records fallback_skipped with reason stalled_no_progress" in stall["pass_conditions"]
+
+    timeout = tasks["fail-timeout-probe"]
+    assert timeout["expected_artifacts"] == [
+        "summary.json",
+        "events.ndjson",
+        "status.json",
+        "heartbeat.json",
+    ]
+    assert timeout["retry_attempts"] == 0
+    assert timeout["max_duration_seconds"] == 120
+    assert timeout["main_failure_bucket"] == "infra"
+    assert timeout["expected_outcome"] == {
+        "summary": {
+            "final_status": "failed",
+            "driver_status": "timed_out",
+            "business_assertion_status": "failed",
+        },
+        "failure_status": "timed_out",
+        "failure_layer": "infra",
+        "failure_stage": "timed_out",
+        "retry_result": "not_requested",
+    }
+    assert "summary.final_status == failed" in timeout["pass_conditions"]
+    assert "summary.driver_result.status == timed_out" in timeout["pass_conditions"]
+    assert "summary.failure_stage == timed_out" in timeout["pass_conditions"]
 
     business = tasks["fail-business-assertion-mismatch"]
     assert business["expected_artifacts"] == [
@@ -137,6 +162,7 @@ def test_phase2_manifest_is_disjoint_from_positive_suite() -> None:
     phase2_ids = {task["task_id"] for task in phase2["tasks"]}
 
     assert phase2_ids == {
+        "fail-timeout-probe",
         "fail-stall-no-progress",
         "fail-business-assertion-mismatch",
     }

@@ -56,11 +56,13 @@ def main() -> int:
                 "matrix_json_path": str(result.matrix_json_path),
                 "matrix_markdown_path": str(result.matrix_markdown_path),
                 "retry_overview_json_path": str(result.retry_overview_json_path),
+                "gate_report_json_path": str(paths.gate_report_json_path),
+                "gate_passed": bool(result.gate_passed),
             },
             indent=2,
         )
     )
-    return 0
+    return 0 if result.gate_passed is not False else 1
 
 
 if __name__ == "__main__":
