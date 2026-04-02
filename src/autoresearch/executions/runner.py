@@ -547,6 +547,8 @@ class AgentExecutionRunner:
 
     @staticmethod
     def _infer_failure_stage(driver_result: DriverResult, validation: ValidationReport) -> str | None:
+        if driver_result.status in {"timed_out", "stalled_no_progress"}:
+            return driver_result.status
         if not validation.passed:
             for check in validation.checks:
                 if not check.passed:
@@ -554,8 +556,6 @@ class AgentExecutionRunner:
             return "validation"
         if driver_result.status == "contract_error":
             return "adapter"
-        if driver_result.status in {"timed_out", "stalled_no_progress"}:
-            return driver_result.status
         if driver_result.status == "policy_blocked":
             return "policy"
         if driver_result.status == "failed":
@@ -568,11 +568,13 @@ class AgentExecutionRunner:
         driver_result: DriverResult,
         validation: ValidationReport,
     ) -> str | None:
+        if driver_result.status in {"timed_out", "stalled_no_progress"}:
+            return "infra"
         if validation.checks and not validation.passed:
             return "business_validation"
         if final_status in {"blocked", "human_review"}:
             return "orchestration"
-        if driver_result.status in {"contract_error", "timed_out", "stalled_no_progress"}:
+        if driver_result.status == "contract_error":
             return "infra"
         if driver_result.status == "failed":
             return "model"
