@@ -266,6 +266,10 @@ def collect_state() -> BootState:
 
 
 def build_message(state: BootState) -> str:
+    return build_message_with_title(state, title="Linux 管家已上线")
+
+
+def build_message_with_title(state: BootState, *, title: str) -> str:
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
     api_status = "ok" if state.api_ok else "fail"
     poller_status = "running" if state.poller_ok else "down"
@@ -274,7 +278,7 @@ def build_message(state: BootState) -> str:
         latest_run = f"{state.latest_run_id} / {state.latest_run_status or 'unknown'}"
     return "\n".join(
         [
-            "Linux 管家已上线",
+            title,
             f"time: {timestamp}",
             f"host: {state.hostname}",
             f"api: {api_status} ({state.api_host}:{state.api_port})",
@@ -292,10 +296,11 @@ def main() -> int:
 
     parser = argparse.ArgumentParser(description="Send a Linux boot status notification to Telegram.")
     parser.add_argument("--dry-run", action="store_true", help="Print the message instead of sending it")
+    parser.add_argument("--title", default="Linux 管家已上线", help="First line of the Telegram status message")
     args = parser.parse_args()
 
     state = collect_state()
-    message = build_message(state)
+    message = build_message_with_title(state, title=args.title)
 
     if args.dry_run:
         print(message)

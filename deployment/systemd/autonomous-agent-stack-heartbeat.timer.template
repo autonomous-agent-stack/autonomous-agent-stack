@@ -1,0 +1,11 @@
+[Unit]
+Description=Autonomous Agent Stack Heartbeat Schedule
+
+[Timer]
+OnCalendar=*-*-* 17:50:00
+OnCalendar=*-*-* 18:20:00
+Persistent=true
+Unit=autonomous-agent-stack-heartbeat.service
+
+[Install]
+WantedBy=timers.target

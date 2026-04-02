@@ -32,7 +32,7 @@ PROMOTE_OPEN_DRAFT_PR ?= 0
 
 .PHONY: help setup doctor doctor-linux start test-quick clean
 .PHONY: ai-lab ai-lab-setup ai-lab-check ai-lab-up ai-lab-down ai-lab-status ai-lab-shell ai-lab-run masfactory-flight hygiene-check openhands openhands-dry-run openhands-controlled openhands-controlled-dry-run openhands-demo agent-run promote-run
-.PHONY: telegram-poller-start telegram-poller-stop telegram-poller-status telegram-poller-logs telegram-self-check telegram-boot-report
+.PHONY: telegram-poller-start telegram-poller-stop telegram-poller-status telegram-poller-logs telegram-self-check telegram-boot-report telegram-heartbeat-report
 .PHONY: review-gates-local
 
 help:
@@ -63,6 +63,7 @@ help:
 	@echo "  make telegram-poller-logs Tail Linux Telegram polling sidecar logs"
 	@echo "  make telegram-self-check Run Telegram polling self-check against current API host/port"
 	@echo "  make telegram-boot-report Send one startup status message via Telegram bot"
+	@echo "  make telegram-heartbeat-report Send one scheduled heartbeat status message via Telegram bot"
 	@echo "  make hygiene-check FAIL_ON_FINDINGS=1 Run prompt hygiene audit for src/"
 	@echo "  make review-gates-local Run mypy/bandit/semgrep on reviewer core modules"
 	@echo "  make test-quick  Run quick smoke tests"
@@ -245,3 +246,6 @@ telegram-self-check:
 
 telegram-boot-report:
 	$(VENV_PYTHON) scripts/telegram_boot_report.py
+
+telegram-heartbeat-report:
+	$(VENV_PYTHON) scripts/telegram_boot_report.py --title "Linux 管家定时报平安"

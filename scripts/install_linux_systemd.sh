@@ -75,27 +75,35 @@ PY
 render_unit "${TEMPLATE_DIR}/autonomous-agent-stack-api.service.template" "${SYSTEMD_DIR}/autonomous-agent-stack-api.service"
 render_unit "${TEMPLATE_DIR}/autonomous-agent-stack-telegram-poller.service.template" "${SYSTEMD_DIR}/autonomous-agent-stack-telegram-poller.service"
 render_unit "${TEMPLATE_DIR}/autonomous-agent-stack-boot-report.service.template" "${SYSTEMD_DIR}/autonomous-agent-stack-boot-report.service"
+render_unit "${TEMPLATE_DIR}/autonomous-agent-stack-heartbeat.service.template" "${SYSTEMD_DIR}/autonomous-agent-stack-heartbeat.service"
+render_unit "${TEMPLATE_DIR}/autonomous-agent-stack-heartbeat.timer.template" "${SYSTEMD_DIR}/autonomous-agent-stack-heartbeat.timer"
 
 chmod 0644 \
   "${SYSTEMD_DIR}/autonomous-agent-stack-api.service" \
   "${SYSTEMD_DIR}/autonomous-agent-stack-telegram-poller.service" \
-  "${SYSTEMD_DIR}/autonomous-agent-stack-boot-report.service"
+  "${SYSTEMD_DIR}/autonomous-agent-stack-boot-report.service" \
+  "${SYSTEMD_DIR}/autonomous-agent-stack-heartbeat.service" \
+  "${SYSTEMD_DIR}/autonomous-agent-stack-heartbeat.timer"
 
 systemctl daemon-reload
-systemctl enable autonomous-agent-stack-api.service autonomous-agent-stack-telegram-poller.service autonomous-agent-stack-boot-report.service
+systemctl enable autonomous-agent-stack-api.service autonomous-agent-stack-telegram-poller.service autonomous-agent-stack-boot-report.service autonomous-agent-stack-heartbeat.timer
 
 if [[ "${START_AFTER_INSTALL}" == "1" ]]; then
   systemctl restart autonomous-agent-stack-api.service
   systemctl restart autonomous-agent-stack-telegram-poller.service
   systemctl start autonomous-agent-stack-boot-report.service
+  systemctl restart autonomous-agent-stack-heartbeat.timer
 fi
 
 echo "installed:"
 echo "  autonomous-agent-stack-api.service"
 echo "  autonomous-agent-stack-telegram-poller.service"
 echo "  autonomous-agent-stack-boot-report.service"
+echo "  autonomous-agent-stack-heartbeat.service"
+echo "  autonomous-agent-stack-heartbeat.timer"
 echo
 echo "status:"
 echo "  systemctl status autonomous-agent-stack-api.service --no-pager"
 echo "  systemctl status autonomous-agent-stack-telegram-poller.service --no-pager"
 echo "  systemctl status autonomous-agent-stack-boot-report.service --no-pager"
+echo "  systemctl status autonomous-agent-stack-heartbeat.timer --no-pager"

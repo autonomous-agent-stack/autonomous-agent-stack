@@ -66,3 +66,23 @@ def test_build_message_includes_core_runtime_state() -> None:
     assert "poller: running" in message
     assert "last_run: mgrdispatch_demo / completed" in message
     assert "poller_offset: 42" in message
+
+
+def test_build_message_with_custom_title() -> None:
+    module = load_module()
+    state = module.BootState(
+        hostname="lisa-vm",
+        api_host="100.68.246.67",
+        api_port=8001,
+        api_ok=True,
+        api_checked_url="http://100.68.246.67:8001/healthz",
+        poller_ok=True,
+        offset="42",
+        pending_runs=0,
+        latest_run_id=None,
+        latest_run_status=None,
+    )
+
+    message = module.build_message_with_title(state, title="Linux 管家定时报平安")
+
+    assert message.splitlines()[0] == "Linux 管家定时报平安"
