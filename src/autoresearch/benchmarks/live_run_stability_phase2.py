@@ -124,14 +124,23 @@ def _run_stall_no_progress_probe(
             },
         )
     )
+    summary_payload = summary.model_dump(mode="json")
     runtime_run_dir = runtime_root / run_id
     copied_paths = [
         _copy_if_exists(runtime_run_dir / "events.ndjson", run_dir / "events.ndjson"),
-        _copy_if_exists(runtime_run_dir / "status.json", run_dir / "status.json"),
-        _copy_if_exists(runtime_run_dir / "heartbeat.json", run_dir / "heartbeat.json"),
+        _ensure_phase2_stall_status_file(
+            source=runtime_run_dir / "status.json",
+            destination=run_dir / "status.json",
+            summary=summary_payload,
+        ),
+        _ensure_phase2_stall_heartbeat_file(
+            source=runtime_run_dir / "heartbeat.json",
+            destination=run_dir / "heartbeat.json",
+            summary=summary_payload,
+        ),
     ]
     return _augment_summary(
-        summary=summary.model_dump(mode="json"),
+        summary=summary_payload,
         extra_paths=[path for path in copied_paths if path is not None],
     )
 
@@ -274,4 +283,54 @@ def _copy_if_exists(source: Path, destination: Path) -> Path | None:
         return None
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source, destination)
+    return destination
+
+
+def _ensure_phase2_stall_status_file(
+    *,
+    source: Path,
+    destination: Path,
+    summary: dict[str, Any],
+) -> Path:
+    copied = _copy_if_exists(source, destination)
+    if copied is not None:
+        return copied
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(
+        json.dumps(
+            {
+                "probe": "phase2-stall-no-progress",
+                "status": summary.get("driver_result", {}).get("status"),
+                "final_status": summary.get("final_status"),
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return destination
+
+
+def _ensure_phase2_stall_heartbeat_file(
+    *,
+    source: Path,
+    destination: Path,
+    summary: dict[str, Any],
+) -> Path:
+    copied = _copy_if_exists(source, destination)
+    if copied is not None:
+        return copied
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(
+        json.dumps(
+            {
+                "probe": "phase2-stall-no-progress",
+                "heartbeat": "synthesized",
+                "failure_status": summary.get("failure_status"),
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
     return destination
