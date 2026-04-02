@@ -4,6 +4,7 @@ import json
 import shutil
 from pathlib import Path
 
+import autoresearch.benchmarks.live_run_stability_phase2 as live_run_stability_phase2
 from autoresearch.benchmarks.live_run_stability_phase2 import (
     _ensure_phase2_stall_heartbeat_file,
     _ensure_phase2_stall_status_file,
@@ -272,6 +273,77 @@ def test_phase2_business_assertion_probe_produces_reported_validation_failure(tm
     assert "missing required marker" in report_json["failed_checks"][0]["detail"]
     assert "phase2.business_assertion.required_marker" in report_md
     assert "src/phase2_business_probe.py" in promotion_patch
+    assert matrix == [
+        {
+            "duration_sec": None,
+            "failure_layer": "business_validation",
+            "failure_stage": "phase2.business_assertion.required_marker",
+            "failure_status": "assertion_failed",
+            "lane": "phase-2",
+            "model_provider": None,
+            "notes": None,
+            "result": "human_review",
+            "retry_attempts_used": 0,
+            "retry_budget": 0,
+            "retry_result": "not_requested",
+            "task_id": "fail-business-assertion-mismatch",
+            "task_name": "business validation failure probe: execution succeeds but assertion fails",
+        }
+    ]
+
+
+def test_phase2_business_probe_handles_partial_runtime_artifacts_conservatively(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    _copy_phase2_assets(repo_root)
+    tasks_path = _write_tasks_subset(repo_root, "fail-business-assertion-mismatch")
+    benchmark_root = tmp_path / "phase2-benchmark"
+
+    original_copy_if_exists = live_run_stability_phase2._copy_if_exists
+
+    def partial_copy(source: Path, destination: Path) -> Path | None:
+        if source.name in {"events.ndjson", "promotion.patch"}:
+            return None
+        return original_copy_if_exists(source, destination)
+
+    monkeypatch.setattr(live_run_stability_phase2, "_copy_if_exists", partial_copy)
+
+    run_live_run_stability_phase2_benchmark(
+        repo_root=repo_root,
+        tasks_path=tasks_path,
+        benchmark_root=benchmark_root,
+    )
+
+    paths = build_live_run_stability_phase2_paths(
+        repo_root=repo_root,
+        tasks_path=tasks_path,
+        benchmark_root=benchmark_root,
+    )
+    run_dir = paths.run_root / "fail-business-assertion-mismatch"
+    summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
+    overview = json.loads(paths.retry_overview_json_path.read_text(encoding="utf-8"))
+    matrix = json.loads(paths.matrix_json_path.read_text(encoding="utf-8"))
+
+    assert not (run_dir / "events.ndjson").exists()
+    assert not (run_dir / "artifacts" / "promotion.patch").exists()
+    _assert_phase2_artifact_inventory(
+        summary=summary,
+        run_dir=run_dir,
+        expected_paths=[
+            run_dir / "summary.json",
+            run_dir / "driver_result.json",
+            run_dir / "artifacts" / "business_assertion_report.json",
+            run_dir / "artifacts" / "business_assertion_report.md",
+        ],
+    )
+    assert summary["final_status"] == "human_review"
+    assert summary["failure_status"] == "assertion_failed"
+    assert summary["retry_result"] == "not_requested"
+    assert overview["task_count"] == 1
+    assert overview["retry_result_counts"]["not_requested"] == 1
     assert matrix == [
         {
             "duration_sec": None,
