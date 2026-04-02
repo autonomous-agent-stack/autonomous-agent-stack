@@ -361,6 +361,45 @@ def test_phase2_manifest_expected_artifacts_are_present_in_runtime_inventory(
         assert all(Path(path).exists() for path in expected_paths)
 
 
+def test_phase2_retry_overview_aggregates_match_regression_matrix_rows(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    _copy_phase2_assets(repo_root)
+    benchmark_root = tmp_path / "phase2-benchmark"
+    monkeypatch.setattr(AgentExecutionRunner, "_stall_progress_timeout_sec", staticmethod(lambda _: 1))
+
+    run_live_run_stability_phase2_benchmark(
+        repo_root=repo_root,
+        benchmark_root=benchmark_root,
+    )
+
+    paths = build_live_run_stability_phase2_paths(
+        repo_root=repo_root,
+        benchmark_root=benchmark_root,
+    )
+    matrix = json.loads(paths.matrix_json_path.read_text(encoding="utf-8"))
+    overview = json.loads(paths.retry_overview_json_path.read_text(encoding="utf-8"))
+
+    retry_requested_task_count = sum(1 for row in matrix if int(row["retry_budget"] or 0) > 0)
+    retried_task_count = sum(1 for row in matrix if int(row["retry_attempts_used"] or 0) > 0)
+    retry_result_counts: dict[str, int] = {}
+    for row in matrix:
+        retry_result = str(row["retry_result"])
+        retry_result_counts[retry_result] = retry_result_counts.get(retry_result, 0) + 1
+    expected_retry_result_counts = {
+        key: retry_result_counts.get(key, 0)
+        for key in overview["retry_result_counts"]
+    }
+
+    assert overview["task_count"] == len(matrix)
+    assert overview["retry_requested_task_count"] == retry_requested_task_count
+    assert overview["retried_task_count"] == retried_task_count
+    assert overview["retry_result_counts"] == expected_retry_result_counts
+
+
 def test_phase2_benchmark_outputs_do_not_leak_runner_runtime_paths(
     tmp_path: Path,
     monkeypatch,
