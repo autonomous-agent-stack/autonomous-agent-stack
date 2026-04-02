@@ -20,6 +20,7 @@ _PHASE2_STALL_AGENT_ID = "phase2-stall-probe"
 _PHASE2_TIMEOUT_AGENT_ID = "phase2-timeout-probe"
 _PHASE2_BUSINESS_AGENT_ID = "phase2-business-assertion-probe"
 _PHASE2_REQUIRED_MARKER = "PHASE2_REQUIRED_MARKER"
+_PHASE2_GATE_REPORT_VERSION = 1
 
 
 @dataclass(frozen=True)
@@ -377,23 +378,15 @@ def _ensure_phase2_stall_status_file(
     destination: Path,
     summary: dict[str, Any],
 ) -> Path:
-    copied = _copy_if_exists(source, destination)
-    if copied is not None:
-        return copied
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(
-        json.dumps(
-            {
-                "probe": "phase2-stall-no-progress",
-                "status": summary.get("driver_result", {}).get("status"),
-                "final_status": summary.get("final_status"),
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
-        encoding="utf-8",
+    return _copy_or_write_json(
+        source=source,
+        destination=destination,
+        payload={
+            "probe": "phase2-stall-no-progress",
+            "status": summary.get("driver_result", {}).get("status"),
+            "final_status": summary.get("final_status"),
+        },
     )
-    return destination
 
 
 def _ensure_phase2_stall_heartbeat_file(
@@ -402,23 +395,15 @@ def _ensure_phase2_stall_heartbeat_file(
     destination: Path,
     summary: dict[str, Any],
 ) -> Path:
-    copied = _copy_if_exists(source, destination)
-    if copied is not None:
-        return copied
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(
-        json.dumps(
-            {
-                "probe": "phase2-stall-no-progress",
-                "heartbeat": "synthesized",
-                "failure_status": summary.get("failure_status"),
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
-        encoding="utf-8",
+    return _copy_or_write_json(
+        source=source,
+        destination=destination,
+        payload={
+            "probe": "phase2-stall-no-progress",
+            "heartbeat": "synthesized",
+            "failure_status": summary.get("failure_status"),
+        },
     )
-    return destination
 
 
 def _ensure_phase2_timeout_status_file(
@@ -427,23 +412,15 @@ def _ensure_phase2_timeout_status_file(
     destination: Path,
     summary: dict[str, Any],
 ) -> Path:
-    copied = _copy_if_exists(source, destination)
-    if copied is not None:
-        return copied
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(
-        json.dumps(
-            {
-                "probe": "phase2-timeout",
-                "status": summary.get("driver_result", {}).get("status"),
-                "final_status": summary.get("final_status"),
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
-        encoding="utf-8",
+    return _copy_or_write_json(
+        source=source,
+        destination=destination,
+        payload={
+            "probe": "phase2-timeout",
+            "status": summary.get("driver_result", {}).get("status"),
+            "final_status": summary.get("final_status"),
+        },
     )
-    return destination
 
 
 def _ensure_phase2_timeout_heartbeat_file(
@@ -452,22 +429,23 @@ def _ensure_phase2_timeout_heartbeat_file(
     destination: Path,
     summary: dict[str, Any],
 ) -> Path:
+    return _copy_or_write_json(
+        source=source,
+        destination=destination,
+        payload={
+            "probe": "phase2-timeout",
+            "heartbeat": "synthesized",
+            "failure_status": summary.get("failure_status"),
+        },
+    )
+
+
+def _copy_or_write_json(*, source: Path, destination: Path, payload: dict[str, Any]) -> Path:
     copied = _copy_if_exists(source, destination)
     if copied is not None:
         return copied
     destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(
-        json.dumps(
-            {
-                "probe": "phase2-timeout",
-                "heartbeat": "synthesized",
-                "failure_status": summary.get("failure_status"),
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
+    destination.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return destination
 
 
@@ -499,6 +477,7 @@ def generate_live_run_stability_phase2_gate_report(
         task_reports.append(task_report)
 
     return {
+        "report_version": _PHASE2_GATE_REPORT_VERSION,
         "suite_name": str(tasks_payload.get("suite_name") or "live-run-stability-phase-2"),
         "baseline_suite": str(tasks_payload.get("baseline_suite") or ""),
         "task_count": len(task_reports),

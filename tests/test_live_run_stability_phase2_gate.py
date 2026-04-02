@@ -112,6 +112,38 @@ def test_phase2_gate_passes_when_summary_matches_baseline(tmp_path: Path) -> Non
     assert report["tasks"][0]["mismatches"] == []
 
 
+def test_phase2_gate_report_contract_is_stable(tmp_path: Path) -> None:
+    tasks_path = _write_manifest(tmp_path)
+    run_root = tmp_path / "phase2-runs"
+    _write_phase2_summary(run_root, include_patch=False)
+
+    report = generate_live_run_stability_phase2_gate_report(tasks_path=tasks_path, run_root=run_root)
+
+    assert set(report) == {
+        "report_version",
+        "suite_name",
+        "baseline_suite",
+        "task_count",
+        "failed_task_count",
+        "passed",
+        "tasks",
+    }
+    assert report["report_version"] == 1
+    assert set(report["tasks"][0]) == {
+        "task_id",
+        "task_name",
+        "passed",
+        "mismatch_count",
+        "mismatches",
+    }
+    assert set(report["tasks"][0]["mismatches"][0]) == {
+        "code",
+        "field",
+        "expected",
+        "actual",
+    }
+
+
 def test_phase2_gate_fails_when_required_artifact_is_missing(tmp_path: Path) -> None:
     tasks_path = _write_manifest(tmp_path)
     run_root = tmp_path / "phase2-runs"
@@ -145,6 +177,110 @@ def test_phase2_gate_fails_when_key_status_regresses(tmp_path: Path) -> None:
             "code": "unexpected_failure_stage",
             "expected": "phase2.business_assertion.required_marker",
             "field": "summary.failure_stage",
+        }
+    ]
+
+
+def test_phase2_gate_fails_when_target_file_change_is_missing(tmp_path: Path) -> None:
+    tasks_path = _write_manifest(tmp_path)
+    run_root = tmp_path / "phase2-runs"
+    _write_phase2_summary(run_root)
+
+    summary_path = run_root / "fail-business-assertion-mismatch" / "summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary["driver_result"]["changed_paths"] = []
+    summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    report = generate_live_run_stability_phase2_gate_report(tasks_path=tasks_path, run_root=run_root)
+
+    assert report["passed"] is False
+    assert report["tasks"][0]["mismatches"] == [
+        {
+            "actual": [],
+            "code": "missing_target_file_change",
+            "expected": "src/phase2_business_probe.py",
+            "field": "summary.driver_result.changed_paths",
+        }
+    ]
+
+
+def test_phase2_gate_fails_when_timeout_semantics_regress(tmp_path: Path) -> None:
+    tasks_path = tmp_path / "benchmarks" / "live-run-stability" / "phase-2" / "tasks.json"
+    tasks_path.parent.mkdir(parents=True, exist_ok=True)
+    tasks_path.write_text(
+        json.dumps(
+            {
+                "suite_name": "live-run-stability-phase-2",
+                "baseline_suite": "live-run-stability",
+                "tasks": [
+                    {
+                        "task_id": "fail-timeout-probe",
+                        "name": "timeout failure probe: keep progress alive until the hard timeout ends the run",
+                        "expected_artifacts": [
+                            "summary.json",
+                            "events.ndjson",
+                            "status.json",
+                            "heartbeat.json",
+                        ],
+                        "retry_attempts": 0,
+                        "expected_outcome": {
+                            "summary": {
+                                "final_status": "failed",
+                                "driver_status": "timed_out",
+                                "business_assertion_status": "failed",
+                            },
+                            "failure_status": "timed_out",
+                            "failure_layer": "infra",
+                            "failure_stage": "timed_out",
+                            "retry_result": "not_requested",
+                        },
+                    }
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    run_root = tmp_path / "phase2-runs"
+    run_dir = run_root / "fail-timeout-probe"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    for relative_path in ("events.ndjson", "status.json", "heartbeat.json"):
+        (run_dir / relative_path).write_text("{}\n", encoding="utf-8")
+    (run_dir / "summary.json").write_text(
+        json.dumps(
+            {
+                "final_status": "failed",
+                "business_assertion_status": "failed",
+                "failure_status": "timed_out",
+                "failure_layer": "infra",
+                "failure_stage": "timed_out",
+                "retry_result": "not_requested",
+                "retry_budget": 0,
+                "retry_attempts_used": 0,
+                "driver_result": {"status": "contract_error", "changed_paths": []},
+                "artifacts_produced": [
+                    str(run_dir / "summary.json"),
+                    str(run_dir / "events.ndjson"),
+                    str(run_dir / "status.json"),
+                    str(run_dir / "heartbeat.json"),
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    report = generate_live_run_stability_phase2_gate_report(tasks_path=tasks_path, run_root=run_root)
+
+    assert report["passed"] is False
+    assert report["tasks"][0]["mismatches"] == [
+        {
+            "actual": "contract_error",
+            "code": "unexpected_driver_status",
+            "expected": "timed_out",
+            "field": "summary.driver_result.status",
         }
     ]
 

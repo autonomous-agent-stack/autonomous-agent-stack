@@ -615,6 +615,7 @@ def test_phase2_gate_report_captures_structured_regression_reason(
 
     assert gate_report["passed"] is False
     assert gate_report["failed_task_count"] == 1
+    assert gate_report["report_version"] == 1
     business_probe = next(task for task in gate_report["tasks"] if task["task_id"] == "fail-business-assertion-mismatch")
     assert business_probe["passed"] is False
     assert business_probe["mismatch_count"] == 1
