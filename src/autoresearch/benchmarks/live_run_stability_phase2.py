@@ -18,7 +18,6 @@ from autoresearch.executions.runner import AgentExecutionRunner
 _PHASE2_STALL_AGENT_ID = "phase2-stall-probe"
 _PHASE2_BUSINESS_AGENT_ID = "phase2-business-assertion-probe"
 _PHASE2_REQUIRED_MARKER = "PHASE2_REQUIRED_MARKER"
-_PHASE2_BUSINESS_OUTPUT = "docs/phase2/business_probe_output.md"
 
 
 @dataclass(frozen=True)
@@ -160,9 +159,18 @@ def _run_business_assertion_mismatch_probe(
             task=str(task.get("prompt") or task.get("name") or run_id),
             validators=[
                 ValidatorSpec(
-                    id="phase2.business_assertion.required_marker",
-                    kind="command",
-                    command=_phase2_required_marker_validator_command(),
+                    id=str(_phase2_business_validator_config(task).get("id") or "phase2.business_assertion.required_marker"),
+                    kind=str(_phase2_business_validator_config(task).get("kind") or "command"),
+                    command=_phase2_required_marker_validator_command(
+                        target_file=str(
+                            _phase2_business_validator_config(task).get("target_file")
+                            or "src/phase2_business_probe.py"
+                        ),
+                        required_marker=str(
+                            _phase2_business_validator_config(task).get("required_marker")
+                            or _PHASE2_REQUIRED_MARKER
+                        ),
+                    ),
                 )
             ],
             metadata={
@@ -174,6 +182,11 @@ def _run_business_assertion_mismatch_probe(
     runtime_run_dir = runtime_root / run_id
     copied_paths = [
         _copy_if_exists(runtime_run_dir / "events.ndjson", run_dir / "events.ndjson"),
+        _copy_if_exists(runtime_run_dir / "driver_result.json", run_dir / "driver_result.json"),
+        _copy_if_exists(
+            runtime_run_dir / "artifacts" / "promotion.patch",
+            run_dir / "artifacts" / "promotion.patch",
+        ),
     ]
     report_paths = _write_business_assertion_reports(
         run_dir=run_dir,
@@ -197,12 +210,17 @@ def _build_retry_fallback(task: dict[str, Any]) -> list[FallbackStep]:
     return [FallbackStep(action="retry", max_attempts=max_attempts)]
 
 
-def _phase2_required_marker_validator_command() -> str:
+def _phase2_business_validator_config(task: dict[str, Any]) -> dict[str, Any]:
+    validator = task.get("validator")
+    return validator if isinstance(validator, dict) else {}
+
+
+def _phase2_required_marker_validator_command(*, target_file: str, required_marker: str) -> str:
     script = (
         "from pathlib import Path; import sys; "
         "path = Path(sys.argv[1]); "
         "text = path.read_text(encoding='utf-8') if path.exists() else ''; "
-        f"marker = {json.dumps(_PHASE2_REQUIRED_MARKER)}; "
+        f"marker = {json.dumps(required_marker)}; "
         "present = marker in text; "
         "message = 'required marker present' if present else f'missing required marker: {marker}'; "
         "sys.stdout.write(message + '\\n'); "
@@ -213,7 +231,7 @@ def _phase2_required_marker_validator_command() -> str:
             shlex.quote(sys.executable),
             "-c",
             shlex.quote(script),
-            shlex.quote(_PHASE2_BUSINESS_OUTPUT),
+            shlex.quote(target_file),
         ]
     )
 

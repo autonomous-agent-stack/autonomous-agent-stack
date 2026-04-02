@@ -90,12 +90,24 @@ def test_phase2_manifest_failure_expectations_are_complete() -> None:
     assert business["expected_artifacts"] == [
         "summary.json",
         "events.ndjson",
-        "artifacts/business_assertion_report.json",
-        "artifacts/business_assertion_report.md",
+        "driver_result.json",
+        "artifacts/promotion.patch",
     ]
     assert business["retry_attempts"] == 0
     assert business["max_duration_seconds"] == 240
     assert business["main_failure_bucket"] == "business_validation"
+    assert business["target_file"] == "src/phase2_business_probe.py"
+    assert (
+        business["target_contents"]
+        == "\"\"\"Phase 2 business validation probe.\"\"\"\n\nVALUE = \"phase2-business-probe\"\n"
+    )
+    assert business["validator"] == {
+        "id": "phase2.business_assertion.required_marker",
+        "kind": "command",
+        "target_file": "src/phase2_business_probe.py",
+        "required_marker": "PHASE2_REQUIRED_MARKER",
+        "expectation": "fail when the fixed file does not contain the required marker",
+    }
     assert business["expected_outcome"] == {
         "summary": {
             "final_status": "human_review",
@@ -108,6 +120,11 @@ def test_phase2_manifest_failure_expectations_are_complete() -> None:
         "retry_result": "not_requested",
     }
     assert "summary.final_status == human_review" in business["pass_conditions"]
+    assert (
+        "summary.driver_result.changed_paths contains src/phase2_business_probe.py"
+        in business["pass_conditions"]
+    )
+    assert "summary.driver_result.status == succeeded" in business["pass_conditions"]
     assert "summary.failure_status == assertion_failed" in business["pass_conditions"]
     assert "summary.failure_stage == phase2.business_assertion.required_marker" in business["pass_conditions"]
 

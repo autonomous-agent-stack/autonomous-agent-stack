@@ -5,6 +5,7 @@ import shutil
 from pathlib import Path
 
 from autoresearch.benchmarks.live_run_stability_phase2 import (
+    _phase2_required_marker_validator_command,
     build_live_run_stability_phase2_paths,
     run_live_run_stability_phase2_benchmark,
 )
@@ -40,6 +41,16 @@ def _write_tasks_subset(repo_root: Path, task_id: str) -> Path:
     subset_path = repo_root / "benchmarks" / "live-run-stability" / "phase-2" / f"{task_id}.json"
     subset_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return subset_path
+
+
+def test_phase2_required_marker_validator_command_targets_manifest_file() -> None:
+    command = _phase2_required_marker_validator_command(
+        target_file="src/phase2_business_probe.py",
+        required_marker="PHASE2_REQUIRED_MARKER",
+    )
+
+    assert "src/phase2_business_probe.py" in command
+    assert "PHASE2_REQUIRED_MARKER" in command
 
 
 def test_phase2_stall_probe_produces_closed_failure_outputs(tmp_path: Path, monkeypatch) -> None:
@@ -124,25 +135,35 @@ def test_phase2_business_assertion_probe_produces_reported_validation_failure(tm
     )
     run_dir = paths.run_root / "fail-business-assertion-mismatch"
     summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
+    driver_result = json.loads((run_dir / "driver_result.json").read_text(encoding="utf-8"))
     overview = json.loads(paths.retry_overview_json_path.read_text(encoding="utf-8"))
     matrix = json.loads(paths.matrix_json_path.read_text(encoding="utf-8"))
     report_json = json.loads((run_dir / "artifacts" / "business_assertion_report.json").read_text(encoding="utf-8"))
     report_md = (run_dir / "artifacts" / "business_assertion_report.md").read_text(encoding="utf-8")
+    promotion_patch = (run_dir / "artifacts" / "promotion.patch").read_text(encoding="utf-8")
 
     assert result.task_count == 1
     assert (run_dir / "events.ndjson").exists()
+    assert (run_dir / "driver_result.json").exists()
+    assert (run_dir / "artifacts" / "promotion.patch").exists()
     assert summary["final_status"] == "human_review"
     assert summary["driver_result"]["status"] == "succeeded"
+    assert summary["driver_result"]["changed_paths"] == ["src/phase2_business_probe.py"]
+    assert driver_result["status"] == "succeeded"
+    assert driver_result["changed_paths"] == ["src/phase2_business_probe.py"]
     assert summary["business_assertion_status"] == "failed"
     assert summary["failure_status"] == "assertion_failed"
     assert summary["failure_layer"] == "business_validation"
     assert summary["failure_stage"] == "phase2.business_assertion.required_marker"
     assert summary["retry_result"] == "not_requested"
     assert overview["retry_result_counts"]["not_requested"] == 1
+    assert str(run_dir / "driver_result.json") in summary["artifacts_produced"]
+    assert str(run_dir / "artifacts" / "promotion.patch") in summary["artifacts_produced"]
     assert report_json["failure_stage"] == "phase2.business_assertion.required_marker"
     assert report_json["failed_checks"][0]["id"] == "phase2.business_assertion.required_marker"
     assert "missing required marker" in report_json["failed_checks"][0]["detail"]
     assert "phase2.business_assertion.required_marker" in report_md
+    assert "src/phase2_business_probe.py" in promotion_patch
     assert matrix == [
         {
             "duration_sec": None,
