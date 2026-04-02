@@ -21,6 +21,7 @@ def load_module():
 def test_offline_mode_runs_local_webhook_checks_without_token_or_allowlist(monkeypatch, capsys) -> None:
     module = load_module()
 
+    monkeypatch.setattr(module, "load_default_env", lambda: None)
     monkeypatch.setattr(module, "find_api_pid", lambda port: 4242)
     monkeypatch.setattr(module, "parse_env_from_pid", lambda pid: {})
     monkeypatch.setattr(module, "tail_lines", lambda path, max_lines=60: [])

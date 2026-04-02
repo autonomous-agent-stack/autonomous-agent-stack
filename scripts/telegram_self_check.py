@@ -48,6 +48,10 @@ def load_default_env() -> None:
         load_env_file(env_file)
 
 
+def env_or_pid(env: dict[str, str], key: str) -> str:
+    return env.get(key, "") or os.getenv(key, "")
+
+
 def run_cmd(cmd: list[str]) -> tuple[int, str]:
     proc = subprocess.run(cmd, capture_output=True, text=True)
     output = (proc.stdout or "") + (proc.stderr or "")
@@ -117,6 +121,11 @@ def tail_lines(path: Path, max_lines: int = 60) -> list[str]:
     return lines[-max_lines:]
 
 
+def systemd_service_active(name: str) -> bool:
+    code, output = run_cmd(["systemctl", "is-active", name])
+    return code == 0 and output.strip() == "active"
+
+
 def check_status_label(check: CheckResult) -> str:
     if check.ok is True:
         return "PASS"
@@ -171,10 +180,10 @@ def main() -> int:
     checks.append(CheckResult("api_listen", True, f"pid={api_pid} on :{args.port}"))
 
     env = parse_env_from_pid(api_pid)
-    api_host = (args.host or env.get("AUTORESEARCH_API_HOST") or "127.0.0.1").strip()
-    bot_token = env.get("AUTORESEARCH_TELEGRAM_BOT_TOKEN") or env.get("TELEGRAM_BOT_TOKEN") or ""
-    secret = env.get("AUTORESEARCH_TELEGRAM_SECRET_TOKEN", "")
-    allowed_uids = [x.strip() for x in env.get("AUTORESEARCH_TELEGRAM_ALLOWED_UIDS", "").split(",") if x.strip()]
+    api_host = (args.host or env_or_pid(env, "AUTORESEARCH_API_HOST") or "127.0.0.1").strip()
+    bot_token = env_or_pid(env, "AUTORESEARCH_TELEGRAM_BOT_TOKEN") or env_or_pid(env, "TELEGRAM_BOT_TOKEN")
+    secret = env_or_pid(env, "AUTORESEARCH_TELEGRAM_SECRET_TOKEN")
+    allowed_uids = [x.strip() for x in env_or_pid(env, "AUTORESEARCH_TELEGRAM_ALLOWED_UIDS").split(",") if x.strip()]
     primary_uid = allowed_uids[0] if allowed_uids else ""
     local_test_uid = primary_uid or str(args.synthetic_uid)
 
@@ -218,6 +227,9 @@ def main() -> int:
             code, out = run_cmd(["bash", str(POLLER_STATUS_SCRIPT)])
             poller_ok = ("running" in out.lower()) and ("not running" not in out.lower())
             poller_detail = out.splitlines()[0] if out else f"exit={code}"
+        if not poller_ok and systemd_service_active("autonomous-agent-stack-telegram-poller.service"):
+            poller_ok = True
+            poller_detail = "systemd service active"
         checks.append(CheckResult("poller_process", poller_ok, poller_detail))
 
         log_ok = not recent_errors[-10:] and not recent_404[-10:]

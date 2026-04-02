@@ -174,13 +174,30 @@ def read_offset_value(path: Path) -> str:
 
 def poller_running(pid_file: Path) -> bool:
     if not pid_file.exists():
-        return False
+        code, output = run_systemctl(["is-active", "autonomous-agent-stack-telegram-poller.service"])
+        return code == 0 and output.strip() == "active"
     try:
         pid = int(pid_file.read_text(encoding="utf-8").strip())
         os.kill(pid, 0)
     except Exception:
-        return False
+        code, output = run_systemctl(["is-active", "autonomous-agent-stack-telegram-poller.service"])
+        return code == 0 and output.strip() == "active"
     return True
+
+
+def run_systemctl(args: list[str]) -> tuple[int, str]:
+    try:
+        import subprocess
+
+        proc = subprocess.run(
+            ["systemctl", *args],
+            capture_output=True,
+            text=True,
+        )
+        output = (proc.stdout or "") + (proc.stderr or "")
+        return proc.returncode, output.strip()
+    except Exception:
+        return 1, ""
 
 
 def count_pending_runs(runs_root: Path) -> int:
