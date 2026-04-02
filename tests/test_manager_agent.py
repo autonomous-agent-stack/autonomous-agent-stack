@@ -208,6 +208,64 @@ def test_manager_agent_routes_direct_malu_landing_page_prompt_to_product_intent(
     assert dispatch.execution_plan.tasks[2].worker_spec.allowed_paths == ["apps/malu/**"]
 
 
+def test_manager_agent_keeps_worker_execution_prompt_single_task(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    _seed_admin_dashboard_repo(repo_root)
+    _write(
+        repo_root / "src" / "autoresearch" / "core" / "services" / "openhands_worker.py",
+        "class OpenHandsWorkerService:\n    pass\n",
+    )
+    _write(
+        repo_root / "src" / "autoresearch" / "core" / "services" / "autoresearch_planner.py",
+        "class AutoResearchPlanner:\n    pass\n",
+    )
+    _write(repo_root / "tests" / "test_openhands_worker.py", "def test_worker_ok():\n    assert True\n")
+    _write(repo_root / "tests" / "test_autoresearch_planner.py", "def test_planner_ok():\n    assert True\n")
+
+    service = ManagerAgentService(
+        repository=InMemoryRepository(),
+        repo_root=repo_root,
+    )
+
+    dispatch = service.create_dispatch(
+        ManagerDispatchRequest(
+            prompt="给 Linux 常驻 worker 执行链补一个 yt-dlp 子agent 方案，修 runner / pipeline / 调度，并补测试。",
+            auto_dispatch=False,
+        )
+    )
+
+    assert dispatch.selected_intent is not None
+    assert dispatch.selected_intent.intent_id == "worker_execution"
+    assert dispatch.execution_plan is not None
+    assert dispatch.execution_plan.strategy is ManagerPlanStrategy.SINGLE_TASK
+    assert len(dispatch.execution_plan.tasks) == 1
+    assert dispatch.execution_plan.tasks[0].stage.value == "generic"
+
+
+def test_manager_agent_keeps_generic_complex_infra_plan_single_task(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    _seed_admin_dashboard_repo(repo_root)
+
+    service = ManagerAgentService(
+        repository=InMemoryRepository(),
+        repo_root=repo_root,
+    )
+
+    dispatch = service.create_dispatch(
+        ManagerDispatchRequest(
+            prompt="做一个完整的 Linux 常驻 yt-dlp 子agent 计划，Mac 做备用，支持故障切换和状态汇报。",
+            auto_dispatch=False,
+        )
+    )
+
+    assert dispatch.selected_intent is not None
+    assert dispatch.selected_intent.intent_id == "generic_product"
+    assert dispatch.execution_plan is not None
+    assert dispatch.execution_plan.strategy is ManagerPlanStrategy.SINGLE_TASK
+    assert len(dispatch.execution_plan.tasks) == 1
+    assert dispatch.execution_plan.tasks[0].stage.value == "generic"
+
+
 def test_manager_agent_api_dispatch_executes_background_plan(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     _seed_admin_dashboard_repo(repo_root)

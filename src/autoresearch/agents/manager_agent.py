@@ -538,6 +538,9 @@ class ManagerAgentService:
                 best_rule = rule
                 best_keywords = matched
                 best_score = score
+        if best_score <= 0 and not best_keywords:
+            best_rule = _INTENT_RULES[-1]
+            best_keywords = []
         normalized_goal = best_rule.goal_template.format(prompt=normalized_prompt)
         intent_metadata: dict[str, str] = {"normalized_goal": normalized_goal}
 
@@ -687,12 +690,9 @@ class ManagerAgentService:
         return (self._repo_root / pattern).exists()
 
     def _should_decompose(self, prompt: str, intent: ManagerIntentRead) -> bool:
-        prompt_folded = prompt.casefold()
         if intent.intent_id in {"admin_dashboard", "product_landing_page"}:
             return True
-        if any(marker.casefold() in prompt_folded for marker in _COMPLEXITY_MARKERS):
-            return True
-        return len(prompt.strip()) >= 40 and len(intent.matched_keywords) >= 2
+        return False
 
     def _build_worker_spec(
         self,
