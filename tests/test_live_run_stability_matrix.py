@@ -422,6 +422,75 @@ def test_live_run_benchmark_runner_records_retry_artifacts_for_recovered_attempt
     assert matrix[0]["retry_attempts_used"] == 1
 
 
+def test_live_run_benchmark_runner_records_not_needed_retry_artifacts(tmp_path: Path) -> None:
+    tasks_path = tmp_path / "tasks.json"
+    tasks_path.write_text(
+        json.dumps(
+            {
+                "suite_name": "live-run-stability",
+                "tasks": [{"task_id": "retry", "name": "retry", "retry_attempts": 2}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def executor(task: dict[str, object], run_dir: Path) -> dict[str, object]:
+        _ = task, run_dir
+        return {
+            "final_status": "completed",
+            "result": "completed",
+            "driver_result": {
+                "run_id": "retry",
+                "agent_id": "agent",
+                "attempt": 1,
+                "status": "succeeded",
+                "summary": "passed on first attempt",
+                "metrics": {"duration_ms": 20, "steps": 1, "commands": 1},
+                "recommended_action": "promote",
+            },
+            "validation": {"run_id": "retry", "passed": True, "checks": []},
+        }
+
+    run_live_run_stability_benchmark(
+        tasks_path=tasks_path,
+        run_root=tmp_path / "runs",
+        matrix_json_path=tmp_path / "artifacts" / "live-run-stability" / "regression-matrix.json",
+        matrix_markdown_path=tmp_path / "artifacts" / "live-run-stability" / "regression-matrix.md",
+        retry_overview_json_path=tmp_path / "artifacts" / "live-run-stability" / "retry-overview.json",
+        executor=executor,
+    )
+
+    summary = json.loads((tmp_path / "runs" / "retry" / "summary.json").read_text(encoding="utf-8"))
+    matrix = json.loads(
+        (tmp_path / "artifacts" / "live-run-stability" / "regression-matrix.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    retry_overview = json.loads(
+        (tmp_path / "artifacts" / "live-run-stability" / "retry-overview.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert summary["retry_result"] == "not_needed"
+    assert summary["retry_budget"] == 2
+    assert summary["retry_attempts_used"] == 0
+    assert summary["metadata"]["live_run_retry"] == {
+        "requested": True,
+        "budget": 2,
+        "attempts_used": 0,
+        "final_attempt": 1,
+        "result": "not_needed",
+        "succeeded": True,
+        "final_status": "completed",
+    }
+    assert matrix[0]["retry_result"] == "not_needed"
+    assert matrix[0]["retry_budget"] == 2
+    assert matrix[0]["retry_attempts_used"] == 0
+    assert retry_overview["retry_result_counts"]["not_needed"] == 1
+    assert retry_overview["tasks"][0]["retry_result"] == "not_needed"
+
+
 def test_live_run_benchmark_runner_records_exhausted_retry_artifacts(tmp_path: Path) -> None:
     tasks_path = tmp_path / "tasks.json"
     tasks_path.write_text(
