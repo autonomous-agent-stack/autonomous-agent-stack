@@ -5,6 +5,8 @@ import shutil
 from pathlib import Path
 
 from autoresearch.benchmarks.live_run_stability_phase2 import (
+    _ensure_phase2_stall_heartbeat_file,
+    _ensure_phase2_stall_status_file,
     _phase2_artifacts_produced,
     _phase2_required_marker_validator_command,
     build_live_run_stability_phase2_paths,
@@ -94,6 +96,49 @@ def test_phase2_artifact_inventory_stays_within_run_dir(tmp_path: Path) -> None:
     ]
     assert all(path.startswith(str(run_dir)) for path in inventory)
     assert all("runner-runtime" not in path for path in inventory)
+
+
+def test_phase2_stall_status_file_is_synthesized_when_runtime_copy_is_missing(tmp_path: Path) -> None:
+    destination = tmp_path / "runs" / "fail-stall-no-progress" / "status.json"
+
+    result = _ensure_phase2_stall_status_file(
+        source=tmp_path / "runner-runtime" / "missing-status.json",
+        destination=destination,
+        summary={
+            "driver_result": {"status": "stalled_no_progress"},
+            "final_status": "failed",
+        },
+    )
+
+    payload = json.loads(destination.read_text(encoding="utf-8"))
+
+    assert result == destination
+    assert payload == {
+        "probe": "phase2-stall-no-progress",
+        "status": "stalled_no_progress",
+        "final_status": "failed",
+    }
+
+
+def test_phase2_stall_heartbeat_file_is_synthesized_when_runtime_copy_is_missing(tmp_path: Path) -> None:
+    destination = tmp_path / "runs" / "fail-stall-no-progress" / "heartbeat.json"
+
+    result = _ensure_phase2_stall_heartbeat_file(
+        source=tmp_path / "runner-runtime" / "missing-heartbeat.json",
+        destination=destination,
+        summary={
+            "failure_status": "stalled_no_progress",
+        },
+    )
+
+    payload = json.loads(destination.read_text(encoding="utf-8"))
+
+    assert result == destination
+    assert payload == {
+        "probe": "phase2-stall-no-progress",
+        "heartbeat": "synthesized",
+        "failure_status": "stalled_no_progress",
+    }
 
 
 def test_phase2_stall_probe_produces_closed_failure_outputs(tmp_path: Path, monkeypatch) -> None:
