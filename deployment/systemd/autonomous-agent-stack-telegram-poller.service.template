@@ -1,0 +1,18 @@
+[Unit]
+Description=Autonomous Agent Stack Telegram Poller
+After=network-online.target autonomous-agent-stack-api.service
+Wants=network-online.target autonomous-agent-stack-api.service
+
+[Service]
+Type=simple
+User=__USER__
+Group=__GROUP__
+WorkingDirectory=__WORKDIR__
+Environment=PYTHONUNBUFFERED=1
+ExecStart=__WORKDIR__/scripts/run_telegram_poller.sh
+Restart=always
+RestartSec=5
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target

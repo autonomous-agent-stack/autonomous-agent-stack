@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -15,8 +16,13 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
-POLLER_LOG = ROOT / "migration" / "openclaw" / "logs" / "telegram-poller.log"
-POLLER_STATUS_SCRIPT = ROOT / "migration" / "openclaw" / "scripts" / "status-telegram-poller.sh"
+POLLER_LOG = ROOT / "logs" / "telegram-poller.log"
+POLLER_STATUS_SCRIPT = ROOT / "scripts" / "status_telegram_poller.sh"
+ENV_FILES = (
+    ROOT / ".env",
+    ROOT / ".env.local",
+    ROOT / "ai_lab.env",
+)
 
 
 @dataclass
@@ -24,6 +30,22 @@ class CheckResult:
     name: str
     ok: bool | None
     detail: str
+
+
+def load_env_file(path: Path) -> None:
+    if not path.exists():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        raw = line.strip()
+        if not raw or raw.startswith("#") or "=" not in raw:
+            continue
+        key, value = raw.split("=", 1)
+        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+def load_default_env() -> None:
+    for env_file in ENV_FILES:
+        load_env_file(env_file)
 
 
 def run_cmd(cmd: list[str]) -> tuple[int, str]:
@@ -56,6 +78,8 @@ def parse_env_from_pid(pid: int) -> dict[str, str]:
         "TELEGRAM_BOT_TOKEN",
         "AUTORESEARCH_TELEGRAM_SECRET_TOKEN",
         "AUTORESEARCH_TELEGRAM_ALLOWED_UIDS",
+        "AUTORESEARCH_API_HOST",
+        "AUTORESEARCH_API_PORT",
     ]:
         m = re.search(rf"{re.escape(key)}=([^\s]+)", line)
         if m:
@@ -120,8 +144,10 @@ def local_webhook_payload(*, update_id: int, message_id: int, user_id: str, text
 
 
 def main() -> int:
+    load_default_env()
     parser = argparse.ArgumentParser(description="Diagnose Telegram reply path for local poller mode.")
-    parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--host", default=os.getenv("AUTORESEARCH_API_HOST", "127.0.0.1"))
+    parser.add_argument("--port", type=int, default=int(os.getenv("AUTORESEARCH_API_PORT", "8000")))
     parser.add_argument(
         "--offline",
         action="store_true",
@@ -145,6 +171,7 @@ def main() -> int:
     checks.append(CheckResult("api_listen", True, f"pid={api_pid} on :{args.port}"))
 
     env = parse_env_from_pid(api_pid)
+    api_host = (args.host or env.get("AUTORESEARCH_API_HOST") or "127.0.0.1").strip()
     bot_token = env.get("AUTORESEARCH_TELEGRAM_BOT_TOKEN") or env.get("TELEGRAM_BOT_TOKEN") or ""
     secret = env.get("AUTORESEARCH_TELEGRAM_SECRET_TOKEN", "")
     allowed_uids = [x.strip() for x in env.get("AUTORESEARCH_TELEGRAM_ALLOWED_UIDS", "").split(",") if x.strip()]
@@ -172,7 +199,7 @@ def main() -> int:
         checks.append(CheckResult("secret_env", bool(secret), "present" if secret else "missing (allowed only if webhook skips validation)"))
         checks.append(CheckResult("allowed_uid_env", bool(primary_uid), primary_uid or "missing"))
 
-    status_url = f"http://127.0.0.1:{args.port}/api/v1/gateway/telegram/health"
+    status_url = f"http://{api_host}:{args.port}/api/v1/gateway/telegram/health"
     status_code, status_data, status_raw = http_json(status_url)
     checks.append(CheckResult("gateway_health", status_code == 200, f"status={status_code} body={status_data or status_raw}"))
 
@@ -229,7 +256,7 @@ def main() -> int:
             text="/help",
         )
         c1, d1, r1 = http_json(
-            f"http://127.0.0.1:{args.port}/api/v1/gateway/telegram/webhook",
+            f"http://{api_host}:{args.port}/api/v1/gateway/telegram/webhook",
             method="POST",
             headers=hdrs,
             body=payload_help,
@@ -244,7 +271,7 @@ def main() -> int:
             text="/status",
         )
         c2, d2, r2 = http_json(
-            f"http://127.0.0.1:{args.port}/api/v1/gateway/telegram/webhook",
+            f"http://{api_host}:{args.port}/api/v1/gateway/telegram/webhook",
             method="POST",
             headers=hdrs,
             body=payload_status,
@@ -279,7 +306,7 @@ def build_suggestions(
     if not offline and by_name.get("allowed_uid_env", CheckResult("", True, "")).ok is False:
         out.append("Set AUTORESEARCH_TELEGRAM_ALLOWED_UIDS to your Telegram user id.")
     if not offline and by_name.get("poller_process", CheckResult("", True, "")).ok is False:
-        out.append("Restart poller: bash migration/openclaw/scripts/stop-telegram-poller.sh && bash migration/openclaw/scripts/start-telegram-poller.sh")
+        out.append("Restart poller: bash scripts/stop_telegram_poller.sh && bash scripts/start_telegram_poller.sh")
     if by_name.get("gateway_health", CheckResult("", True, "")).detail.startswith("status=404"):
         out.append("Gateway route missing in current app. Ensure /api/v1/gateway/telegram/webhook is mounted.")
     if not offline and errors:

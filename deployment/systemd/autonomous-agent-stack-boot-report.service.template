@@ -1,0 +1,15 @@
+[Unit]
+Description=Autonomous Agent Stack Telegram Boot Report
+After=network-online.target autonomous-agent-stack-api.service autonomous-agent-stack-telegram-poller.service
+Wants=network-online.target autonomous-agent-stack-api.service autonomous-agent-stack-telegram-poller.service
+
+[Service]
+Type=oneshot
+User=__USER__
+Group=__GROUP__
+WorkingDirectory=__WORKDIR__
+Environment=PYTHONUNBUFFERED=1
+ExecStart=__WORKDIR__/scripts/run_telegram_boot_report.sh
+
+[Install]
+WantedBy=multi-user.target
