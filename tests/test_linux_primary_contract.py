@@ -59,6 +59,8 @@ def test_linux_env_files_default_to_host_runtime_and_repo_relative_paths() -> No
 
     for content in (env_example, env_linux):
         assert "OPENHANDS_RUNTIME=host" in content
+        assert "AUTORESEARCH_ENABLE_CLUSTER=1" in content
+        assert "AUTORESEARCH_CONTROLLER_LEASE_SECONDS=30" in content
         assert "AUTORESEARCH_RUNTIME_HOST=linux" in content
         assert "AUTORESEARCH_EXECUTION_ROLE=primary" in content
         assert "AUTORESEARCH_TASK_RISK_PROFILE=full" in content
