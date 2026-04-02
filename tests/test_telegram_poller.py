@@ -96,6 +96,28 @@ def test_main_returns_2_when_bot_token_missing(monkeypatch, capsys) -> None:
     assert "missing TELEGRAM_BOT_TOKEN" in output
 
 
+def test_resolve_local_api_host_maps_wildcard_bind_to_loopback(monkeypatch) -> None:
+    module = load_module()
+
+    monkeypatch.setenv("AUTORESEARCH_API_HOST", "0.0.0.0")
+
+    assert module.resolve_local_api_host() == "127.0.0.1"
+
+
+def test_is_poll_conflict_error_detects_getupdates_conflict() -> None:
+    module = load_module()
+
+    assert module.is_poll_conflict_error(RuntimeError("telegram getUpdates http 409: Conflict: terminated by other getUpdates request"))
+    assert module.is_poll_conflict_error(RuntimeError("HTTP Error 409: Conflict"))
+    assert module.is_poll_conflict_error(RuntimeError("Conflict: can't use getUpdates method while webhook is active"))
+    assert module.is_poll_conflict_error(RuntimeError("terminated by other getUpdates request"))
+    assert module.is_poll_conflict_error(RuntimeError("409: Conflict"))
+    assert module.is_poll_conflict_error(ValueError("HTTP 409 conflict"))
+    assert module.is_poll_conflict_error(RuntimeError("other getUpdates request in progress"))
+    assert module.is_poll_conflict_error(RuntimeError("telegram getUpdates http 409"))
+    assert not module.is_poll_conflict_error(RuntimeError("telegram getUpdates http 500"))
+
+
 def test_decide_active_controller_keeps_linux_primary_active_when_local_health_ok() -> None:
     module = load_module()
     identity = module.ControllerIdentity(runtime_host="linux", execution_role="primary", controller_name="linux")
@@ -249,3 +271,32 @@ def test_main_primary_reclaims_active_controller_and_emits_recovered_signal(
     assert state["lease_ttl_seconds"] == 30
     assert state["lease_expires_at"] >= state["updated_at"]
     assert "controller identity name=linux role=primary" in capsys.readouterr().out
+
+
+def test_main_once_surfaces_poll_conflict_without_retry_spam(monkeypatch, tmp_path: Path, capsys) -> None:
+    module = load_module()
+
+    monkeypatch.setattr(module, "load_default_env", lambda: None)
+    monkeypatch.setattr(module, "resolve_bot_token", lambda: "bot-token")
+    monkeypatch.setattr(module, "resolve_webhook_url", lambda: "http://127.0.0.1:8001/api/v1/gateway/telegram/webhook")
+    monkeypatch.setattr(module, "resolve_offset_file", lambda: tmp_path / "offset.txt")
+    monkeypatch.setattr(module, "resolve_controller_state_file", lambda: tmp_path / "active_controller.json")
+    monkeypatch.setattr(module, "resolve_controller_identity", lambda: module.ControllerIdentity("linux", "primary", "linux"))
+    monkeypatch.setattr(module, "resolve_primary_probe_urls", lambda: [])
+    monkeypatch.setattr(module, "resolve_controller_notify_chat_id", lambda: None)
+    monkeypatch.setattr(module, "resolve_local_health_urls", lambda: ["http://127.0.0.1:8001/healthz"])
+    monkeypatch.setattr(
+        module,
+        "telegram_call",
+        lambda token, method_name, params: {"ok": True, "result": {"username": "bota"}} if method_name == "getMe" else {"ok": True, "result": []},
+    )
+    monkeypatch.setattr(module, "controller_target_online", lambda urls, timeout_seconds=5.0: True)
+    monkeypatch.setattr(
+        module,
+        "poll_once",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("telegram getUpdates http 409: Conflict: terminated by other getUpdates request")),
+    )
+    monkeypatch.setattr(sys, "argv", [str(SCRIPT_PATH), "--once"])
+
+    assert module.main() == 1
+    assert "getUpdates conflict detected" in capsys.readouterr().out
