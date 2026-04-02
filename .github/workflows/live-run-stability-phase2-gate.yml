@@ -1,0 +1,115 @@
+name: Live Run Stability Phase-2 Gate
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/live-run-stability-phase2-gate.yml"
+      - "benchmarks/live-run-stability/phase-2/**"
+      - "configs/agents/phase2-*.yaml"
+      - "drivers/live_run_phase2_*"
+      - "scripts/run_live_run_stability_phase2_benchmark.py"
+      - "src/autoresearch/benchmarks/live_run_retry.py"
+      - "src/autoresearch/benchmarks/live_run_stability_matrix.py"
+      - "src/autoresearch/benchmarks/live_run_stability_phase2.py"
+      - "src/autoresearch/benchmarks/live_run_stability_runner.py"
+      - "src/autoresearch/executions/runner.py"
+      - "tests/test_live_run_stability_phase2.py"
+      - "tests/test_live_run_stability_phase2_gate.py"
+      - "tests/test_live_run_stability_phase2_manifest.py"
+      - "tests/test_live_run_stability_phase2_workflow.py"
+      - "tests/test_run_live_run_stability_phase2_benchmark_script.py"
+
+permissions:
+  contents: read
+
+jobs:
+  phase2-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PHASE2_BENCHMARK_ROOT: ${{ runner.temp }}/live-run-stability-phase2
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.lock ]; then
+            pip install -r requirements.lock
+          else
+            pip install -r requirements.txt
+          fi
+
+      - name: Run phase-2 gate
+        env:
+          PYTHONPATH: src
+        run: |
+          set -euo pipefail
+          mkdir -p "${PHASE2_BENCHMARK_ROOT}"
+          python scripts/run_live_run_stability_phase2_benchmark.py \
+            --benchmark-root "${PHASE2_BENCHMARK_ROOT}" \
+            | tee "${PHASE2_BENCHMARK_ROOT}/workflow-output.json"
+
+      - name: Explain phase-2 gate result
+        if: ${{ always() }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+
+          benchmark_root = Path(os.environ["PHASE2_BENCHMARK_ROOT"])
+          gate_report_path = benchmark_root / "regression-gate.json"
+
+          if not gate_report_path.exists():
+              print(
+                  "::error::phase-2 gate did not produce regression-gate.json. "
+                  "Keep the benchmark root outside the repository so baseline snapshots "
+                  "do not recurse into benchmark artifacts. "
+                  "PR blocking stays anchored to regression-gate.json only; "
+                  "regression-matrix and retry-overview remain explanatory artifacts."
+              )
+              sys.exit(1)
+
+          gate_report = json.loads(gate_report_path.read_text(encoding="utf-8"))
+          passed = bool(gate_report.get("passed"))
+          failed_task_count = int(gate_report.get("failed_task_count") or 0)
+
+          if passed:
+              print(
+                  "::notice::phase-2 gate passed via regression-gate.json. "
+                  "regression-matrix and retry-overview were uploaded for explanation only."
+              )
+              sys.exit(0)
+
+          print(
+              "::error::phase-2 gate blocked by regression-gate.json "
+              f"(failed_task_count={failed_task_count}). "
+              "regression-matrix and retry-overview are explanatory only."
+          )
+          sys.exit(1)
+          PY
+
+      - name: Upload phase-2 gate artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-run-stability-phase2-gate
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            ${{ env.PHASE2_BENCHMARK_ROOT }}/workflow-output.json
+            ${{ env.PHASE2_BENCHMARK_ROOT }}/regression-gate.json
+            ${{ env.PHASE2_BENCHMARK_ROOT }}/regression-matrix.json
+            ${{ env.PHASE2_BENCHMARK_ROOT }}/regression-matrix.md
+            ${{ env.PHASE2_BENCHMARK_ROOT }}/retry-overview.json
+            ${{ env.PHASE2_BENCHMARK_ROOT }}/runs/**
