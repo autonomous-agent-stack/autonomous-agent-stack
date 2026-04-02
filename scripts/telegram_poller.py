@@ -137,8 +137,8 @@ def resolve_webhook_url() -> str:
     explicit = os.getenv("TELEGRAM_BRIDGE_LOCAL_WEBHOOK_URL", "").strip()
     if explicit:
         return explicit
-    host = os.getenv("AUTORESEARCH_API_HOST", "127.0.0.1").strip() or "127.0.0.1"
-    port = os.getenv("AUTORESEARCH_API_PORT", "8000").strip() or "8000"
+    host = resolve_local_api_host()
+    port = os.getenv("AUTORESEARCH_API_PORT", "8001").strip() or "8001"
     return f"http://{host}:{port}/api/v1/gateway/telegram/webhook"
 
 
@@ -237,6 +237,17 @@ def normalize_runtime_host(raw: str | None) -> str:
     return value
 
 
+def resolve_local_api_host() -> str:
+    host = str(
+        os.getenv("AUTORESEARCH_LOCAL_API_HOST")
+        or os.getenv("AUTORESEARCH_API_HOST")
+        or "127.0.0.1"
+    ).strip() or "127.0.0.1"
+    if host == "0.0.0.0":
+        return "127.0.0.1"
+    return host
+
+
 def resolve_controller_identity() -> ControllerIdentity:
     runtime_host = normalize_runtime_host(os.getenv("AUTORESEARCH_RUNTIME_HOST"))
     if not runtime_host:
@@ -255,8 +266,8 @@ def resolve_controller_identity() -> ControllerIdentity:
 
 
 def resolve_local_health_urls() -> list[str]:
-    host = os.getenv("AUTORESEARCH_API_HOST", "127.0.0.1").strip() or "127.0.0.1"
-    port = os.getenv("AUTORESEARCH_API_PORT", "8000").strip() or "8000"
+    host = resolve_local_api_host()
+    port = os.getenv("AUTORESEARCH_API_PORT", "8001").strip() or "8001"
     base_url = f"http://{host}:{port}"
     return [f"{base_url}{suffix}" for suffix in DEFAULT_LOCAL_HEALTH_PATHS]
 
@@ -305,6 +316,17 @@ def controller_target_online(urls: list[str], *, timeout_seconds: float = 5.0) -
         if not state or state in {"ok", "healthy"}:
             fallback_online = True
     return fallback_online
+
+
+def is_poll_conflict_error(exc: Exception) -> bool:
+    normalized = str(exc).strip().lower()
+    return (
+        "http 409" in normalized
+        or "409: conflict" in normalized
+        or "other getupdates request" in normalized
+        or ("conflict" in normalized and "getupdates" in normalized)
+        or ("conflict" in normalized and "webhook is active" in normalized)
+    )
 
 
 def decide_active_controller(
@@ -523,6 +545,7 @@ def main() -> int:
     username = me.get("result", {}).get("username")
     log(f"[poller] online as @{username}")
 
+    conflict_active = False
     while True:
         try:
             previous_state = read_controller_state(controller_state_path)
@@ -593,12 +616,24 @@ def main() -> int:
                 allowed_updates=allowed_updates,
             )
             offset = result.offset
+            if conflict_active:
+                log("[poller] getUpdates conflict cleared; polling resumed")
+                conflict_active = False
             if args.once:
                 return 0
         except KeyboardInterrupt:
             log("[poller] stopped by keyboard interrupt")
             return 0
         except Exception as exc:
+            if is_poll_conflict_error(exc):
+                if not conflict_active:
+                    log("[poller] getUpdates conflict detected; waiting for the other polling instance to release the bot token")
+                    conflict_active = True
+                if args.once:
+                    return 1
+                time.sleep(max(retry_delay, controller_check_interval))
+                continue
+            conflict_active = False
             log(f"[poller] error: {exc}")
             if args.once:
                 return 1

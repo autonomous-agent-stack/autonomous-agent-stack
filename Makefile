@@ -35,6 +35,14 @@ PROMOTE_OPEN_DRAFT_PR ?= 0
 .PHONY: telegram-poller-start telegram-poller-stop telegram-poller-status telegram-poller-logs telegram-self-check telegram-boot-report telegram-heartbeat-report
 .PHONY: review-gates-local
 
+START_ENV_PREFIX :=
+ifneq ($(filter command line environment environment override,$(origin HOST)),)
+START_ENV_PREFIX += HOST="$(HOST)"
+endif
+ifneq ($(filter command line environment environment override,$(origin PORT)),)
+START_ENV_PREFIX += PORT="$(PORT)"
+endif
+
 help:
 	@echo "Autonomous Agent Stack - common commands"
 	@echo ""
@@ -103,7 +111,7 @@ start:
 		echo "Missing $(VENV_PYTHON). Run 'make setup' first."; \
 		exit 1; \
 	fi
-	PORT=$(PORT) HOST=$(HOST) bash scripts/dev-start.sh
+	@$(START_ENV_PREFIX) bash scripts/dev-start.sh
 
 test-quick:
 	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \
