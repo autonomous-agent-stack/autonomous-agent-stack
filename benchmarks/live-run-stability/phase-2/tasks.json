@@ -1,0 +1,86 @@
+{
+  "suite_name": "live-run-stability-phase-2",
+  "version": 1,
+  "baseline_suite": "live-run-stability",
+  "scope": "private-alpha guarded rollout failure probes",
+  "tasks": [
+    {
+      "task_id": "fail-stall-no-progress",
+      "name": "stall failure probe: terminate on no-progress without promoting the run",
+      "lane": "phase-2",
+      "scenario_type": "intentional_failure",
+      "purpose": "Verify that a task with no durable progress is classified as stalled_no_progress, skips blind retry, and lands as a closed failure rather than a green success.",
+      "prompt": "Run a controlled failure probe that emits an initial banner, then stops producing scoped writes, heartbeats, and meaningful stdout progress long enough to trigger the no-progress watchdog.",
+      "trigger_mechanism": "Start the worker, emit at most one early progress marker, then intentionally produce no further progress within the stall window so the supervisor/runner closes the attempt as stalled_no_progress and records the skipped retry decision.",
+      "expected_artifacts": [
+        "summary.json",
+        "events.ndjson",
+        "status.json",
+        "heartbeat.json"
+      ],
+      "pass_conditions": [
+        "summary.json exists",
+        "summary.final_status == failed",
+        "summary.driver_result.status == stalled_no_progress",
+        "summary.failure_status == stalled_no_progress",
+        "summary.failure_layer == infra",
+        "summary.failure_stage == stalled_no_progress",
+        "summary.retry_result == not_attempted",
+        "events.ndjson records fallback_skipped with reason stalled_no_progress"
+      ],
+      "retry_attempts": 1,
+      "max_duration_seconds": 180,
+      "main_failure_bucket": "infra",
+      "expected_outcome": {
+        "summary": {
+          "final_status": "failed",
+          "driver_status": "stalled_no_progress",
+          "business_assertion_status": "failed"
+        },
+        "failure_status": "stalled_no_progress",
+        "failure_layer": "infra",
+        "failure_stage": "stalled_no_progress",
+        "retry_result": "not_attempted"
+      }
+    },
+    {
+      "task_id": "fail-business-assertion-mismatch",
+      "name": "business validation failure probe: execution succeeds but assertion fails",
+      "lane": "phase-2",
+      "scenario_type": "intentional_failure",
+      "purpose": "Verify that a run with successful execution but failed business validation lands in business_validation, remains human_review, and never looks like ready_for_promotion.",
+      "prompt": "Run a controlled failure probe that completes execution and writes the expected work product, but intentionally omits a required business marker so a deterministic validator fails the run.",
+      "trigger_mechanism": "Allow the worker to finish successfully and emit a valid patch/artifact set, then run a deterministic validator named phase2.business_assertion.required_marker that fails because the required marker or section is intentionally absent.",
+      "expected_artifacts": [
+        "summary.json",
+        "events.ndjson",
+        "artifacts/business_assertion_report.json",
+        "artifacts/business_assertion_report.md"
+      ],
+      "pass_conditions": [
+        "summary.json exists",
+        "summary.final_status == human_review",
+        "summary.driver_result.status == succeeded",
+        "summary.business_assertion_status == failed",
+        "summary.failure_status == assertion_failed",
+        "summary.failure_layer == business_validation",
+        "summary.failure_stage == phase2.business_assertion.required_marker",
+        "summary.retry_result == not_requested"
+      ],
+      "retry_attempts": 0,
+      "max_duration_seconds": 240,
+      "main_failure_bucket": "business_validation",
+      "expected_outcome": {
+        "summary": {
+          "final_status": "human_review",
+          "driver_status": "succeeded",
+          "business_assertion_status": "failed"
+        },
+        "failure_status": "assertion_failed",
+        "failure_layer": "business_validation",
+        "failure_stage": "phase2.business_assertion.required_marker",
+        "retry_result": "not_requested"
+      }
+    }
+  ]
+}
