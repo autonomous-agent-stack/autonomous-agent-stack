@@ -571,6 +571,136 @@ def test_retry_overview_json_has_stable_schema(tmp_path: Path) -> None:
     )
 
 
+def test_retry_overview_json_aggregates_match_regression_matrix_rows(tmp_path: Path) -> None:
+    tasks_path = tmp_path / "tasks.json"
+    tasks_path.write_text(
+        json.dumps(
+            {
+                "suite_name": "live-run-stability",
+                "tasks": [
+                    {"task_id": "not-requested", "name": "not requested", "retry_attempts": 0},
+                    {"task_id": "not-needed", "name": "not needed", "retry_attempts": 2},
+                    {"task_id": "recovered", "name": "recovered", "retry_attempts": 2},
+                    {"task_id": "exhausted", "name": "exhausted", "retry_attempts": 1},
+                    {"task_id": "not-attempted", "name": "not attempted", "retry_attempts": 1},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def executor(task: dict[str, object], run_dir: Path) -> dict[str, object]:
+        _ = run_dir
+        task_id = str(task["task_id"])
+        if task_id == "not-requested":
+            return {
+                "final_status": "completed",
+                "result": "completed",
+                "driver_result": {
+                    "run_id": task_id,
+                    "agent_id": "agent",
+                    "attempt": 1,
+                    "status": "succeeded",
+                    "summary": "clean pass without retry budget",
+                    "metrics": {"duration_ms": 5, "steps": 1, "commands": 1},
+                    "recommended_action": "promote",
+                },
+                "validation": {"run_id": task_id, "passed": True, "checks": []},
+            }
+        if task_id == "not-needed":
+            return {
+                "final_status": "completed",
+                "result": "completed",
+                "driver_result": {
+                    "run_id": task_id,
+                    "agent_id": "agent",
+                    "attempt": 1,
+                    "status": "succeeded",
+                    "summary": "clean pass with retry budget unused",
+                    "metrics": {"duration_ms": 5, "steps": 1, "commands": 1},
+                    "recommended_action": "promote",
+                },
+                "validation": {"run_id": task_id, "passed": True, "checks": []},
+            }
+        if task_id == "recovered":
+            return {
+                "final_status": "completed",
+                "result": "completed",
+                "driver_result": {
+                    "run_id": task_id,
+                    "agent_id": "agent",
+                    "attempt": 2,
+                    "status": "succeeded",
+                    "summary": "recovered after retry",
+                    "metrics": {"duration_ms": 5, "steps": 2, "commands": 2},
+                    "recommended_action": "promote",
+                },
+                "validation": {"run_id": task_id, "passed": True, "checks": []},
+            }
+        if task_id == "exhausted":
+            return {
+                "final_status": "failed",
+                "result": "failed",
+                "driver_result": {
+                    "run_id": task_id,
+                    "agent_id": "agent",
+                    "attempt": 2,
+                    "status": "failed",
+                    "summary": "retry exhausted",
+                    "metrics": {"duration_ms": 5, "steps": 2, "commands": 2},
+                    "recommended_action": "human_review",
+                    "error": "still broken",
+                },
+                "validation": {"run_id": task_id, "passed": False, "checks": []},
+            }
+        return {"final_status": "failed"}
+
+    run_live_run_stability_benchmark(
+        tasks_path=tasks_path,
+        run_root=tmp_path / "runs",
+        matrix_json_path=tmp_path / "artifacts" / "live-run-stability" / "regression-matrix.json",
+        matrix_markdown_path=tmp_path / "artifacts" / "live-run-stability" / "regression-matrix.md",
+        retry_overview_json_path=tmp_path / "artifacts" / "live-run-stability" / "retry-overview.json",
+        executor=executor,
+    )
+
+    matrix = json.loads(
+        (tmp_path / "artifacts" / "live-run-stability" / "regression-matrix.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    retry_overview = json.loads(
+        (tmp_path / "artifacts" / "live-run-stability" / "retry-overview.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    expected_retry_result_counts = {
+        retry_result: sum(1 for row in matrix if row["retry_result"] == retry_result)
+        for retry_result in LIVE_RUN_RETRY_RESULT_VALUES
+    }
+    expected_retry_requested_task_count = sum(
+        1 for row in matrix if isinstance(row["retry_budget"], int) and row["retry_budget"] > 0
+    )
+    expected_retried_task_count = sum(
+        1
+        for row in matrix
+        if isinstance(row["retry_attempts_used"], int) and row["retry_attempts_used"] > 0
+    )
+
+    assert retry_overview["task_count"] == len(matrix)
+    assert retry_overview["retry_requested_task_count"] == expected_retry_requested_task_count
+    assert retry_overview["retried_task_count"] == expected_retried_task_count
+    assert retry_overview["retry_result_counts"] == expected_retry_result_counts
+    assert retry_overview["retry_result_counts"] == {
+        "not_requested": 1,
+        "not_needed": 1,
+        "not_attempted": 1,
+        "recovered": 1,
+        "exhausted": 1,
+    }
+
+
 def test_retry_overview_handles_missing_summary_rows_without_forcing_retry_result(tmp_path: Path) -> None:
     tasks_path = tmp_path / "tasks.json"
     tasks_path.write_text(
