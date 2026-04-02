@@ -22,7 +22,7 @@ POLLER_STATUS_SCRIPT = ROOT / "migration" / "openclaw" / "scripts" / "status-tel
 @dataclass
 class CheckResult:
     name: str
-    ok: bool
+    ok: bool | None
     detail: str
 
 
@@ -93,9 +93,46 @@ def tail_lines(path: Path, max_lines: int = 60) -> list[str]:
     return lines[-max_lines:]
 
 
+def check_status_label(check: CheckResult) -> str:
+    if check.ok is True:
+        return "PASS"
+    if check.ok is False:
+        return "FAIL"
+    return "SKIP"
+
+
+def check_blocks_exit(check: CheckResult, *, ignored_names: set[str]) -> bool:
+    return check.name not in ignored_names and check.ok is False
+
+
+def local_webhook_payload(*, update_id: int, message_id: int, user_id: str, text: str) -> dict[str, Any]:
+    numeric_user_id = int(user_id)
+    return {
+        "update_id": update_id,
+        "message": {
+            "message_id": message_id,
+            "from": {"id": numeric_user_id, "username": "selfcheck"},
+            "chat": {"id": numeric_user_id, "type": "private"},
+            "date": int(time.time()),
+            "text": text,
+        },
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Diagnose Telegram reply path for local poller mode.")
     parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument(
+        "--offline",
+        action="store_true",
+        help="Only verify the local API and local webhook path. Skip token, poller, and outbound Telegram checks.",
+    )
+    parser.add_argument(
+        "--synthetic-uid",
+        type=int,
+        default=999999,
+        help="Synthetic Telegram uid/chat_id to use for offline local webhook tests when allowlist env is absent.",
+    )
     parser.add_argument("--send-test", action="store_true", help="Send one debug message to allowed UID")
     args = parser.parse_args()
 
@@ -112,37 +149,66 @@ def main() -> int:
     secret = env.get("AUTORESEARCH_TELEGRAM_SECRET_TOKEN", "")
     allowed_uids = [x.strip() for x in env.get("AUTORESEARCH_TELEGRAM_ALLOWED_UIDS", "").split(",") if x.strip()]
     primary_uid = allowed_uids[0] if allowed_uids else ""
+    local_test_uid = primary_uid or str(args.synthetic_uid)
 
-    checks.append(CheckResult("bot_token_env", bool(bot_token), "present" if bot_token else "missing"))
-    checks.append(CheckResult("secret_env", bool(secret), "present" if secret else "missing (allowed only if webhook skips validation)"))
-    checks.append(CheckResult("allowed_uid_env", bool(primary_uid), primary_uid or "missing"))
+    if args.offline:
+        checks.append(CheckResult("bot_token_env", None, "not required in offline mode"))
+        checks.append(
+            CheckResult(
+                "secret_env",
+                True if secret else None,
+                "present" if secret else "not configured (offline mode sends no secret header unless server expects one)",
+            )
+        )
+        checks.append(
+            CheckResult(
+                "allowed_uid_env",
+                True if primary_uid else None,
+                primary_uid or f"not required in offline mode; using synthetic uid {local_test_uid}",
+            )
+        )
+    else:
+        checks.append(CheckResult("bot_token_env", bool(bot_token), "present" if bot_token else "missing"))
+        checks.append(CheckResult("secret_env", bool(secret), "present" if secret else "missing (allowed only if webhook skips validation)"))
+        checks.append(CheckResult("allowed_uid_env", bool(primary_uid), primary_uid or "missing"))
 
     status_url = f"http://127.0.0.1:{args.port}/api/v1/gateway/telegram/health"
     status_code, status_data, status_raw = http_json(status_url)
     checks.append(CheckResult("gateway_health", status_code == 200, f"status={status_code} body={status_data or status_raw}"))
 
-    poller_ok = False
-    poller_detail = "status script missing"
-    if POLLER_STATUS_SCRIPT.exists():
-        code, out = run_cmd(["bash", str(POLLER_STATUS_SCRIPT)])
-        poller_ok = ("running" in out.lower()) and ("not running" not in out.lower())
-        poller_detail = out.splitlines()[0] if out else f"exit={code}"
-    checks.append(CheckResult("poller_process", poller_ok, poller_detail))
-
     recent_log = tail_lines(POLLER_LOG, max_lines=120)
     recent_errors = [ln for ln in recent_log if "error:" in ln.lower()]
     recent_404 = [ln for ln in recent_log if "404" in ln]
     recent_accept_false = [ln for ln in recent_log if "accepted=False" in ln]
-    log_ok = not recent_errors[-10:] and not recent_404[-10:]
-    log_detail = f"errors={len(recent_errors)} 404={len(recent_404)} accepted_false={len(recent_accept_false)}"
-    checks.append(CheckResult("poller_log", log_ok, log_detail))
 
-    if bot_token:
+    if args.offline:
+        checks.append(CheckResult("poller_process", None, "skipped in offline mode"))
+        checks.append(CheckResult("poller_log", None, "skipped in offline mode"))
+    else:
+        poller_ok = False
+        poller_detail = "status script missing"
+        if POLLER_STATUS_SCRIPT.exists():
+            code, out = run_cmd(["bash", str(POLLER_STATUS_SCRIPT)])
+            poller_ok = ("running" in out.lower()) and ("not running" not in out.lower())
+            poller_detail = out.splitlines()[0] if out else f"exit={code}"
+        checks.append(CheckResult("poller_process", poller_ok, poller_detail))
+
+        log_ok = not recent_errors[-10:] and not recent_404[-10:]
+        log_detail = f"errors={len(recent_errors)} 404={len(recent_404)} accepted_false={len(recent_accept_false)}"
+        checks.append(CheckResult("poller_log", log_ok, log_detail))
+
+    if args.offline:
+        checks.append(CheckResult("telegram_getMe", None, "skipped in offline mode"))
+    elif bot_token:
         tg_me_url = f"https://api.telegram.org/bot{bot_token}/getMe"
         code, data, raw = http_json(tg_me_url)
         checks.append(CheckResult("telegram_getMe", code == 200 and bool(data and data.get("ok")), f"status={code} body={data or raw}"))
+    else:
+        checks.append(CheckResult("telegram_getMe", None, "skipped because bot token is missing"))
 
-    if bot_token and primary_uid and args.send_test:
+    if args.offline:
+        checks.append(CheckResult("telegram_send_test", None, "skipped in offline mode"))
+    elif bot_token and primary_uid and args.send_test:
         msg_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
         code, data, raw = http_json(
             msg_url,
@@ -150,39 +216,33 @@ def main() -> int:
             body={"chat_id": primary_uid, "text": f"[self-check] {time.strftime('%Y-%m-%d %H:%M:%S')}"},
         )
         checks.append(CheckResult("telegram_send_test", code == 200 and bool(data and data.get("ok")), f"status={code} body={data or raw}"))
+    elif args.send_test:
+        checks.append(CheckResult("telegram_send_test", None, "skipped because bot token or allowed uid is missing"))
 
     # Local webhook synthetic tests to expose "accepted/reason"
-    if primary_uid:
+    if args.offline or primary_uid:
         hdrs = {"x-telegram-bot-api-secret-token": secret} if secret else {}
-        payload_ping = {
-            "update_id": int(time.time()),
-            "message": {
-                "message_id": 1,
-                "from": {"id": int(primary_uid), "username": "selfcheck"},
-                "chat": {"id": int(primary_uid), "type": "private"},
-                "date": int(time.time()),
-                "text": "self-check ping",
-            },
-        }
+        payload_help = local_webhook_payload(
+            update_id=int(time.time()),
+            message_id=1,
+            user_id=local_test_uid,
+            text="/help",
+        )
         c1, d1, r1 = http_json(
             f"http://127.0.0.1:{args.port}/api/v1/gateway/telegram/webhook",
             method="POST",
             headers=hdrs,
-            body=payload_ping,
+            body=payload_help,
         )
         ok1 = c1 == 200 and isinstance(d1, dict) and bool(d1.get("accepted"))
-        checks.append(CheckResult("local_webhook_ping", ok1, f"status={c1} body={d1 or r1}"))
+        checks.append(CheckResult("local_webhook_help", ok1, f"status={c1} body={d1 or r1}"))
 
-        payload_status = {
-            "update_id": int(time.time()) + 1,
-            "message": {
-                "message_id": 2,
-                "from": {"id": int(primary_uid), "username": "selfcheck"},
-                "chat": {"id": int(primary_uid), "type": "private"},
-                "date": int(time.time()),
-                "text": "/status",
-            },
-        }
+        payload_status = local_webhook_payload(
+            update_id=int(time.time()) + 1,
+            message_id=2,
+            user_id=local_test_uid,
+            text="/status",
+        )
         c2, d2, r2 = http_json(
             f"http://127.0.0.1:{args.port}/api/v1/gateway/telegram/webhook",
             method="POST",
@@ -191,24 +251,38 @@ def main() -> int:
         )
         ok2 = c2 == 200 and isinstance(d2, dict) and bool(d2.get("accepted"))
         checks.append(CheckResult("local_webhook_status", ok2, f"status={c2} body={d2 or r2}"))
+    else:
+        checks.append(CheckResult("local_webhook_help", None, "skipped because allowed uid is missing; use --offline to force synthetic local checks"))
+        checks.append(CheckResult("local_webhook_status", None, "skipped because allowed uid is missing; use --offline to force synthetic local checks"))
 
-    suggestions = build_suggestions(checks, recent_errors, recent_accept_false)
+    suggestions = build_suggestions(
+        checks,
+        recent_errors,
+        recent_accept_false,
+        offline=args.offline,
+    )
     print_report(checks, suggestions)
-    return 0 if all(c.ok for c in checks if c.name not in {"poller_log"}) else 2
+    return 0 if not any(check_blocks_exit(c, ignored_names={"poller_log"}) for c in checks) else 2
 
 
-def build_suggestions(checks: list[CheckResult], errors: list[str], accepted_false: list[str]) -> list[str]:
+def build_suggestions(
+    checks: list[CheckResult],
+    errors: list[str],
+    accepted_false: list[str],
+    *,
+    offline: bool,
+) -> list[str]:
     by_name = {c.name: c for c in checks}
     out: list[str] = []
-    if not by_name.get("bot_token_env", CheckResult("", True, "")).ok:
+    if not offline and by_name.get("bot_token_env", CheckResult("", True, "")).ok is False:
         out.append("Set TELEGRAM_BOT_TOKEN and AUTORESEARCH_TELEGRAM_BOT_TOKEN in runtime env.")
-    if not by_name.get("allowed_uid_env", CheckResult("", True, "")).ok:
+    if not offline and by_name.get("allowed_uid_env", CheckResult("", True, "")).ok is False:
         out.append("Set AUTORESEARCH_TELEGRAM_ALLOWED_UIDS to your Telegram user id.")
-    if not by_name.get("poller_process", CheckResult("", True, "")).ok:
+    if not offline and by_name.get("poller_process", CheckResult("", True, "")).ok is False:
         out.append("Restart poller: bash migration/openclaw/scripts/stop-telegram-poller.sh && bash migration/openclaw/scripts/start-telegram-poller.sh")
     if by_name.get("gateway_health", CheckResult("", True, "")).detail.startswith("status=404"):
         out.append("Gateway route missing in current app. Ensure /api/v1/gateway/telegram/webhook is mounted.")
-    if errors:
+    if not offline and errors:
         if any("404" in x for x in errors):
             out.append("Poller target path mismatch. Check TELEGRAM_BRIDGE_LOCAL_WEBHOOK_URL.")
         if any("SSL" in x for x in errors):
@@ -216,14 +290,17 @@ def build_suggestions(checks: list[CheckResult], errors: list[str], accepted_fal
     if accepted_false:
         out.append("Webhook accepted=False seen. Usually unsupported update type or empty message text.")
     if not out:
-        out.append("Core path looks healthy. If bot still silent, open chat with bot and press Start, then send /status.")
+        if offline:
+            out.append("Offline core path looks healthy. You can start a short local trial now; no week-long soak is required for this smoke test.")
+        else:
+            out.append("Core path looks healthy. If bot still silent, open chat with bot and press Start, then send /status.")
     return out
 
 
 def print_report(checks: list[CheckResult], suggestions: list[str]) -> None:
     print("== Telegram Self-Check ==")
     for c in checks:
-        mark = "PASS" if c.ok else "FAIL"
+        mark = check_status_label(c)
         print(f"[{mark}] {c.name}: {c.detail}")
     print("\nSuggestions:")
     for item in suggestions:

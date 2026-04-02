@@ -49,18 +49,29 @@
       "lane": "phase-2",
       "scenario_type": "intentional_failure",
       "purpose": "Verify that a run with successful execution but failed business validation lands in business_validation, remains human_review, and never looks like ready_for_promotion.",
-      "prompt": "Run a controlled failure probe that completes execution and writes the expected work product, but intentionally omits a required business marker so a deterministic validator fails the run.",
-      "trigger_mechanism": "Allow the worker to finish successfully and emit a valid patch/artifact set, then run a deterministic validator named phase2.business_assertion.required_marker that fails because the required marker or section is intentionally absent.",
+      "warmup_strategy": "Prewarm the AI Lab runtime outside the task before dispatch so the failure sample measures business validation, not image build or environment startup time.",
+      "target_file": "src/phase2_business_probe.py",
+      "target_contents": "\"\"\"Phase 2 business validation probe.\"\"\"\n\nVALUE = \"phase2-business-probe\"\n",
+      "validator": {
+        "id": "phase2.business_assertion.required_marker",
+        "kind": "command",
+        "target_file": "src/phase2_business_probe.py",
+        "required_marker": "PHASE2_REQUIRED_MARKER",
+        "expectation": "fail when the fixed file does not contain the required marker"
+      },
+      "prompt": "Create exactly one deterministic file at src/phase2_business_probe.py with the provided fixed contents. Do not edit any other file and do not include the string PHASE2_REQUIRED_MARKER anywhere in the file.",
+      "trigger_mechanism": "After the runtime is prewarmed outside the task, make the driver succeed by writing exactly src/phase2_business_probe.py with the fixed contents and a non-empty patch. Then let validator phase2.business_assertion.required_marker inspect only that file and fail because PHASE2_REQUIRED_MARKER is intentionally absent.",
       "expected_artifacts": [
         "summary.json",
         "events.ndjson",
-        "artifacts/business_assertion_report.json",
-        "artifacts/business_assertion_report.md"
+        "driver_result.json",
+        "artifacts/promotion.patch"
       ],
       "pass_conditions": [
         "summary.json exists",
         "summary.final_status == human_review",
         "summary.driver_result.status == succeeded",
+        "summary.driver_result.changed_paths contains src/phase2_business_probe.py",
         "summary.business_assertion_status == failed",
         "summary.failure_status == assertion_failed",
         "summary.failure_layer == business_validation",

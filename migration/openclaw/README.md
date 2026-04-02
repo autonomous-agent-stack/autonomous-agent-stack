@@ -1,9 +1,12 @@
-# OpenClaw Migration Scaffold
+# OpenClaw Migration Hub
 
-这个目录用于把现有 OpenClaw 逐步接到 `autonomous-agent-stack`，先支持：
-- OpenClaw 会话兼容
-- Claude Agent 调度
-- Telegram 网关接入
+这个目录不是要求你推倒重来，而是把现有 OpenClaw 平滑挂到 `autonomous-agent-stack` 这个受控 execution control plane 上。
+
+当前目标：
+- 保留 OpenClaw 会话兼容
+- 保留 skills 与 Telegram 接入
+- 把 Claude Agent 调度和后续其他 worker 纳入统一受控执行面
+- 支持分阶段迁移、链路验证和随时回滚
 
 ## 目录说明
 
