@@ -19,6 +19,7 @@ from autoresearch.benchmarks.live_run_stability_runner import (
     build_live_run_agent_env,
     build_live_run_retry_overview,
     normalize_live_run_summary,
+    normalize_run_dir_artifact_inventory,
     run_live_run_stability_benchmark,
 )
 from autoresearch.executions.runner import AgentExecutionRunner
@@ -272,6 +273,38 @@ def test_live_run_benchmark_runner_normalizes_artifact_inventory_to_run_dir(tmp_
     assert all(Path(path).exists() for path in summary["artifacts_produced"])
     assert all(str(path).startswith(str(run_dir)) for path in summary["artifacts_produced"])
     assert all("runner-runtime" not in str(path) for path in summary["artifacts_produced"])
+
+
+def test_normalize_run_dir_artifact_inventory_filters_to_existing_run_dir_paths(tmp_path: Path) -> None:
+    run_dir = tmp_path / "runs" / "ok"
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    local_report = run_dir / "artifacts" / "local-report.json"
+    local_report.parent.mkdir(parents=True, exist_ok=True)
+    local_report.write_text(json.dumps({"ok": True}), encoding="utf-8")
+
+    foreign_runtime = tmp_path / "runner-runtime" / "ok" / "driver_result.json"
+    foreign_runtime.parent.mkdir(parents=True, exist_ok=True)
+    foreign_runtime.write_text("{}", encoding="utf-8")
+
+    inventory = normalize_run_dir_artifact_inventory(
+        artifacts=[
+            str(foreign_runtime),
+            "artifacts/local-report.json",
+            local_report,
+            run_dir / "missing.json",
+            "",
+            None,
+        ],
+        run_dir=run_dir,
+    )
+
+    assert inventory == [
+        str(run_dir / "summary.json"),
+        str(run_dir / "artifacts" / "local-report.json"),
+    ]
+    assert all(path.startswith(str(run_dir)) for path in inventory)
+    assert all("runner-runtime" not in path for path in inventory)
 
 
 def test_live_run_benchmark_runner_handles_partial_summaries_conservatively(

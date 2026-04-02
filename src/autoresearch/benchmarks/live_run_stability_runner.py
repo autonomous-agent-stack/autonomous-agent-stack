@@ -153,14 +153,14 @@ def normalize_live_run_summary(
     metadata["live_run_retry"] = retry_metadata
     normalized["metadata"] = metadata
     if run_dir is not None:
-        normalized["artifacts_produced"] = _normalize_live_run_artifacts_produced(
+        normalized["artifacts_produced"] = normalize_run_dir_artifact_inventory(
             artifacts=normalized.get("artifacts_produced"),
             run_dir=run_dir,
         )
     return normalized
 
 
-def _normalize_live_run_artifacts_produced(*, artifacts: Any, run_dir: Path) -> list[str]:
+def normalize_run_dir_artifact_inventory(*, artifacts: Any, run_dir: Path) -> list[str]:
     normalized = [str(run_dir / "summary.json")]
     if not isinstance(artifacts, list):
         return normalized
