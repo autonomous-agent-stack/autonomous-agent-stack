@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import inspect
+import os
+from pathlib import Path
+import shutil
 import threading
 import time
 from typing import Any
@@ -316,6 +319,28 @@ def _handle_telegram_webhook(
             session_identity=session_identity,
         )
 
+    if not _telegram_claude_command_is_available(
+        agent_service=agent_service,
+        telegram_settings=telegram_settings,
+    ):
+        if notifier.enabled:
+            background_tasks.add_task(
+                notifier.send_message,
+                chat_id=chat_id,
+                text=(
+                    "当前机器未安装或未配置 Claude CLI，普通聊天暂不可用。\n"
+                    "请改用 `/task <需求>`。"
+                ),
+            )
+        return TelegramWebhookAck(
+            accepted=False,
+            update_id=_safe_int(update.get("update_id")),
+            chat_id=chat_id,
+            agent_run_id=None,
+            reason="claude_cli_unavailable",
+            metadata={"source": "telegram_runtime_preflight"},
+        )
+
     session = _find_or_create_telegram_session(
         openclaw_service=openclaw_service,
         chat_id=chat_id,
@@ -406,6 +431,25 @@ def _handle_telegram_webhook(
             "timeout_seconds": request_payload.timeout_seconds,
         },
     )
+
+
+def _telegram_claude_command_is_available(
+    *,
+    agent_service: ClaudeAgentService,
+    telegram_settings: Any,
+) -> bool:
+    command = telegram_settings.command_override or list(getattr(agent_service, "_claude_command", []) or [])
+    if not command:
+        return False
+    executable = str(command[0]).strip()
+    if not executable:
+        return False
+    # Check if executable exists in PATH or as an absolute/relative path
+    if shutil.which(executable) is not None:
+        return True
+    # For absolute or relative paths, check file existence directly
+    executable_path = Path(executable)
+    return executable_path.exists() and os.access(executable_path, os.X_OK)
 
 
 def _validate_secret_token(raw_request: Request) -> None:

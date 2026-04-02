@@ -333,6 +333,80 @@ def test_telegram_webhook_routes_to_openclaw_and_agents(
     assert any("agent queued" in event["content"] for event in session_payload["events"])
 
 
+def test_telegram_webhook_rejects_normal_chat_when_claude_command_is_unavailable(
+    telegram_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    notifier = _StubTelegramNotifier()
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_CLAUDE_COMMAND_OVERRIDE", "__missing_claude_for_telegram_test__")
+
+    try:
+        response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 1002,
+                "message": {
+                    "message_id": 78,
+                    "text": "普通聊天入口应该直接提示",
+                    "chat": {"id": 9528, "type": "private"},
+                    "from": {"id": 9528, "username": "bob"},
+                },
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["accepted"] is False
+        assert payload["chat_id"] == "9528"
+        assert payload["session_id"] is None
+        assert payload["agent_run_id"] is None
+        assert payload["reason"] == "claude_cli_unavailable"
+        assert payload["metadata"]["source"] == "telegram_runtime_preflight"
+
+        agents = telegram_client.get("/api/v1/openclaw/agents")
+        assert agents.status_code == 200
+        assert agents.json() == []
+
+        assert len(notifier.messages) == 1
+        message = notifier.messages[0]["text"]
+        assert "未安装或未配置 Claude CLI" in message
+        assert "普通聊天暂不可用" in message
+        assert "/task <需求>" in message
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+
+
+def test_telegram_webhook_accepts_normal_chat_with_absolute_path_command_override(
+    telegram_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that absolute path command overrides work even if not in PATH."""
+    monkeypatch.setenv(
+        "AUTORESEARCH_TELEGRAM_CLAUDE_COMMAND_OVERRIDE",
+        f"{sys.executable} -c \"print('absolute-path-ok')\"",
+    )
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_APPEND_PROMPT", "false")
+
+    response = telegram_client.post(
+        "/api/v1/gateway/telegram/webhook",
+        json={
+            "update_id": 1003,
+            "message": {
+                "message_id": 79,
+                "text": "测试绝对路径命令",
+                "chat": {"id": 9529, "type": "private"},
+                "from": {"id": 9529, "username": "charlie"},
+            },
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["accepted"] is True
+    assert payload["chat_id"] == "9529"
+    assert payload["session_id"] is not None
+    assert payload["agent_run_id"] is not None
+
+
 def test_legacy_telegram_webhook_uses_same_processing_path(
     telegram_client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
