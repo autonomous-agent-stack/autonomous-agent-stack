@@ -18,7 +18,10 @@
 故障切换：
 
 - 平时 Linux 主跑
+- Mac 先检查 Linux 管家在线性：`health / heartbeat / 可达性`
+- Linux 在线就转交 Linux
 - Linux 掉线时，Mac 只接低到中风险、短时、可人工复核任务
+- Linux 不在线、超时未响应或明确拒绝时，Mac 备用接管
 - Linux 恢复后切回 Linux
 
 ## 为什么 Linux 先走 `host`

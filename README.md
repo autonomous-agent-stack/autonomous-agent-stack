@@ -73,6 +73,7 @@ AUTORESEARCH_UPSTREAM_WATCH_MAX_COMMITS=5
 - Linux 跑 `OpenHands`、长任务、benchmark、`Telegram` 主值班
 - Linux 负责主执行链、主 `/task` 路径、主 agent 宿主
 - Mac 平时不常驻接单；只在 Linux 掉线时接低到中风险、短时、可人工复核任务
+- Mac 先检查 Linux 管家在线性；Linux 在线就转交 Linux，不在线、超时未响应或明确拒绝时才由 Mac 备用接管，恢复后切回 Linux
 
 最小 bring-up：
 

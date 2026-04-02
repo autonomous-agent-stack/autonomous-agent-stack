@@ -30,6 +30,8 @@ def test_readme_linux_bringup_points_to_env_linux_and_guide() -> None:
     assert "make start" in section
     assert "[Linux Primary Runtime Guide](./docs/linux-remote-worker.md)" in section
     assert "[`.env.linux`](./.env.linux)" in section
+    assert "Mac 先检查 Linux 管家在线性" in section
+    assert "超时未响应或明确拒绝时才由 Mac 备用接管" in section
     assert "/Volumes/" not in section
     assert "/Users/" not in section
 
@@ -43,7 +45,10 @@ def test_linux_guide_locks_linux_primary_and_mac_backup_contract() -> None:
     assert "Mac = 备用管家 / 备用执行面 / 控制台" in preface
     assert "同仓库、同 manifest、不同 runtime 配置" in preface
     assert "平时 Linux 主跑" in preface
+    assert "Mac 先检查 Linux 管家在线性：`health / heartbeat / 可达性`" in preface
+    assert "Linux 在线就转交 Linux" in preface
     assert "Mac 只接低到中风险、短时、可人工复核任务" in preface
+    assert "Linux 不在线、超时未响应或明确拒绝时，Mac 备用接管" in preface
     assert "不允许分叉成两套实现" in preface
     assert "Mac: 控制面" not in preface
 
