@@ -74,6 +74,28 @@ JSON
     assert checks["builtin.driver_success"].passed is False
 
 
+def test_snapshot_repo_to_baseline_ignores_dangling_symlinks(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    (repo_root / "src").mkdir(parents=True)
+    (repo_root / "src" / "base.py").write_text("x = 1\n", encoding="utf-8")
+    skill_root = repo_root / ".agents" / "skills"
+    skill_root.mkdir(parents=True, exist_ok=True)
+    (skill_root / "browse").symlink_to("gstack/browse")
+
+    runner = AgentExecutionRunner(
+        repo_root=repo_root,
+        runtime_root=tmp_path / "runtime",
+        manifests_dir=repo_root / "configs" / "agents",
+    )
+
+    baseline_dir = tmp_path / "baseline"
+    runner._snapshot_repo_to_baseline(baseline_dir)  # noqa: SLF001
+
+    assert (baseline_dir / "src" / "base.py").exists()
+    assert not (baseline_dir / ".agents" / "skills" / "browse").exists()
+
+
 def test_runner_persists_summary_when_attempt_crashes_unexpectedly(
     tmp_path: Path,
     monkeypatch,

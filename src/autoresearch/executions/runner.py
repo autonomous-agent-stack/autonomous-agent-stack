@@ -615,7 +615,13 @@ class AgentExecutionRunner:
             "dashboard/.next",
             ".masfactory_runtime",
         )
-        shutil.copytree(self._repo_root, baseline_dir, dirs_exist_ok=True, ignore=ignore)
+        shutil.copytree(
+            self._repo_root,
+            baseline_dir,
+            dirs_exist_ok=True,
+            ignore=ignore,
+            ignore_dangling_symlinks=True,
+        )
 
     def _snapshot_baseline_to_workspace(self, baseline_dir: Path, workspace_dir: Path) -> None:
         if workspace_dir.exists():
