@@ -140,6 +140,7 @@ def _run_stall_no_progress_probe(
     ]
     return _augment_summary(
         summary=summary_payload,
+        run_dir=run_dir,
         extra_paths=[path for path in copied_paths if path is not None],
     )
 
@@ -195,6 +196,7 @@ def _run_business_assertion_mismatch_probe(
     )
     return _augment_summary(
         summary=summary.model_dump(mode="json"),
+        run_dir=run_dir,
         extra_paths=[path for path in copied_paths if path is not None] + report_paths,
     )
 
@@ -284,16 +286,19 @@ def _write_business_assertion_reports(
     return [report_json_path, report_md_path]
 
 
-def _augment_summary(*, summary: dict[str, Any], extra_paths: list[Path]) -> dict[str, Any]:
+def _augment_summary(*, summary: dict[str, Any], run_dir: Path, extra_paths: list[Path]) -> dict[str, Any]:
     augmented = dict(summary)
-    existing_paths = augmented.get("artifacts_produced")
-    artifacts_produced = list(existing_paths) if isinstance(existing_paths, list) else []
+    augmented["artifacts_produced"] = _phase2_artifacts_produced(run_dir=run_dir, extra_paths=extra_paths)
+    return augmented
+
+
+def _phase2_artifacts_produced(*, run_dir: Path, extra_paths: list[Path]) -> list[str]:
+    artifacts_produced: list[str] = [str(run_dir / "summary.json")]
     for path in extra_paths:
         path_text = str(path)
         if path_text not in artifacts_produced:
             artifacts_produced.append(path_text)
-    augmented["artifacts_produced"] = artifacts_produced
-    return augmented
+    return artifacts_produced
 
 
 def _copy_if_exists(source: Path, destination: Path) -> Path | None:

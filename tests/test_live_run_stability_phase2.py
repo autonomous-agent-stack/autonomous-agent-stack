@@ -43,6 +43,18 @@ def _write_tasks_subset(repo_root: Path, task_id: str) -> Path:
     return subset_path
 
 
+def _assert_phase2_artifact_inventory(
+    *,
+    summary: dict[str, object],
+    run_dir: Path,
+    expected_paths: list[Path],
+) -> None:
+    expected_inventory = [str(path) for path in expected_paths]
+    assert summary["artifacts_produced"] == expected_inventory
+    assert all(path.exists() for path in expected_paths)
+    assert all(str(path).startswith(str(run_dir)) for path in expected_paths)
+
+
 def test_phase2_required_marker_validator_command_targets_manifest_file() -> None:
     command = _phase2_required_marker_validator_command(
         target_file="src/phase2_business_probe.py",
@@ -85,6 +97,16 @@ def test_phase2_stall_probe_produces_closed_failure_outputs(tmp_path: Path, monk
     assert result.task_count == 1
     assert (run_dir / "status.json").exists()
     assert (run_dir / "heartbeat.json").exists()
+    _assert_phase2_artifact_inventory(
+        summary=summary,
+        run_dir=run_dir,
+        expected_paths=[
+            run_dir / "summary.json",
+            run_dir / "events.ndjson",
+            run_dir / "status.json",
+            run_dir / "heartbeat.json",
+        ],
+    )
     assert summary["final_status"] == "failed"
     assert summary["driver_result"]["status"] == "stalled_no_progress"
     assert summary["failure_status"] == "stalled_no_progress"
@@ -146,6 +168,18 @@ def test_phase2_business_assertion_probe_produces_reported_validation_failure(tm
     assert (run_dir / "events.ndjson").exists()
     assert (run_dir / "driver_result.json").exists()
     assert (run_dir / "artifacts" / "promotion.patch").exists()
+    _assert_phase2_artifact_inventory(
+        summary=summary,
+        run_dir=run_dir,
+        expected_paths=[
+            run_dir / "summary.json",
+            run_dir / "events.ndjson",
+            run_dir / "driver_result.json",
+            run_dir / "artifacts" / "promotion.patch",
+            run_dir / "artifacts" / "business_assertion_report.json",
+            run_dir / "artifacts" / "business_assertion_report.md",
+        ],
+    )
     assert summary["final_status"] == "human_review"
     assert summary["driver_result"]["status"] == "succeeded"
     assert summary["driver_result"]["changed_paths"] == ["src/phase2_business_probe.py"]
@@ -157,8 +191,6 @@ def test_phase2_business_assertion_probe_produces_reported_validation_failure(tm
     assert summary["failure_stage"] == "phase2.business_assertion.required_marker"
     assert summary["retry_result"] == "not_requested"
     assert overview["retry_result_counts"]["not_requested"] == 1
-    assert str(run_dir / "driver_result.json") in summary["artifacts_produced"]
-    assert str(run_dir / "artifacts" / "promotion.patch") in summary["artifacts_produced"]
     assert report_json["failure_stage"] == "phase2.business_assertion.required_marker"
     assert report_json["failed_checks"][0]["id"] == "phase2.business_assertion.required_marker"
     assert "missing required marker" in report_json["failed_checks"][0]["detail"]
@@ -181,3 +213,38 @@ def test_phase2_business_assertion_probe_produces_reported_validation_failure(tm
             "task_name": "business validation failure probe: execution succeeds but assertion fails",
         }
     ]
+
+
+def test_phase2_full_suite_artifact_inventory_stays_within_run_dirs(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    _copy_phase2_assets(repo_root)
+    benchmark_root = tmp_path / "phase2-benchmark"
+    monkeypatch.setattr(AgentExecutionRunner, "_stall_progress_timeout_sec", staticmethod(lambda _: 1))
+
+    result = run_live_run_stability_phase2_benchmark(
+        repo_root=repo_root,
+        benchmark_root=benchmark_root,
+    )
+
+    paths = build_live_run_stability_phase2_paths(
+        repo_root=repo_root,
+        benchmark_root=benchmark_root,
+    )
+    overview = json.loads(paths.retry_overview_json_path.read_text(encoding="utf-8"))
+
+    assert result.task_count == 2
+    assert overview["task_count"] == 2
+
+    for task_id in ("fail-stall-no-progress", "fail-business-assertion-mismatch"):
+        run_dir = paths.run_root / task_id
+        summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
+        artifact_paths = [Path(path) for path in summary["artifacts_produced"]]
+
+        assert artifact_paths
+        assert all(path.exists() for path in artifact_paths)
+        assert all(str(path).startswith(str(run_dir)) for path in artifact_paths)
+        assert all("runner-runtime" not in str(path) for path in artifact_paths)
