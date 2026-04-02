@@ -295,7 +295,18 @@ def _augment_summary(*, summary: dict[str, Any], run_dir: Path, extra_paths: lis
 def _phase2_artifacts_produced(*, run_dir: Path, extra_paths: list[Path]) -> list[str]:
     artifacts_produced: list[str] = [str(run_dir / "summary.json")]
     for path in extra_paths:
-        path_text = str(path)
+        candidate = path if path.is_absolute() else run_dir / path
+        try:
+            resolved = candidate.resolve()
+        except OSError:
+            continue
+        if not resolved.exists():
+            continue
+        try:
+            resolved.relative_to(run_dir.resolve())
+        except ValueError:
+            continue
+        path_text = str(resolved)
         if path_text not in artifacts_produced:
             artifacts_produced.append(path_text)
     return artifacts_produced

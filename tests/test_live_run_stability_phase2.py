@@ -5,6 +5,7 @@ import shutil
 from pathlib import Path
 
 from autoresearch.benchmarks.live_run_stability_phase2 import (
+    _phase2_artifacts_produced,
     _phase2_required_marker_validator_command,
     build_live_run_stability_phase2_paths,
     run_live_run_stability_phase2_benchmark,
@@ -63,6 +64,36 @@ def test_phase2_required_marker_validator_command_targets_manifest_file() -> Non
 
     assert "src/phase2_business_probe.py" in command
     assert "PHASE2_REQUIRED_MARKER" in command
+
+
+def test_phase2_artifact_inventory_stays_within_run_dir(tmp_path: Path) -> None:
+    run_dir = tmp_path / "runs" / "fail-stall-no-progress"
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    local_report = run_dir / "artifacts" / "local-report.json"
+    local_report.parent.mkdir(parents=True, exist_ok=True)
+    local_report.write_text(json.dumps({"ok": True}), encoding="utf-8")
+
+    foreign_runtime = tmp_path / "runner-runtime" / "fail-stall-no-progress" / "driver_result.json"
+    foreign_runtime.parent.mkdir(parents=True, exist_ok=True)
+    foreign_runtime.write_text("{}", encoding="utf-8")
+
+    inventory = _phase2_artifacts_produced(
+        run_dir=run_dir,
+        extra_paths=[
+            foreign_runtime,
+            Path("artifacts/local-report.json"),
+            local_report,
+            run_dir / "missing.json",
+        ],
+    )
+
+    assert inventory == [
+        str(run_dir / "summary.json"),
+        str(run_dir / "artifacts" / "local-report.json"),
+    ]
+    assert all(path.startswith(str(run_dir)) for path in inventory)
+    assert all("runner-runtime" not in path for path in inventory)
 
 
 def test_phase2_stall_probe_produces_closed_failure_outputs(tmp_path: Path, monkeypatch) -> None:
