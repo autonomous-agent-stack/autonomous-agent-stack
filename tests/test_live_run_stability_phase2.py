@@ -248,3 +248,38 @@ def test_phase2_full_suite_artifact_inventory_stays_within_run_dirs(
         assert all(path.exists() for path in artifact_paths)
         assert all(str(path).startswith(str(run_dir)) for path in artifact_paths)
         assert all("runner-runtime" not in str(path) for path in artifact_paths)
+
+
+def test_phase2_manifest_expected_artifacts_are_present_in_runtime_inventory(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    _copy_phase2_assets(repo_root)
+    benchmark_root = tmp_path / "phase2-benchmark"
+    monkeypatch.setattr(AgentExecutionRunner, "_stall_progress_timeout_sec", staticmethod(lambda _: 1))
+
+    run_live_run_stability_phase2_benchmark(
+        repo_root=repo_root,
+        benchmark_root=benchmark_root,
+    )
+
+    tasks = json.loads(
+        (repo_root / "benchmarks" / "live-run-stability" / "phase-2" / "tasks.json").read_text(
+            encoding="utf-8"
+        )
+    )["tasks"]
+    paths = build_live_run_stability_phase2_paths(
+        repo_root=repo_root,
+        benchmark_root=benchmark_root,
+    )
+
+    for task in tasks:
+        run_dir = paths.run_root / str(task["task_id"])
+        summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
+        artifact_inventory = set(summary["artifacts_produced"])
+        expected_paths = [str(run_dir / artifact) for artifact in task["expected_artifacts"]]
+
+        assert set(expected_paths).issubset(artifact_inventory)
+        assert all(Path(path).exists() for path in expected_paths)
