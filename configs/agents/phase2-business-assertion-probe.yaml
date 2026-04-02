@@ -1,0 +1,30 @@
+{
+  "id": "phase2-business-assertion-probe",
+  "kind": "process",
+  "entrypoint": "drivers/live_run_phase2_business_assertion_probe.py",
+  "version": "0.1",
+  "capabilities": [
+    "write_repo",
+    "produce_patchable_changes"
+  ],
+  "default_mode": "apply_in_workspace",
+  "policy_defaults": {
+    "timeout_sec": 240,
+    "max_steps": 1,
+    "network": "disabled",
+    "network_allowlist": [],
+    "tool_allowlist": ["read", "write", "bash"],
+    "allowed_paths": ["docs/**", "src/**", "tests/**", "scripts/**"],
+    "forbidden_paths": [
+      ".git/**",
+      "logs/**",
+      ".masfactory_runtime/**",
+      "memory/**"
+    ],
+    "max_changed_files": 5,
+    "max_patch_lines": 2000,
+    "allow_binary_changes": false,
+    "cleanup_on_success": true,
+    "retain_workspace_on_failure": true
+  }
+}
