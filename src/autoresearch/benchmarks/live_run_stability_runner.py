@@ -73,7 +73,7 @@ def run_live_run_stability_benchmark(
         run_dir.mkdir(parents=True, exist_ok=True)
         (run_dir / "task.json").write_text(json.dumps(task, ensure_ascii=False, indent=2), encoding="utf-8")
 
-        summary = normalize_live_run_summary(task=task, summary=executor(task, run_dir))
+        summary = normalize_live_run_summary(task=task, summary=executor(task, run_dir), run_dir=run_dir)
         summary_path = run_dir / "summary.json"
         summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -117,7 +117,12 @@ def _task_retry_attempts(task: dict[str, Any]) -> int:
         return 0
 
 
-def normalize_live_run_summary(*, task: dict[str, Any], summary: dict[str, Any]) -> dict[str, Any]:
+def normalize_live_run_summary(
+    *,
+    task: dict[str, Any],
+    summary: dict[str, Any],
+    run_dir: Path | None = None,
+) -> dict[str, Any]:
     normalized = dict(summary)
     retry_budget = _task_retry_attempts(task)
     final_attempt = _summary_attempt(normalized)
@@ -147,6 +152,39 @@ def normalize_live_run_summary(*, task: dict[str, Any], summary: dict[str, Any])
     )
     metadata["live_run_retry"] = retry_metadata
     normalized["metadata"] = metadata
+    if run_dir is not None:
+        normalized["artifacts_produced"] = _normalize_live_run_artifacts_produced(
+            artifacts=normalized.get("artifacts_produced"),
+            run_dir=run_dir,
+        )
+    return normalized
+
+
+def _normalize_live_run_artifacts_produced(*, artifacts: Any, run_dir: Path) -> list[str]:
+    normalized = [str(run_dir / "summary.json")]
+    if not isinstance(artifacts, list):
+        return normalized
+
+    run_dir_resolved = run_dir.resolve()
+    for item in artifacts:
+        candidate_text = str(item or "").strip()
+        if not candidate_text:
+            continue
+        candidate = Path(candidate_text)
+        artifact_path = candidate if candidate.is_absolute() else run_dir / candidate
+        try:
+            resolved = artifact_path.resolve()
+        except OSError:
+            continue
+        if not resolved.exists():
+            continue
+        try:
+            resolved.relative_to(run_dir_resolved)
+        except ValueError:
+            continue
+        resolved_text = str(resolved)
+        if resolved_text not in normalized:
+            normalized.append(resolved_text)
     return normalized
 
 

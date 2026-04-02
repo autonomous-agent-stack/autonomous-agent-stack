@@ -210,6 +210,70 @@ def test_live_run_benchmark_runner_writes_run_dirs_and_matrix(tmp_path: Path) ->
     assert retry_overview["retry_result_counts"]["not_requested"] == 2
 
 
+def test_live_run_benchmark_runner_normalizes_artifact_inventory_to_run_dir(tmp_path: Path) -> None:
+    tasks_path = tmp_path / "benchmarks" / "tasks.json"
+    tasks_path.parent.mkdir(parents=True, exist_ok=True)
+    tasks_path.write_text(
+        json.dumps(
+            {
+                "suite_name": "live-run-stability",
+                "tasks": [{"task_id": "ok", "name": "ok task"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    foreign_runtime = tmp_path / "runner-runtime" / "ok" / "driver_result.json"
+    foreign_runtime.parent.mkdir(parents=True, exist_ok=True)
+    foreign_runtime.write_text("{}", encoding="utf-8")
+
+    def executor(task: dict[str, object], run_dir: Path) -> dict[str, object]:
+        _ = task
+        local_report = run_dir / "artifacts" / "local-report.json"
+        local_report.parent.mkdir(parents=True, exist_ok=True)
+        local_report.write_text(json.dumps({"ok": True}), encoding="utf-8")
+        return {
+            "final_status": "completed",
+            "result": "completed",
+            "artifacts_produced": [
+                str(foreign_runtime),
+                "artifacts/local-report.json",
+                str(local_report),
+            ],
+            "driver_result": {
+                "run_id": "ok",
+                "agent_id": "agent",
+                "attempt": 1,
+                "status": "succeeded",
+                "summary": "ok",
+                "metrics": {"duration_ms": 10, "steps": 1, "commands": 1},
+                "recommended_action": "promote",
+            },
+            "validation": {"run_id": "ok", "passed": True, "checks": []},
+            "metadata": {},
+        }
+
+    run_live_run_stability_benchmark(
+        tasks_path=tasks_path,
+        run_root=tmp_path / "runs",
+        matrix_json_path=tmp_path / "artifacts" / "live-run-stability" / "regression-matrix.json",
+        matrix_markdown_path=tmp_path / "artifacts" / "live-run-stability" / "regression-matrix.md",
+        retry_overview_json_path=tmp_path / "artifacts" / "live-run-stability" / "retry-overview.json",
+        executor=executor,
+    )
+
+    run_dir = tmp_path / "runs" / "ok"
+    summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
+
+    assert summary["artifacts_produced"] == [
+        str(run_dir / "summary.json"),
+        str(run_dir / "artifacts" / "local-report.json"),
+    ]
+    assert all(Path(path).exists() for path in summary["artifacts_produced"])
+    assert all(str(path).startswith(str(run_dir)) for path in summary["artifacts_produced"])
+    assert all("runner-runtime" not in str(path) for path in summary["artifacts_produced"])
+
+
 def test_live_run_benchmark_runner_handles_partial_summaries_conservatively(
     tmp_path: Path,
 ) -> None:
