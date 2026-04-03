@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import json
+import logging
 from datetime import datetime, timezone
 import inspect
 import threading
 import time
 from typing import Any
 
+import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 
 from autoresearch.api.dependencies import (
@@ -31,6 +34,10 @@ from autoresearch.agents.manager_agent import ManagerAgentService
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.openclaw_memory import OpenClawMemoryService
 from autoresearch.core.services.panel_access import PanelAccessService
+from autoresearch.core.services.telegram_controller_handoff import (
+    TelegramControllerHandoffService,
+    TelegramControllerNotice,
+)
 from autoresearch.core.services.telegram_identity import (
     TelegramSessionIdentityRead,
     build_telegram_session_identity,
@@ -59,6 +66,8 @@ from autoresearch.shared.models import (
 )
 from autoresearch.shared.manager_agent_contract import ManagerDispatchRead, ManagerDispatchRequest
 
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/gateway/telegram", tags=["gateway", "telegram"])
 compat_router = APIRouter(tags=["gateway", "telegram", "compat"])
@@ -131,7 +140,7 @@ def legacy_telegram_webhook(
     panel_access_service: PanelAccessService = Depends(get_panel_access_service),
     notifier: TelegramNotifierService = Depends(get_telegram_notifier_service),
     admin_config_service: AdminConfigService = Depends(get_admin_config_service),
-) -> TelegramWebhookAck:
+    ) -> TelegramWebhookAck:
     return _handle_telegram_webhook(
         update=update,
         raw_request=raw_request,
@@ -147,6 +156,94 @@ def legacy_telegram_webhook(
         notifier=notifier,
         admin_config_service=admin_config_service,
     )
+
+
+def _build_telegram_controller_handoff_service() -> TelegramControllerHandoffService:
+    runtime_settings = load_runtime_settings()
+    return TelegramControllerHandoffService(
+        linux_control_base_url=runtime_settings.linux_control_base_url,
+        probe_timeout_seconds=runtime_settings.telegram_controller_probe_timeout_seconds,
+        lease_ttl_seconds=runtime_settings.telegram_controller_lease_ttl_seconds,
+    )
+
+
+def _schedule_controller_notices(
+    *,
+    background_tasks: BackgroundTasks,
+    notifier: TelegramNotifierService,
+    notices: list[TelegramControllerNotice],
+) -> None:
+    if not notifier.enabled:
+        return
+    for notice in notices:
+        background_tasks.add_task(notifier.send_message, chat_id=notice.chat_id, text=notice.text)
+
+
+def _forward_telegram_update_to_linux(
+    *,
+    update: dict[str, Any],
+    linux_control_base_url: str | None,
+    timeout_seconds: float,
+) -> dict[str, Any] | None:
+    if not linux_control_base_url:
+        return None
+    endpoint = f"{linux_control_base_url.rstrip('/')}/api/v1/gateway/telegram/webhook"
+    payload = json.dumps(update).encode("utf-8")
+    try:
+        with httpx.Client(timeout=timeout_seconds) as client:
+            response = client.post(
+                endpoint,
+                content=payload,
+                headers={
+                    "content-type": "application/json",
+                    "x-autoresearch-controller-forwarded": "1",
+                },
+            )
+        if response.status_code >= 400:
+            logger.warning("controller forward to linux failed with status %s", response.status_code)
+            return None
+        parsed = response.json()
+        if isinstance(parsed, dict):
+            return parsed
+    except Exception as exc:
+        logger.warning("controller forward to linux failed: %s", exc)
+    return None
+
+
+def _mac_fallback_is_allowed(text: str) -> bool:
+    normalized = text.strip().casefold()
+    if not normalized:
+        return False
+    if normalized.startswith("/help") or normalized.startswith("/status"):
+        return True
+    if normalized.startswith("/skills") or normalized.startswith("/mode"):
+        return True
+    if normalized.startswith("/memory"):
+        return True
+    if normalized.startswith("/task"):
+        return _is_mac_safe_task(normalized)
+    return False
+
+
+def _is_mac_safe_task(normalized_text: str) -> bool:
+    if len(normalized_text) > 320:
+        return False
+    blocked_terms = {
+        "benchmark",
+        "promotion",
+        "openhands",
+        "deploy",
+        "merge",
+        "push",
+        "release",
+        "night",
+        "scheduler",
+        "长任务",
+        "无人值守",
+        "大规模探索",
+        "phase-2",
+    }
+    return not any(term in normalized_text for term in blocked_terms)
 
 
 def _handle_telegram_webhook(
@@ -191,6 +288,54 @@ def _handle_telegram_webhook(
             chat_id=chat_id,
             reason="empty message text",
         )
+
+    controller_service = _build_telegram_controller_handoff_service()
+    controller_decision: TelegramControllerDecision | None = None
+    if controller_service.linux_control_base_url or _is_controller_forwarded(raw_request):
+        controller_decision = controller_service.evaluate(
+            chat_id=chat_id,
+            text=text,
+            forwarded_from_controller=_is_controller_forwarded(raw_request),
+        )
+        if controller_decision.route == "forward_to_linux":
+            forwarded_ack = _forward_telegram_update_to_linux(
+                update=update,
+                linux_control_base_url=controller_service.linux_control_base_url,
+                timeout_seconds=controller_service.forward_timeout_seconds,
+            )
+            if forwarded_ack is not None:
+                if controller_decision.notices:
+                    _schedule_controller_notices(
+                        background_tasks=background_tasks,
+                        notifier=notifier,
+                        notices=controller_decision.notices,
+                    )
+                return TelegramWebhookAck.model_validate(forwarded_ack)
+
+            controller_decision = controller_service.force_mac_active(
+                chat_id=chat_id,
+                reason="forward to linux failed",
+            )
+
+        if controller_decision.notices:
+            _schedule_controller_notices(
+                background_tasks=background_tasks,
+                notifier=notifier,
+                notices=controller_decision.notices,
+            )
+
+        if controller_decision.mode == "mac_active" and not _mac_fallback_is_allowed(text):
+            return TelegramWebhookAck(
+                accepted=False,
+                update_id=_safe_int(update.get("update_id")),
+                chat_id=chat_id,
+                reason="mac fallback mode only allows help/status/notifications/approvals/short low-risk tasks",
+                metadata={
+                    "source": "telegram_controller_fallback",
+                    "controller_mode": controller_decision.mode,
+                    "controller_reason": controller_decision.reason,
+                },
+            )
 
     telegram_settings = load_telegram_settings()
     session_identity = _resolve_telegram_session_identity(
@@ -409,6 +554,8 @@ def _handle_telegram_webhook(
 
 
 def _validate_secret_token(raw_request: Request) -> None:
+    if _is_controller_forwarded(raw_request):
+        return
     expected = (load_telegram_settings().secret_token or "").strip()
     if _is_production_env() and not expected:
         raise HTTPException(
@@ -424,6 +571,11 @@ def _validate_secret_token(raw_request: Request) -> None:
 
 def _is_production_env() -> bool:
     return load_runtime_settings().is_production
+
+
+def _is_controller_forwarded(raw_request: Request) -> bool:
+    forwarded = raw_request.headers.get("x-autoresearch-controller-forwarded", "").strip().lower()
+    return forwarded in {"1", "true", "yes", "linux", "mac"}
 
 
 def _extract_telegram_message(update: dict[str, Any]) -> dict[str, Any] | None:
@@ -1371,6 +1523,9 @@ def _build_agent_result_message(run: ClaudeAgentRunRead) -> str:
         output = (run.stdout_preview or "").strip()
         if output:
             lines.extend(["", "输出:", output])
+            generic_hint = _generic_cli_output_hint(run)
+            if generic_hint:
+                lines.extend(["", "说明:", generic_hint])
         else:
             lines.extend(["", "输出为空。"])
     else:
@@ -1382,6 +1537,21 @@ def _build_agent_result_message(run: ClaudeAgentRunRead) -> str:
     if len(text) > 3900:
         return text[:3900] + "\n...[truncated]"
     return text
+
+
+def _generic_cli_output_hint(run: ClaudeAgentRunRead) -> str | None:
+    output = (run.stdout_preview or "").strip()
+    if run.status != JobStatus.COMPLETED or not output:
+        return None
+
+    normalized = output.lower().strip()
+    if normalized not in {"execution error", "internal error", "unexpected error"}:
+        return None
+
+    prompt = (run.prompt or "").lower()
+    if any(token in prompt for token in ("commit", "push", "git", "pr", "merge", "提交", "推送")):
+        return "上游 CLI 返回了通用失败文本，Telegram 网关本身没有报错。这类涉及仓库写入的请求建议改用 `/task <需求>`。"
+    return "上游 CLI 返回了通用失败文本，Telegram 网关本身没有报错。"
 
 
 def _execute_manager_dispatch_and_notify(

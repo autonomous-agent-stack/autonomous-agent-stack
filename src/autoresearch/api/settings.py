@@ -128,6 +128,15 @@ class RuntimeSettings(_BaseApiSettings):
         validation_alias="AUTORESEARCH_ENABLE_LEGACY_TELEGRAM_WEBHOOK",
     )
     enable_webauthn: bool = Field(default=True, validation_alias="AUTORESEARCH_ENABLE_WEBAUTHN")
+    linux_control_base_url: str | None = Field(default=None, validation_alias="AUTORESEARCH_LINUX_CONTROL_BASE_URL")
+    telegram_controller_probe_timeout_seconds: float = Field(
+        default=2.5,
+        validation_alias="AUTORESEARCH_TELEGRAM_CONTROLLER_PROBE_TIMEOUT_SECONDS",
+    )
+    telegram_controller_lease_ttl_seconds: int = Field(
+        default=15,
+        validation_alias="AUTORESEARCH_TELEGRAM_CONTROLLER_LEASE_TTL_SECONDS",
+    )
     panel_static_dir: Path = Field(default=_DEFAULT_PANEL_STATIC_DIR)
 
     @field_validator("api_db_path", mode="before")

@@ -1,0 +1,7 @@
+{
+  "status": "fallback",
+  "github_url": "https://github.com/user/repo",
+  "repo_name": "user/repo",
+  "error": "Cloning into '/Volumes/AI_LAB/Github/autonomous-agent-stack/.autoresearch/p4_runs/p4_1775015839.547639/repo'...\nremote: Repository not found.\nfatal: repository 'https://github.com/user/repo/' not found",
+  "timestamp": "2026-04-01T11:57:20.869951"
+}

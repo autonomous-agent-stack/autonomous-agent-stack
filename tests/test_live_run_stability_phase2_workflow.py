@@ -63,3 +63,34 @@ def test_phase2_workflow_runs_existing_gate_script_and_uploads_artifacts() -> No
     assert "${{ env.PHASE2_BENCHMARK_ROOT }}/regression-matrix.json" in artifact_paths
     assert "${{ env.PHASE2_BENCHMARK_ROOT }}/retry-overview.json" in artifact_paths
     assert "${{ env.PHASE2_BENCHMARK_ROOT }}/runs/**" in artifact_paths
+
+
+def test_phase2_workflow_explain_step_documents_artifact_roles() -> None:
+    """The explain step must name the three artifact roles explicitly so the
+    workflow is self-documenting and stays in sync with
+    benchmarks/live-run-stability/phase-2/ARTIFACT-GUIDE.md."""
+    workflow = _load_workflow()
+    steps = workflow["jobs"]["phase2-gate"]["steps"]
+    explain_step = _step_by_name(steps, "Explain phase-2 gate result")
+    explain_run: str = explain_step["run"]
+
+    # regression-gate.json is the PR-blocking authority
+    assert "regression-gate.json" in explain_run
+    assert "PR blocking stays anchored to regression-gate.json only" in explain_run
+
+    # regression-matrix and retry-overview are explanatory only
+    assert "regression-matrix" in explain_run
+    assert "retry-overview" in explain_run
+    assert "explanatory" in explain_run
+
+    # benchmark root must be outside the repository
+    assert "benchmark root outside the repository" in explain_run.lower()
+
+
+def test_phase2_workflow_benchmark_root_is_outside_repo() -> None:
+    """CI must use runner.temp (outside the checkout tree) as benchmark root."""
+    workflow = _load_workflow()
+    env = workflow["jobs"]["phase2-gate"]["env"]
+    benchmark_root: str = env["PHASE2_BENCHMARK_ROOT"]
+    assert benchmark_root.startswith("${{ runner.temp }}")
+    assert "live-run-stability-phase2" in benchmark_root

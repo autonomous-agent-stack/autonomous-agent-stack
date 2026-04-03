@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "description": "Reproducible fixture harvest plan for subtitle-offline-dev-kit.",
+  "fixtures": [
+    {
+      "output": "sample_01_en.vtt",
+      "recipe": "vtt_slice",
+      "description": "Real English auto-caption sample with cue settings and inline VTT tags.",
+      "source": "/Users/iCloud_GZ/github_GZ/openclaw-memory/diaryofaceo-subtitles/zg4Ta7vXiIM.en.vtt",
+      "cue_indices": [1, 2, 3]
+    },
+    {
+      "output": "sample_02_zh.vtt",
+      "recipe": "vtt_slice",
+      "description": "Real Chinese caption sample with clean manual-style VTT cues.",
+      "source": "/Users/iCloud_GZ/github_GZ/openclaw-memory/bestpartners-subtitles/4-cNU1ekTAc.zh-Hans.vtt",
+      "cue_indices": [0, 2, 3, 4]
+    },
+    {
+      "output": "sample_03_dirty.srt",
+      "recipe": "srt_from_vtt_slice",
+      "description": "Real Chinese source converted to SRT with irregular arrow spacing.",
+      "source": "/Users/iCloud_GZ/github_GZ/openclaw-memory/bestpartners-subtitles/4-cNU1ekTAc.zh-Hans.vtt",
+      "cue_indices": [0, 2],
+      "dirty_arrow_indices": [1]
+    },
+    {
+      "output": "sample_04_mixed.vtt",
+      "recipe": "mixed_vtt",
+      "description": "Composed bilingual VTT from real English and Chinese source cues.",
+      "sources": [
+        {
+          "source": "/Users/iCloud_GZ/github_GZ/openclaw-memory/diaryofaceo-subtitles/zg4Ta7vXiIM.en.vtt",
+          "cue_indices": [2]
+        },
+        {
+          "source": "/Users/iCloud_GZ/github_GZ/openclaw-memory/bestpartners-subtitles/4-cNU1ekTAc.zh-Hans.vtt",
+          "cue_indices": [3]
+        }
+      ]
+    },
+    {
+      "output": "sample_05_missing_fields.srt",
+      "recipe": "srt_from_vtt_slice",
+      "description": "Real Chinese source converted to SRT with one cue text intentionally blanked.",
+      "source": "/Users/iCloud_GZ/github_GZ/openclaw-memory/bestpartners-subtitles/4-cNU1ekTAc.zh-Hans.vtt",
+      "cue_indices": [5, 6],
+      "blank_text_indices": [1]
+    },
+    {
+      "output": "sample_06_long.vtt",
+      "recipe": "vtt_slice",
+      "description": "Real long-form Chinese auto-caption sample with cue settings and long tagged text.",
+      "source": "/Users/iCloud_GZ/github_GZ/openclaw-memory/wowinsight-subtitles/6wsl0yn2g8I.zh-Hans.vtt",
+      "cue_indices": [4, 11]
+    },
+    {
+      "output": "sample_07_exception.srt",
+      "recipe": "srt_from_vtt_slice",
+      "description": "Real Chinese source converted to SRT with reversed and out-of-order timestamps.",
+      "source": "/Users/iCloud_GZ/github_GZ/openclaw-memory/bestpartners-subtitles/4-cNU1ekTAc.zh-Hans.vtt",
+      "cue_indices": [0, 2],
+      "time_overrides": {
+        "0": {
+          "start": "00:00:05,000",
+          "end": "00:00:02,000"
+        },
+        "1": {
+          "start": "00:00:02,500",
+          "end": "00:00:04,000"
+        }
+      }
+    }
+  ]
+}

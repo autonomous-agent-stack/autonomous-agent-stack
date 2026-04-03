@@ -8,6 +8,7 @@ from pathlib import Path
 
 from autoresearch.agent_protocol.models import FallbackStep, JobSpec, ValidatorSpec
 from autoresearch.executions.runner import AgentExecutionRunner
+from autoresearch.routing import ControlPlaneJobBuilder, ControlPlaneJobRequest
 
 
 def _default_run_id(agent: str) -> str:
@@ -46,7 +47,9 @@ def main() -> int:
     args = parse_args()
     run_id = args.run_id or _default_run_id(args.agent)
     fallback_agent = _default_fallback_agent(args.agent, args.fallback_agent)
-    repo_root = Path(args.repo_root).resolve() if args.repo_root else None
+    resolved_repo_root = (
+        Path(args.repo_root).resolve() if args.repo_root else Path(__file__).resolve().parents[1]
+    )
 
     validators = [
         ValidatorSpec(id=f"cmd_{idx+1}", kind="command", command=command)
@@ -63,18 +66,24 @@ def main() -> int:
     if not args.no_human_review:
         fallback.append(FallbackStep(action="human_review", max_attempts=1))
 
-    job = JobSpec(
-        run_id=run_id,
-        agent_id=args.agent,
-        role="executor",
-        mode="apply_in_workspace",
-        task=args.task,
-        validators=validators,
-        fallback=fallback,
-        metadata={"entrypoint": "scripts/agent_run.py"},
+    # Compatibility shell only: keep the CLI semantics explicit and avoid
+    # introducing automatic routing or workflow logic through this entrypoint.
+    builder = ControlPlaneJobBuilder(resolved_repo_root / "configs" / "agents")
+    build_result = builder.build(
+        ControlPlaneJobRequest(
+            run_id=run_id,
+            requested_agent_id=args.agent,
+            role="executor",
+            mode_hint="apply_in_workspace",
+            task=args.task,
+            validators=validators,
+            fallback=fallback,
+            metadata={"entrypoint": "scripts/agent_run.py"},
+        )
     )
+    job: JobSpec = build_result.job
 
-    runner = AgentExecutionRunner(repo_root=repo_root)
+    runner = AgentExecutionRunner(repo_root=resolved_repo_root)
     summary = runner.run_job(job)
     print(json.dumps(summary.model_dump(mode="json"), ensure_ascii=False, indent=2))
 

@@ -33,6 +33,10 @@ from autoresearch.core.services.github_issue_service import GitHubIssueCommentRe
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.openclaw_memory import OpenClawMemoryService
 from autoresearch.core.services.panel_access import PanelAccessService
+from autoresearch.core.services.telegram_controller_handoff import (
+    TelegramControllerDecision,
+    TelegramControllerNotice,
+)
 from autoresearch.shared.manager_agent_contract import ManagerDispatchRead
 from autoresearch.shared.models import (
     AdminAgentConfigRead,
@@ -41,6 +45,7 @@ from autoresearch.shared.models import (
     ClaudeAgentRunRead,
     ApprovalRequestRead,
     ApprovalRequestCreateRequest,
+    JobStatus,
     OpenClawMemoryRecordRead,
     OpenClawSessionRead,
     PromotionDiffStats,
@@ -136,6 +141,35 @@ class _StubTelegramNotifier:
         return True
 
 
+class _StubTelegramControllerHandoffService:
+    def __init__(self, decision: TelegramControllerDecision, linux_control_base_url: str | None = "http://linux.example") -> None:
+        self._decision = decision
+        self.linux_control_base_url = linux_control_base_url
+        self.forward_timeout_seconds = 1.0
+        self.evaluate_calls: list[dict[str, str | bool]] = []
+        self.force_mac_active_calls: list[dict[str, str]] = []
+
+    def evaluate(
+        self,
+        *,
+        chat_id: str,
+        text: str,
+        forwarded_from_controller: bool = False,
+    ) -> TelegramControllerDecision:
+        self.evaluate_calls.append(
+            {
+                "chat_id": chat_id,
+                "text": text,
+                "forwarded_from_controller": forwarded_from_controller,
+            }
+        )
+        return self._decision
+
+    def force_mac_active(self, *, chat_id: str, reason: str) -> TelegramControllerDecision:
+        self.force_mac_active_calls.append({"chat_id": chat_id, "reason": reason})
+        return self._decision
+
+
 class _StubGitHubIssueService:
     def __init__(self) -> None:
         self.comments: list[dict[str, str]] = []
@@ -161,6 +195,37 @@ class _StubGitHubIssueService:
     def post_comment(self, raw_reference: str, body: str) -> str:
         self.comments.append({"issue_reference": raw_reference, "body": body})
         return f"commented on {raw_reference}"
+
+
+def test_build_agent_result_message_explains_generic_cli_failure_for_repo_write_prompt() -> None:
+    now = utc_now()
+    run = ClaudeAgentRunRead(
+        agent_run_id="agent_test_generic_cli_error",
+        task_name="tg_6421432917_260",
+        prompt="要自动commit并推送到私有库",
+        status=JobStatus.COMPLETED,
+        session_id="oc_test",
+        generation_depth=1,
+        command=["claude", "--print", "要自动commit并推送到私有库"],
+        timeout_seconds=900,
+        work_dir="/tmp",
+        returncode=0,
+        stdout_preview="Execution error",
+        stderr_preview=None,
+        duration_seconds=12.3,
+        created_at=now,
+        updated_at=now,
+        metadata={},
+        error=None,
+    )
+
+    message = gateway_telegram._build_agent_result_message(run)
+
+    assert "[任务结果] tg_6421432917_260" in message
+    assert "状态: completed" in message
+    assert "输出:\nExecution error" in message
+    assert "Telegram 网关本身没有报错" in message
+    assert "/task <需求>" in message
 
 
 def _build_manager_service(db_path: Path) -> ManagerAgentService:
@@ -618,6 +683,105 @@ def test_telegram_webhook_secret_required_in_production(
         },
     )
     assert response.status_code == 503
+
+
+def test_telegram_forwarded_update_skips_secret_guard(
+    telegram_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    notifier = _StubTelegramNotifier()
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+    controller = _StubTelegramControllerHandoffService(
+        TelegramControllerDecision(
+            route="local",
+            mode="linux_active",
+            reason="forwarded update should stay local on linux",
+            linux_online=True,
+        ),
+        linux_control_base_url=None,
+    )
+    monkeypatch.setattr(gateway_telegram, "_build_telegram_controller_handoff_service", lambda: controller)
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_SECRET_TOKEN", "secret-123")
+
+    try:
+        response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            headers={"x-autoresearch-controller-forwarded": "1"},
+            json={
+                "update_id": 2003,
+                "message": {
+                    "message_id": 90,
+                    "text": "/help",
+                    "chat": {"id": 10086, "type": "private"},
+                    "from": {"id": 10086, "username": "alice"},
+                },
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["accepted"] is True
+        assert payload["metadata"]["source"] == "telegram_help"
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+
+
+def test_telegram_webhook_proxies_to_linux_when_controller_is_online(
+    telegram_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    controller = _StubTelegramControllerHandoffService(
+        TelegramControllerDecision(
+            route="forward_to_linux",
+            mode="linux_active",
+            reason="linux is available",
+            linux_online=True,
+            notices=[
+                TelegramControllerNotice(
+                    kind="release",
+                    chat_id="9527",
+                    text="Linux 管家已恢复在线，Mac 已释放接管。",
+                )
+            ],
+        )
+    )
+    forward_payload = {
+        "accepted": True,
+        "update_id": 2004,
+        "chat_id": "9527",
+        "session_id": "linux-session",
+        "agent_run_id": None,
+        "metadata": {"source": "telegram_controller_forward"},
+    }
+    notifier = _StubTelegramNotifier()
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+    monkeypatch.setattr(gateway_telegram, "_build_telegram_controller_handoff_service", lambda: controller)
+    monkeypatch.setattr(
+        gateway_telegram,
+        "_forward_telegram_update_to_linux",
+        lambda *, update, linux_control_base_url, timeout_seconds: forward_payload,
+    )
+
+    try:
+        response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 2004,
+                "message": {
+                    "message_id": 91,
+                    "text": "给我一条口红营销文案",
+                    "chat": {"id": 9527, "type": "private"},
+                    "from": {"id": 9527, "username": "alice"},
+                },
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["metadata"]["source"] == "telegram_controller_forward"
+        assert controller.evaluate_calls[0]["forwarded_from_controller"] is False
+        assert len(notifier.messages) == 1
+        assert "Linux 管家已恢复在线" in notifier.messages[0]["text"]
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
 
 
 def test_telegram_webhook_replay_rejected(

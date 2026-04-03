@@ -127,6 +127,22 @@ PYTHONPATH=src .venv/bin/python scripts/promote_run.py \
 - Mac 做审批和看板
 - Linux 专门负责跑 OpenHands / pytest / promotion 验证
 
+如果 Mac 这边收到一个需要实际处理的消息，默认先做一次 Linux 在线探测：
+
+- Mac 侧需要配置 `AUTORESEARCH_LINUX_CONTROL_BASE_URL`，指向 Linux 控制面，例如 `http://linux-host:8001`
+
+1. 先看 Linux 管家是否在线
+   - 用 health check、heartbeat、最近心跳时间或可达性判断
+2. Linux 在线且可用
+   - 直接把任务转交给 Linux 处理
+   - Mac 只做转发、记录和结果展示，不重复开工
+3. Linux 不在线、超时未响应或明确拒绝
+   - Mac 作为备用执行面接管
+   - 只接低到中风险、短时、可人工复核的任务
+4. 恢复后切回 Linux
+   - 备用执行完成后，把主处理权交回 Linux
+   - 避免 Mac 和 Linux 同时并行开工
+
 ### 模式 2: Linux 纯 worker 箱
 
 适合长任务。

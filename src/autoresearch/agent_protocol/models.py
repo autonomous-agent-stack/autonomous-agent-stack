@@ -15,6 +15,13 @@ class ArtifactRef(StrictModel):
 
 
 class ExecutionPolicy(StrictModel):
+    """Control-plane owned execution limits.
+
+    Scheduler/control plane writes this policy into `JobSpec`. Routing may only
+    suggest additive overlays upstream; the effective policy is still derived by
+    merging hard policy, manifest defaults, and the final job policy.
+    """
+
     timeout_sec: int = Field(default=900, ge=1, le=7200)
     max_steps: int = Field(default=1, ge=1, le=20)
     network: Literal["disabled", "allowlist", "full"] = "disabled"
@@ -43,18 +50,32 @@ class ExecutionPolicy(StrictModel):
 
 
 class ValidatorSpec(StrictModel):
+    """Control-plane owned validator contract.
+
+    Routing may select a validator profile upstream, but validators are still
+    materialized onto `JobSpec` and executed by the runner.
+    """
+
     id: str
     kind: Literal["builtin", "command", "human"]
     command: str | None = None
 
 
 class FallbackStep(StrictModel):
+    """Control-plane owned fallback contract executed only by the runner."""
+
     action: Literal["retry", "fallback_agent", "human_review", "reject"]
     agent_id: str | None = None
     max_attempts: int = Field(default=1, ge=1, le=20)
 
 
 class JobSpec(StrictModel):
+    """Runner input contract owned by scheduler/control plane.
+
+    Routing happens before this object is materialized. Drivers read this
+    contract but do not own `policy`, `validators`, or `fallback`.
+    """
+
     protocol_version: Literal["aep/v0"] = "aep/v0"
 
     run_id: str
@@ -86,6 +107,13 @@ class DriverMetrics(StrictModel):
 
 
 class DriverResult(StrictModel):
+    """Per-attempt adapter result.
+
+    Drivers produce the normal attempt outcome. The runner may still synthesize
+    `contract_error` or clamp the result to `policy_blocked` after validation,
+    but routing never writes terminal execution state here.
+    """
+
     protocol_version: Literal["aep/v0"] = "aep/v0"
 
     run_id: str
@@ -133,6 +161,12 @@ class ValidationReport(StrictModel):
 
 
 class RunSummary(StrictModel):
+    """Runner-owned terminal summary after validation and decision.
+
+    Routing never writes `final_status`, does not bypass validators, and does
+    not directly trigger promotion or fallback from this layer.
+    """
+
     run_id: str
     final_status: Literal[
         "ready_for_promotion",
@@ -159,6 +193,12 @@ class RunSummary(StrictModel):
 
 
 class AgentManifest(StrictModel):
+    """Driver-provided declaration consumed by routing and runner.
+
+    The manifest describes capabilities, entrypoint, default mode, and policy
+    defaults, but does not give the driver control-plane authority.
+    """
+
     id: str
     kind: Literal["process"] = "process"
     entrypoint: str
