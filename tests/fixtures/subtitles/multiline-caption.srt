@@ -1,0 +1,8 @@
+1
+00:00:10,000 --> 00:00:12,000
+First line
+Second line
+
+2
+00:00:12,500 --> 00:00:13,500
+ Third line with   extra spaces
