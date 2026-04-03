@@ -32,6 +32,7 @@
 
 - file-backed `pending/running/completed/failed` inbox
 - lease-gated single-active worker
+- claim-level lease fencing
 - manual enqueue / worker scripts
 - macOS `launchd` 模板
 
@@ -85,6 +86,24 @@ artifacts/runtime/standby/
 
 唯一决策就是 `lease.json`。
 
+## Fencing
+
+这版 fencing 只做最小 fail-closed：
+
+- claim 时把 `lease.owner` / `lease.version` 记录进 job envelope
+- 真正执行前再次校验 owner + version
+- 执行返回后再次校验 owner + version
+- 如果 lease 在这期间被切走，当前 claim 会落到 `failed/`
+
+这能防止旧 lease 被继续当成有效授权去“接受成功结果”。
+
+这版仍然不提供：
+
+- 运行中 adapter 进程的强制中断
+- heartbeat-based lease transfer
+- split-brain 级别保证
+- shared queue fencing coordination
+
 ## 先跑起来
 
 ### 1. 初始化 lease
@@ -136,12 +155,13 @@ Mac worker 下一轮轮询会开始消费 `pending/` 里的 job。
 
 - 领取中的 job 会进入 `jobs/running/`
 - 成功 job 会进入 `jobs/completed/`
-- 失败或 `human_review` 会进入 `jobs/failed/`
+- 失败、`human_review` 或 fencing mismatch 会进入 `jobs/failed/`
 
 文件里会包含：
 
 - 原始 `JobSpec`
 - `claimed_by` / `claimed_at`
+- `claimed_lease_owner` / `claimed_lease_version`
 - `run_summary`
 - `error`
 
@@ -169,7 +189,6 @@ launchctl start com.autoresearch.standby-host-worker
 
 这版是最小可运行版，不包含：
 
-- fencing
 - 自动心跳切换
 - 自动 failover
 - shared queue

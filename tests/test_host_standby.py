@@ -54,18 +54,22 @@ def test_job_inbox_claim_moves_job_into_running_with_claim_metadata(tmp_path: Pa
     queued_path = inbox.enqueue(_job("run-claim"))
     assert queued_path.exists()
 
-    claimed = inbox.claim_next("mac-1")
+    claimed = inbox.claim_next("mac-1", lease=HostStandbyLease(owner="mac-1", version=7))
 
     assert claimed is not None
     assert claimed.envelope.job.run_id == "run-claim"
     assert claimed.envelope.status == "running"
     assert claimed.envelope.claimed_by == "mac-1"
+    assert claimed.envelope.claimed_lease_owner == "mac-1"
+    assert claimed.envelope.claimed_lease_version == 7
     assert not queued_path.exists()
     assert claimed.path.parent.name == "running"
 
     payload = json.loads(claimed.path.read_text(encoding="utf-8"))
     assert payload["status"] == "running"
     assert payload["claimed_by"] == "mac-1"
+    assert payload["claimed_lease_owner"] == "mac-1"
+    assert payload["claimed_lease_version"] == 7
 
 
 def test_host_standby_worker_stays_idle_when_lease_owner_is_another_host(tmp_path: Path) -> None:
@@ -135,3 +139,72 @@ def test_host_standby_worker_marks_failed_result_into_failed_dir(tmp_path: Path)
     payload = json.loads(failed[0].read_text(encoding="utf-8"))
     assert payload["status"] == "failed"
     assert payload["error"] == "needs human review"
+
+
+def test_host_standby_worker_fails_closed_before_dispatch_when_claimed_lease_is_stale(
+    tmp_path: Path,
+) -> None:
+    lease_store = HostStandbyLeaseStore(tmp_path / "lease.json")
+    lease_store.write(HostStandbyLease(owner="mac-1", version=4))
+
+    class _RaceInbox(HostStandbyJobInbox):
+        def claim_next(self, host_id: str, *, lease: HostStandbyLease | None = None):
+            claimed = super().claim_next(host_id, lease=lease)
+            lease_store.write(HostStandbyLease(owner="linux-1", version=5))
+            return claimed
+
+    inbox = _RaceInbox(tmp_path / "jobs")
+    inbox.enqueue(_job("run-pre-dispatch-fenced"))
+    dispatch_calls: list[str] = []
+
+    def _runner(job: JobSpec) -> RunSummary:
+        dispatch_calls.append(job.run_id)
+        raise AssertionError("dispatch runner must not be called when fencing check fails")
+
+    worker = HostStandbyWorker(
+        host_id="mac-1",
+        repo_root=tmp_path,
+        lease_store=lease_store,
+        inbox=inbox,
+        dispatch_runner=_runner,
+    )
+
+    result = worker.run_once()
+
+    assert result.action == "failed"
+    assert "lease fencing mismatch" in result.detail
+    assert dispatch_calls == []
+    failed = list((tmp_path / "jobs" / "failed").glob("*.json"))
+    assert len(failed) == 1
+    payload = json.loads(failed[0].read_text(encoding="utf-8"))
+    assert "lease fencing mismatch" in payload["error"]
+
+
+def test_host_standby_worker_fails_closed_when_lease_changes_during_execution(tmp_path: Path) -> None:
+    lease_store = HostStandbyLeaseStore(tmp_path / "lease.json")
+    lease_store.write(HostStandbyLease(owner="mac-1", version=4))
+    inbox = HostStandbyJobInbox(tmp_path / "jobs")
+    inbox.enqueue(_job("run-fenced"))
+
+    def _runner(job: JobSpec) -> RunSummary:
+        lease_store.write(HostStandbyLease(owner="linux-1", version=5))
+        return _summary(job)
+
+    worker = HostStandbyWorker(
+        host_id="mac-1",
+        repo_root=tmp_path,
+        lease_store=lease_store,
+        inbox=inbox,
+        dispatch_runner=_runner,
+    )
+
+    result = worker.run_once()
+
+    assert result.action == "failed"
+    assert "lease fencing mismatch" in result.detail
+    failed = list((tmp_path / "jobs" / "failed").glob("*.json"))
+    assert len(failed) == 1
+    payload = json.loads(failed[0].read_text(encoding="utf-8"))
+    assert payload["status"] == "failed"
+    assert "lease fencing mismatch" in payload["error"]
+    assert payload["run_summary"]["final_status"] == "ready_for_promotion"

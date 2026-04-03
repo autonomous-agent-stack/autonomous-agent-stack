@@ -69,6 +69,8 @@ class HostStandbyJobEnvelope(StrictModel):
     enqueued_at: str = Field(default_factory=utc_now_iso)
     claimed_by: str | None = None
     claimed_at: str | None = None
+    claimed_lease_owner: str | None = None
+    claimed_lease_version: int | None = None
     finished_at: str | None = None
     run_summary: RunSummary | None = None
     error: str | None = None
@@ -152,7 +154,7 @@ class HostStandbyJobInbox:
         _write_json_atomic(target, envelope.model_dump(mode="json"))
         return target
 
-    def claim_next(self, host_id: str) -> ClaimedStandbyJob | None:
+    def claim_next(self, host_id: str, *, lease: HostStandbyLease | None = None) -> ClaimedStandbyJob | None:
         normalized_host = host_id.strip()
         if not normalized_host:
             raise ValueError("host_id is required")
@@ -172,6 +174,8 @@ class HostStandbyJobInbox:
                     "status": "running",
                     "claimed_by": normalized_host,
                     "claimed_at": utc_now_iso(),
+                    "claimed_lease_owner": lease.owner if lease is not None else None,
+                    "claimed_lease_version": lease.version if lease is not None else None,
                     "finished_at": None,
                     "run_summary": None,
                     "error": None,
@@ -239,7 +243,7 @@ class HostStandbyWorker:
                 detail="host does not own the standby lease",
             )
 
-        claimed = self._inbox.claim_next(self._host_id)
+        claimed = self._inbox.claim_next(self._host_id, lease=lease)
         if claimed is None:
             return HostStandbyIterationResult(
                 action="idle",
@@ -247,6 +251,18 @@ class HostStandbyWorker:
                 lease_owner=lease.owner,
                 lease_version=lease.version,
                 detail="no pending standby jobs",
+            )
+
+        fencing_error = self._fencing_error(claimed)
+        if fencing_error is not None:
+            self._inbox.finish(claimed, status="failed", error=fencing_error)
+            return HostStandbyIterationResult(
+                action="failed",
+                host_id=self._host_id,
+                lease_owner=lease.owner,
+                lease_version=lease.version,
+                run_id=claimed.envelope.job.run_id,
+                detail=fencing_error,
             )
 
         try:
@@ -260,6 +276,23 @@ class HostStandbyWorker:
                 lease_version=lease.version,
                 run_id=claimed.envelope.job.run_id,
                 detail=str(exc),
+            )
+
+        fencing_error = self._fencing_error(claimed)
+        if fencing_error is not None:
+            self._inbox.finish(
+                claimed,
+                status="failed",
+                run_summary=summary,
+                error=fencing_error,
+            )
+            return HostStandbyIterationResult(
+                action="failed",
+                host_id=self._host_id,
+                lease_owner=lease.owner,
+                lease_version=lease.version,
+                run_id=claimed.envelope.job.run_id,
+                detail=fencing_error,
             )
 
         if summary.final_status in _SUCCESS_FINAL_STATUSES:
@@ -292,3 +325,24 @@ class HostStandbyWorker:
     def _default_dispatch_runner(self, job: JobSpec) -> RunSummary:
         runner = AgentExecutionRunner(repo_root=self._repo_root)
         return runner.run_job(job)
+
+    def _fencing_error(self, claimed: ClaimedStandbyJob) -> str | None:
+        expected_owner = claimed.envelope.claimed_lease_owner
+        expected_version = claimed.envelope.claimed_lease_version
+        current = self._lease_store.read()
+
+        if expected_owner != self._host_id or expected_version is None:
+            return (
+                "lease fencing mismatch: "
+                f"expected owner={self._host_id!r} version=<recorded>, "
+                f"claimed owner={expected_owner!r} version={expected_version!r}"
+            )
+
+        if current.owner == expected_owner and current.version == expected_version:
+            return None
+
+        return (
+            "lease fencing mismatch: "
+            f"expected owner={expected_owner!r} version={expected_version}, "
+            f"got owner={current.owner!r} version={current.version}"
+        )
