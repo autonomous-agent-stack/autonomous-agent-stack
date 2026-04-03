@@ -15,6 +15,13 @@ class ArtifactRef(StrictModel):
 
 
 class ExecutionPolicy(StrictModel):
+    """Control-plane owned execution limits.
+
+    Scheduler/control plane writes this policy into `JobSpec`. Routing may only
+    suggest additive overlays upstream; the effective policy is still derived by
+    merging hard policy, manifest defaults, and the final job policy.
+    """
+
     timeout_sec: int = Field(default=900, ge=1, le=7200)
     max_steps: int = Field(default=1, ge=1, le=20)
     network: Literal["disabled", "allowlist", "full"] = "disabled"
@@ -22,7 +29,7 @@ class ExecutionPolicy(StrictModel):
 
     tool_allowlist: list[str] = Field(default_factory=lambda: ["read", "write", "bash"])
 
-    allowed_paths: list[str] = Field(default_factory=lambda: ["src/**", "tests/**", "docs/**"])
+    allowed_paths: list[str] = Field(default_factory=lambda: ["src/**", "tests/**", "docs/**", "apps/**"])
     forbidden_paths: list[str] = Field(
         default_factory=lambda: [
             ".git/**",
@@ -35,7 +42,7 @@ class ExecutionPolicy(StrictModel):
     )
 
     max_changed_files: int = Field(default=20, ge=0, le=1000)
-    max_patch_lines: int = Field(default=500, ge=0, le=100000)
+    max_patch_lines: int = Field(default=2000, ge=0, le=100000)
     allow_binary_changes: bool = False
 
     cleanup_on_success: bool = True
@@ -43,18 +50,32 @@ class ExecutionPolicy(StrictModel):
 
 
 class ValidatorSpec(StrictModel):
+    """Control-plane owned validator contract.
+
+    Routing may select a validator profile upstream, but validators are still
+    materialized onto `JobSpec` and executed by the runner.
+    """
+
     id: str
     kind: Literal["builtin", "command", "human"]
     command: str | None = None
 
 
 class FallbackStep(StrictModel):
+    """Control-plane owned fallback contract executed only by the runner."""
+
     action: Literal["retry", "fallback_agent", "human_review", "reject"]
     agent_id: str | None = None
     max_attempts: int = Field(default=1, ge=1, le=20)
 
 
 class JobSpec(StrictModel):
+    """Runner input contract owned by scheduler/control plane.
+
+    Routing happens before this object is materialized. Drivers read this
+    contract but do not own `policy`, `validators`, or `fallback`.
+    """
+
     protocol_version: Literal["aep/v0"] = "aep/v0"
 
     run_id: str
@@ -80,9 +101,19 @@ class DriverMetrics(StrictModel):
     commands: int = 0
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
+    first_progress_ms: int | None = None
+    first_scoped_write_ms: int | None = None
+    first_state_heartbeat_ms: int | None = None
 
 
 class DriverResult(StrictModel):
+    """Per-attempt adapter result.
+
+    Drivers produce the normal attempt outcome. The runner may still synthesize
+    `contract_error` or clamp the result to `policy_blocked` after validation,
+    but routing never writes terminal execution state here.
+    """
+
     protocol_version: Literal["aep/v0"] = "aep/v0"
 
     run_id: str
@@ -94,6 +125,7 @@ class DriverResult(StrictModel):
         "partial",
         "failed",
         "timed_out",
+        "stalled_no_progress",
         "policy_blocked",
         "contract_error",
     ]
@@ -129,6 +161,12 @@ class ValidationReport(StrictModel):
 
 
 class RunSummary(StrictModel):
+    """Runner-owned terminal summary after validation and decision.
+
+    Routing never writes `final_status`, does not bypass validators, and does
+    not directly trigger promotion or fallback from this layer.
+    """
+
     run_id: str
     final_status: Literal[
         "ready_for_promotion",
@@ -142,9 +180,25 @@ class RunSummary(StrictModel):
     promotion_patch_uri: str | None = None
     promotion_preflight: PromotionPreflight | None = None
     promotion: PromotionResult | None = None
+    failure_status: str | None = None
+    failure_layer: Literal["infra", "orchestration", "model", "business_validation"] | None = None
+    failure_stage: str | None = None
+    model_provider: str | None = None
+    fallback_chain: list[str] = Field(default_factory=list)
+    first_progress_at: str | None = None
+    last_progress_at: str | None = None
+    run_dir_created: str | None = None
+    artifacts_produced: list[str] = Field(default_factory=list)
+    business_assertion_status: str | None = None
 
 
 class AgentManifest(StrictModel):
+    """Driver-provided declaration consumed by routing and runner.
+
+    The manifest describes capabilities, entrypoint, default mode, and policy
+    defaults, but does not give the driver control-plane authority.
+    """
+
     id: str
     kind: Literal["process"] = "process"
     entrypoint: str
