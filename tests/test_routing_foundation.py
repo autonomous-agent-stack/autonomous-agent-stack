@@ -93,7 +93,7 @@ def test_routing_requested_agent_is_honored_explicitly(tmp_path: Path) -> None:
     assert "requested_agent_id=reviewer" in decision.rationale
 
 
-def test_routing_rejects_ambiguous_selection_without_default(tmp_path: Path) -> None:
+def test_routing_rejects_ambiguous_selection_without_explicit_request(tmp_path: Path) -> None:
     manifests_dir = tmp_path / "configs" / "agents"
     _write_manifest(manifests_dir, "primary", capabilities=["write_repo"])
     _write_manifest(manifests_dir, "secondary", capabilities=["write_repo"])

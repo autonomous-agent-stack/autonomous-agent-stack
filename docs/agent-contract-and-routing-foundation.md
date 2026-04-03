@@ -206,7 +206,8 @@ work:
 
 Foundation-branch area:
 
-- `src/autoresearch/agent_protocol/**`
+- `src/autoresearch/agent_protocol/models.py`
+- `src/autoresearch/agent_protocol/registry.py`
 - `src/autoresearch/routing/**`
 - `configs/agents/_shared*` for shared config if needed
 - routing and protocol foundation docs
