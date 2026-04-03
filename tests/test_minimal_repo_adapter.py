@@ -83,3 +83,37 @@ def test_minimal_repo_adapter_returns_partial_for_noop(tmp_path: Path) -> None:
     assert payload["recommended_action"] == "human_review"
     assert payload["changed_paths"] == []
     assert target.read_text(encoding="utf-8") == "seed\nhello again\n"
+
+
+def test_minimal_repo_adapter_appends_marker_when_text_only_exists_as_substring(
+    tmp_path: Path,
+) -> None:
+    completed, payload, target = _run_adapter(
+        tmp_path,
+        existing_text="seed\nnote: hello from test appears inside prose\n",
+        append_text="hello from test",
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert payload["status"] == "succeeded"
+    assert payload["changed_paths"] == ["docs/demo.md"]
+    assert target.read_text(encoding="utf-8") == (
+        "seed\n"
+        "note: hello from test appears inside prose\n"
+        "hello from test\n"
+    )
+
+
+def test_minimal_repo_adapter_rejects_multiline_marker_input(tmp_path: Path) -> None:
+    completed, payload, target = _run_adapter(
+        tmp_path,
+        existing_text="seed\n",
+        append_text="first line\nsecond line",
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert payload["status"] == "failed"
+    assert payload["recommended_action"] == "human_review"
+    assert payload["changed_paths"] == []
+    assert payload["error"] == "demo_append_text must be a single line"
+    assert target.read_text(encoding="utf-8") == "seed\n"

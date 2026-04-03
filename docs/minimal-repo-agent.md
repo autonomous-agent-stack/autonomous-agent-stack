@@ -18,7 +18,7 @@ contracts.
 
 - default mode is `apply_in_workspace`
 - policy defaults are limited to `docs/**`
-- the adapter only appends a marker to `docs/demo.md`
+- the adapter only appends a single-line marker to `docs/demo.md`
 - no-op runs return a partial driver result instead of inventing a patch
 
 ## Non-Goals
