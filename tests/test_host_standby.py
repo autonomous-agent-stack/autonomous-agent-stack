@@ -208,3 +208,37 @@ def test_host_standby_worker_fails_closed_when_lease_changes_during_execution(tm
     assert payload["status"] == "failed"
     assert "lease fencing mismatch" in payload["error"]
     assert payload["run_summary"]["final_status"] == "ready_for_promotion"
+
+
+def test_host_standby_worker_refuses_terminal_failure_when_lease_changes_before_exception_settlement(
+    tmp_path: Path,
+) -> None:
+    lease_store = HostStandbyLeaseStore(tmp_path / "lease.json")
+    lease_store.write(HostStandbyLease(owner="mac-1", version=4))
+    inbox = HostStandbyJobInbox(tmp_path / "jobs")
+    inbox.enqueue(_job("run-exception-fenced"))
+
+    def _runner(job: JobSpec) -> RunSummary:
+        lease_store.write(HostStandbyLease(owner="linux-1", version=5))
+        raise RuntimeError("boom after lease transfer")
+
+    worker = HostStandbyWorker(
+        host_id="mac-1",
+        repo_root=tmp_path,
+        lease_store=lease_store,
+        inbox=inbox,
+        dispatch_runner=_runner,
+    )
+
+    result = worker.run_once()
+
+    assert result.action == "failed"
+    assert "lease fencing mismatch" in result.detail
+    assert "boom after lease transfer" in result.detail
+    assert list((tmp_path / "jobs" / "failed").glob("*.json")) == []
+    running = list((tmp_path / "jobs" / "running").glob("*.json"))
+    assert len(running) == 1
+    payload = json.loads(running[0].read_text(encoding="utf-8"))
+    assert payload["status"] == "running"
+    assert payload["error"] is None
+    assert payload["run_summary"] is None

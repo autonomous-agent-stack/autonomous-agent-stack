@@ -268,14 +268,28 @@ class HostStandbyWorker:
         try:
             summary = self._dispatch_runner(claimed.envelope.job)
         except Exception as exc:
-            self._inbox.finish(claimed, status="failed", error=str(exc))
+            dispatch_error = str(exc) or exc.__class__.__name__
+            fencing_error = self._fencing_error(claimed)
+            if fencing_error is not None:
+                return HostStandbyIterationResult(
+                    action="failed",
+                    host_id=self._host_id,
+                    lease_owner=lease.owner,
+                    lease_version=lease.version,
+                    run_id=claimed.envelope.job.run_id,
+                    detail=(
+                        f"{fencing_error}; dispatch raised before terminal settlement: "
+                        f"{dispatch_error}"
+                    ),
+                )
+            self._inbox.finish(claimed, status="failed", error=dispatch_error)
             return HostStandbyIterationResult(
                 action="failed",
                 host_id=self._host_id,
                 lease_owner=lease.owner,
                 lease_version=lease.version,
                 run_id=claimed.envelope.job.run_id,
-                detail=str(exc),
+                detail=dispatch_error,
             )
 
         fencing_error = self._fencing_error(claimed)

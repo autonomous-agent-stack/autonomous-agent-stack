@@ -151,11 +151,16 @@ EOF
 
 Mac worker 下一轮轮询会开始消费 `pending/` 里的 job。
 
+standby 入队不会自动注入 `retry` / `fallback_agent` / `human_review`。
+如果需要重试或换 agent，必须人工重新入队。
+
 ## 结果文件
 
 - 领取中的 job 会进入 `jobs/running/`
 - 成功 job 会进入 `jobs/completed/`
-- 失败、`human_review` 或 fencing mismatch 会进入 `jobs/failed/`
+- 失败或 fencing mismatch 会进入 `jobs/failed/`
+- 如果 dispatch 抛错时 lease 已经切走，worker 会拒绝 terminal settlement，
+  claim 会暂时留在 `jobs/running/`，等待人工处理
 
 文件里会包含：
 

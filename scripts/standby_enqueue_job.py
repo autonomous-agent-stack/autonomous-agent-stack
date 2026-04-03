@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+from collections.abc import Sequence
 import argparse
 import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from autoresearch.agent_protocol.models import FallbackStep, JobSpec, ValidatorSpec
+from autoresearch.agent_protocol.models import JobSpec, ValidatorSpec
+from autoresearch.agent_protocol.registry import AgentRegistry
 from autoresearch.core.services.host_standby import HostStandbyJobInbox
-from autoresearch.routing import ControlPlaneJobBuilder, ControlPlaneJobRequest
 
 
 def _default_run_id(agent: str) -> str:
@@ -16,15 +17,7 @@ def _default_run_id(agent: str) -> str:
     return f"standby-{agent}-{ts}"
 
 
-def _default_fallback_agent(agent: str, configured: str | None) -> str | None:
-    if configured:
-        return configured
-    if agent == "openhands":
-        return "mock"
-    return None
-
-
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Enqueue a JobSpec into the manual standby worker inbox."
     )
@@ -36,24 +29,41 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--validator-cmd", action="append", default=[], help="command validator to run in workspace"
     )
-    parser.add_argument(
-        "--retry", type=int, default=0, help="additional retry attempts after primary attempt"
-    )
-    parser.add_argument("--fallback-agent", default=None, help="fallback agent id")
-    parser.add_argument(
-        "--no-human-review", action="store_true", help="do not append human_review fallback step"
-    )
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def _default_standby_root(repo_root: Path) -> Path:
     return (repo_root / "artifacts" / "runtime" / "standby").resolve()
 
 
-def main() -> int:
-    args = parse_args()
+def _materialize_job(
+    manifests_dir: Path,
+    *,
+    run_id: str,
+    agent_id: str,
+    task: str,
+    validators: Sequence[ValidatorSpec],
+) -> JobSpec:
+    manifest = AgentRegistry(manifests_dir).load(agent_id)
+    return JobSpec(
+        run_id=run_id,
+        agent_id=manifest.id,
+        role="executor",
+        mode=manifest.default_mode,
+        task=task,
+        policy=manifest.policy_defaults.model_copy(deep=True),
+        validators=[spec.model_copy(deep=True) for spec in validators],
+        fallback=[],
+        metadata={
+            "entrypoint": "scripts/standby_enqueue_job.py",
+            "standby_mode": "manual_fail_closed",
+        },
+    )
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = parse_args(argv)
     run_id = args.run_id or _default_run_id(args.agent)
-    fallback_agent = _default_fallback_agent(args.agent, args.fallback_agent)
     resolved_repo_root = (
         Path(args.repo_root).resolve() if args.repo_root else Path(__file__).resolve().parents[1]
     )
@@ -68,30 +78,13 @@ def main() -> int:
         for idx, command in enumerate(args.validator_cmd)
     ]
 
-    fallback: list[FallbackStep] = []
-    if args.retry > 0:
-        fallback.append(FallbackStep(action="retry", max_attempts=args.retry))
-    if fallback_agent:
-        fallback.append(
-            FallbackStep(action="fallback_agent", agent_id=fallback_agent, max_attempts=1)
-        )
-    if not args.no_human_review:
-        fallback.append(FallbackStep(action="human_review", max_attempts=1))
-
-    builder = ControlPlaneJobBuilder(resolved_repo_root / "configs" / "agents")
-    build_result = builder.build(
-        ControlPlaneJobRequest(
-            run_id=run_id,
-            requested_agent_id=args.agent,
-            role="executor",
-            mode_hint="apply_in_workspace",
-            task=args.task,
-            validators=validators,
-            fallback=fallback,
-            metadata={"entrypoint": "scripts/standby_enqueue_job.py"},
-        )
+    job = _materialize_job(
+        resolved_repo_root / "configs" / "agents",
+        run_id=run_id,
+        agent_id=args.agent,
+        task=args.task,
+        validators=validators,
     )
-    job: JobSpec = build_result.job
 
     inbox = HostStandbyJobInbox(standby_root / "jobs")
     queued_path = inbox.enqueue(job, metadata={"source": "standby_enqueue_job"})

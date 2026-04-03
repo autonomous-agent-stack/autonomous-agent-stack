@@ -221,9 +221,16 @@ agent-run:
 	fi
 
 standby-enqueue:
-	@CMD_ARGS="--agent \"$(AEP_AGENT)\" --task \"$(AEP_TASK)\" --retry \"$(AEP_RETRY)\""; \
+	@if [[ "$(strip $(AEP_RETRY))" != "" && "$(strip $(AEP_RETRY))" != "0" ]]; then \
+		echo "standby-enqueue does not support automatic retry; re-enqueue manually after failure"; \
+		exit 2; \
+	fi; \
+	if [[ "$(origin AEP_FALLBACK_AGENT)" != "file" && -n "$(strip $(AEP_FALLBACK_AGENT))" ]]; then \
+		echo "standby-enqueue does not support automatic fallback agents"; \
+		exit 2; \
+	fi; \
+	CMD_ARGS="--agent \"$(AEP_AGENT)\" --task \"$(AEP_TASK)\""; \
 	if [[ -n "$(strip $(AEP_RUN_ID))" ]]; then CMD_ARGS="$$CMD_ARGS --run-id \"$(AEP_RUN_ID)\""; fi; \
-	if [[ -n "$(strip $(AEP_FALLBACK_AGENT))" ]]; then CMD_ARGS="$$CMD_ARGS --fallback-agent \"$(AEP_FALLBACK_AGENT)\""; fi; \
 	if [[ -n "$(strip $(STANDBY_ROOT))" ]]; then CMD_ARGS="$$CMD_ARGS --standby-root \"$(STANDBY_ROOT)\""; fi; \
 	if [[ -x "$(VENV_PYTHON)" ]]; then \
 		eval "PYTHONPATH=src $(VENV_PYTHON) scripts/standby_enqueue_job.py $$CMD_ARGS"; \
