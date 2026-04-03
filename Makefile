@@ -29,11 +29,14 @@ PROMOTE_BASE_REF ?= main
 PROMOTE_BRANCH_PREFIX ?= codex/auto-upgrade
 PROMOTE_PUSH ?= 0
 PROMOTE_OPEN_DRAFT_PR ?= 0
+STANDBY_HOST_ID ?= standby-host
+STANDBY_POLL_SECONDS ?= 5
+STANDBY_ROOT ?=
 
 .PHONY: help setup doctor doctor-linux start test-quick clean
 .PHONY: ai-lab ai-lab-setup ai-lab-check ai-lab-up ai-lab-down ai-lab-status ai-lab-shell ai-lab-run masfactory-flight hygiene-check openhands openhands-dry-run openhands-controlled openhands-controlled-dry-run openhands-demo agent-run promote-run
 .PHONY: telegram-poller-start telegram-poller-stop telegram-poller-status telegram-poller-logs telegram-self-check telegram-boot-report telegram-heartbeat-report
-.PHONY: review-gates-local
+.PHONY: review-gates-local standby-worker standby-enqueue
 
 START_ENV_PREFIX :=
 ifneq ($(filter command line environment environment override,$(origin HOST)),)
@@ -65,6 +68,8 @@ help:
 	@echo "  make openhands-demo OH_BACKEND=mock Run minimal closed-loop demo (contract + failure policy)"
 	@echo "  make agent-run AEP_AGENT=openhands AEP_TASK='...' Run AEP v0 runner entrypoint"
 	@echo "  make promote-run PROMOTE_RUN_ID='...' Turn a ready AEP run into branch/commit/draft PR payload"
+	@echo "  make standby-enqueue AEP_AGENT=openhands AEP_TASK='...' Enqueue one manual standby JobSpec into the file inbox"
+	@echo "  make standby-worker STANDBY_HOST_ID=mac-1 Run the manual lease-gated standby worker loop"
 	@echo "  make telegram-poller-start Start Linux Telegram polling sidecar"
 	@echo "  make telegram-poller-stop Stop Linux Telegram polling sidecar"
 	@echo "  make telegram-poller-status Show Linux Telegram polling sidecar status"
@@ -221,6 +226,33 @@ agent-run:
 		eval "PYTHONPATH=src $(VENV_PYTHON) scripts/agent_run.py $$CMD_ARGS"; \
 	else \
 		eval "PYTHONPATH=src $(PYTHON) scripts/agent_run.py $$CMD_ARGS"; \
+	fi
+
+standby-enqueue:
+	@if [[ "$(strip $(AEP_RETRY))" != "" && "$(strip $(AEP_RETRY))" != "0" ]]; then \
+		echo "standby-enqueue does not support automatic retry; re-enqueue manually after failure"; \
+		exit 2; \
+	fi; \
+	if [[ "$(origin AEP_FALLBACK_AGENT)" != "file" && -n "$(strip $(AEP_FALLBACK_AGENT))" ]]; then \
+		echo "standby-enqueue does not support automatic fallback agents"; \
+		exit 2; \
+	fi; \
+	CMD_ARGS="--agent \"$(AEP_AGENT)\" --task \"$(AEP_TASK)\""; \
+	if [[ -n "$(strip $(AEP_RUN_ID))" ]]; then CMD_ARGS="$$CMD_ARGS --run-id \"$(AEP_RUN_ID)\""; fi; \
+	if [[ -n "$(strip $(STANDBY_ROOT))" ]]; then CMD_ARGS="$$CMD_ARGS --standby-root \"$(STANDBY_ROOT)\""; fi; \
+	if [[ -x "$(VENV_PYTHON)" ]]; then \
+		eval "PYTHONPATH=src $(VENV_PYTHON) scripts/standby_enqueue_job.py $$CMD_ARGS"; \
+	else \
+		eval "PYTHONPATH=src $(PYTHON) scripts/standby_enqueue_job.py $$CMD_ARGS"; \
+	fi
+
+standby-worker:
+	@CMD_ARGS="--host-id \"$(STANDBY_HOST_ID)\" --poll-seconds \"$(STANDBY_POLL_SECONDS)\""; \
+	if [[ -n "$(strip $(STANDBY_ROOT))" ]]; then CMD_ARGS="$$CMD_ARGS --standby-root \"$(STANDBY_ROOT)\""; fi; \
+	if [[ -x "$(VENV_PYTHON)" ]]; then \
+		eval "PYTHONPATH=src $(VENV_PYTHON) scripts/standby_host_worker.py $$CMD_ARGS"; \
+	else \
+		eval "PYTHONPATH=src $(PYTHON) scripts/standby_host_worker.py $$CMD_ARGS"; \
 	fi
 
 promote-run:
