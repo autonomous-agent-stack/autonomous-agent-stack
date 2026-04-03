@@ -1,0 +1,37 @@
+{
+  "id": "minimal_repo",
+  "kind": "process",
+  "entrypoint": "drivers/minimal_repo_adapter.sh",
+  "version": "0.1",
+  "capabilities": [
+    "write_repo",
+    "produce_patchable_changes"
+  ],
+  "default_mode": "apply_in_workspace",
+  "policy_defaults": {
+    "timeout_sec": 60,
+    "max_steps": 1,
+    "network": "disabled",
+    "network_allowlist": [],
+    "tool_allowlist": [
+      "read",
+      "write"
+    ],
+    "allowed_paths": [
+      "docs/**"
+    ],
+    "forbidden_paths": [
+      ".git/**",
+      "logs/**",
+      ".masfactory_runtime/**",
+      "memory/**",
+      "**/*.key",
+      "**/*.pem"
+    ],
+    "max_changed_files": 1,
+    "max_patch_lines": 40,
+    "allow_binary_changes": false,
+    "cleanup_on_success": true,
+    "retain_workspace_on_failure": true
+  }
+}
