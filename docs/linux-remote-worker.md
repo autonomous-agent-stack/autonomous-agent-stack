@@ -25,6 +25,41 @@
   - patch 生成
   - promotion 前验证
 
+如果 Linux 暂时离线，而当前任务只是“抓 YouTube 现成字幕”，不要把 Mac 硬拉成完整替身执行面。更窄、更稳的做法是：
+
+- Mac 只临时接管 subtitle-only 流程
+- 只安装 `yt-dlp`
+- 不补 `ffmpeg` / `Whisper`
+- 产出 `_clean.srt` 或 `_clean.txt` 后直接回仓库
+
+这条临时路径见 [Mac Subtitle Usage](./mac-subtitle-usage.md)。
+
+如果要先在 Mac 上做一次最小离线自检，直接跑：
+
+```bash
+source venv/bin/activate
+PYTHONPATH=src python scripts/subtitle_cli.py \
+  --input tests/fixtures/subtitles/basic-webvtt.vtt \
+  --offline \
+  --output-dir artifacts/subtitles-check \
+  --format txt
+```
+
+如果后续要从控制面或其他脚本调用，而不是 SSH 到机器上跑 CLI，也可以直接调用：
+
+- `POST /api/v1/subtitle/offline`
+- `POST /api/v1/subtitle/online`
+
+需要做一次真实在线验收时，优先在 Mac 上单独跑：
+
+```bash
+source venv/bin/activate
+PYTHONPATH=src python scripts/subtitle_online_smoke_test.py \
+  --url "https://www.youtube.com/watch?v=YOUR_VIDEO_ID" \
+  --output-dir artifacts/subtitles-smoke \
+  --format srt
+```
+
 ## 为什么 Linux 先走 `host`
 
 这个仓库在 Mac 上对 `ai-lab + Colima + 外置盘` 做了大量加固，但 Linux 节点的最佳起步路径更简单：

@@ -77,6 +77,7 @@ OPENHANDS_RUNTIME=host make start
 更完整的落地清单、环境变量建议和远端使用姿势见：
 
 - [Linux Remote Worker Guide](./docs/linux-remote-worker.md)
+- [Mac Subtitle Usage](./docs/mac-subtitle-usage.md)
 - [Deployment Status](./docs/deployment-status.md)
 - [cc-switch Usage Guide](./docs/cc-switch-usage.md)
 - [OpenHands Controlled Backend Integration](./docs/openhands-cli-integration.md)
@@ -86,6 +87,54 @@ OPENHANDS_RUNTIME=host make start
 - 本地控制面和本地执行链可用
 - Linux 远端 lane 当前仍然 offline
 - 本仓库已经先把远端协议、状态机和 fake remote adapter 固定下来，等 Linux 恢复后直接接执行面
+
+## Mac-only 字幕抓取
+
+如果 Linux 执行面暂时离线，但你只需要抓现成字幕，可以在 Mac 上走一条更窄的 subtitle-only pipeline：
+
+- 只依赖 `yt-dlp`
+- 不下载视频或音频
+- 不依赖 `ffmpeg` 或 `Whisper`
+- 输出清理后的 `.srt` 或 `.txt`
+
+最小示例：
+
+```python
+from subtitle_offline.service import fetch_subtitle
+
+result = fetch_subtitle(
+    "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    "./data/subtitles",
+)
+
+print(result.output_path)
+```
+
+这条线适合做 Mac 临时接管，详细说明见 [Mac Subtitle Usage](./docs/mac-subtitle-usage.md)。
+
+离线 fixture 校验和在线抓取都可以直接走独立 CLI：
+
+```bash
+source venv/bin/activate
+PYTHONPATH=src python scripts/subtitle_cli.py --input tests/fixtures/subtitles/basic-webvtt.vtt --offline --output-dir artifacts/subtitles
+PYTHONPATH=src python scripts/subtitle_cli.py --input https://www.youtube.com/watch?v=dQw4w9WgXcQ --output-dir artifacts/subtitles
+```
+
+如果你想从程序里直接调用，而不是走 CLI，也有独立 API：
+
+- `POST /api/v1/subtitle/offline`
+- `POST /api/v1/subtitle/online`
+
+真实在线抓取的最小验收脚本也已经有了：
+
+```bash
+source venv/bin/activate
+PYTHONPATH=src python scripts/subtitle_online_smoke_test.py \
+  --url "https://www.youtube.com/watch?v=YOUR_VIDEO_ID" \
+  --output-dir artifacts/subtitles-smoke \
+  --format srt \
+  --json-out artifacts/subtitles-smoke/result.json
+```
 
 ## 常用命令
 

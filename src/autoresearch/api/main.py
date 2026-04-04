@@ -129,6 +129,7 @@ def create_app() -> FastAPI:
         ("autoresearch.api.routers.manager_agent", "router", "manager agent"),
         ("autoresearch.api.routers.housekeeper", "router", "housekeeper"),
         ("autoresearch.api.routers.media_jobs", "router", "media jobs"),
+        ("autoresearch.api.routers.subtitle_offline", "router", "subtitle offline"),
         ("autoresearch.api.routers.synthesis", "router", "synthesis"),
         ("autoresearch.api.routers.loops", "router", "loops"),
         ("autoresearch.api.routers.orchestration", "router", "orchestration"),
