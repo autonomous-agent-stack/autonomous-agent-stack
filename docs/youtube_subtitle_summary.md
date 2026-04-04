@@ -2,7 +2,7 @@
 
 ## Usage
 
-- The Telegram gateway routes a message to `youtube_subtitle_summary` only when it contains a YouTube URL and an explicit summary intent.
+- The Telegram gateway routes a message to `youtube_subtitle_summary` when it contains a YouTube URL.
 - The special agent first reuses the PR #33 subtitle pipeline, then produces a deterministic extractive summary from the cleaned subtitle text.
 
 Example:

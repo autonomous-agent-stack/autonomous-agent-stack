@@ -2635,7 +2635,7 @@ _YOUTUBE_SUMMARY_INTENT_KEYWORDS = (
 
 
 def _should_route_to_youtube_subtitle_summary(text: str) -> bool:
-    return _extract_youtube_url(text) is not None and _is_youtube_summary_intent(text)
+    return _extract_youtube_url(text) is not None
 
 
 def _extract_youtube_url(text: str) -> str | None:

@@ -462,23 +462,16 @@ def test_telegram_webhook_routes_youtube_summary_intent_to_special_agent(
     assert any("YouTube 字幕摘要示例" in event["content"] for event in session_payload["events"])
 
 
-def test_telegram_webhook_does_not_route_youtube_link_without_summary_intent(
+def test_telegram_webhook_routes_bare_youtube_link_to_special_agent(
     telegram_client: TestClient,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv(
-        "AUTORESEARCH_TELEGRAM_CLAUDE_COMMAND_OVERRIDE",
-        f"{sys.executable} -c \"print('generic-youtube-ok')\"",
-    )
-    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_APPEND_PROMPT", "false")
-
     response = telegram_client.post(
         "/api/v1/gateway/telegram/webhook",
         json={
             "update_id": 1003,
             "message": {
                 "message_id": 79,
-                "text": "这个链接先给你看 https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                "text": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
                 "chat": {"id": 9531, "type": "private"},
                 "from": {"id": 9531, "username": "video-user"},
             },
@@ -487,11 +480,13 @@ def test_telegram_webhook_does_not_route_youtube_link_without_summary_intent(
     assert response.status_code == 200
     payload = response.json()
     assert payload["accepted"] is True
-    assert payload["agent_run_id"] is not None
-    assert payload["metadata"]["task_name"].startswith("tg_9531_79")
+    assert payload["agent_run_id"] is None
+    assert payload["metadata"]["route"] == "youtube_subtitle_summary"
+    assert payload["metadata"]["source_url"] == "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 
     service = getattr(telegram_client, "_youtube_summary")
-    assert len(service.requests) == 0
+    assert len(service.requests) == 1
+    assert service.requests[0].youtube_url == "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 
 
 def test_legacy_telegram_webhook_uses_same_processing_path(
