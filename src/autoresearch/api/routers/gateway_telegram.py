@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import inspect
+import re
 import threading
 import time
 from typing import Any
@@ -21,6 +22,7 @@ from autoresearch.api.dependencies import (
     get_openclaw_memory_service,
     get_panel_access_service,
     get_telegram_notifier_service,
+    get_youtube_subtitle_summary_service,
 )
 from autoresearch.api.settings import load_panel_settings, load_runtime_settings, load_telegram_settings
 from autoresearch.core.adapters import CapabilityDomain, CapabilityProviderRegistry, SkillProvider
@@ -40,6 +42,7 @@ from autoresearch.core.services.telegram_identity import (
     build_telegram_session_identity,
 )
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
+from autoresearch.core.services.youtube_subtitle_summary import YoutubeSubtitleSummaryService
 from autoresearch.shared.models import (
     AdminChannelConfigCreateRequest,
     AdminChannelConfigUpdateRequest,
@@ -63,6 +66,10 @@ from autoresearch.shared.models import (
 )
 from autoresearch.shared.manager_agent_contract import ManagerDispatchRead, ManagerDispatchRequest
 from autoresearch.shared.media_job_contract import MediaJobRead, MediaJobStatus
+from autoresearch.shared.youtube_subtitle_summary_contract import (
+    YoutubeSubtitleSummaryRequest,
+    YoutubeSubtitleSummaryStatus,
+)
 
 
 router = APIRouter(prefix="/api/v1/gateway/telegram", tags=["gateway", "telegram"])
@@ -100,6 +107,7 @@ def telegram_webhook(
     capability_registry: CapabilityProviderRegistry = Depends(get_capability_provider_registry),
     panel_access_service: PanelAccessService = Depends(get_panel_access_service),
     notifier: TelegramNotifierService = Depends(get_telegram_notifier_service),
+    youtube_subtitle_summary_service: YoutubeSubtitleSummaryService = Depends(get_youtube_subtitle_summary_service),
     admin_config_service: AdminConfigService = Depends(get_admin_config_service),
 ) -> TelegramWebhookAck:
     return _handle_telegram_webhook(
@@ -117,6 +125,7 @@ def telegram_webhook(
         capability_registry=capability_registry,
         panel_access_service=panel_access_service,
         notifier=notifier,
+        youtube_subtitle_summary_service=youtube_subtitle_summary_service,
         admin_config_service=admin_config_service,
     )
 
@@ -141,6 +150,7 @@ def legacy_telegram_webhook(
     capability_registry: CapabilityProviderRegistry = Depends(get_capability_provider_registry),
     panel_access_service: PanelAccessService = Depends(get_panel_access_service),
     notifier: TelegramNotifierService = Depends(get_telegram_notifier_service),
+    youtube_subtitle_summary_service: YoutubeSubtitleSummaryService = Depends(get_youtube_subtitle_summary_service),
     admin_config_service: AdminConfigService = Depends(get_admin_config_service),
 ) -> TelegramWebhookAck:
     return _handle_telegram_webhook(
@@ -158,6 +168,7 @@ def legacy_telegram_webhook(
         capability_registry=capability_registry,
         panel_access_service=panel_access_service,
         notifier=notifier,
+        youtube_subtitle_summary_service=youtube_subtitle_summary_service,
         admin_config_service=admin_config_service,
     )
 
@@ -178,6 +189,7 @@ def _handle_telegram_webhook(
     capability_registry: CapabilityProviderRegistry,
     panel_access_service: PanelAccessService,
     notifier: TelegramNotifierService,
+    youtube_subtitle_summary_service: YoutubeSubtitleSummaryService,
     admin_config_service: AdminConfigService,
 ) -> TelegramWebhookAck:
     _validate_secret_token(raw_request)
@@ -330,6 +342,18 @@ def _handle_telegram_webhook(
             openclaw_service=openclaw_service,
             memory_service=memory_service,
             notifier=notifier,
+            session_identity=session_identity,
+        )
+
+    if _should_route_to_youtube_subtitle_summary(text):
+        return _handle_youtube_subtitle_summary(
+            chat_id=chat_id,
+            update=update,
+            extracted=extracted,
+            background_tasks=background_tasks,
+            openclaw_service=openclaw_service,
+            notifier=notifier,
+            youtube_subtitle_summary_service=youtube_subtitle_summary_service,
             session_identity=session_identity,
         )
 
@@ -902,6 +926,83 @@ def _handle_task_command(
     )
 
 
+def _handle_youtube_subtitle_summary(
+    *,
+    chat_id: str,
+    update: dict[str, Any],
+    extracted: dict[str, Any],
+    background_tasks: BackgroundTasks,
+    openclaw_service: OpenClawCompatService,
+    notifier: TelegramNotifierService,
+    youtube_subtitle_summary_service: YoutubeSubtitleSummaryService,
+    session_identity: TelegramSessionIdentityRead,
+) -> TelegramWebhookAck:
+    youtube_url = _extract_youtube_url(extracted["text"])
+    if youtube_url is None:
+        return TelegramWebhookAck(
+            accepted=False,
+            update_id=_safe_int(update.get("update_id")),
+            chat_id=chat_id,
+            reason="missing youtube url",
+            metadata={"source": "youtube_subtitle_summary", "route": "rejected"},
+        )
+
+    session = _find_or_create_telegram_session(
+        openclaw_service=openclaw_service,
+        chat_id=chat_id,
+        session_identity=session_identity,
+    )
+    _append_user_event(
+        openclaw_service=openclaw_service,
+        session=session,
+        text=extracted["text"],
+        update=update,
+        extracted=extracted,
+        session_identity=session_identity,
+    )
+
+    request = YoutubeSubtitleSummaryRequest(
+        youtube_url=youtube_url,
+        output_dir=f"artifacts/youtube-subtitle-summary/{chat_id}",
+        output_format="txt",
+        metadata={
+            "chat_id": chat_id,
+            "update_id": _safe_int(update.get("update_id")),
+            "message_id": extracted.get("message_id"),
+            "scope": session_identity.scope.value,
+            "session_key": session_identity.session_key,
+            "assistant_id": session_identity.assistant_id,
+            "chat_type": session_identity.chat_context.chat_type.value,
+            "actor_role": session_identity.actor.role.value,
+            "actor_user_id": session_identity.actor.user_id,
+        },
+    )
+
+    background_tasks.add_task(
+        _execute_youtube_subtitle_summary_and_notify,
+        openclaw_service=openclaw_service,
+        notifier=notifier,
+        youtube_subtitle_summary_service=youtube_subtitle_summary_service,
+        chat_id=chat_id,
+        session_id=session.session_id,
+        request=request,
+    )
+
+    return TelegramWebhookAck(
+        accepted=True,
+        update_id=_safe_int(update.get("update_id")),
+        chat_id=chat_id,
+        session_id=session.session_id,
+        metadata={
+            "source": "youtube_subtitle_summary",
+            "route": "youtube_subtitle_summary",
+            "source_url": youtube_url,
+            "scope": session_identity.scope.value,
+            "session_key": session.session_key,
+        },
+    )
+
+
 def _handle_memory_command(
     *,
     chat_id: str,
@@ -1445,6 +1546,45 @@ def _execute_agent_and_notify(
     if run is None:
         return
     notifier.send_message(chat_id=chat_id, text=_build_agent_result_message(run))
+
+
+def _execute_youtube_subtitle_summary_and_notify(
+    *,
+    openclaw_service: OpenClawCompatService,
+    notifier: TelegramNotifierService,
+    youtube_subtitle_summary_service: YoutubeSubtitleSummaryService,
+    chat_id: str,
+    session_id: str,
+    request: YoutubeSubtitleSummaryRequest,
+) -> None:
+    result = youtube_subtitle_summary_service.summarize(request)
+    openclaw_service.append_event(
+        session_id=session_id,
+        request=OpenClawSessionEventAppendRequest(
+            role="assistant",
+            content=result.summary if result.summary else youtube_subtitle_summary_service.render_telegram_message(result),
+            metadata={
+                "source": "youtube_subtitle_summary",
+                "source_url": result.source_url,
+                "title": result.title,
+                "subtitle_status": result.subtitle_status.value,
+                "summary_status": result.summary_status.value,
+                "error_kind": result.error_kind,
+            },
+        ),
+    )
+    openclaw_service.set_status(
+        session_id=session_id,
+        status=JobStatus.COMPLETED if result.summary_status is YoutubeSubtitleSummaryStatus.DONE else JobStatus.FAILED,
+        error=result.error,
+        metadata_updates={
+            "latest_youtube_subtitle_summary_source_url": result.source_url,
+            "latest_youtube_subtitle_summary_status": result.summary_status.value,
+            "latest_youtube_subtitle_summary_error_kind": result.error_kind,
+        },
+    )
+    if notifier.enabled:
+        notifier.send_message(chat_id=chat_id, text=youtube_subtitle_summary_service.render_telegram_message(result))
 
 
 def _build_agent_result_message(run: ClaudeAgentRunRead) -> str:
@@ -2472,6 +2612,47 @@ def _build_memory_summary_lines(bundle: OpenClawMemoryBundleRead) -> list[str]:
         for item in bundle.shared_memories[:3]:
             lines.append(f"- {item.content[:80]}")
     return lines
+
+
+_YOUTUBE_URL_RE = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
+_YOUTUBE_HOSTS = {"youtube.com", "youtu.be", "www.youtube.com", "m.youtube.com"}
+_YOUTUBE_SUMMARY_INTENT_KEYWORDS = (
+    "总结",
+    "整理",
+    "提取",
+    "提炼",
+    "概括",
+    "摘要",
+    "要点",
+    "内容",
+    "summary",
+    "summarize",
+    "summarise",
+    "extract",
+    "notes",
+    "takeaways",
+)
+
+
+def _should_route_to_youtube_subtitle_summary(text: str) -> bool:
+    return _extract_youtube_url(text) is not None and _is_youtube_summary_intent(text)
+
+
+def _extract_youtube_url(text: str) -> str | None:
+    for match in _YOUTUBE_URL_RE.finditer(text):
+        candidate = match.group(0).strip().rstrip(").,，。!！?？;；]】\"'")
+        host_match = re.match(r"https?://([^/]+)", candidate)
+        if host_match is None:
+            continue
+        normalized_host = host_match.group(1).lower()
+        if any(normalized_host == domain or normalized_host.endswith(f".{domain}") for domain in _YOUTUBE_HOSTS):
+            return candidate
+    return None
+
+
+def _is_youtube_summary_intent(text: str) -> bool:
+    normalized = text.strip().lower()
+    return any(keyword.lower() in normalized for keyword in _YOUTUBE_SUMMARY_INTENT_KEYWORDS)
 
 
 def _build_task_name(chat_id: str, update: dict[str, Any], extracted: dict[str, Any]) -> str:

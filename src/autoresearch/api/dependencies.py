@@ -48,6 +48,7 @@ from autoresearch.core.services.panel_audit import PanelAuditService
 from autoresearch.core.services.reports import ReportService
 from autoresearch.core.services.self_integration import SelfIntegrationService
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
+from autoresearch.core.services.youtube_subtitle_summary import YoutubeSubtitleSummaryService
 from autoresearch.core.services.upstream_watcher import UpstreamWatcherService
 from autoresearch.core.services.variants import VariantService
 from autoresearch.shared.models import (
@@ -294,6 +295,20 @@ def get_claude_agent_service() -> ClaudeAgentService:
         max_agents=feature_settings.agent_max_concurrency,
         max_depth=feature_settings.agent_max_depth,
         openclaw_skill_service=get_openclaw_skill_service(),
+    )
+
+
+@lru_cache(maxsize=1)
+def get_youtube_subtitle_summary_service() -> YoutubeSubtitleSummaryService:
+    media_settings = get_media_settings()
+    return YoutubeSubtitleSummaryService(
+        yt_dlp_bin=media_settings.yt_dlp_bin,
+        allowed_domains={
+            "youtube.com",
+            "youtu.be",
+            "www.youtube.com",
+            "m.youtube.com",
+        },
     )
 
 

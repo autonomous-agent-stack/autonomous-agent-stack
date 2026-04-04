@@ -20,6 +20,7 @@ from autoresearch.api.dependencies import (
     get_openclaw_compat_service,
     get_panel_access_service,
     get_telegram_notifier_service,
+    get_youtube_subtitle_summary_service,
 )
 from autoresearch.api.main import app
 from autoresearch.api.routers import gateway_telegram
@@ -35,8 +36,10 @@ from autoresearch.core.services.housekeeper import HousekeeperService
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.openclaw_memory import OpenClawMemoryService
 from autoresearch.core.services.panel_access import PanelAccessService
+from autoresearch.core.services.youtube_subtitle_summary import YoutubeSubtitleSummaryService
 from autoresearch.shared.housekeeper_contract import HousekeeperChangeReason, HousekeeperMode, HousekeeperModeUpdateRequest
 from autoresearch.shared.manager_agent_contract import ManagerDispatchRead
+from autoresearch.shared.media_job_contract_subtitle import MediaJobContractSubtitle, SubtitleJobStatus, SubtitleOutputFormat
 from autoresearch.shared.models import (
     AdminAgentConfigRead,
     AdminChannelConfigRead,
@@ -49,6 +52,11 @@ from autoresearch.shared.models import (
     PromotionDiffStats,
     PromotionResult,
     utc_now,
+)
+from autoresearch.shared.youtube_subtitle_summary_contract import (
+    YoutubeSubtitleSummaryRequest,
+    YoutubeSubtitleSummaryResult,
+    YoutubeSubtitleSummaryStatus,
 )
 from autoresearch.shared.store import InMemoryRepository, SQLiteModelRepository
 
@@ -154,6 +162,71 @@ class _StubTelegramNotifier:
 
     def notify_manual_action(self, *, chat_id: str, entry: object, run_status: str) -> bool:
         return True
+
+
+class _StubYoutubeSubtitleSummaryService:
+    def __init__(self) -> None:
+        self.requests: list[YoutubeSubtitleSummaryRequest] = []
+
+    def summarize(self, request: YoutubeSubtitleSummaryRequest) -> YoutubeSubtitleSummaryResult:
+        self.requests.append(request)
+        output_dir = Path(request.output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        subtitle_path = output_dir / "demo_clean.txt"
+        subtitle_path.write_text(
+            "OpenClaw 相关内容不应出现在这里。\n"
+            "这是一个 YouTube 字幕摘要示例。\n"
+            "我们先抓字幕，再做结构化总结。\n",
+            encoding="utf-8",
+        )
+        subtitle_result = MediaJobContractSubtitle(
+            url=request.youtube_url,
+            title="demo-video",
+            output_path=subtitle_path.as_posix(),
+            output_format=SubtitleOutputFormat.TXT,
+            status=SubtitleJobStatus.DONE,
+            metadata={
+                "source_kind": "yt-dlp",
+                "video_id": "demo",
+                "duration_seconds": 12,
+                "language": "zh",
+                "lang_tracks": ["zh"],
+            },
+            raw_subtitle_path=(output_dir / "demo_raw.srt").as_posix(),
+            created_at=utc_now(),
+            updated_at=utc_now(),
+            error=None,
+        )
+        return YoutubeSubtitleSummaryResult(
+            source_url=request.youtube_url,
+            title="demo-video",
+            subtitle_status=SubtitleJobStatus.DONE,
+            summary_status=YoutubeSubtitleSummaryStatus.DONE,
+            error_kind=None,
+            subtitle_result=subtitle_result,
+            summary="- 这是一个 YouTube 字幕摘要示例\n- 我们先抓字幕，再做结构化总结",
+            key_points=[
+                "这是一个 YouTube 字幕摘要示例",
+                "我们先抓字幕，再做结构化总结",
+            ],
+            metadata={
+                "summary_style": request.summary_style,
+                "requested_output_format": request.output_format.value,
+            },
+            raw_subtitle_path=subtitle_result.raw_subtitle_path,
+            clean_subtitle_path=subtitle_result.output_path,
+            created_at=utc_now(),
+            updated_at=utc_now(),
+            error=None,
+        )
+
+    def render_telegram_message(self, result: YoutubeSubtitleSummaryResult) -> str:
+        return (
+            "[YouTube Subtitle Summary]\n"
+            f"title: {result.title}\n"
+            f"summary_status: {result.summary_status.value}\n"
+            f"{result.summary or ''}"
+        )
 
 
 class _StubGitHubIssueService:
@@ -280,15 +353,18 @@ def telegram_client(tmp_path: Path) -> TestClient:
             model_cls=ApprovalRequestRead,
         )
     )
+    youtube_summary_service = _StubYoutubeSubtitleSummaryService()
 
     app.dependency_overrides[get_openclaw_compat_service] = lambda: openclaw_service
     app.dependency_overrides[get_openclaw_memory_service] = lambda: memory_service
     app.dependency_overrides[get_approval_store_service] = lambda: approval_service
     app.dependency_overrides[get_claude_agent_service] = lambda: claude_service
     app.dependency_overrides[get_admin_config_service] = lambda: admin_config_service
+    app.dependency_overrides[get_youtube_subtitle_summary_service] = lambda: youtube_summary_service
 
     with TestClient(app) as client:
         setattr(client, "_approval_store", approval_service)
+        setattr(client, "_youtube_summary", youtube_summary_service)
         yield client
 
     app.dependency_overrides.clear()
@@ -351,6 +427,71 @@ def test_telegram_webhook_routes_to_openclaw_and_agents(
     assert session_payload["chat_context"]["chat_type"] == "private"
     assert any(event["role"] == "user" for event in session_payload["events"])
     assert any("agent queued" in event["content"] for event in session_payload["events"])
+
+
+def test_telegram_webhook_routes_youtube_summary_intent_to_special_agent(
+    telegram_client: TestClient,
+) -> None:
+    response = telegram_client.post(
+        "/api/v1/gateway/telegram/webhook",
+        json={
+            "update_id": 1002,
+            "message": {
+                "message_id": 78,
+                "text": "请总结这个 YouTube 视频 https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                "chat": {"id": 9530, "type": "private"},
+                "from": {"id": 9530, "username": "video-user"},
+            },
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["accepted"] is True
+    assert payload["agent_run_id"] is None
+    assert payload["metadata"]["route"] == "youtube_subtitle_summary"
+    assert payload["metadata"]["source_url"] == "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+
+    service = getattr(telegram_client, "_youtube_summary")
+    assert len(service.requests) == 1
+    assert service.requests[0].youtube_url == "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+
+    session = telegram_client.get(f"/api/v1/openclaw/sessions/{payload['session_id']}")
+    assert session.status_code == 200
+    session_payload = session.json()
+    assert any(event["role"] == "assistant" for event in session_payload["events"])
+    assert any("YouTube 字幕摘要示例" in event["content"] for event in session_payload["events"])
+
+
+def test_telegram_webhook_does_not_route_youtube_link_without_summary_intent(
+    telegram_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "AUTORESEARCH_TELEGRAM_CLAUDE_COMMAND_OVERRIDE",
+        f"{sys.executable} -c \"print('generic-youtube-ok')\"",
+    )
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_APPEND_PROMPT", "false")
+
+    response = telegram_client.post(
+        "/api/v1/gateway/telegram/webhook",
+        json={
+            "update_id": 1003,
+            "message": {
+                "message_id": 79,
+                "text": "这个链接先给你看 https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                "chat": {"id": 9531, "type": "private"},
+                "from": {"id": 9531, "username": "video-user"},
+            },
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["accepted"] is True
+    assert payload["agent_run_id"] is not None
+    assert payload["metadata"]["task_name"].startswith("tg_9531_79")
+
+    service = getattr(telegram_client, "_youtube_summary")
+    assert len(service.requests) == 0
 
 
 def test_legacy_telegram_webhook_uses_same_processing_path(
