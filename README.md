@@ -123,6 +123,7 @@ make openhands-controlled OH_TASK="Create src/demo_math.py with add(a,b), then r
 make openhands-demo OH_BACKEND=mock OH_TASK="Create src/demo_math.py with add(a,b)."
 make agent-run AEP_AGENT=openhands AEP_TASK="Create src/demo_math.py with add(a,b)."
 make agent-run AEP_AGENT=codex AEP_TASK="Create src/demo_math.py with add(a,b)."
+make agent-run AEP_AGENT=claude_code AEP_TASK="Create src/demo_math.py with add(a,b)."
 make agent-scaffold AGENT_SCAFFOLD_ID=local_repo_digest
 make hygiene-check
 make review-gates-local
@@ -138,6 +139,7 @@ make review-gates-local
 
 `make agent-run AEP_AGENT=codex ...` 会调用 `drivers/codex_adapter.sh`。默认要求本机已有 `codex` CLI；如果只想做最小 smoke，可以临时加 `CODEX_DRY_RUN=1`。
 `CODEX_DRY_RUN=1` 只用于验证 AEP 链路，不保证严格按任务语义生成目标文件名。
+`make agent-run AEP_AGENT=claude_code ...` 会调用 `drivers/claude_code_adapter.sh`。默认要求本机已有 `claude` CLI 且 `claude auth status` 为已登录；默认权限模式是 `auto`，先试 `acceptEdits`，不通再切 `bypassPermissions`。
 `make agent-scaffold AGENT_SCAFFOLD_ID=<agent_id>` 会生成新的 process driver 骨架：manifest、adapter、测试文件和 README 片段。
 
 `make review-gates-local` 会在本地运行 reviewer 核心模块的 `mypy + bandit + semgrep`，与 CI 的 `Quality Gates` 流程保持一致。
