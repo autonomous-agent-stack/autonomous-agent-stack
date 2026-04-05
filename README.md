@@ -80,6 +80,38 @@ OPENHANDS_RUNTIME=host make start
 - [cc-switch Usage Guide](./docs/cc-switch-usage.md)
 - [OpenHands Controlled Backend Integration](./docs/openhands-cli-integration.md)
 
+## Subtitle Offline Dev Kit
+
+如果你要做字幕相关开发，但又不想一开始就碰主线 agent，可以直接用仓库里的
+`subtitle-offline-dev-kit/`。
+
+它是一个离线 sidecar，主要用来：
+
+- 检查 `.vtt` / `.srt` 是否能被稳定解析
+- 标记明显异常，例如空文本、反向时间轴、乱序
+- 扫一整个字幕目录，筛出值得人工复核的候选
+- 用 fixtures + tests 做最小回归，不污染主线
+
+对 “vibe coding” 最实用的理解方式就是：
+
+- 想试字幕逻辑，先在这里试
+- 想看字幕目录干不干净，先用这里的脚本扫
+- 想收口样本和回归，先跑这里的 tests
+
+最常用命令：
+
+```bash
+python subtitle-offline-dev-kit/scripts/check_subtitle_contract.py
+pytest -q subtitle-offline-dev-kit/tests
+python subtitle-offline-dev-kit/scripts/scan_subtitle_anomalies.py --input-dir /path/to/subtitles --mode audit
+```
+
+项目级说明见：
+
+- [Subtitle Offline Dev Kit](./docs/subtitle-offline-dev-kit.md)
+- [Dev kit README](./subtitle-offline-dev-kit/README.md)
+- [Mac subtitle pipeline guide](./subtitle-offline-dev-kit/docs/mac-subtitle-pipeline.md)
+
 ## 常用命令
 
 ```bash

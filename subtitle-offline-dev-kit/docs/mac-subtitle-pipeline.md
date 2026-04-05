@@ -78,7 +78,7 @@ The script writes one summary line per subtitle file to stdout.
 Current output format:
 
 ```text
-sample_01_en.vtt: total_lines=1, missing_text=0, end_before_start=0, out_of_order=0
+sample_01_en.vtt: total_lines=3, missing_text=0, end_before_start=0, out_of_order=0
 sample_05_missing_fields.srt: total_lines=2, missing_text=1, end_before_start=0, out_of_order=0
 sample_07_exception.srt: total_lines=2, missing_text=0, end_before_start=1, out_of_order=1
 ```
@@ -139,6 +139,11 @@ python scripts/check_subtitle_contract.py -h
 ```bash
 python scripts/scan_subtitle_anomalies.py \
   --input-dir /path/to/subtitle_corpus \
+  --ignore-empty-auto-caption \
+  --candidate-issue duplicate_cue \
+  --candidate-issue rapid_repeat \
+  --candidate-issue long_cue \
+  --candidate-issue large_gap \
   --issues-only \
   --json scan-report.json \
   --markdown scan-report.md
@@ -149,6 +154,105 @@ Useful filters:
 - `--language en` or `--language zh`
 - `--min-lines 50`
 - `--issues-only`
+- `--candidate-issue duplicate_cue`
+- `--candidate-issue rapid_repeat`
+- `--candidate-issue long_cue`
+- `--candidate-issue large_gap`
+- `--duplicate-min-text-len 24`
+- `--rapid-repeat-window-seconds 0.1`
+- `--large-gap-seconds 30`
+- `--long-cue-chars 240`
+
+The scanner currently understands these anomaly families:
+
+- `missing_text`
+- `end_before_start`
+- `out_of_order`
+- `mixed_language`
+- `duplicate_cue`
+- `rapid_repeat`
+- `long_cue`
+- `large_gap`
+
+### Threshold Controls
+
+These flags let you tighten or loosen structural anomaly detection without
+changing the underlying subtitle contract:
+
+- `--duplicate-min-text-len`: minimum visible-text length before repeated cues
+  count as `duplicate_cue`
+- `--rapid-repeat-window-seconds`: maximum allowed gap for identical adjacent
+  cues before they count as `rapid_repeat`
+- `--large-gap-seconds`: minimum cue-to-cue gap flagged as `large_gap`
+- `--long-cue-chars`: minimum visible-text length for `long_cue`
+
+In practice, `duplicate_min_text_len` is the strongest precision control for
+manual harvest. On the current `diaryofaceo` corpus, `rapid_repeat` stayed
+flat even when the repeat window dropped from `0.1` to `0.005`, which means
+those repeats are effectively gap-free and should be filtered by language or
+issue type instead of a wider or narrower repeat window.
+
+### Recommended Modes
+
+Use these fixed command shapes instead of retuning from scratch every time.
+
+#### Harvest mode
+
+Use this when the goal is a small, high-signal list for manual review or new
+fixture selection.
+
+```bash
+python scripts/scan_subtitle_anomalies.py \
+  --input-dir /path/to/subtitle_corpus \
+  --ignore-empty-auto-caption \
+  --issues-only \
+  --language en \
+  --candidate-issue duplicate_cue \
+  --duplicate-min-text-len 80 \
+  --json harvest-report.json
+```
+
+#### Audit mode
+
+Use this when the goal is a broader quality sweep across a whole corpus.
+
+```bash
+python scripts/scan_subtitle_anomalies.py \
+  --input-dir /path/to/subtitle_corpus \
+  --ignore-empty-auto-caption \
+  --issues-only \
+  --candidate-issue duplicate_cue \
+  --candidate-issue rapid_repeat \
+  --candidate-issue long_cue \
+  --candidate-issue large_gap \
+  --duplicate-min-text-len 60 \
+  --rapid-repeat-window-seconds 0.1 \
+  --large-gap-seconds 30 \
+  --long-cue-chars 240 \
+  --json audit-report.json \
+  --markdown audit-report.md
+```
+
+### Corpus Notes
+
+Observed sweep results from local real corpora:
+
+| Corpus | Mode | Suggested flags | Observed result |
+|---|---|---|---|
+| `diaryofaceo` | harvest | `--language en --candidate-issue duplicate_cue --duplicate-min-text-len 80` | about 25 candidate files |
+| `diaryofaceo` | audit | `--candidate-issue duplicate_cue --candidate-issue rapid_repeat --duplicate-min-text-len 60` | about 339 candidate files |
+| `wowinsight` | harvest | `--candidate-issue duplicate_cue --duplicate-min-text-len 70` | about 1 candidate file |
+| `wowinsight` | audit | `--candidate-issue duplicate_cue --candidate-issue rapid_repeat --duplicate-min-text-len 60` | about 3 candidate files |
+
+Notes behind those presets:
+
+- `diaryofaceo` currently splits into two different signals:
+  - `zh` files are dominated by `rapid_repeat` and remain at 207 candidate
+    files even when `--rapid-repeat-window-seconds` drops to `0.005`
+  - `en` files respond well to `duplicate_cue` filtering and fall from 132
+    files at `--duplicate-min-text-len 60` to 25 files at `80`
+- `wowinsight` is already small enough that the broader audit mode stays easy
+  to inspect manually
 
 ### Regenerate harvested fixtures from the real subtitle corpus
 
@@ -230,7 +334,7 @@ python /Volumes/AI_LAB/Github/autonomous-agent-stack/subtitle-offline-dev-kit/sc
 5. If new anomalies matter, add a minimized reproduction into `fixtures/` and
 rerun both pytest and the smoke check.
 
-7. If you need to refresh the canonical fixture set from the local subtitle
+6. If you need to refresh the canonical fixture set from the local subtitle
 corpus, rerun:
 
 ```bash
