@@ -122,6 +122,8 @@ make openhands-controlled-dry-run
 make openhands-controlled OH_TASK="Create src/demo_math.py with add(a,b), then run validation."
 make openhands-demo OH_BACKEND=mock OH_TASK="Create src/demo_math.py with add(a,b)."
 make agent-run AEP_AGENT=openhands AEP_TASK="Create src/demo_math.py with add(a,b)."
+make agent-run AEP_AGENT=codex AEP_TASK="Create src/demo_math.py with add(a,b)."
+make agent-scaffold AGENT_SCAFFOLD_ID=local_repo_digest
 make hygiene-check
 make review-gates-local
 ```
@@ -133,6 +135,10 @@ make review-gates-local
 `make openhands-controlled` 会走最窄闭环：创建隔离 workspace、执行 OpenHands 子任务、运行校验、输出 promotion patch 与审计摘要（不直接污染主仓库）。
 
 `make agent-run` 走 AEP v0 统一执行内核：`JobSpec -> driver adapter -> patch gate -> decision`，OpenHands/Codex/本地脚本都可作为 driver 接入。
+
+`make agent-run AEP_AGENT=codex ...` 会调用 `drivers/codex_adapter.sh`。默认要求本机已有 `codex` CLI；如果只想做最小 smoke，可以临时加 `CODEX_DRY_RUN=1`。
+`CODEX_DRY_RUN=1` 只用于验证 AEP 链路，不保证严格按任务语义生成目标文件名。
+`make agent-scaffold AGENT_SCAFFOLD_ID=<agent_id>` 会生成新的 process driver 骨架：manifest、adapter、测试文件和 README 片段。
 
 `make review-gates-local` 会在本地运行 reviewer 核心模块的 `mypy + bandit + semgrep`，与 CI 的 `Quality Gates` 流程保持一致。
 
