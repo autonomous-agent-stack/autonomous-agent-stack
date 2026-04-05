@@ -32,6 +32,7 @@ from autoresearch.core.services.mirofish_prediction import MiroFishPredictionSer
 from autoresearch.core.services.managed_skill_registry import ManagedSkillRegistryService
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.openclaw_memory import OpenClawMemoryService
+from autoresearch.core.services.openclaw_runtime_adapter import OpenClawRuntimeAdapterService
 from autoresearch.core.services.openclaw_skills import OpenClawSkillService
 from autoresearch.core.services.openviking_memory import OpenVikingMemoryService
 from autoresearch.core.services.panel_access import PanelAccessService
@@ -169,6 +170,14 @@ def get_openclaw_skill_service() -> OpenClawSkillService:
         managed_skill_state_file_name=managed_registry.runtime_state_name,
         max_skill_file_bytes=max(8_192, min(feature_settings.openclaw_skill_max_bytes, 2_000_000)),
         max_skills_per_root=max(1, min(feature_settings.openclaw_skill_max_per_root, 10_000)),
+    )
+
+
+@lru_cache(maxsize=1)
+def get_openclaw_runtime_adapter_service() -> OpenClawRuntimeAdapterService:
+    return OpenClawRuntimeAdapterService(
+        openclaw_service=get_openclaw_compat_service(),
+        claude_service=get_claude_agent_service(),
     )
 
 
