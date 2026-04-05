@@ -27,8 +27,8 @@ class RuntimeAdapterManifest(StrictModel):
     kind: Literal["runtime"] = "runtime"
     service: str
     version: str = "0.1"
-    capabilities: list[Literal["create_session", "run", "stream", "cancel", "status"]] = (
-        Field(default_factory=list)
+    capabilities: list[Literal["create_session", "run", "stream", "cancel", "status"]] = Field(
+        default_factory=list
     )
     aep_bridge: RuntimeAepBridgeSpec = Field(default_factory=RuntimeAepBridgeSpec)
     metadata: dict[str, Any] = Field(default_factory=dict)
