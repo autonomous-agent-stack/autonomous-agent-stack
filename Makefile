@@ -23,7 +23,8 @@ AEP_AGENT ?= openhands
 AEP_TASK ?= Create src/demo_math.py with add(a,b).
 AEP_RUN_ID ?=
 AEP_RETRY ?= 0
-AEP_FALLBACK_AGENT ?= mock
+AEP_FALLBACK_AGENT ?=
+AGENT_SCAFFOLD_ID ?=
 PROMOTE_RUN_ID ?=
 PROMOTE_BASE_REF ?= main
 PROMOTE_BRANCH_PREFIX ?= codex/auto-upgrade
@@ -31,7 +32,7 @@ PROMOTE_PUSH ?= 0
 PROMOTE_OPEN_DRAFT_PR ?= 0
 
 .PHONY: help setup doctor start test-quick clean
-.PHONY: ai-lab ai-lab-setup ai-lab-check ai-lab-up ai-lab-down ai-lab-status ai-lab-shell ai-lab-run masfactory-flight hygiene-check openhands openhands-dry-run openhands-controlled openhands-controlled-dry-run openhands-demo agent-run promote-run
+.PHONY: ai-lab ai-lab-setup ai-lab-check ai-lab-up ai-lab-down ai-lab-status ai-lab-shell ai-lab-run masfactory-flight hygiene-check openhands openhands-dry-run openhands-controlled openhands-controlled-dry-run openhands-demo agent-run agent-scaffold promote-run
 .PHONY: review-gates-local
 
 help:
@@ -54,6 +55,7 @@ help:
 	@echo "  make openhands-controlled-dry-run Preview controlled backend chain with dry-run OpenHands"
 	@echo "  make openhands-demo OH_BACKEND=mock Run minimal closed-loop demo (contract + failure policy)"
 	@echo "  make agent-run AEP_AGENT=openhands AEP_TASK='...' Run AEP v0 runner entrypoint"
+	@echo "  make agent-scaffold AGENT_SCAFFOLD_ID=local_repo_digest Generate a process-driver scaffold"
 	@echo "  make promote-run PROMOTE_RUN_ID='...' Turn a ready AEP run into branch/commit/draft PR payload"
 	@echo "  make hygiene-check FAIL_ON_FINDINGS=1 Run prompt hygiene audit for src/"
 	@echo "  make review-gates-local Run mypy/bandit/semgrep on reviewer core modules"
@@ -197,6 +199,17 @@ agent-run:
 		eval "PYTHONPATH=src $(VENV_PYTHON) scripts/agent_run.py $$CMD_ARGS"; \
 	else \
 		eval "PYTHONPATH=src $(PYTHON) scripts/agent_run.py $$CMD_ARGS"; \
+	fi
+
+agent-scaffold:
+	@if [[ -z "$(strip $(AGENT_SCAFFOLD_ID))" ]]; then \
+		echo "Usage: make agent-scaffold AGENT_SCAFFOLD_ID='<agent_id>'"; \
+		exit 1; \
+	fi
+	@if [[ -x "$(VENV_PYTHON)" ]]; then \
+		PYTHONPATH=src $(VENV_PYTHON) scripts/new_process_driver.py "$(AGENT_SCAFFOLD_ID)"; \
+	else \
+		PYTHONPATH=src $(PYTHON) scripts/new_process_driver.py "$(AGENT_SCAFFOLD_ID)"; \
 	fi
 
 promote-run:
