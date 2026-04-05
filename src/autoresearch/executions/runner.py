@@ -52,9 +52,7 @@ class AgentExecutionRunner:
         self._runtime_root = (
             runtime_root or (self._repo_root / ".masfactory_runtime" / "runs")
         ).resolve()
-        self._manifests_dir = (
-            manifests_dir or (self._repo_root / "configs" / "agents")
-        ).resolve()
+        self._manifests_dir = (manifests_dir or (self._repo_root / "configs" / "agents")).resolve()
         self._registry = AgentRegistry(self._manifests_dir)
         self._promotion_gate = promotion_gate or GitPromotionGateService(
             self._repo_root,
@@ -86,9 +84,7 @@ class AgentExecutionRunner:
         )
         policy_payload = {
             "hard": effective_policy.hard.model_dump(mode="json"),
-            "manifest_default": effective_policy.manifest_default.model_dump(
-                mode="json"
-            ),
+            "manifest_default": effective_policy.manifest_default.model_dump(mode="json"),
             "job": effective_policy.job.model_dump(mode="json"),
             "merged": effective_policy.merged.model_dump(mode="json"),
         }
@@ -172,14 +168,12 @@ class AgentExecutionRunner:
             )
 
             changed_paths = self._collect_changed_paths(baseline_dir, workspace_dir)
-            patch_text, patch_filtered_paths, builtin_checks = (
-                self._build_filtered_patch(
-                    baseline_dir=baseline_dir,
-                    workspace_dir=workspace_dir,
-                    changed_paths=changed_paths,
-                    driver_result=driver_result,
-                    policy=effective_policy,
-                )
+            patch_text, patch_filtered_paths, builtin_checks = self._build_filtered_patch(
+                baseline_dir=baseline_dir,
+                workspace_dir=workspace_dir,
+                changed_paths=changed_paths,
+                driver_result=driver_result,
+                policy=effective_policy,
             )
             patch_path.write_text(patch_text, encoding="utf-8")
 
@@ -264,9 +258,7 @@ class AgentExecutionRunner:
             if driver_result.status == "policy_blocked":
                 break
 
-        final_status = forced_final_status or derive_terminal_status(
-            last_result, last_validation
-        )
+        final_status = forced_final_status or derive_terminal_status(last_result, last_validation)
         summary = RunSummary(
             run_id=job.run_id,
             final_status=final_status,
@@ -294,10 +286,7 @@ class AgentExecutionRunner:
             "builtin.forbidden_paths",
             "builtin.no_runtime_artifacts",
         }
-        return any(
-            check.id in blocked_checks and not check.passed
-            for check in validation.checks
-        )
+        return any(check.id in blocked_checks and not check.passed for check in validation.checks)
 
     def _snapshot_repo_to_baseline(self, baseline_dir: Path) -> None:
         ignore = shutil.ignore_patterns(
@@ -476,9 +465,7 @@ class AgentExecutionRunner:
         )
 
         forbidden_changed = [
-            path
-            for path in changed_paths
-            if self._matches_any(path, policy.merged.forbidden_paths)
+            path for path in changed_paths if self._matches_any(path, policy.merged.forbidden_paths)
         ]
         runtime_changed = [
             path for path in changed_paths if path.startswith(_RUNTIME_DENY_PREFIXES)
@@ -527,8 +514,7 @@ class AgentExecutionRunner:
                 id="builtin.max_changed_files",
                 passed=len(changed_paths) <= policy.merged.max_changed_files,
                 detail=(
-                    f"changed={len(changed_paths)} "
-                    f"limit={policy.merged.max_changed_files}"
+                    f"changed={len(changed_paths)} " f"limit={policy.merged.max_changed_files}"
                 ),
             )
         )
@@ -564,16 +550,13 @@ class AgentExecutionRunner:
                 id="builtin.max_patch_lines",
                 passed=patch_line_count <= policy.merged.max_patch_lines,
                 detail=(
-                    f"patch_lines={patch_line_count} "
-                    f"limit={policy.merged.max_patch_lines}"
+                    f"patch_lines={patch_line_count} " f"limit={policy.merged.max_patch_lines}"
                 ),
             )
         )
 
         patch_text = "".join(patch_chunks)
-        requires_source_change = (
-            driver_succeeded and driver_result.recommended_action == "promote"
-        )
+        requires_source_change = driver_succeeded and driver_result.recommended_action == "promote"
         has_source_change = bool(patch_text.strip())
         checks.append(
             ValidationCheck(
@@ -719,18 +702,12 @@ class AgentExecutionRunner:
                 "commit_message": str(
                     job.metadata.get("commit_message") or f"Promotion for {job.run_id}"
                 ),
-                "pr_title": str(
-                    job.metadata.get("pr_title") or f"Promotion for {job.run_id}"
-                ),
-                "pr_body": str(
-                    job.metadata.get("pr_body")
-                    or "Automated promotion draft PR."
-                ),
+                "pr_title": str(job.metadata.get("pr_title") or f"Promotion for {job.run_id}"),
+                "pr_body": str(job.metadata.get("pr_body") or "Automated promotion draft PR."),
                 "validator_commands": [
                     str(spec.command).strip()
                     for spec in job.validators
-                    if getattr(spec, "kind", None) == "command"
-                    and (spec.command or "").strip()
+                    if getattr(spec, "kind", None) == "command" and (spec.command or "").strip()
                 ],
                 "allowed_paths": list(policy.merged.allowed_paths),
                 "forbidden_paths": list(policy.merged.forbidden_paths),
