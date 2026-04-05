@@ -47,7 +47,10 @@ def test_mock_backend_ready_for_patch_promotion(tmp_path: Path) -> None:
     repo_root.mkdir()
     _create_min_repo(repo_root)
 
-    service = OpenHandsControlledBackendService(repo_root=repo_root, run_root=run_root)
+    service = OpenHandsControlledBackendService(
+        repo_root=repo_root,
+        run_root=run_root,
+    )
     request = ControlledExecutionRequest(
         task_id="demo-success",
         prompt="Create helper file",
@@ -78,9 +81,18 @@ def test_scope_violation_is_policy_blocked_and_never_promoted(
     repo_root.mkdir()
     _create_min_repo(repo_root)
 
-    service = OpenHandsControlledBackendService(repo_root=repo_root, run_root=run_root)
+    service = OpenHandsControlledBackendService(
+        repo_root=repo_root,
+        run_root=run_root,
+    )
 
-    def _bad_backend(*, prompt: str, workspace: Path, log_file: Path, allowed_paths: list[str]):
+    def _bad_backend(
+        *,
+        prompt: str,
+        workspace: Path,
+        log_file: Path,
+        allowed_paths: list[str],
+    ):
         _ = prompt, allowed_paths
         leaked = workspace / "memory" / "secret.md"
         leaked.parent.mkdir(parents=True, exist_ok=True)
@@ -116,7 +128,10 @@ def test_failed_test_command_stays_failed_after_max_iterations(tmp_path: Path) -
     repo_root.mkdir()
     _create_min_repo(repo_root)
 
-    service = OpenHandsControlledBackendService(repo_root=repo_root, run_root=run_root)
+    service = OpenHandsControlledBackendService(
+        repo_root=repo_root,
+        run_root=run_root,
+    )
     request = ControlledExecutionRequest(
         task_id="demo-fail",
         prompt="Create helper file",
@@ -137,11 +152,17 @@ def test_failed_test_command_stays_failed_after_max_iterations(tmp_path: Path) -
     assert result.workspace_retained is False
 
 
-def test_openhands_cli_env_strips_git_credentials(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_openhands_cli_env_strips_git_credentials(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
     _create_min_repo(repo_root)
-    service = OpenHandsControlledBackendService(repo_root=repo_root, run_root=tmp_path / "runs")
+    service = OpenHandsControlledBackendService(
+        repo_root=repo_root,
+        run_root=tmp_path / "runs",
+    )
 
     monkeypatch.setenv("GITHUB_TOKEN", "ghs-secret")
     monkeypatch.setenv("GH_TOKEN", "gh-secret")
@@ -169,7 +190,10 @@ def test_dirty_repo_blocks_openhands_cli_before_execution(tmp_path: Path) -> Non
     _init_git_repo(repo_root)
     (repo_root / "src" / "dirty.py").write_text("print('dirty')\n", encoding="utf-8")
 
-    service = OpenHandsControlledBackendService(repo_root=repo_root, run_root=tmp_path / "runs")
+    service = OpenHandsControlledBackendService(
+        repo_root=repo_root,
+        run_root=tmp_path / "runs",
+    )
     request = ControlledExecutionRequest(
         task_id="demo-dirty",
         prompt="Create helper file",
@@ -191,7 +215,10 @@ def test_openhands_cli_can_fallback_to_mock_patch(tmp_path: Path) -> None:
     repo_root.mkdir()
     _create_min_repo(repo_root)
 
-    service = OpenHandsControlledBackendService(repo_root=repo_root, run_root=run_root)
+    service = OpenHandsControlledBackendService(
+        repo_root=repo_root,
+        run_root=run_root,
+    )
     request = ControlledExecutionRequest(
         task_id="demo-fallback",
         prompt="Create helper file",
