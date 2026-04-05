@@ -18,12 +18,19 @@ from autoresearch.agent_protocol.models import (
     ValidationCheck,
     ValidationReport,
 )
-from autoresearch.agent_protocol.decision import attempt_succeeded, derive_terminal_status
+from autoresearch.agent_protocol.decision import (
+    attempt_succeeded,
+    derive_terminal_status,
+)
 from autoresearch.agent_protocol.policy import EffectivePolicy, build_effective_policy
 from autoresearch.agent_protocol.registry import AgentRegistry
 from autoresearch.core.services.git_promotion_gate import GitPromotionGateService
 from autoresearch.core.services.writer_lease import WriterLeaseService
-from autoresearch.shared.models import GitPromotionMode, PromotionActorRole, PromotionIntent
+from autoresearch.shared.models import (
+    GitPromotionMode,
+    PromotionActorRole,
+    PromotionIntent,
+)
 
 _RUNTIME_DENY_PREFIXES = (
     "logs/",
@@ -72,7 +79,8 @@ class AgentExecutionRunner:
         artifacts_dir.mkdir(parents=True, exist_ok=True)
 
         job_path.write_text(
-            json.dumps(job.model_dump(mode="json"), ensure_ascii=False, indent=2), encoding="utf-8"
+            json.dumps(job.model_dump(mode="json"), ensure_ascii=False, indent=2),
+            encoding="utf-8",
         )
         policy_payload = {
             "hard": effective_policy.hard.model_dump(mode="json"),
@@ -99,7 +107,6 @@ class AgentExecutionRunner:
             message="no attempt executed",
         )
         last_validation = ValidationReport(run_id=job.run_id, passed=False, checks=[])
-        last_patch_filtered_paths: list[str] = []
 
         while True:
             if pending_attempts <= 0:
@@ -152,7 +159,11 @@ class AgentExecutionRunner:
                 timeout_sec=effective_policy.merged.timeout_sec,
             )
             result_path.write_text(
-                json.dumps(driver_result.model_dump(mode="json"), ensure_ascii=False, indent=2),
+                json.dumps(
+                    driver_result.model_dump(mode="json"),
+                    ensure_ascii=False,
+                    indent=2,
+                ),
                 encoding="utf-8",
             )
 
@@ -179,7 +190,6 @@ class AgentExecutionRunner:
                 driver_result = driver_result.model_copy(
                     update={"changed_paths": patch_filtered_paths}
                 )
-            last_patch_filtered_paths = patch_filtered_paths
 
             if self._has_policy_violation(validation):
                 driver_result = driver_result.model_copy(
@@ -214,7 +224,11 @@ class AgentExecutionRunner:
                     policy=effective_policy,
                     artifacts_dir=artifacts_dir,
                 )
-                final_status = "promoted" if promotion.mode is GitPromotionMode.DRAFT_PR else "ready_for_promotion"
+                final_status = (
+                    "promoted"
+                    if promotion.mode is GitPromotionMode.DRAFT_PR
+                    else "ready_for_promotion"
+                )
                 if not promotion.success:
                     final_status = "blocked"
                 summary = RunSummary(
@@ -227,7 +241,11 @@ class AgentExecutionRunner:
                     promotion=promotion,
                 )
                 summary_path.write_text(
-                    json.dumps(summary.model_dump(mode="json"), ensure_ascii=False, indent=2),
+                    json.dumps(
+                        summary.model_dump(mode="json"),
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
                     encoding="utf-8",
                 )
                 self._cleanup_workspace(
@@ -281,9 +299,18 @@ class AgentExecutionRunner:
             "dashboard/.next",
             ".masfactory_runtime",
         )
-        shutil.copytree(self._repo_root, baseline_dir, dirs_exist_ok=True, ignore=ignore)
+        shutil.copytree(
+            self._repo_root,
+            baseline_dir,
+            dirs_exist_ok=True,
+            ignore=ignore,
+        )
 
-    def _snapshot_baseline_to_workspace(self, baseline_dir: Path, workspace_dir: Path) -> None:
+    def _snapshot_baseline_to_workspace(
+        self,
+        baseline_dir: Path,
+        workspace_dir: Path,
+    ) -> None:
         if workspace_dir.exists():
             shutil.rmtree(workspace_dir)
         shutil.copytree(baseline_dir, workspace_dir, dirs_exist_ok=True)
@@ -386,7 +413,10 @@ class AgentExecutionRunner:
             update={"metrics": merged_metrics, "attempt": attempt, "agent_id": agent_id}
         )
 
-        if completed.returncode == 10 and result.status not in {"policy_blocked", "contract_error"}:
+        if completed.returncode == 10 and result.status not in {
+            "policy_blocked",
+            "contract_error",
+        }:
             result = result.model_copy(update={"status": "policy_blocked"})
         if completed.returncode == 30 and result.status == "succeeded":
             result = result.model_copy(update={"status": "timed_out"})
@@ -395,7 +425,11 @@ class AgentExecutionRunner:
 
         return result
 
-    def _collect_changed_paths(self, baseline_dir: Path, workspace_dir: Path) -> list[str]:
+    def _collect_changed_paths(
+        self,
+        baseline_dir: Path,
+        workspace_dir: Path,
+    ) -> list[str]:
         base_files = self._collect_files(baseline_dir)
         workspace_files = self._collect_files(workspace_dir)
         all_paths = sorted(set(base_files) | set(workspace_files))
@@ -479,7 +513,9 @@ class AgentExecutionRunner:
             ValidationCheck(
                 id="builtin.max_changed_files",
                 passed=len(changed_paths) <= policy.merged.max_changed_files,
-                detail=f"changed={len(changed_paths)} limit={policy.merged.max_changed_files}",
+                detail=(
+                    f"changed={len(changed_paths)} " f"limit={policy.merged.max_changed_files}"
+                ),
             )
         )
 
@@ -513,7 +549,9 @@ class AgentExecutionRunner:
             ValidationCheck(
                 id="builtin.max_patch_lines",
                 passed=patch_line_count <= policy.merged.max_patch_lines,
-                detail=f"patch_lines={patch_line_count} limit={policy.merged.max_patch_lines}",
+                detail=(
+                    f"patch_lines={patch_line_count} " f"limit={policy.merged.max_patch_lines}"
+                ),
             )
         )
 
@@ -661,7 +699,9 @@ class AgentExecutionRunner:
                 "branch_name": self._sanitize_branch_name(
                     str(job.metadata.get("branch_name") or f"autoprom/{job.run_id}")
                 ),
-                "commit_message": str(job.metadata.get("commit_message") or f"Promotion for {job.run_id}"),
+                "commit_message": str(
+                    job.metadata.get("commit_message") or f"Promotion for {job.run_id}"
+                ),
                 "pr_title": str(job.metadata.get("pr_title") or f"Promotion for {job.run_id}"),
                 "pr_body": str(job.metadata.get("pr_body") or "Automated promotion draft PR."),
                 "validator_commands": [
@@ -761,7 +801,12 @@ class AgentExecutionRunner:
         return normalized or "autoprom/run"
 
     @staticmethod
-    def _cleanup_workspace(*, workspace_dir: Path, success: bool, policy: EffectivePolicy) -> None:
+    def _cleanup_workspace(
+        *,
+        workspace_dir: Path,
+        success: bool,
+        policy: EffectivePolicy,
+    ) -> None:
         if success and policy.merged.cleanup_on_success:
             shutil.rmtree(workspace_dir, ignore_errors=True)
             return
