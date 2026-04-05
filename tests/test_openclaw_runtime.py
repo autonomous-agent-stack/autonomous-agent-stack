@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+from uuid import uuid4
 
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.openclaw_runtime import (
@@ -231,6 +232,95 @@ def test_run_skill_selector_ambiguity_fails_closed(tmp_path: Path) -> None:
         raise AssertionError("expected OpenClawRuntimeContractError")
 
 
+def test_run_skill_missing_selector_fails_closed(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "workspace"
+    (workspace_root / "skills").mkdir(parents=True, exist_ok=True)
+    openclaw_service = _build_openclaw_service(tmp_path / "missing.sqlite3")
+    session_id = _create_session(openclaw_service)
+    service = OpenClawRuntimeService(
+        repo_root=tmp_path,
+        workspace_root=workspace_root,
+        openclaw_service=openclaw_service,
+    )
+
+    try:
+        asyncio.run(
+            service.execute(
+                OpenClawRuntimeJobSpec(
+                    job_id="job-missing-skill",
+                    action="run_skill",
+                    session_id=session_id,
+                    skill_id="does-not-exist",
+                    input={},
+                )
+            )
+        )
+    except OpenClawRuntimeContractError as exc:
+        assert "skill not found" in str(exc)
+    else:
+        raise AssertionError("expected OpenClawRuntimeContractError")
+
+
+def test_run_skill_resolves_by_name_and_dirname(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "workspace"
+    openclaw_service = _build_openclaw_service(tmp_path / "selector.sqlite3")
+    session_id = _create_session(openclaw_service)
+    service = OpenClawRuntimeService(
+        repo_root=tmp_path,
+        workspace_root=workspace_root,
+        openclaw_service=openclaw_service,
+    )
+
+    _write_skill(
+        workspace_root,
+        "dirname-match",
+        skill_id="skill-by-dir",
+        name="Skill By Directory",
+        entry_point="main.py",
+        python_source=(
+            "def execute(payload, credentials=None):\n"
+            "    return {'matched': 'dirname', 'payload': payload}\n"
+        ),
+    )
+    _write_skill(
+        workspace_root,
+        "name-skill-dir",
+        skill_id="skill-by-name",
+        name="Skill By Name",
+        entry_point="main.py",
+        python_source=(
+            "def execute(payload, credentials=None):\n"
+            "    return {'matched': 'name', 'payload': payload}\n"
+        ),
+    )
+
+    by_name = asyncio.run(
+        service.execute(
+            OpenClawRuntimeJobSpec(
+                job_id="job-name-selector",
+                action="run_skill",
+                session_id=session_id,
+                skill_id="skill by name",
+                input={"selector": "name"},
+            )
+        )
+    )
+    by_dirname = asyncio.run(
+        service.execute(
+            OpenClawRuntimeJobSpec(
+                job_id="job-dir-selector",
+                action="run_skill",
+                session_id=session_id,
+                skill_id="dirname-match",
+                input={"selector": "dirname"},
+            )
+        )
+    )
+
+    assert by_name.result == {"matched": "name", "payload": {"selector": "name"}}
+    assert by_dirname.result == {"matched": "dirname", "payload": {"selector": "dirname"}}
+
+
 def test_driver_writes_runtime_artifacts_for_send_message(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[1]
     workspace_root = tmp_path / "workspace"
@@ -296,3 +386,69 @@ def test_driver_writes_runtime_artifacts_for_send_message(tmp_path: Path) -> Non
     assert runtime_result["success"] is True
     assert (artifacts_dir / "openclaw_runtime_request.json").exists()
     assert (artifacts_dir / "openclaw_runtime_result.json").exists()
+
+
+def test_driver_rejects_repo_root_runtime_db_path(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir(parents=True, exist_ok=True)
+    artifacts_dir = tmp_path / "artifacts"
+    result_path = tmp_path / "driver_result.json"
+    job_path = tmp_path / "job.json"
+    blocked_db_path = repo_root / "artifacts" / "api" / f"runtime-blocked-{uuid4().hex}.sqlite3"
+
+    payload = OpenClawRuntimeJobSpec(
+        job_id="job-driver-db-blocked",
+        action="send_message",
+        session_id="oc_missing",
+        content="hello from driver",
+    )
+    job_payload = {
+        "protocol_version": "aep/v0",
+        "run_id": "job-driver-db-blocked",
+        "agent_id": "openclaw_runtime",
+        "role": "executor",
+        "mode": "runtime_only",
+        "task": "OpenClaw runtime action: send_message",
+        "input_artifacts": [],
+        "policy": {},
+        "validators": [],
+        "fallback": [],
+        "metadata": {
+            "openclaw_runtime": payload.model_dump(mode="json"),
+        },
+    }
+    job_path.write_text(json.dumps(job_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    env = dict(os.environ)
+    env.update(
+        {
+            "AEP_WORKSPACE": str(workspace_root),
+            "AEP_ARTIFACT_DIR": str(artifacts_dir),
+            "AEP_JOB_SPEC": str(job_path),
+            "AEP_RESULT_PATH": str(result_path),
+            "AUTORESEARCH_API_DB_PATH": str(blocked_db_path),
+        }
+    )
+
+    completed = subprocess.run(
+        [str(repo_root / "drivers" / "openclaw_runtime_adapter.py")],
+        cwd=repo_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    driver_result = json.loads(result_path.read_text(encoding="utf-8"))
+    runtime_result = json.loads(
+        (artifacts_dir / "openclaw_runtime_result.json").read_text(encoding="utf-8")
+    )
+
+    assert completed.returncode == 40
+    assert driver_result["status"] == "contract_error"
+    assert runtime_result["success"] is False
+    assert "runtime persistence path must stay outside repo/workspace roots" in (
+        driver_result["error"] or ""
+    )
+    assert not blocked_db_path.exists()

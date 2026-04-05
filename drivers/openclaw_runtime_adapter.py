@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import tempfile
 
 os.environ.setdefault("PYTHONDONTWRITEBYTECODE", "1")
 sys.dont_write_bytecode = True
@@ -57,7 +58,27 @@ def _api_db_path() -> Path:
     raw = (os.environ.get("AUTORESEARCH_API_DB_PATH") or "").strip()
     if raw:
         return Path(raw).expanduser().resolve()
-    return (REPO_ROOT / "artifacts" / "api" / "evaluations.sqlite3").resolve()
+    return (
+        Path(tempfile.gettempdir()) / "autoresearch_openclaw_runtime" / "evaluations.sqlite3"
+    ).resolve()
+
+
+def _is_within_root(candidate: Path, root: Path) -> bool:
+    try:
+        candidate.relative_to(root.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def _resolve_runtime_db_path(*, repo_root: Path, workspace_root: Path) -> Path:
+    db_path = _api_db_path()
+    for blocked_root in (repo_root.resolve(), workspace_root.resolve()):
+        if _is_within_root(db_path, blocked_root):
+            raise OpenClawRuntimeContractError(
+                f"runtime persistence path must stay outside repo/workspace roots: {db_path}"
+            )
+    return db_path
 
 
 def _write_failure_outputs(
@@ -135,10 +156,14 @@ async def _run() -> int:
             raise OpenClawRuntimeContractError("openclaw runtime job_id must match JobSpec.run_id")
 
         _write_json(request_artifact_path, spec.model_dump(mode="json"))
+        db_path = _resolve_runtime_db_path(
+            repo_root=REPO_ROOT,
+            workspace_root=workspace_root,
+        )
 
         openclaw_service = OpenClawCompatService(
             repository=SQLiteModelRepository(
-                db_path=_api_db_path(),
+                db_path=db_path,
                 table_name="openclaw_sessions",
                 model_cls=OpenClawSessionRead,
             )

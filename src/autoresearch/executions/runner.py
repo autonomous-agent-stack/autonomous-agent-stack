@@ -180,6 +180,19 @@ class AgentExecutionRunner:
                         pending_attempts = step.max_attempts
                         continue
                     if step.action == "fallback_agent":
+                        if job.mode == "runtime_only" or manifest.execution_semantics == "runtime":
+                            self._append_event(
+                                events_path,
+                                {
+                                    "type": "fallback_blocked",
+                                    "attempt": attempt,
+                                    "agent_id": current_agent,
+                                    "action": "fallback_agent",
+                                    "reason": "runtime_runs_disallow_fallback_agent",
+                                    "target_agent_id": step.agent_id,
+                                },
+                            )
+                            continue
                         if step.agent_id:
                             current_agent = step.agent_id
                         pending_attempts = step.max_attempts
