@@ -275,14 +275,22 @@ class AgentExecutionRunner:
                 )
 
                 changed_paths = self._collect_changed_paths(baseline_dir, workspace_dir)
-                patch_text, patch_filtered_paths, builtin_checks = self._build_filtered_patch(
-                    baseline_dir=baseline_dir,
-                    workspace_dir=workspace_dir,
-                    changed_paths=changed_paths,
-                    driver_result=driver_result,
-                    policy=effective_policy,
-                )
-                patch_path.write_text(patch_text, encoding="utf-8")
+                if active_manifest.execution_semantics == "runtime":
+                    if patch_path.exists():
+                        patch_path.unlink()
+                    patch_text, reported_changed_paths, builtin_checks = self._build_runtime_checks(
+                        changed_paths=changed_paths,
+                        driver_result=driver_result,
+                    )
+                else:
+                    patch_text, reported_changed_paths, builtin_checks = self._build_filtered_patch(
+                        baseline_dir=baseline_dir,
+                        workspace_dir=workspace_dir,
+                        changed_paths=changed_paths,
+                        driver_result=driver_result,
+                        policy=effective_policy,
+                    )
+                    patch_path.write_text(patch_text, encoding="utf-8")
 
                 validation = self._run_validators(
                     run_id=job.run_id,
@@ -295,9 +303,9 @@ class AgentExecutionRunner:
 
                 if not driver_result.changed_paths:
                     driver_result = driver_result.model_copy(
-                        update={"changed_paths": patch_filtered_paths}
+                        update={"changed_paths": reported_changed_paths}
                     )
-                last_patch_filtered_paths = patch_filtered_paths
+                last_patch_filtered_paths = reported_changed_paths
 
                 if self._has_policy_violation(validation):
                     driver_result = driver_result.model_copy(
@@ -323,11 +331,23 @@ class AgentExecutionRunner:
                 )
 
                 if attempt_succeeded(driver_result=driver_result, validation=validation):
+                    if active_manifest.execution_semantics == "runtime":
+                        final_summary = RunSummary(
+                            run_id=job.run_id,
+                            final_status="completed",
+                            driver_result=driver_result,
+                            validation=validation,
+                            promotion_patch_uri=None,
+                            promotion_preflight=None,
+                            promotion=None,
+                        )
+                        cleanup_success = True
+                        break
                     promotion_preflight, promotion = self._finalize_promotion(
                         job=job,
                         agent_id=current_agent,
                         patch_path=patch_path,
-                        changed_files=patch_filtered_paths,
+                        changed_files=reported_changed_paths,
                         validation=validation,
                         policy=effective_policy,
                         artifacts_dir=artifacts_dir,
@@ -425,6 +445,7 @@ class AgentExecutionRunner:
             "builtin.allowed_paths",
             "builtin.forbidden_paths",
             "builtin.no_runtime_artifacts",
+            "builtin.runtime_no_repo_writes",
         }
         return any(check.id in blocked_checks and not check.passed for check in validation.checks)
 
@@ -1014,6 +1035,27 @@ class AgentExecutionRunner:
             )
         )
         return patch_text, allowed_changed, checks
+
+    def _build_runtime_checks(
+        self,
+        *,
+        changed_paths: list[str],
+        driver_result: DriverResult,
+    ) -> tuple[str, list[str], list[ValidationCheck]]:
+        driver_succeeded = driver_result.status in {"succeeded", "partial"}
+        checks = [
+            ValidationCheck(
+                id="builtin.driver_success",
+                passed=driver_succeeded,
+                detail=driver_result.status,
+            ),
+            ValidationCheck(
+                id="builtin.runtime_no_repo_writes",
+                passed=not changed_paths,
+                detail="ok" if not changed_paths else "; ".join(sorted(changed_paths)),
+            ),
+        ]
+        return "", list(changed_paths), checks
 
     def _meaningful_progress_signature(
         self,

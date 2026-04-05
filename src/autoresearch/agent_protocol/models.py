@@ -7,6 +7,18 @@ from pydantic import Field
 from autoresearch.shared.models import PromotionPreflight, PromotionResult, StrictModel
 
 
+ExecutionMode = Literal["plan_only", "patch_only", "apply_in_workspace", "review_only", "runtime_only"]
+AgentExecutionSemantics = Literal["patch", "runtime"]
+RunFinalStatus = Literal[
+    "ready_for_promotion",
+    "blocked",
+    "failed",
+    "promoted",
+    "human_review",
+    "completed",
+]
+
+
 class ArtifactRef(StrictModel):
     name: str
     kind: Literal["log", "report", "plan", "patch", "compliance", "custom"]
@@ -62,7 +74,7 @@ class JobSpec(StrictModel):
 
     agent_id: str
     role: Literal["planner", "executor", "reviewer", "analyst"] = "executor"
-    mode: Literal["plan_only", "patch_only", "apply_in_workspace", "review_only"] = "patch_only"
+    mode: ExecutionMode = "patch_only"
 
     task: str
     input_artifacts: list[ArtifactRef] = Field(default_factory=list)
@@ -134,13 +146,7 @@ class ValidationReport(StrictModel):
 
 class RunSummary(StrictModel):
     run_id: str
-    final_status: Literal[
-        "ready_for_promotion",
-        "blocked",
-        "failed",
-        "promoted",
-        "human_review",
-    ]
+    final_status: RunFinalStatus
     driver_result: DriverResult
     validation: ValidationReport
     promotion_patch_uri: str | None = None
@@ -153,8 +159,7 @@ class AgentManifest(StrictModel):
     kind: Literal["process"] = "process"
     entrypoint: str
     version: str = "0.1"
+    execution_semantics: AgentExecutionSemantics = "patch"
     capabilities: list[str] = Field(default_factory=list)
-    default_mode: Literal["plan_only", "patch_only", "apply_in_workspace", "review_only"] = (
-        "apply_in_workspace"
-    )
+    default_mode: ExecutionMode = "apply_in_workspace"
     policy_defaults: ExecutionPolicy = Field(default_factory=ExecutionPolicy)
