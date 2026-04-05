@@ -142,6 +142,8 @@ make review-gates-local
 `make agent-run AEP_AGENT=claude_code ...` 会调用 `drivers/claude_code_adapter.sh`。默认要求本机已有 `claude` CLI 且 `claude auth status` 为已登录；默认权限模式是 `auto`，先试 `acceptEdits`，不通再切 `bypassPermissions`。
 `make agent-scaffold AGENT_SCAFFOLD_ID=<agent_id>` 会生成新的 process driver 骨架：manifest、adapter、测试文件和 README 片段。
 
+`OpenClaw` 不走 process driver，而是单独的 runtime adapter lane。runtime v1 的 contract/manifest/bridge 见 [OpenClaw Runtime Adapter](./docs/openclaw-runtime-adapter.md)。
+
 `make review-gates-local` 会在本地运行 reviewer 核心模块的 `mypy + bandit + semgrep`，与 CI 的 `Quality Gates` 流程保持一致。
 
 ## PR 审查与门禁
