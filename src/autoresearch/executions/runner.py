@@ -99,7 +99,6 @@ class AgentExecutionRunner:
             message="no attempt executed",
         )
         last_validation = ValidationReport(run_id=job.run_id, passed=False, checks=[])
-        last_patch_filtered_paths: list[str] = []
 
         while True:
             if pending_attempts <= 0:
