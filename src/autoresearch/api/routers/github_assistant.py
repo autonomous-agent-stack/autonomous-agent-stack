@@ -48,6 +48,11 @@ def _github_assistant_http_exception(exc: Exception) -> HTTPException:
         )
     ):
         status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        detail = (
+            "GitHub auth unavailable. Run `gh auth login` with the configured bot account, "
+            "then rerun `./assistant doctor` or `GET /api/v1/github-assistant/doctor`. "
+            f"Original error: {detail}"
+        )
     elif isinstance(exc, RuntimeError):
         status_code = status.HTTP_502_BAD_GATEWAY
     else:

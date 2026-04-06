@@ -107,3 +107,33 @@ def test_github_assistant_execute_route_returns_artifacts_and_summary(tmp_path: 
         assert payload["run_dir"].endswith("/issue-21")
     finally:
         app.dependency_overrides.clear()
+
+
+def test_github_assistant_execute_route_surfaces_auth_remediation(tmp_path: Path) -> None:
+    _write_template_root(tmp_path, repos=[_repo_config()])
+
+    class AuthFailingGitHubGateway(FakeGitHubGateway):
+        def fetch_issue(self, repo: str, issue_number: int):  # type: ignore[override]
+            raise RuntimeError("gh auth status failed: token invalid")
+
+    service = GitHubAssistantService(
+        repo_root=tmp_path,
+        github=AuthFailingGitHubGateway(authenticated=False),
+        executor_runner=lambda **_: None,
+    )
+    app.dependency_overrides[get_github_assistant_service] = lambda: service
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v1/github-assistant/execute",
+                json={"repo": "acme/demo", "issue_number": 21},
+            )
+            assert response.status_code == 503
+            detail = response.json()["detail"]
+
+        assert "GitHub auth unavailable." in detail
+        assert "gh auth login" in detail
+        assert "./assistant doctor" in detail
+    finally:
+        app.dependency_overrides.clear()
