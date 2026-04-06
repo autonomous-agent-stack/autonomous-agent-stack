@@ -41,7 +41,6 @@ from autoresearch.core.services.reports import ReportService
 from autoresearch.core.services.self_integration import SelfIntegrationService
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
 from autoresearch.core.services.variants import VariantService
-from autoresearch.core.services.youtube_agent import YouTubeAgentService
 from autoresearch.shared.models import (
     ClaudeAgentRunRead,
     AdminAgentConfigRead,
@@ -61,11 +60,6 @@ from autoresearch.shared.models import (
     PanelAuditLogRead,
     ReportRead,
     VariantRead,
-    YouTubeDigestRead,
-    YouTubeRunRead,
-    YouTubeSubscriptionRead,
-    YouTubeTranscriptRead,
-    YouTubeVideoRead,
 )
 from autoresearch.shared.store import SQLiteModelRepository
 from autoresearch.train.services.experiments import ExperimentService
@@ -151,6 +145,9 @@ def get_execution_service() -> ExecutionService:
 @lru_cache(maxsize=1)
 def get_github_assistant_service() -> GitHubAssistantService:
     return GitHubAssistantService(repo_root=_repo_root())
+
+
+@lru_cache(maxsize=1)
 def get_openclaw_compat_service() -> OpenClawCompatService:
     return OpenClawCompatService(
         repository=SQLiteModelRepository(
