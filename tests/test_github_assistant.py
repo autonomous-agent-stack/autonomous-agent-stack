@@ -218,7 +218,7 @@ def _write_template_root(
         "workspace_root": "/tmp/github-assistant-tests",
         "prompts_dir": "prompts",
         "policy_path": "policies/default-policy.yaml",
-        "executor": {"command": [], "timeout_seconds": 120, "env": {}},
+        "executor": {"adapter": "codex", "binary": "codex", "command": [], "timeout_seconds": 120, "env": {}},
         "schedule": {"issue_label": "assistant:auto", "max_issues_per_repo": 5},
     }
     if assistant_overrides:
@@ -313,7 +313,7 @@ def _read_summary(run_dir: Path) -> dict[str, object]:
 
 def test_doctor_reports_missing_configs(tmp_path: Path) -> None:
     gateway = FakeGitHubGateway()
-    service = GitHubAssistantService(repo_root=tmp_path, github=gateway)
+    service = GitHubAssistantService(repo_root=tmp_path, github=gateway, executor_runner=lambda **_: None)
 
     checks, ok = service.doctor()
 
@@ -325,7 +325,7 @@ def test_doctor_reports_missing_configs(tmp_path: Path) -> None:
 def test_doctor_reports_gh_auth_and_repo_access_failures(tmp_path: Path) -> None:
     _write_template_root(tmp_path, repos=[_repo_config()])
     gateway = FakeGitHubGateway(installed=True, authenticated=False, accessible_repos=set())
-    service = GitHubAssistantService(repo_root=tmp_path, github=gateway)
+    service = GitHubAssistantService(repo_root=tmp_path, github=gateway, executor_runner=lambda **_: None)
 
     checks, ok = service.doctor()
     check_map = {check.name: check for check in checks}
@@ -333,6 +333,32 @@ def test_doctor_reports_gh_auth_and_repo_access_failures(tmp_path: Path) -> None
     assert ok is False
     assert check_map["gh auth"].status.value == "FAIL"
     assert check_map["repo:acme/demo"].status.value == "WARN"
+
+
+def test_doctor_reports_executor_and_directory_failures(tmp_path: Path) -> None:
+    bad_runs = tmp_path / "runs.txt"
+    bad_workspace = tmp_path / "workspace.txt"
+    bad_runs.write_text("not a directory\n", encoding="utf-8")
+    bad_workspace.write_text("not a directory\n", encoding="utf-8")
+    _write_template_root(
+        tmp_path,
+        repos=[_repo_config()],
+        assistant_overrides={
+            "runs_dir": bad_runs.name,
+            "workspace_root": str(bad_workspace),
+            "executor": {"adapter": "codex", "binary": "missing-codex", "command": [], "timeout_seconds": 120, "env": {}},
+        },
+    )
+    gateway = FakeGitHubGateway(accessible_repos={"acme/demo"})
+    service = GitHubAssistantService(repo_root=tmp_path, github=gateway)
+
+    checks, ok = service.doctor()
+    check_map = {check.name: check for check in checks}
+
+    assert ok is False
+    assert check_map["runs dir"].status.value == "FAIL"
+    assert check_map["workspace root"].status.value == "FAIL"
+    assert check_map["executor"].status.value == "FAIL"
 
 
 def test_load_assistant_config_applies_environment_overrides(tmp_path: Path, monkeypatch) -> None:

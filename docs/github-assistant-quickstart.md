@@ -1,4 +1,4 @@
-# GitHub Assistant Template Quickstart
+# GitHub Assistant Quickstart
 
 ## 1. Bootstrap
 
@@ -57,9 +57,12 @@ curl http://127.0.0.1:8001/api/v1/github-assistant/doctor
 curl -X POST http://127.0.0.1:8001/api/v1/github-assistant/triage \
   -H 'Content-Type: application/json' \
   -d '{"repo":"your-org/your-repo","issue_number":123}'
+curl -X POST http://127.0.0.1:8001/api/v1/github-assistant/execute \
+  -H 'Content-Type: application/json' \
+  -d '{"repo":"your-org/your-repo","issue_number":123}'
 ```
 
-如果本地 `gh auth status` 不通过，涉及真实 GitHub 调用的接口会直接返回 `503`，提示当前环境不可执行。
+如果本地 `gh auth status` 不通过，`health` 会降级，`doctor` 会把 `gh auth` 标成 `FAIL`，涉及真实 GitHub 调用的接口会直接返回 `503`，提示当前环境不可执行。
 
 ## 5. Triage
 

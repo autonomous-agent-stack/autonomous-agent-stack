@@ -126,6 +126,11 @@ class GitHubAssistantService:
             raise FileNotFoundError(f"run summary not found: {summary_path}")
         return RunSummary.model_validate_json(summary_path.read_text(encoding="utf-8"))
 
+    def list_artifacts(self, run_dir: Path) -> list[str]:
+        if not run_dir.exists():
+            return []
+        return sorted(item.name for item in run_dir.iterdir() if item.is_file())
+
     def doctor(self) -> tuple[list[DoctorCheck], bool]:
         checks: list[DoctorCheck] = []
         assistant_path = self._repo_root / "assistant.yaml"
@@ -1044,6 +1049,8 @@ class GitHubAssistantService:
                 detail=f"{path} exists but is not a directory",
             )
         probe_root = path if path.exists() else path.parent
+        while not probe_root.exists() and probe_root != probe_root.parent:
+            probe_root = probe_root.parent
         try:
             writable = os.access(probe_root, os.W_OK)
         except Exception as exc:  # pragma: no cover - defensive
