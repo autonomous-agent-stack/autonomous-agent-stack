@@ -23,7 +23,7 @@
 1. 克隆模板仓库
 2. 安装 `gh` 并登录 Bot 账号
 3. 复制配置文件
-4. 运行 `./assistant doctor`
+4. 运行 `./assistant doctor` 或 `GET /api/v1/github-assistant/doctor`
 5. 对任意一个受管仓库执行一次 `triage`
 6. 再执行一次 `review-pr` 或 `release-plan`，确认新的 lane 也可用
 
