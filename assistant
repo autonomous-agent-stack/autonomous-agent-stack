@@ -1,12 +1,41 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent
 SRC = ROOT / "src"
+VENV_PYTHON = ROOT / ".venv" / "bin" / "python"
+
+
+def _prefer_project_venv() -> None:
+    if not VENV_PYTHON.exists():
+        return
+    if Path(sys.executable).resolve() == VENV_PYTHON.resolve():
+        return
+
+    env = os.environ.copy()
+    pythonpath = env.get("PYTHONPATH", "")
+    src_entry = str(SRC)
+    if pythonpath:
+        parts = pythonpath.split(os.pathsep)
+        if src_entry not in parts:
+            env["PYTHONPATH"] = os.pathsep.join([src_entry, *parts])
+    else:
+        env["PYTHONPATH"] = src_entry
+
+    os.execve(
+        str(VENV_PYTHON),
+        [str(VENV_PYTHON), str(ROOT / "assistant"), *sys.argv[1:]],
+        env,
+    )
+
+
+_prefer_project_venv()
+
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
