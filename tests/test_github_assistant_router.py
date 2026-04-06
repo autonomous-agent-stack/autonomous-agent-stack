@@ -42,6 +42,29 @@ def test_github_assistant_doctor_route_surfaces_auth_failure(tmp_path: Path) -> 
         app.dependency_overrides.clear()
 
 
+def test_github_assistant_health_route_reflects_degraded_auth_state(tmp_path: Path) -> None:
+    _write_template_root(tmp_path, repos=[_repo_config()])
+    service = GitHubAssistantService(
+        repo_root=tmp_path,
+        github=FakeGitHubGateway(installed=True, authenticated=False, accessible_repos=set()),
+        executor_runner=lambda **_: None,
+    )
+    app.dependency_overrides[get_github_assistant_service] = lambda: service
+
+    try:
+        with TestClient(app) as client:
+            response = client.get("/api/v1/github-assistant/health")
+            assert response.status_code == 200
+            payload = response.json()
+
+        assert payload["status"] == "degraded"
+        assert payload["doctor_ok"] is False
+        assert payload["gh_auth_ok"] is False
+        assert payload["expected_bot_account"] == "demo-bot"
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_github_assistant_execute_route_returns_artifacts_and_summary(tmp_path: Path) -> None:
     source_repo = tmp_path / "source-repo"
     source_repo.mkdir()
