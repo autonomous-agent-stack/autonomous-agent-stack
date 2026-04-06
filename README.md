@@ -175,6 +175,58 @@ PORT=8010 make start
 2. OpenHands 在隔离 workspace 执行
 3. 输出 promotion patch 与审计摘要（不直接污染主仓库）
 
+## GitHub Assistant
+
+仓库根目录现在带了一套 GitHub 助理模板，并且已经接入主 API 控制面：
+
+- `assistant.yaml`
+- `repos.yaml`
+- `prompts/`
+- `policies/default-policy.yaml`
+- `./assistant`
+
+主应用暴露的入口如下：
+
+- `GET /api/v1/github-assistant/health`
+- `GET /api/v1/github-assistant/doctor`
+- `POST /api/v1/github-assistant/triage`
+- `POST /api/v1/github-assistant/execute`
+- `POST /api/v1/github-assistant/review-pr`
+- `POST /api/v1/github-assistant/release-plan`
+- `POST /api/v1/github-assistant/schedule/run`
+
+本地 CLI 仍然保留：
+
+```bash
+./assistant doctor
+./assistant triage owner/repo 123
+./assistant execute owner/repo 123
+./assistant review-pr owner/repo 456
+./assistant release-plan owner/repo --version v1.2.3
+./assistant schedule run
+```
+
+默认执行器仍是 `codex`，并支持通过环境变量覆盖关键运行配置：
+
+- `GH_ASSISTANT_BOT_ACCOUNT`
+- `GH_ASSISTANT_WORKSPACE_ROOT`
+- `GH_ASSISTANT_EXECUTOR_ADAPTER`
+- `GH_ASSISTANT_EXECUTOR_BINARY`
+- `GH_ASSISTANT_EXECUTOR`
+
+运维建议：
+
+- 先看 `GET /api/v1/github-assistant/health`
+- 再看 `GET /api/v1/github-assistant/doctor` 的逐项检查
+- 如果本机 `gh auth` 失效，health 会降级，真实 GitHub 操作接口会返回 `503`，不会伪装成功
+
+相关文档：
+
+- [Quickstart](./docs/github-assistant-quickstart.md)
+- [Migration Guide](./docs/github-assistant-migration.md)
+- [Repo Onboarding](./docs/github-assistant-onboarding.md)
+- [Safety Rules](./docs/github-assistant-safety.md)
+
 ---
 
 ## 🔗 相关文档

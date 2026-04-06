@@ -1,0 +1,14 @@
+forbidden_paths:
+  - .git/**
+  - runs/**
+  - memory/**
+  - logs/**
+  - .masfactory_runtime/**
+allow_comment: true
+allow_label: true
+allow_assign: true
+allow_branch: true
+allow_commit: true
+allow_push: true
+allow_draft_pr: true
+allow_autoclose: false

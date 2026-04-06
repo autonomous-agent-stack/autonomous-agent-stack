@@ -20,6 +20,7 @@ from autoresearch.core.adapters import (
     MCPContextProviderAdapter,
     OpenClawSkillProviderAdapter,
 )
+from autoresearch.github_assistant.service import GitHubAssistantService
 from autoresearch.core.repositories import SQLiteEvaluationRepository
 from autoresearch.core.services.admin_auth import AdminAuthService
 from autoresearch.core.services.admin_config import AdminConfigService
@@ -40,6 +41,7 @@ from autoresearch.core.services.reports import ReportService
 from autoresearch.core.services.self_integration import SelfIntegrationService
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
 from autoresearch.core.services.variants import VariantService
+from autoresearch.core.services.youtube_agent import YouTubeAgentService
 from autoresearch.shared.models import (
     ClaudeAgentRunRead,
     AdminAgentConfigRead,
@@ -59,6 +61,11 @@ from autoresearch.shared.models import (
     PanelAuditLogRead,
     ReportRead,
     VariantRead,
+    YouTubeDigestRead,
+    YouTubeRunRead,
+    YouTubeSubscriptionRead,
+    YouTubeTranscriptRead,
+    YouTubeVideoRead,
 )
 from autoresearch.shared.store import SQLiteModelRepository
 from autoresearch.train.services.experiments import ExperimentService
@@ -142,6 +149,8 @@ def get_execution_service() -> ExecutionService:
 
 
 @lru_cache(maxsize=1)
+def get_github_assistant_service() -> GitHubAssistantService:
+    return GitHubAssistantService(repo_root=_repo_root())
 def get_openclaw_compat_service() -> OpenClawCompatService:
     return OpenClawCompatService(
         repository=SQLiteModelRepository(
@@ -368,6 +377,7 @@ def clear_dependency_caches() -> None:
     get_optimization_service.cache_clear()
     get_experiment_service.cache_clear()
     get_execution_service.cache_clear()
+    get_github_assistant_service.cache_clear()
     get_openclaw_compat_service.cache_clear()
     get_openclaw_memory_service.cache_clear()
     get_capability_provider_registry.cache_clear()
