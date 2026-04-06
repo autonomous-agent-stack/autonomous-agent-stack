@@ -191,6 +191,74 @@ PORT=8010 make start
 - [MASFactory 骨架](./src/masfactory/graph.py)
 - [MASFactory 首航示例](./examples/masfactory_first_flight.py)
 
+## GitHub 专业助理模板
+
+仓库根目录现在带了一套本地优先的 GitHub 助理模板骨架：
+
+- `assistant.yaml`
+- `repos.yaml`
+- `prompts/`
+- `policies/default-policy.yaml`
+- `./assistant`
+
+该能力现在已经挂进主应用主路径：
+
+- `GET /api/v1/github-assistant/health`
+- `GET /api/v1/github-assistant/doctor`
+- `POST /api/v1/github-assistant/triage`
+- `POST /api/v1/github-assistant/execute`
+- `POST /api/v1/github-assistant/review-pr`
+- `POST /api/v1/github-assistant/release-plan`
+- `POST /api/v1/github-assistant/schedule/run`
+
+也就是说它不再只是本地脚本模板，启动 API 后可以直接从 Swagger 或其他控制面调用。
+
+常用命令：
+
+```bash
+./assistant doctor
+./assistant triage owner/repo 123
+./assistant execute owner/repo 123
+./assistant review-pr owner/repo 456
+./assistant release-plan owner/repo --version v1.2.3
+./assistant schedule run
+```
+
+当前模板默认已用本机检测到的 GitHub 上下文预填：
+
+- Bot 账号：`nxs9bg24js-tech`
+- 当前受管仓库样例：`srxly888-creator/autonomous-agent-stack`
+
+executor 适配层已内建 4 种模式：
+
+- `shell`
+- `codex`
+- `openhands`
+- `custom`
+
+其中 `assistant.yaml` 当前默认用 `codex` 适配器。
+
+运行时支持用环境变量覆盖关键配置：
+
+- `GH_ASSISTANT_BOT_ACCOUNT`
+- `GH_ASSISTANT_WORKSPACE_ROOT`
+- `GH_ASSISTANT_EXECUTOR_ADAPTER`
+- `GH_ASSISTANT_EXECUTOR_BINARY`
+- `GH_ASSISTANT_EXECUTOR`
+
+运维建议：
+
+- 先看 `GET /api/v1/github-assistant/health` 是否为 `ok`
+- 再看 `GET /api/v1/github-assistant/doctor` 的逐项检查结果
+- 如果本机 `gh auth` 失效，health 会降级，真实 GitHub 操作接口会明确返回 `503`，不会伪装成功
+
+相关文档：
+
+- [Quickstart](./docs/github-assistant-quickstart.md)
+- [Migration Guide](./docs/github-assistant-migration.md)
+- [Repo Onboarding](./docs/github-assistant-onboarding.md)
+- [Safety Rules](./docs/github-assistant-safety.md)
+
 ## 快速排错
 
 1. 先跑 `make doctor`，看是否有 `FAIL`

@@ -1,0 +1,21 @@
+bot_account: nxs9bg24js-tech
+branch_prefix: assistant/issue
+draft_pr_only: true
+manual_trigger_enabled: true
+scheduled_trigger_enabled: false
+issue_autoclose: false
+max_changed_files: 10
+max_patch_lines: 400
+runs_dir: runs
+workspace_root: /tmp/github-assistant
+prompts_dir: prompts
+policy_path: policies/default-policy.yaml
+executor:
+  adapter: codex
+  binary: codex
+  command: []
+  timeout_seconds: 1800
+  env: {}
+schedule:
+  issue_label: assistant:auto
+  max_issues_per_repo: 5

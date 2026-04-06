@@ -15,6 +15,7 @@ from autoresearch.api.settings import (
 )
 from autoresearch.agents.opensource_searcher import GitHubSearcher
 from autoresearch.agents.manager_agent import ManagerAgentService
+from autoresearch.core.repositories import SQLiteYouTubeRepository
 from autoresearch.core.adapters import (
     AppleCalendarAdapter,
     CapabilityProviderRegistry,
@@ -22,6 +23,7 @@ from autoresearch.core.adapters import (
     MCPContextProviderAdapter,
     OpenClawSkillProviderAdapter,
 )
+from autoresearch.github_assistant.service import GitHubAssistantService
 from autoresearch.core.repositories import SQLiteEvaluationRepository
 from autoresearch.core.services.admin_auth import AdminAuthService
 from autoresearch.core.services.admin_config import AdminConfigService
@@ -46,6 +48,7 @@ from autoresearch.core.services.self_integration import SelfIntegrationService
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
 from autoresearch.core.services.upstream_watcher import UpstreamWatcherService
 from autoresearch.core.services.variants import VariantService
+from autoresearch.core.services.youtube_agent import YouTubeAgentService
 from autoresearch.shared.models import (
     ClaudeAgentRunRead,
     AdminAgentConfigRead,
@@ -65,6 +68,11 @@ from autoresearch.shared.models import (
     PanelAuditLogRead,
     ReportRead,
     VariantRead,
+    YouTubeDigestRead,
+    YouTubeRunRead,
+    YouTubeSubscriptionRead,
+    YouTubeTranscriptRead,
+    YouTubeVideoRead,
 )
 from autoresearch.shared.autoresearch_planner_contract import AutoResearchPlanRead
 from autoresearch.shared.manager_agent_contract import ManagerDispatchRead
@@ -150,6 +158,14 @@ def get_execution_service() -> ExecutionService:
 
 
 @lru_cache(maxsize=1)
+def get_youtube_agent_service() -> YouTubeAgentService:
+    return YouTubeAgentService(
+        repository=SQLiteYouTubeRepository(db_path=_api_db_path()),
+        repo_root=_repo_root(),
+    )
+
+
+@lru_cache(maxsize=1)
 def get_autoresearch_planner_service() -> AutoResearchPlannerService:
     return AutoResearchPlannerService(
         repository=SQLiteModelRepository(
@@ -177,6 +193,11 @@ def get_manager_agent_service() -> ManagerAgentService:
 @lru_cache(maxsize=1)
 def get_github_issue_service() -> GitHubIssueService:
     return GitHubIssueService(repo_root=_repo_root())
+
+
+@lru_cache(maxsize=1)
+def get_github_assistant_service() -> GitHubAssistantService:
+    return GitHubAssistantService(repo_root=_repo_root())
 
 
 @lru_cache(maxsize=1)
@@ -427,6 +448,7 @@ def clear_dependency_caches() -> None:
     get_optimization_service.cache_clear()
     get_experiment_service.cache_clear()
     get_execution_service.cache_clear()
+    get_youtube_agent_service.cache_clear()
     get_manager_agent_service.cache_clear()
     get_github_issue_service.cache_clear()
     get_openclaw_compat_service.cache_clear()
