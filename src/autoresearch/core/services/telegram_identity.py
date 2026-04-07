@@ -34,6 +34,9 @@ def build_telegram_session_identity(
     username = _safe_str(extracted.get("username"))
     chat_type = _coerce_chat_type(extracted.get("chat_type"))
     message_id = _safe_str(extracted.get("message_id"))
+    message_thread_id = _safe_str(extracted.get("message_thread_id"))
+    is_topic_message = bool(extracted.get("is_topic_message", False))
+    reply_to_message_id = _safe_str(extracted.get("reply_to_message_id"))
 
     scope = scope_override or (AssistantScope.PERSONAL if chat_type == ChatType.PRIVATE else AssistantScope.SHARED)
     role = _resolve_actor_role(user_id=user_id, settings=settings)
@@ -48,11 +51,12 @@ def build_telegram_session_identity(
         assistant_id = f"telegram-user:{identity_target}"
     else:
         identity_target = chat_id or user_id or "unknown"
-        session_key = (
-            f"telegram:shared:chat:{identity_target}"
-            if chat_id
-            else f"telegram:shared:user:{identity_target}"
-        )
+        if message_thread_id:
+            session_key = f"telegram:shared:chat:{identity_target}:topic:{message_thread_id}"
+        elif chat_id:
+            session_key = f"telegram:shared:chat:{identity_target}"
+        else:
+            session_key = f"telegram:shared:user:{identity_target}"
         assistant_id = (settings.shared_assistant_id or "").strip() or "telegram-shared"
 
     return TelegramSessionIdentityRead(
@@ -69,6 +73,9 @@ def build_telegram_session_identity(
             chat_type=chat_type,
             user_id=user_id,
             message_id=message_id,
+            message_thread_id=message_thread_id,
+            is_topic_message=is_topic_message,
+            reply_to_message_id=reply_to_message_id,
         ),
     )
 

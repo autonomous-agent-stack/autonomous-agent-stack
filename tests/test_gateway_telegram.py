@@ -13,12 +13,14 @@ from autoresearch.api.dependencies import (
     get_approval_store_service,
     get_capability_provider_registry,
     get_claude_agent_service,
+    get_claude_session_record_service,
     get_github_issue_service,
     get_manager_agent_service,
     get_openclaw_memory_service,
     get_openclaw_compat_service,
     get_panel_access_service,
     get_telegram_notifier_service,
+    get_worker_registry_service,
     get_worker_scheduler_service,
 )
 from autoresearch.api.main import app
@@ -36,12 +38,14 @@ from autoresearch.core.services.openclaw_memory import OpenClawMemoryService
 from autoresearch.core.services.panel_access import PanelAccessService
 from autoresearch.core.services.worker_registry import WorkerRegistryService
 from autoresearch.core.services.worker_scheduler import WorkerSchedulerService
+from autoresearch.core.services.claude_session_records import ClaudeSessionRecordService
 from autoresearch.shared.manager_agent_contract import ManagerDispatchRead
 from autoresearch.shared.models import (
     AdminAgentConfigRead,
     AdminChannelConfigRead,
     AdminConfigRevisionRead,
     ClaudeAgentRunRead,
+    ClaudeRuntimeSessionRecordRead,
     ApprovalRequestRead,
     ApprovalRequestCreateRequest,
     OpenClawMemoryRecordRead,
@@ -134,8 +138,10 @@ class _StubTelegramNotifier:
         text: str,
         disable_web_page_preview: bool = True,
         reply_markup: dict[str, object] | None = None,
+        message_thread_id: int | None = None,
+        reply_to_message_id: int | None = None,
     ) -> bool:
-        self.messages.append({"chat_id": chat_id, "text": text})
+        self.messages.append({"chat_id": chat_id, "text": text, "message_thread_id": message_thread_id})
         return True
 
     def notify_manual_action(self, *, chat_id: str, entry: object, run_status: str) -> bool:
@@ -292,7 +298,15 @@ def telegram_client(tmp_path: Path) -> TestClient:
     app.dependency_overrides[get_approval_store_service] = lambda: approval_service
     app.dependency_overrides[get_claude_agent_service] = lambda: claude_service
     app.dependency_overrides[get_admin_config_service] = lambda: admin_config_service
+    app.dependency_overrides[get_worker_registry_service] = lambda: worker_registry
     app.dependency_overrides[get_worker_scheduler_service] = lambda: worker_scheduler
+    app.dependency_overrides[get_claude_session_record_service] = lambda: ClaudeSessionRecordService(
+        repository=SQLiteModelRepository(
+            db_path=db_path,
+            table_name="claude_runtime_session_records_it",
+            model_cls=ClaudeRuntimeSessionRecordRead,
+        )
+    )
 
     with TestClient(app) as client:
         setattr(client, "_approval_store", approval_service)
@@ -335,20 +349,10 @@ def test_telegram_webhook_routes_to_openclaw_and_agents(
     assert payload["accepted"] is True
     assert payload["chat_id"] == "9527"
     assert payload["session_id"] is not None
-    assert payload["agent_run_id"] is not None
-
-    finalized = None
-    for _ in range(20):
-        fetched = telegram_client.get(f"/api/v1/openclaw/agents/{payload['agent_run_id']}")
-        assert fetched.status_code == 200
-        finalized = fetched.json()
-        if finalized["status"] in {"completed", "failed"}:
-            break
-        time.sleep(0.05)
-
-    assert finalized is not None
-    assert finalized["status"] == "completed"
-    assert "tg-agent-ok" in (finalized.get("stdout_preview") or "")
+    # Default chat now routes to worker queue instead of direct agent execution
+    assert payload.get("metadata", {}).get("routed_to") == "worker_queue"
+    run_id = payload.get("metadata", {}).get("run_id")
+    assert run_id is not None
 
     session = telegram_client.get(f"/api/v1/openclaw/sessions/{payload['session_id']}")
     assert session.status_code == 200
@@ -358,7 +362,6 @@ def test_telegram_webhook_routes_to_openclaw_and_agents(
     assert session_payload["session_key"] == "telegram:personal:user:9527"
     assert session_payload["chat_context"]["chat_type"] == "private"
     assert any(event["role"] == "user" for event in session_payload["events"])
-    assert any("agent queued" in event["content"] for event in session_payload["events"])
 
 
 def test_legacy_telegram_webhook_uses_same_processing_path(
@@ -387,7 +390,8 @@ def test_legacy_telegram_webhook_uses_same_processing_path(
     payload = response.json()
     assert payload["accepted"] is True
     assert payload["chat_id"] == "9528"
-    assert payload["agent_run_id"] is not None
+    # Default chat now routes to worker queue
+    assert payload.get("metadata", {}).get("routed_to") == "worker_queue"
 
 
 def test_telegram_webhook_separates_private_and_group_sessions(
@@ -737,8 +741,64 @@ def test_telegram_non_youtube_url_continues_to_existing_agent_path(
     assert response.status_code == 200
     payload = response.json()
     assert payload["accepted"] is True
-    assert payload["agent_run_id"] is not None
+    # Default chat now routes to worker queue
+    assert payload.get("metadata", {}).get("routed_to") == "worker_queue"
     assert payload["metadata"].get("source") != "telegram_youtube_autoflow"
+
+
+def test_telegram_short_affirmation_rewrites_followup_from_previous_assistant_question(
+    telegram_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "AUTORESEARCH_TELEGRAM_CLAUDE_COMMAND_OVERRIDE",
+        f"{sys.executable} -c \"import sys; print(sys.argv[-1])\"",
+    )
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_APPEND_PROMPT", "true")
+
+    openclaw_service = app.dependency_overrides[get_openclaw_compat_service]()
+    session = openclaw_service.create_session(
+        gateway_telegram.OpenClawSessionCreateRequest(
+            channel="telegram",
+            external_id="9714",
+            title="Telegram 9714",
+            metadata={"source": "test"},
+        )
+    )
+    openclaw_service.append_event(
+        session_id=session.session_id,
+        request=gateway_telegram.OpenClawSessionEventAppendRequest(
+            role="assistant",
+            content="今天还没有跑过视频字幕处理。需要我现在触发一次处理吗？",
+            metadata={"source": "test"},
+        ),
+    )
+
+    response = telegram_client.post(
+        "/api/v1/gateway/telegram/webhook",
+        json={
+            "update_id": 1319,
+            "message": {
+                "message_id": 92,
+                "text": "好",
+                "chat": {"id": 9714, "type": "private"},
+                "from": {"id": 9714, "username": "confirm-user"},
+            },
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["accepted"] is True
+    # Default chat now routes to worker queue
+    assert payload.get("metadata", {}).get("routed_to") == "worker_queue"
+    run_id = payload.get("metadata", {}).get("run_id")
+    assert run_id is not None
+
+    # Verify the queued task has the context-resolved prompt
+    scheduler = app.dependency_overrides[get_worker_scheduler_service]()
+    queued_run = scheduler.get_run(run_id)
+    assert queued_run is not None
+    assert queued_run.payload["prompt"].startswith("请按我上一条确认，立即触发一次今天的视频字幕处理。")
 
 def test_telegram_webhook_secret_token_guard(
     telegram_client: TestClient,
@@ -889,6 +949,147 @@ def test_telegram_status_query_returns_magic_link(
         assert "skill_providers: 1" in notifier.status_events[0]["summary"]
     finally:
         app.dependency_overrides.pop(get_panel_access_service, None)
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+        app.dependency_overrides.pop(get_capability_provider_registry, None)
+
+
+def test_telegram_location_query_includes_runtime_and_worker_summary(
+    telegram_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    notifier = _StubTelegramNotifier()
+    capability_registry = CapabilityProviderRegistry()
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+    app.dependency_overrides[get_capability_provider_registry] = lambda: capability_registry
+    monkeypatch.setattr(
+        gateway_telegram,
+        "get_runtime_identity",
+        lambda: {
+            "runtime_computer_name": "Linux VM",
+            "runtime_host": "linux-vm.local",
+            "runtime_host_short": "linux-vm",
+            "runtime_platform": "Linux",
+            "runtime_family": "linux",
+            "runtime_display": "Linux VM (linux)",
+            "runtime_fingerprint": "linux:linux-vm.local",
+        },
+    )
+
+    try:
+        registered = telegram_client.post(
+            "/api/v1/workers/register",
+            json={
+                "worker_id": "linux-01",
+                "worker_type": "linux",
+                "name": "Linux Worker",
+                "host": "linux-vm.local",
+                "mode": "active",
+                "role": "housekeeper",
+                "capabilities": ["youtube_autoflow"],
+            },
+        )
+        assert registered.status_code == 200
+
+        response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 3002,
+                "message": {
+                    "message_id": 91,
+                    "text": "在哪",
+                    "chat": {"id": 9527, "type": "private"},
+                    "from": {"id": 9527, "username": "alice"},
+                },
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["accepted"] is True
+        assert payload["agent_run_id"] is None
+
+        assert len(notifier.status_events) == 1
+        summary = notifier.status_events[0]["summary"]
+        assert "runtime: Linux VM (linux)" in summary
+        assert "runtime_host: linux-vm.local" in summary
+        assert "workers_online: 1" in summary
+        assert "worker linux-01 | linux/active | linux-vm.local | ok" in summary
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+        app.dependency_overrides.pop(get_capability_provider_registry, None)
+
+
+def test_telegram_runtime_switch_sends_notification(
+    telegram_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    notifier = _StubTelegramNotifier()
+    capability_registry = CapabilityProviderRegistry()
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+    app.dependency_overrides[get_capability_provider_registry] = lambda: capability_registry
+
+    try:
+        monkeypatch.setattr(
+            gateway_telegram,
+            "get_runtime_identity",
+            lambda: {
+                "runtime_computer_name": "Mac Mini",
+                "runtime_host": "mac-mini.local",
+                "runtime_host_short": "mac-mini",
+                "runtime_platform": "Darwin",
+                "runtime_family": "mac",
+                "runtime_display": "Mac Mini (mac)",
+                "runtime_fingerprint": "mac:mac-mini.local",
+            },
+        )
+        first = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 3003,
+                "message": {
+                    "message_id": 92,
+                    "text": "/memory 记住当前运行位置",
+                    "chat": {"id": 9531, "type": "private"},
+                    "from": {"id": 9531, "username": "runtime-user"},
+                },
+            },
+        )
+        assert first.status_code == 200
+        first_payload = first.json()
+
+        monkeypatch.setattr(
+            gateway_telegram,
+            "get_runtime_identity",
+            lambda: {
+                "runtime_computer_name": "Linux VM",
+                "runtime_host": "linux-vm.local",
+                "runtime_host_short": "linux-vm",
+                "runtime_platform": "Linux",
+                "runtime_family": "linux",
+                "runtime_display": "Linux VM (linux)",
+                "runtime_fingerprint": "linux:linux-vm.local",
+            },
+        )
+        second = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 3004,
+                "message": {
+                    "message_id": 93,
+                    "text": "/status",
+                    "chat": {"id": 9531, "type": "private"},
+                    "from": {"id": 9531, "username": "runtime-user"},
+                },
+            },
+        )
+        assert second.status_code == 200
+        assert any("执行环境已切换" in item["text"] for item in notifier.messages)
+
+        session = telegram_client.get(f"/api/v1/openclaw/sessions/{first_payload['session_id']}")
+        assert session.status_code == 200
+        session_payload = session.json()
+        assert session_payload["metadata"]["runtime_display"] == "Linux VM (linux)"
+        assert session_payload["metadata"]["runtime_previous_display"] == "Mac Mini (mac)"
+    finally:
         app.dependency_overrides.pop(get_telegram_notifier_service, None)
         app.dependency_overrides.pop(get_capability_provider_registry, None)
 

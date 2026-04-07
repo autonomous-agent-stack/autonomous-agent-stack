@@ -5,7 +5,7 @@ from enum import Enum
 import re
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 def utc_now() -> datetime:
@@ -172,6 +172,9 @@ class OpenClawSessionChatContextRead(StrictModel):
     chat_type: ChatType = ChatType.UNKNOWN
     user_id: str | None = None
     message_id: str | None = None
+    message_thread_id: str | None = None
+    is_topic_message: bool = False
+    reply_to_message_id: str | None = None
 
 
 class EvaluatorCommand(StrictModel):
@@ -1111,6 +1114,515 @@ class MiroFishPredictionRead(StrictModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class YouTubeTargetKind(str, Enum):
+    CHANNEL = "channel"
+    VIDEO = "video"
+    PLAYLIST = "playlist"
+    UNKNOWN = "unknown"
+
+
+class YouTubeSubscriptionStatus(str, Enum):
+    ACTIVE = "active"
+    PAUSED = "paused"
+    DELETED = "deleted"
+
+
+class YouTubeTranscriptSource(str, Enum):
+    MANUAL = "manual"
+    AUTOMATIC = "automatic"
+    MISSING = "missing"
+
+
+class YouTubeResultKind(str, Enum):
+    SUCCESS = "success"
+    WARNING = "warning"
+    NOOP = "noop"
+    FAILED = "failed"
+
+
+class YouTubeFailureKind(str, Enum):
+    UNSUPPORTED_SOURCE_OR_PARSE_FAILED = "unsupported_source_or_parse_failed"
+    NO_NEW_VIDEOS_FOUND = "no_new_videos_found"
+    VIDEO_UNAVAILABLE = "video_unavailable"
+    TRANSCRIPT_UNAVAILABLE = "transcript_unavailable"
+    RATE_LIMITED = "rate_limited"
+    AUTO_CAPTIONS_ONLY = "auto_captions_only"
+    SUBTITLE_LANGUAGE_MISMATCH = "subtitle_language_mismatch"
+    YT_DLP_EXTRACTOR_FAILURE = "yt_dlp_extractor_failure"
+    NETWORK_FAILURE = "network_failure"
+    TIMEOUT_FAILURE = "timeout_failure"
+    DUPLICATE_IDEMPOTENT_NOOP = "duplicate_idempotent_noop"
+    ASK_CONTEXT_MISSING = "ask_context_missing"
+
+
+class YouTubeFailedStage(str, Enum):
+    DISCOVERY = "discovery"
+    METADATA_FETCH = "metadata_fetch"
+    TRANSCRIPT_FETCH = "transcript_fetch"
+    DIGEST_BUILD = "digest_build"
+    ASK = "ask"
+
+
+class YouTubeRunKind(str, Enum):
+    SUBSCRIPTION_CHECK = "subscription_check"
+    VIDEO_METADATA_REFRESH = "video_metadata_refresh"
+    TRANSCRIPT_FETCH = "transcript_fetch"
+    DIGEST_GENERATE = "digest_generate"
+    QUESTION_ANSWER = "question_answer"
+
+
+class YouTubeSubscriptionCreateRequest(StrictModel):
+    source_url: str = Field(..., min_length=1)
+    title: str | None = None
+    auto_fetch_transcript: bool = True
+    auto_digest: bool = True
+    poll_interval_minutes: int = Field(default=60, ge=5, le=10080)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class YouTubeSubscriptionUpdateRequest(StrictModel):
+    title: str | None = None
+    status: YouTubeSubscriptionStatus | None = None
+    auto_fetch_transcript: bool | None = None
+    auto_digest: bool | None = None
+    poll_interval_minutes: int | None = Field(default=None, ge=5, le=10080)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class YouTubeSubscriptionCheckRequest(StrictModel):
+    force: bool = False
+    limit: int = Field(default=5, ge=1, le=50)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class YouTubeTranscriptCreateRequest(StrictModel):
+    preferred_languages: list[str] = Field(
+        default_factory=lambda: ["zh-Hans", "zh-CN", "en"]
+    )
+    include_auto_generated: bool = True
+    overwrite_existing: bool = False
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class YouTubeDigestCreateRequest(StrictModel):
+    format: Literal["markdown", "json"] = "markdown"
+    overwrite_existing: bool = False
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class YouTubeQuestionRequest(StrictModel):
+    question: str = Field(..., min_length=1)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class YouTubeSubscriptionImportItem(StrictModel):
+    source_url: str = Field(..., min_length=1)
+    title: str | None = None
+    status: YouTubeSubscriptionStatus = YouTubeSubscriptionStatus.ACTIVE
+    auto_fetch_transcript: bool = True
+    auto_digest: bool = True
+    poll_interval_minutes: int = Field(default=60, ge=5, le=10080)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class YouTubeSubscriptionImportRequest(StrictModel):
+    subscriptions: list[YouTubeSubscriptionImportItem] = Field(default_factory=list)
+
+
+class YouTubeSubscriptionRead(StrictModel):
+    subscription_id: str
+    source_url: str
+    normalized_url: str
+    target_kind: YouTubeTargetKind
+    external_id: str | None = None
+    title: str | None = None
+    status: YouTubeSubscriptionStatus = YouTubeSubscriptionStatus.ACTIVE
+    auto_fetch_transcript: bool = True
+    auto_digest: bool = True
+    poll_interval_minutes: int = 60
+    latest_video_id: str | None = None
+    last_checked_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class YouTubeVideoRead(StrictModel):
+    video_id: str
+    source_url: str
+    subscription_id: str | None = None
+    channel_id: str | None = None
+    channel_title: str | None = None
+    title: str | None = None
+    description: str | None = None
+    published_at: datetime | None = None
+    duration_seconds: int | None = None
+    status: JobStatus = JobStatus.CREATED
+    transcript_id: str | None = None
+    digest_id: str | None = None
+    created_at: datetime
+    updated_at: datetime
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class YouTubeTranscriptRead(StrictModel):
+    transcript_id: str
+    video_id: str
+    language: str
+    source: YouTubeTranscriptSource = YouTubeTranscriptSource.MISSING
+    status: JobStatus = JobStatus.CREATED
+    result_kind: YouTubeResultKind = YouTubeResultKind.SUCCESS
+    failure_kind: YouTubeFailureKind | None = None
+    failed_stage: YouTubeFailedStage | None = None
+    reason: str | None = None
+    content: str = ""
+    created_at: datetime
+    updated_at: datetime
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class YouTubeDigestRead(StrictModel):
+    digest_id: str
+    video_id: str
+    status: JobStatus = JobStatus.CREATED
+    result_kind: YouTubeResultKind = YouTubeResultKind.SUCCESS
+    failure_kind: YouTubeFailureKind | None = None
+    failed_stage: YouTubeFailedStage | None = None
+    reason: str | None = None
+    format: Literal["markdown", "json"] = "markdown"
+    content: str = ""
+    created_at: datetime
+    updated_at: datetime
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class YouTubeRunRead(StrictModel):
+    run_id: str
+    kind: YouTubeRunKind
+    status: JobStatus = JobStatus.CREATED
+    result_kind: YouTubeResultKind = YouTubeResultKind.SUCCESS
+    failure_kind: YouTubeFailureKind | None = None
+    failed_stage: YouTubeFailedStage | None = None
+    reason: str | None = None
+    subscription_id: str | None = None
+    video_id: str | None = None
+    summary: str | None = None
+    duration_seconds: float | None = None
+    created_at: datetime
+    updated_at: datetime
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    error: str | None = None
+
+
+class YouTubeCheckResultRead(StrictModel):
+    run: YouTubeRunRead
+    subscription: YouTubeSubscriptionRead
+    discovered_count: int = 0
+    discovered_video_ids: list[str] = Field(default_factory=list)
+    new_video_ids: list[str] = Field(default_factory=list)
+
+
+class YouTubeSubscriptionExportRead(StrictModel):
+    version: Literal["youtube_subscriptions.v1"] = "youtube_subscriptions.v1"
+    exported_at: datetime
+    subscriptions: list[YouTubeSubscriptionImportItem] = Field(default_factory=list)
+
+
+class YouTubeSubscriptionImportItemResultRead(StrictModel):
+    source_url: str
+    normalized_url: str | None = None
+    action: Literal["created", "updated", "restored", "skipped", "failed"]
+    subscription: YouTubeSubscriptionRead | None = None
+    error_kind: YouTubeFailureKind | None = None
+    reason: str | None = None
+
+
+class YouTubeSubscriptionImportResultRead(StrictModel):
+    imported_count: int = 0
+    created_count: int = 0
+    updated_count: int = 0
+    restored_count: int = 0
+    skipped_count: int = 0
+    failed_count: int = 0
+    items: list[YouTubeSubscriptionImportItemResultRead] = Field(default_factory=list)
+
+
+class YouTubeQuestionAnswerRead(StrictModel):
+    video_id: str
+    question: str
+    answer: str
+    citations: list[str] = Field(default_factory=list)
+    created_at: datetime
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class WorkerType(str, Enum):
+    LINUX = "linux"
+    MAC = "mac"
+    WIN_YINGDAO = "win_yingdao"
+    OPENCLAW = "openclaw"
+
+
+class WorkerMode(str, Enum):
+    ACTIVE = "active"
+    STANDBY = "standby"
+    DRAINING = "draining"
+    OFFLINE = "offline"
+
+
+class WorkerHealth(str, Enum):
+    OK = "ok"
+    DEGRADED = "degraded"
+    ERROR = "error"
+
+
+class WorkerRegisterRequest(StrictModel):
+    worker_id: str = Field(..., min_length=1)
+    worker_type: WorkerType
+    name: str | None = None
+    host: str | None = None
+    mode: WorkerMode = WorkerMode.ACTIVE
+    role: str | None = None
+    capabilities: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class WorkerHeartbeatRequest(StrictModel):
+    health: WorkerHealth = WorkerHealth.OK
+    load: float | None = Field(default=None, ge=0.0)
+    queue_depth: int = Field(default=0, ge=0)
+    disk_free_gb: float | None = Field(default=None, ge=0.0)
+    accepting_work: bool = True
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class WorkerRegistrationRead(StrictModel):
+    worker_id: str
+    worker_type: WorkerType
+    name: str | None = None
+    host: str | None = None
+    mode: WorkerMode = WorkerMode.ACTIVE
+    role: str | None = None
+    capabilities: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    health: WorkerHealth = WorkerHealth.OK
+    load: float | None = None
+    queue_depth: int = 0
+    disk_free_gb: float | None = None
+    accepting_work: bool = True
+    is_stale: bool = False
+    registered_at: datetime
+    last_heartbeat_at: datetime
+    updated_at: datetime
+
+
+class WorkerQueueName(str, Enum):
+    HOUSEKEEPING = "housekeeping"
+
+
+class WorkerTaskType(str, Enum):
+    NOOP = "noop"
+    CLEANUP_APPLEDOUBLE = "cleanup_appledouble"
+    CLEANUP_TMP = "cleanup_tmp"
+    YOUTUBE_ACTION = "youtube_action"
+    YOUTUBE_AUTOFLOW = "youtube_autoflow"
+    CLAUDE_RUNTIME = "claude_runtime"
+
+
+class WorkerRunProgressRead(StrictModel):
+    current: int = Field(default=0, ge=0)
+    total: int | None = Field(default=None, ge=0)
+
+
+class WorkerQueueItemCreateRequest(StrictModel):
+    queue_name: WorkerQueueName = WorkerQueueName.HOUSEKEEPING
+    task_name: str | None = None
+    task_type: WorkerTaskType = WorkerTaskType.NOOP
+    payload: dict[str, Any] = Field(default_factory=dict)
+    requested_by: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _derive_task_name(self) -> WorkerQueueItemCreateRequest:
+        if self.task_name is None or not self.task_name.strip():
+            self.task_name = self.task_type.value
+        else:
+            self.task_name = self.task_name.strip()
+        return self
+
+
+class WorkerQueueItemRead(StrictModel):
+    run_id: str
+    queue_name: WorkerQueueName
+    task_name: str
+    task_type: WorkerTaskType = WorkerTaskType.NOOP
+    payload: dict[str, Any] = Field(default_factory=dict)
+    requested_by: str | None = None
+    status: JobStatus = JobStatus.QUEUED
+    assigned_worker_id: str | None = None
+    message: str | None = None
+    progress: WorkerRunProgressRead | None = None
+    metrics: dict[str, Any] = Field(default_factory=dict)
+    result: dict[str, Any] | None = None
+    error: str | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class WorkerLeaseRead(StrictModel):
+    lease_id: str
+    run_id: str
+    worker_id: str
+    queue_name: WorkerQueueName
+    lease_expires_at: datetime
+    active: bool = True
+    created_at: datetime
+    updated_at: datetime
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class WorkerClaimRequest(StrictModel):
+    queue_name: WorkerQueueName = WorkerQueueName.HOUSEKEEPING
+
+
+class WorkerClaimRead(StrictModel):
+    claimed: bool = False
+    queue_name: WorkerQueueName
+    worker_id: str
+    run: WorkerQueueItemRead | None = None
+    lease: WorkerLeaseRead | None = None
+    reason: str | None = None
+    created_at: datetime
+
+
+class WorkerRunReportRequest(StrictModel):
+    status: JobStatus
+    message: str | None = None
+    progress: WorkerRunProgressRead | None = None
+    metrics: dict[str, Any] = Field(default_factory=dict)
+    result: dict[str, Any] | None = None
+    error: str | None = None
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def _normalize_status(cls, value: Any) -> Any:
+        if isinstance(value, str) and value.strip().lower() == "succeeded":
+            return JobStatus.COMPLETED
+        return value
+
+    @field_validator("status")
+    @classmethod
+    def _validate_status(cls, value: JobStatus) -> JobStatus:
+        if value not in {JobStatus.RUNNING, JobStatus.COMPLETED, JobStatus.FAILED}:
+            raise ValueError("status must be running, completed, failed, or succeeded")
+        return value
+
+
+class StandbyYouTubeAction(str, Enum):
+    SUBSCRIBE = "subscribe"
+    CHECK = "check"
+    FETCH_TRANSCRIPT = "fetch_transcript"
+    BUILD_DIGEST = "build_digest"
+    ASK = "ask"
+
+
+class StandbyYouTubeActionRequest(StrictModel):
+    action: StandbyYouTubeAction
+    target_url: str | None = None
+    subscription_id: str | None = None
+    video_id: str | None = None
+    question: str | None = None
+    preferred_languages: list[str] = Field(default_factory=lambda: ["zh-Hans", "zh-CN", "en"])
+    include_auto_generated: bool = True
+    overwrite_existing: bool = False
+    check_limit: int = Field(default=5, ge=1, le=50)
+    digest_format: Literal["markdown", "json"] = "markdown"
+    requested_by: str | None = None
+    source: str = "standby_housekeeper"
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _validate_action_fields(self) -> StandbyYouTubeActionRequest:
+        if self.action == StandbyYouTubeAction.SUBSCRIBE and not self.target_url:
+            raise ValueError("target_url is required for subscribe")
+        if self.action == StandbyYouTubeAction.CHECK and not self.subscription_id:
+            raise ValueError("subscription_id is required for check")
+        if self.action in {
+            StandbyYouTubeAction.FETCH_TRANSCRIPT,
+            StandbyYouTubeAction.BUILD_DIGEST,
+            StandbyYouTubeAction.ASK,
+        } and not self.video_id:
+            raise ValueError("video_id is required for this action")
+        if self.action == StandbyYouTubeAction.ASK and not (self.question and self.question.strip()):
+            raise ValueError("question is required for ask")
+        return self
+
+
+class StandbyYouTubeActionResult(StrictModel):
+    success: bool
+    action: str
+    status: JobStatus
+    result_kind: YouTubeResultKind | None = None
+    error_kind: str | None = None
+    failed_stage: str | None = None
+    reason: str | None = None
+    subscription_id: str | None = None
+    video_id: str | None = None
+    transcript_id: str | None = None
+    digest_id: str | None = None
+    run_id: str | None = None
+    answer: str | None = None
+    citations: list[str] = Field(default_factory=list)
+    discovered_video_ids: list[str] = Field(default_factory=list)
+    new_video_ids: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class StandbyYouTubeAutoflowRequest(StrictModel):
+    source_url: str | None = None
+    input_text: str | None = None
+    repo_hint: str | None = None
+    preferred_languages: list[str] = Field(default_factory=lambda: ["zh-Hans", "zh-CN", "en"])
+    include_auto_generated: bool = True
+    overwrite_existing: bool = False
+    requested_by: str | None = None
+    source: str = "standby_housekeeper"
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _validate_source_fields(self) -> StandbyYouTubeAutoflowRequest:
+        has_source_url = bool(self.source_url and self.source_url.strip())
+        has_input_text = bool(self.input_text and self.input_text.strip())
+        if not has_source_url and not has_input_text:
+            raise ValueError("source_url or input_text is required")
+        return self
+
+
+class StandbyYouTubeAutoflowResult(StrictModel):
+    success: bool
+    status: JobStatus
+    source_url: str | None = None
+    normalized_url: str | None = None
+    subscription_id: str | None = None
+    video_id: str | None = None
+    transcript_id: str | None = None
+    digest_id: str | None = None
+    repo: str | None = None
+    output_path: str | None = None
+    route_reason: str | None = None
+    github_run_dir: str | None = None
+    github_run_status: str | None = None
+    pr_url: str | None = None
+    error_kind: str | None = None
+    failed_stage: str | None = None
+    reason: str | None = None
+    artifacts: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class ReportCreateRequest(StrictModel):
     evaluation_id: str | None = None
     experiment_id: str | None = None
@@ -1226,4 +1738,21 @@ class PromptOrchestrationExecutionRead(StrictModel):
     results: dict[str, Any] = Field(default_factory=dict)
     graph: dict[str, Any] | None = None
     error: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+# ---------------------------------------------------------------------------
+# Claude Runtime Session Stickiness
+# ---------------------------------------------------------------------------
+
+
+class ClaudeRuntimeSessionRecordRead(StrictModel):
+    session_key: str
+    worker_id: str | None = None
+    project_dir: str | None = None
+    claude_home: str | None = None
+    latest_session_ref: str | None = None
+    last_summary: str | None = None
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
     metadata: dict[str, Any] = Field(default_factory=dict)

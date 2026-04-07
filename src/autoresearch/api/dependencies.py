@@ -32,6 +32,8 @@ from autoresearch.core.services.agent_audit_trail import AgentAuditTrailService
 from autoresearch.core.services.approval_store import ApprovalStoreService
 from autoresearch.core.services.autoresearch_planner import AutoResearchPlannerService
 from autoresearch.core.services.claude_agents import ClaudeAgentService
+from autoresearch.core.services.claude_runtime_service import ClaudeRuntimeService
+from autoresearch.core.services.claude_session_records import ClaudeSessionRecordService
 from autoresearch.core.services.evaluations import EvaluationService
 from autoresearch.core.services.executions import ExecutionService
 from autoresearch.core.services.github_issue_service import GitHubIssueService
@@ -53,6 +55,7 @@ from autoresearch.core.services.worker_registry import WorkerRegistryService
 from autoresearch.core.services.youtube_agent import YouTubeAgentService
 from autoresearch.shared.models import (
     ClaudeAgentRunRead,
+    ClaudeRuntimeSessionRecordRead,
     AdminAgentConfigRead,
     AdminChannelConfigRead,
     AdminConfigRevisionRead,
@@ -304,6 +307,25 @@ def get_claude_agent_service() -> ClaudeAgentService:
     )
 
 
+@lru_cache(maxsize=1)
+def get_claude_session_record_service() -> ClaudeSessionRecordService:
+    return ClaudeSessionRecordService(
+        repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="claude_runtime_session_records",
+            model_cls=ClaudeRuntimeSessionRecordRead,
+        )
+    )
+
+
+@lru_cache(maxsize=1)
+def get_claude_runtime_service() -> ClaudeRuntimeService:
+    return ClaudeRuntimeService(
+        agent_service=get_claude_agent_service(),
+        session_record_service=get_claude_session_record_service(),
+    )
+
+
 def get_openviking_memory_service(
     openclaw_service: OpenClawCompatService = Depends(get_openclaw_compat_service),
 ) -> OpenVikingMemoryService:
@@ -496,6 +518,8 @@ def clear_dependency_caches() -> None:
     get_managed_skill_registry_service.cache_clear()
     get_openclaw_skill_service.cache_clear()
     get_claude_agent_service.cache_clear()
+    get_claude_session_record_service.cache_clear()
+    get_claude_runtime_service.cache_clear()
     get_mirofish_prediction_service.cache_clear()
     get_self_integration_service.cache_clear()
     get_panel_access_service.cache_clear()
