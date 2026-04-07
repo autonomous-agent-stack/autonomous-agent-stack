@@ -156,6 +156,7 @@ class StandbyYouTubeAutoflowService:
                     digest_content=digest.content,
                     transcript_id=transcript.transcript_id,
                     transcript_language=transcript.language,
+                    transcript_content=transcript.content,
                     repo_hint=request.repo_hint,
                     requested_by=request.requested_by or queue_requested_by,
                     metadata=metadata,

@@ -118,7 +118,7 @@ class RuntimeSettings(_BaseApiSettings):
         validation_alias=AliasChoices("AUTORESEARCH_ENV", "AUTORESEARCH_ENVIRONMENT", "ENVIRONMENT"),
     )
     api_host: str = Field(default="127.0.0.1", validation_alias="AUTORESEARCH_API_HOST")
-    api_port: int = Field(default=8000, validation_alias="AUTORESEARCH_API_PORT")
+    api_port: int = Field(default=8001, validation_alias="AUTORESEARCH_API_PORT")
     api_db_path: Path = Field(default=_DEFAULT_API_DB_PATH, validation_alias="AUTORESEARCH_API_DB_PATH")
     api_allow_unsafe_bind: bool = Field(default=False, validation_alias="AUTORESEARCH_API_ALLOW_UNSAFE_BIND")
     enable_cluster: bool = Field(default=False, validation_alias="AUTORESEARCH_ENABLE_CLUSTER")
@@ -209,7 +209,7 @@ class TelegramSettings(_BaseApiSettings):
 class PanelSettings(_BaseApiSettings):
     jwt_secret: str | None = Field(default=None, validation_alias="AUTORESEARCH_PANEL_JWT_SECRET")
     base_url: str = Field(
-        default="http://127.0.0.1:8000/api/v1/panel/view",
+        default="http://127.0.0.1:8001/api/v1/panel/view",
         validation_alias=AliasChoices("AUTORESEARCH_PANEL_BASE_URL", "AUTORESEARCH_BASE_URL"),
     )
     jwt_issuer: str = Field(default="autoresearch.telegram", validation_alias="AUTORESEARCH_PANEL_JWT_ISSUER")

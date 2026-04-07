@@ -169,6 +169,7 @@ class MacWorkerExecutor:
             result={
                 **outcome.result,
                 "agent_run_id": outcome.agent_run_id,
+                "stdout_preview": outcome.stdout_preview,
             },
             metrics=outcome.metrics,
         )

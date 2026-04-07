@@ -157,7 +157,7 @@ Expected result:
 Notes:
 
 - this path is deterministic and does not require Telegram ingress
-- if `repos.yaml` has multiple `youtube_ingest.enabled` repos with no discriminating rules, routing fails closed
+- if `repos.yaml` lacks an explicit `repo_hint` or matching `channel_ids` / `channel_titles` / `keywords`, routing fails closed
 - running this against a real remote repo may open a draft PR, so use a sandbox repo if you only want a smoke
 
 ## 9. Emulate Telegram thin ingress for one YouTube link

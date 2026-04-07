@@ -56,7 +56,7 @@ def _github_assistant_http_exception(exc: Exception) -> HTTPException:
     ):
         status_code = status.HTTP_503_SERVICE_UNAVAILABLE
         detail = (
-            "GitHub auth unavailable. Run `gh auth login` with the configured bot account, "
+            "GitHub auth unavailable. Run `gh auth login` with the configured GitHub login, "
             "then rerun `./assistant doctor` or `GET /api/v1/github-assistant/doctor`. "
             f"Original error: {detail}"
         )
@@ -95,7 +95,7 @@ def list_github_assistant_profiles(
                 status=health.status,
                 doctor_ok=health.doctor_ok,
                 gh_auth_ok=health.gh_auth_ok,
-                expected_bot_account=health.expected_bot_account,
+                expected_github_login=health.expected_github_login,
                 active_login=health.active_login,
                 checks=health.checks,
             )

@@ -66,3 +66,8 @@ This slice includes:
   - cancel / retract commands
   - downstream completion notifications back into Telegram
   - Linux/Mac failback orchestration for the Telegram poller itself
+
+## Related Decision
+
+- [WhatsApp vs Telegram thin ingress comparison](./whatsapp-vs-telegram-thin-ingress.md)
+- [Chat platform ingress recommendation](./chat-platform-ingress-recommendation-v1.md)

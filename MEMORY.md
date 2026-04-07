@@ -20,6 +20,14 @@
   - 阶段四：实现 Mini App 高危审批与受控 Git 策略
   - 阶段五：重构 `SkillRegistry`，落实签名白名单和受控多智能体并发
 
+## 企业内入口偏好（2026-04-07）
+- 如果目标用户是企业内部员工，飞书 bot 往往比 Telegram / WhatsApp 更像“正路”的管家入口。
+- 飞书更适合承担“薄入口”角色：
+  - 私聊和群里 `@bot` 触发
+  - 后端继续收口到 Python control plane
+  - Mac standby 只做执行兜底
+- 不把飞书 handler 做成第二个大脑；YouTube / GitHub / repo routing 仍应留在 control plane。
+
 ## Prompt Hygiene 审计尺子（2026-03-26）
 - 新增只读审计脚本 `scripts/check_prompt_hygiene.py`，配套 `make hygiene-check`
 - 默认扫描 `src/`，输出到 `logs/audit/prompt_hygiene/report.txt` 和 `report.json`

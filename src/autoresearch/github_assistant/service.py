@@ -151,14 +151,14 @@ class GitHubAssistantService:
 
     def doctor_report(self) -> GitHubAssistantDoctorRead:
         checks, ok = self.doctor()
-        expected_bot_account = None
+        expected_github_login = None
         managed_repo_count = 0
         try:
             context = self.load_context()
-            expected_bot_account = context.assistant.bot_account
+            expected_github_login = context.assistant.github_login
             managed_repo_count = len(context.repos.repos)
         except Exception:
-            expected_bot_account = None
+            expected_github_login = None
         try:
             active_login = getattr(self._github, "current_login", lambda: None)()
         except Exception:
@@ -169,7 +169,7 @@ class GitHubAssistantService:
             profile_display_name=self._profile.display_name,
             github_host=self._profile.github_host,
             managed_repo_count=managed_repo_count,
-            expected_bot_account=expected_bot_account,
+            expected_github_login=expected_github_login,
             active_login=active_login,
             checks=checks,
         )
@@ -186,7 +186,7 @@ class GitHubAssistantService:
             managed_repo_count=doctor.managed_repo_count,
             doctor_ok=doctor.ok,
             gh_auth_ok=gh_auth_ok,
-            expected_bot_account=doctor.expected_bot_account,
+            expected_github_login=doctor.expected_github_login,
             active_login=doctor.active_login,
             checks=doctor.checks,
         )
@@ -381,19 +381,19 @@ class GitHubAssistantService:
             current_login = getattr(self._github, "current_login", lambda: None)()
         except Exception:
             current_login = None
-        if current_login and current_login != context.assistant.bot_account:
+        if current_login and current_login != context.assistant.github_login:
             checks.append(
                 DoctorCheck(
-                    name="gh bot account",
+                    name="gh login",
                     status=DoctorStatus.WARN,
-                    detail=f"active gh login is {current_login}, config expects {context.assistant.bot_account}",
+                    detail=f"active gh login is {current_login}, config expects {context.assistant.github_login}",
                     hint="Switch gh login or update assistant.yaml.",
                 )
             )
         elif current_login:
             checks.append(
                 DoctorCheck(
-                    name="gh bot account",
+                    name="gh login",
                     status=DoctorStatus.PASS,
                     detail=current_login,
                 )
@@ -647,8 +647,8 @@ class GitHubAssistantService:
             ).finalize(
                 intent=PromotionIntent(
                     run_id=summary.run_id,
-                    actor_id=context.assistant.bot_account,
-                    writer_id=context.assistant.bot_account,
+                    actor_id=context.assistant.github_login,
+                    writer_id=context.assistant.github_login,
                     writer_lease_key=f"github-assistant:{repo_config.repo}",
                     patch_uri=str(patch_path),
                     changed_files=changed_files,
@@ -846,8 +846,8 @@ class GitHubAssistantService:
             ).finalize(
                 intent=PromotionIntent(
                     run_id=summary.run_id,
-                    actor_id=context.assistant.bot_account,
-                    writer_id=context.assistant.bot_account,
+                    actor_id=context.assistant.github_login,
+                    writer_id=context.assistant.github_login,
                     writer_lease_key=f"github-assistant:{repo_config.repo}",
                     patch_uri=str(patch_path),
                     changed_files=changed_files,

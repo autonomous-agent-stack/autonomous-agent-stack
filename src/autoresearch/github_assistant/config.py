@@ -193,7 +193,7 @@ def _apply_assistant_env_overrides(payload: dict[str, Any]) -> dict[str, Any]:
     merged = dict(payload)
     executor = dict(merged.get("executor") or {})
 
-    _maybe_set(merged, "bot_account", os.getenv("GH_ASSISTANT_BOT_ACCOUNT"))
+    _maybe_set(merged, "github_login", os.getenv("GH_ASSISTANT_GITHUB_LOGIN"))
     _maybe_set(merged, "workspace_root", os.getenv("GH_ASSISTANT_WORKSPACE_ROOT"))
 
     _maybe_set(executor, "adapter", os.getenv("GH_ASSISTANT_EXECUTOR_ADAPTER"))

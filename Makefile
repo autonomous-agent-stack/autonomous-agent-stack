@@ -33,6 +33,7 @@ PROMOTE_OPEN_DRAFT_PR ?= 0
 .PHONY: help setup doctor doctor-linux start test-quick clean
 .PHONY: ai-lab ai-lab-setup ai-lab-check ai-lab-up ai-lab-down ai-lab-status ai-lab-shell ai-lab-run masfactory-flight hygiene-check openhands openhands-dry-run openhands-controlled openhands-controlled-dry-run openhands-demo agent-run promote-run
 .PHONY: review-gates-local assistant-doctor assistant-triage assistant-execute assistant-review-pr assistant-release-plan assistant-schedule
+.PHONY: telegram-butler-start telegram-butler-status telegram-butler-stop
 
 help:
 	@echo "Autonomous Agent Stack - common commands"
@@ -62,6 +63,9 @@ help:
 	@echo "  make assistant-review-pr REPO='owner/repo' PR=123 Review a managed pull request"
 	@echo "  make assistant-release-plan REPO='owner/repo' VERSION='v1.2.3' Build a release plan"
 	@echo "  make assistant-schedule Run scheduled issue triage"
+	@echo "  make telegram-butler-start Start API daemon + Telegram poller"
+	@echo "  make telegram-butler-status Show API daemon + Telegram poller status"
+	@echo "  make telegram-butler-stop Stop API daemon + Telegram poller"
 	@echo "  make hygiene-check FAIL_ON_FINDINGS=1 Run prompt hygiene audit for src/"
 	@echo "  make review-gates-local Run mypy/bandit/semgrep on reviewer core modules"
 	@echo "  make test-quick  Run quick smoke tests"
@@ -262,3 +266,14 @@ assistant-release-plan:
 
 assistant-schedule:
 	@PYTHONPATH=src ./assistant schedule run
+
+telegram-butler-start:
+	bash migration/openclaw/scripts/start-telegram-butler.sh
+
+telegram-butler-status:
+	bash migration/openclaw/scripts/status-api-daemon.sh
+	bash migration/openclaw/scripts/status-telegram-poller.sh
+
+telegram-butler-stop:
+	bash migration/openclaw/scripts/stop-telegram-poller.sh
+	bash migration/openclaw/scripts/stop-api-daemon.sh

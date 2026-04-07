@@ -212,7 +212,7 @@ def _write_template_root(
     (root / "policies").mkdir(parents=True, exist_ok=True)
     (root / "prompts").mkdir(parents=True, exist_ok=True)
     assistant_payload: dict[str, object] = {
-        "bot_account": "demo-bot",
+        "github_login": "demo-bot",
         "branch_prefix": "assistant/issue",
         "draft_pr_only": True,
         "manual_trigger_enabled": True,
@@ -409,19 +409,19 @@ def test_load_assistant_config_applies_environment_overrides(tmp_path: Path, mon
         tmp_path,
         repos=[_repo_config()],
         assistant_overrides={
-            "bot_account": "file-bot",
+            "github_login": "file-bot",
             "workspace_root": "/tmp/file-workspace",
             "executor": {"adapter": "shell", "command": [], "timeout_seconds": 120, "env": {}},
         },
     )
-    monkeypatch.setenv("GH_ASSISTANT_BOT_ACCOUNT", "env-bot")
+    monkeypatch.setenv("GH_ASSISTANT_GITHUB_LOGIN", "env-bot")
     monkeypatch.setenv("GH_ASSISTANT_WORKSPACE_ROOT", str(tmp_path / "env-workspace"))
     monkeypatch.setenv("GH_ASSISTANT_EXECUTOR_ADAPTER", "custom")
     monkeypatch.setenv("GH_ASSISTANT_EXECUTOR", "python3 -m demo.executor")
 
     config = load_assistant_config(tmp_path)
 
-    assert config.bot_account == "env-bot"
+    assert config.github_login == "env-bot"
     assert config.workspace_root == str(tmp_path / "env-workspace")
     assert config.executor.adapter == "custom"
     assert config.executor.command == ["python3", "-m", "demo.executor"]
@@ -444,13 +444,13 @@ def test_doctor_report_and_run_summary_are_profile_aware(tmp_path: Path) -> None
     _write_template_root(
         tmp_path,
         repos=[_repo_config(repo="acme/root")],
-        assistant_overrides={"bot_account": "root-bot"},
+        assistant_overrides={"github_login": "root-bot"},
     )
     _write_profile_root(
         tmp_path,
         "ops",
         repos=[_repo_config(repo="acme/ops")],
-        assistant_overrides={"bot_account": "ops-bot"},
+        assistant_overrides={"github_login": "ops-bot"},
     )
     _write_profiles_catalog(
         tmp_path,
@@ -497,7 +497,7 @@ def test_doctor_report_and_run_summary_are_profile_aware(tmp_path: Path) -> None
 
     assert report.profile_id == "ops"
     assert report.profile_display_name == "Ops"
-    assert report.expected_bot_account == "ops-bot"
+    assert report.expected_github_login == "ops-bot"
     assert report.managed_repo_count == 1
     assert str(run_dir.relative_to(tmp_path)).startswith("runs/ops/")
     assert summary["profile_id"] == "ops"

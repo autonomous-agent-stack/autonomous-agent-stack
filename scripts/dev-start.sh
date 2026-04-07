@@ -5,6 +5,15 @@ set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENV_PYTHON="${PROJECT_ROOT}/.venv/bin/python"
+
+for ENV_FILE in "${PROJECT_ROOT}/.env" "${PROJECT_ROOT}/.env.local"; do
+  if [[ -f "${ENV_FILE}" ]]; then
+    set -a
+    source "${ENV_FILE}"
+    set +a
+  fi
+done
+
 HOST="${HOST:-127.0.0.1}"
 PORT="${PORT:-${AUTORESEARCH_API_PORT:-8001}}"
 

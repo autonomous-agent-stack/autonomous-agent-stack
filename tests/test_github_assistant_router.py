@@ -66,7 +66,7 @@ def test_github_assistant_health_route_reflects_degraded_auth_state(tmp_path: Pa
         assert payload["status"] == "degraded"
         assert payload["doctor_ok"] is False
         assert payload["gh_auth_ok"] is False
-        assert payload["expected_bot_account"] == "demo-bot"
+        assert payload["expected_github_login"] == "demo-bot"
     finally:
         app.dependency_overrides.clear()
 
@@ -202,13 +202,13 @@ def test_github_assistant_health_route_uses_profile_query_param(tmp_path: Path) 
     _write_template_root(
         tmp_path,
         repos=[_repo_config(repo="acme/root")],
-        assistant_overrides={"bot_account": "root-bot"},
+        assistant_overrides={"github_login": "root-bot"},
     )
     _write_profile_root(
         tmp_path,
         "ops",
         repos=[_repo_config(repo="acme/ops")],
-        assistant_overrides={"bot_account": "ops-bot"},
+        assistant_overrides={"github_login": "ops-bot"},
     )
     _write_profiles_catalog(
         tmp_path,
@@ -257,7 +257,7 @@ def test_github_assistant_health_route_uses_profile_query_param(tmp_path: Path) 
 
         assert payload["profile_id"] == "ops"
         assert payload["profile_display_name"] == "Ops"
-        assert payload["expected_bot_account"] == "ops-bot"
+        assert payload["expected_github_login"] == "ops-bot"
         assert payload["managed_repo_count"] == 1
     finally:
         app.dependency_overrides.clear()
@@ -267,13 +267,13 @@ def test_github_assistant_profiles_route_returns_all_profiles(tmp_path: Path) ->
     _write_template_root(
         tmp_path,
         repos=[_repo_config(repo="acme/root")],
-        assistant_overrides={"bot_account": "root-bot"},
+        assistant_overrides={"github_login": "root-bot"},
     )
     _write_profile_root(
         tmp_path,
         "ops",
         repos=[_repo_config(repo="acme/ops")],
-        assistant_overrides={"bot_account": "ops-bot"},
+        assistant_overrides={"github_login": "ops-bot"},
     )
     _write_profiles_catalog(
         tmp_path,

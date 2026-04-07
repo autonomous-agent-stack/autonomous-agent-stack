@@ -24,7 +24,7 @@ class AssistantScheduleConfig(StrictModel):
 
 
 class AssistantConfig(StrictModel):
-    bot_account: str = Field(..., min_length=1)
+    github_login: str = Field(..., min_length=1)
     branch_prefix: str = Field(default="assistant/issue")
     draft_pr_only: bool = True
     manual_trigger_enabled: bool = True
@@ -323,7 +323,7 @@ class GitHubAssistantDoctorRead(StrictModel):
     profile_display_name: str | None = None
     github_host: str = "github.com"
     managed_repo_count: int = 0
-    expected_bot_account: str | None = None
+    expected_github_login: str | None = None
     active_login: str | None = None
     checks: list[DoctorCheck] = Field(default_factory=list)
 
@@ -336,7 +336,7 @@ class GitHubAssistantHealthRead(StrictModel):
     managed_repo_count: int = 0
     doctor_ok: bool
     gh_auth_ok: bool
-    expected_bot_account: str | None = None
+    expected_github_login: str | None = None
     active_login: str | None = None
     checks: list[DoctorCheck] = Field(default_factory=list)
 
@@ -420,7 +420,7 @@ class GitHubAssistantProfileStatusRead(StrictModel):
     status: Literal["ok", "degraded"] = "ok"
     doctor_ok: bool
     gh_auth_ok: bool
-    expected_bot_account: str | None = None
+    expected_github_login: str | None = None
     active_login: str | None = None
     checks: list[DoctorCheck] = Field(default_factory=list)
 

@@ -37,14 +37,14 @@ PATH="$PWD:$PATH" assistant doctor
 
 至少要完成：
 
-- 把 `bot_account` 改成你的独立 GitHub Bot 用户
+- 把 `github_login` 改成这个 profile 对应的 GitHub 登录名
 - 把 `repos.yaml` 里的 `repo` 改成你要托管的仓库
 - 给每个仓库填好 `allowed_paths`、`test_command`、`lint_command`
 - 如果要接 YouTube 自动入仓，再补 `youtube_ingest.enabled/output_dir/filename_template`
 
 运行时也支持环境变量覆盖：
 
-- `GH_ASSISTANT_BOT_ACCOUNT`
+- `GH_ASSISTANT_GITHUB_LOGIN`
 - `GH_ASSISTANT_WORKSPACE_ROOT`
 - `GH_ASSISTANT_EXECUTOR_ADAPTER`
 - `GH_ASSISTANT_EXECUTOR_BINARY`
@@ -116,7 +116,7 @@ runs/<profile>/<timestamp>/<owner>/<repo>/issue-123/
 
 默认模板已经预填：
 
-- `bot_account: nxs9bg24js-tech`
+- `github_login: nxs9bg24js-tech`
 - `repos.yaml` 样例仓库：`srxly888-creator/autonomous-agent-stack`
 
 如果你要迁移到自己的仓库，先把这两个值改掉。

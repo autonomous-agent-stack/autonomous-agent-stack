@@ -51,7 +51,7 @@ def test_cli_doctor_uses_selected_profile(monkeypatch, tmp_path, capsys) -> None
                 profile_display_name=self.profile.display_name,
                 github_host="github.com",
                 managed_repo_count=1,
-                expected_bot_account=f"{self.profile.id}-bot",
+                expected_github_login=f"{self.profile.id}-bot",
                 active_login=f"{self.profile.id}-bot",
                 checks=[DoctorCheck(name="gh auth", status=DoctorStatus.PASS, detail="authenticated")],
             )

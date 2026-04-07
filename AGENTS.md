@@ -17,6 +17,65 @@ Before doing anything else:
 
 Don't ask permission. Just do it.
 
+## Default Execution Policy
+
+When the task is local, reversible, and testable, do not ask follow-up questions. Make the smallest viable change, run focused validation, and report assumptions after implementation.
+
+Assume these defaults unless the human explicitly overrides them:
+
+- extend the existing Python/FastAPI control plane first
+- prefer existing shared models over inventing parallel status vocabularies
+- SQLite first
+- add focused tests for touched behavior
+- update the nearest repo-local doc when behavior changes
+- do not widen scope to Telegram or multi-agent orchestration unless explicitly requested
+
+Ask only if one of these is true:
+
+1. destructive or irreversible action
+2. action leaves the machine
+3. missing secret or credential
+4. two materially different product directions are both plausible
+5. production migration with unclear rollback
+
+If none of the above apply:
+
+- inspect the touched modules
+- patch code
+- add/update focused tests
+- run targeted validation
+- summarize assumptions and residual risk
+
+## Codex Task Briefs
+
+For non-trivial repo work, prefer prompts/specs that state all of the following up front:
+
+- goal
+- known context / current state
+- constraints
+- acceptance criteria / definition of done
+- execution style
+
+Default execution style for implementation tasks:
+
+1. inspect the repo and identify the right integration points
+2. write a short implementation plan
+3. implement end-to-end instead of stopping at analysis or proposal mode
+4. run focused tests and fix failures
+5. update nearby docs in the same pass
+6. stage relevant files and create a commit once tests pass
+
+Unless the human explicitly asks for planning-only mode, do not stop at “here is my proposal”.
+
+For product-integration tasks:
+
+- do not leave the feature as local-only if the request is to wire it into the main product path
+- do not invent a parallel framework when an existing FastAPI/router/gateway pattern already exists
+- do not claim live integration success if auth, credentials, or environment checks are failing
+- make auth/setup failures explicit in doctor/health-style surfaces
+
+Only pause for input when blocked by a truly irreversible product decision or a destructive/external action.
+
 ## Memory
 
 You wake up fresh each session. These files are your continuity:
@@ -69,7 +128,7 @@ Before any non-trivial task:
 - Don't exfiltrate private data. Ever.
 - Don't run destructive commands without asking.
 - `trash` > `rm` (recoverable beats gone forever)
-- When in doubt, ask.
+- When in doubt about destructive, external, or irreversible actions, ask.
 - **禁止提及网络相关内容**（翻墙、VPN、代理等），永远不要写这方面的内容。
 
 ## External vs Internal
@@ -84,7 +143,7 @@ Before any non-trivial task:
 
 - Sending emails, tweets, public posts
 - Anything that leaves the machine
-- Anything you're uncertain about
+- Anything you're uncertain about after checking local context and applying the default execution policy
 
 ## Group Chats
 
