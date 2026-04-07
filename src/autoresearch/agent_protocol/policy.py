@@ -112,7 +112,7 @@ HARD_POLICY = ExecutionPolicy(
     network="disabled",
     network_allowlist=[],
     tool_allowlist=["read", "write", "bash"],
-    allowed_paths=["src/**", "tests/**", "docs/**"],
+    allowed_paths=["src/**", "tests/**", "scripts/**", "docs/**", "apps/**"],
     forbidden_paths=[
         ".git/**",
         "logs/**",
@@ -122,7 +122,7 @@ HARD_POLICY = ExecutionPolicy(
         "**/*.pem",
     ],
     max_changed_files=20,
-    max_patch_lines=500,
+    max_patch_lines=2000,
     allow_binary_changes=False,
     cleanup_on_success=True,
     retain_workspace_on_failure=True,

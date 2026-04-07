@@ -11,10 +11,12 @@ services:
       - ../../logs:/workspace/logs:rw
       - ${WORKSPACE_DIR}/worktrees:/opt/worktrees:rw
       - ${CACHE_DIR}:/root/.cache:rw
-      - ${LOG_DIR}/openhands-home:/root/.openhands:rw
+      - ${OPENHANDS_HOME_DIR:-${LOG_DIR}/openhands-home}:/root/.openhands:rw
+      - ${DOCKER_HOST_SOCKET_DIR:-/var/run}:${DOCKER_HOST_MOUNT_DIR:-/var/run/host-docker}:rw
     tmpfs:
       - /tmp:size=2g,mode=1777
     environment:
+      - DOCKER_HOST=${DOCKER_HOST_IN_CONTAINER:-unix:///var/run/host-docker/docker.sock}
       - HOME=/root
       - PYTHONDONTWRITEBYTECODE=1
       - PYTHONUNBUFFERED=1

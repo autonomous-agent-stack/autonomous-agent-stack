@@ -14,7 +14,7 @@
     "network": "disabled",
     "network_allowlist": [],
     "tool_allowlist": ["read", "write", "bash"],
-    "allowed_paths": ["src/**", "tests/**", "docs/**"],
+    "allowed_paths": ["src/**", "tests/**", "scripts/**", "docs/**", "apps/**"],
     "forbidden_paths": [
       ".git/**",
       "logs/**",
@@ -22,7 +22,7 @@
       "memory/**"
     ],
     "max_changed_files": 5,
-    "max_patch_lines": 200,
+    "max_patch_lines": 2000,
     "allow_binary_changes": false,
     "cleanup_on_success": true,
     "retain_workspace_on_failure": true

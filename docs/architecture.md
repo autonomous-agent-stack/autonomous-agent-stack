@@ -1,301 +1,300 @@
-# 🏗️ 架构总览
+# Architecture
 
-> **完整堆栈视图**：6 部分核心架构深度解析
+Compatibility mirror for legacy documentation links.
 
----
+Canonical source: [`../ARCHITECTURE.md`](../ARCHITECTURE.md)
 
-## 📊 架构堆栈
+This file intentionally mirrors the current architecture in a docs-relative location because older docs, reports, and completeness checks still expect `docs/architecture.md` to exist. Keep this file aligned with the root `ARCHITECTURE.md`.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│            自主智能体融合架构 - 完整堆栈视图                  │
-└─────────────────────────────────────────────────────────────┘
-         │
-         ├─ Part 1: MetaClaw 自演化（最顶层）
-         │   ├─ 快循环：技能驱动即时适应（毫秒级）
-         │   ├─ 慢循环：机会主义策略优化（小时级）
-         │   └─ MAML 版本化数据隔离（D_sup vs D_qry）
-         │
-         ├─ Part 2: Autoresearch API-first（科学准则层）
-         │   ├─ Karpathy 循环三大原语（可编辑资产/标量度量/时间盒）
-         │   ├─ 5 大 RESTful API（Generator/Executor/Evaluator/Synthesis/Loop）
-         │   └─ 三种优化拓扑（超参数/架构/提示词）
-         │
-         ├─ Part 3: Deer-flow 编排与隔离（物理熔炉层）
-         │   ├─ Lead Agent + Sub-agents 并发编排（最大 3 并行）
-         │   ├─ 三级沙盒隔离（L1/L2/L3）
-         │   └─ 动态上下文工程（9+ 中间件）
-         │
-         ├─ Part 4: InfoQuest/MCP 深度耦合（知识引擎层）
-         │   ├─ Web Search + Link Reader 双核引擎
-         │   ├─ MCP 远端服务映射（动态发现）
-         │   └─ 双 API 架构（LangGraph 2024 + Gateway 8001）
-         │
-         ├─ Part 5: Claude Code 终端集成（传输层）
-         │   ├─ 四维执行模式（Flash/Standard/Pro/Ultra）
-         │   ├─ MCP 传输层矩阵（stdio/SSE/HTTP Streamable）
-         │   └─ SSE 流式挂起异常分析（59.2-138.6s 停滞）
-         │
-         └─ Part 6: OpenClaw 持久化架构（记忆神经中枢层）
-             ├─ SOUL.md + MEMORY.md + Daily Logs
-             ├─ 记忆刷新机制（Token 上限拦截）
-             └─ AppleDouble 污染防治（P0 级）
+## Current System Summary
+
+`autonomous-agent-stack` is currently a bounded control plane for autonomous repository changes, not an unconstrained self-editing agent.
+
+The stable path is:
+
+1. plan a bounded repository improvement,
+2. execute it inside isolation,
+3. validate the patch,
+4. re-check promotion conditions,
+5. emit either a patch artifact or a Draft PR.
+
+That means the system is optimized for controlled mutation, not unrestricted autonomy.
+
+## Canonical Mainline
+
+```mermaid
+flowchart TD
+    A["Repo Scan<br/>AutoResearch Planner"] --> B["Worker Contract<br/>strict OpenHands or AEP job"]
+    B --> C["Isolated Workspace<br/>baseline + workspace + artifacts"]
+    C --> D["Validation Gate<br/>tests + path policy + artifact filtering"]
+    D --> E["Git Promotion Gate<br/>writer lease + approval + draft PR checks"]
+    E --> F["Patch Artifact"]
+    E --> G["Draft PR"]
 ```
 
----
+The architectural principle is simple:
 
-## Part 1: MetaClaw 自演化机制
+- planning may select work,
+- workers may edit in isolation,
+- promotion may upgrade the result,
+- but no single layer owns all three powers.
 
-### 核心价值
-**持续自演化 + 双循环学习**
+## Zero-Trust Rules
 
-### 技术架构
+### Brain and Hand Separation
 
-#### 双循环适应机制
+OpenHands and other workers are execution hands, not the control plane.
 
-| 循环 | 机制 | 时间尺度 | 价值 |
-|------|------|---------|------|
-| **快速循环** | 技能驱动即时适应 | 毫秒级 | 重试率 -24.8% |
-| **慢速循环** | 机会主义策略优化 | 小时级 | 鲁棒性 +18.3% |
+The control plane lives in the repository code:
 
-#### 关键技术
+- planner services,
+- execution contracts,
+- validation logic,
+- promotion gates,
+- approval flows,
+- writer leases.
 
-**1. 技能进化器（Skill Evolver）**
-- 失败轨迹因果分析
-- 自然语言空间合成新技能（$\Delta S$）
-- 即时注入到系统提示词
+### Patch-Only Default
 
-**2. OMLS 调度器（Opportunistic Meta-Learning Scheduler）**
-- 监控用户不活跃窗口（睡眠/会议时段）
-- 云端触发 LoRA 微调
-- 异步合并优化权重
+Autonomous edits should default to patch-only mode.
 
-**3. MAML 版本化数据隔离**
-```
-支持集（Support Data, D_sup_g） → 技能进化器
-查询集（Query Data, D_qry）     → RL 策略优化
-```
+The OpenHands worker prompt built by `src/autoresearch/core/services/openhands_worker.py` explicitly forbids direct git mutation commands such as commit, push, merge, rebase, reset, and checkout. The worker is expected to produce the smallest possible patch inside `allowed_paths`.
 
-### 关键指标
-- **准确率提升**：21.4% → 40.6%（+89.7%）
-- **阶段重试率下降**：10.5% → 7.9%（-24.8%）
-- **综合鲁棒性提升**：+18.3%
+### Deny-Wins Policy Merge
 
----
+The AEP layer merges policy with deny-wins behavior:
 
-## Part 2: Autoresearch API-first 设计
+- forbidden paths widen,
+- allowed paths narrow,
+- stricter network mode wins,
+- smaller mutation limits win.
 
-### 核心价值
-**标准化研究循环 + 可扩展架构**
+This prevents a single request from widening safety boundaries beyond the manifest defaults.
 
-### Karpathy 循环三大原语
+### Single Writer Rule
 
-| 原语 | 约束 | 工程价值 |
-|------|------|---------|
-| **可编辑资产** | 单一/极少数文件 | 可解释性 + git diff 审查 |
-| **标量度量** | 自动化计算 + 无歧义 | 消除人类判断依赖 |
-| **时间盒约束** | 固定物理时间 | 实验成本一致性 |
+`WriterLeaseService` is the repository's single-writer lock for dangerous mutable transitions.
 
-### 5 大 RESTful API 接口
+It is used in the current codebase for:
 
-| API | 职责 | 技术边界 | 当前状态 |
-|-----|------|---------|---------|
-| **Generator API** | 合成候选变异方案 | LLM 重度依赖 | ⏳ 待实现 |
-| **Executor API** | 沙盒执行代码/训练 | 计算密集型 | ⏳ 待实现 |
-| **Evaluator API** | 提取标量度量 | 确定性逻辑 | ✅ **已落地** |
-| **Synthesis API** | 结构化记录实验 | I/O 密集型 | ⏳ 待实现 |
-| **Loop Control API** | 顶层状态机 | 异步调度 | ⏳ 待实现 |
+- git promotion finalization,
+- managed skill promotion,
+- approval-linked mutation paths,
+- and any place where two concurrent writers would create ambiguous state.
 
-### 三种优化拓扑
+If a lease is unavailable, the system should block rather than guess.
 
-| 拓扑 | 目标 | 场景 |
-|------|------|------|
-| **超参数搜索** | 系数/权重调整 | Precision@12 + MRR 优化 |
-| **架构变异** | 网络层/优化器 | AutoML + 创造性探索 |
-| **提示词优化** | 系统指令改进 | AI 优化 AI |
+### Runtime Artifacts Never Promote
 
-### 关键指标
-- **最小闭环已打通**：Evaluator API ✅
-- **从 Demo → 生产级**：SQLite 持久化 + evaluator_command override
+The promotion path rejects runtime/control artifacts from source promotion. The active deny prefixes include:
 
----
+- `logs/`
+- `.masfactory_runtime/`
+- `memory/`
+- `.git/`
 
-## Part 3: Deer-flow 并发隔离
+This rule exists in both the AEP patch filtering logic and the git promotion gate.
 
-### 核心价值
-**多智能体并发 + 三级沙盒隔离**
+### Clean Base Requirement
 
-### 架构核心
+Two current operations enforce a clean checkout:
 
-#### Lead Agent + Sub-agents 编排
+- OpenHands CLI execution in `OpenHandsControlledBackendService`
+- Draft PR upgrade in `GitPromotionGateService`
 
-**并发熔断策略**：
-- 最大并行子智能体数量：3 个
-- 绝对执行超时阈值：15 分钟
-- 上下文绝对隔离（视界限制）
+This prevents unrelated local changes from being mixed into agent output.
 
-#### 三级沙盒隔离矩阵
+## Physical and Sandbox Topology
 
-| 级别 | 架构定位 | 实现机制 | 适用场景 |
-|------|---------|---------|---------|
-| **L1** | 本地原生执行 | 宿主机 OS | 极简验证（风险最高） |
-| **L2** | Docker AIO 容器 | 虚拟化路径 | 生产级标准（推荐） |
-| **L3** | Kubernetes 集群 | 独立 Pod | 企业级高并发 |
+The physical environment is part of the architecture, not just an ops footnote.
 
-#### 动态上下文工程（9+ 中间件）
+### Host Layout
 
-| 中间件 | 职责 | 技术实现 |
-|--------|------|---------|
-| **MemoryMiddleware** | 数据防抖 + 持久化 | 异步队列 + LLM 写入 |
-| **SummarizationMiddleware** | 上下文压缩 | Token 监控 + 卸载到文件 |
-| **DanglingToolCallMiddleware** | 异常悬挂处理 | 占位符注入 |
+- host: MacBook Air M1
+- runtime: Colima / Docker
+- repository path: `/Volumes/AI_LAB/Github/autonomous-agent-stack`
+- ai-lab writable roots:
+  - `/Volumes/AI_LAB/ai_lab/workspace`
+  - `/Volumes/AI_LAB/ai_lab/logs`
+  - `/Volumes/AI_LAB/ai_lab/.cache`
 
-### 关键指标
-- **会话间零污染**：✅
-- **并发熔断**：3 并行 + 15 分钟超时
+`ai_lab.env` binds the current environment to those external disk paths and points Docker to the Colima socket. Capacity, cleanup, and mount behavior all assume that external-disk layout.
 
----
+### Mount Behavior
 
-## Part 4: InfoQuest/MCP 深度耦合
+`scripts/launch_ai_lab.sh` builds a layered mount strategy:
 
-### 核心价值
-**企业级知识获取 + 双核引擎**
+1. host source checkout remains the baseline,
+2. the selected host root is mounted into the container at `/workspace` as read-only,
+3. when OpenHands controlled execution needs a writable surface, an extra writable mount is attached at `/opt/workspace`,
+4. controlled execution still snapshots into its own per-run baseline/workspace/artifact directories before validation or promotion.
 
-### 双核引擎
+In practical handoff language:
 
-| 引擎 | 核心能力 | 工程价值 |
-|------|---------|---------|
-| **Web Search** | 域名限定 + 时间窗口 | 屏蔽互联网噪音 + 提升时效性 |
-| **Link Reader** | 反爬突破 + 结构化重组 | LLM 友好格式 + Token 优化 |
+`Mac host source -> Colima -> ai-lab writable roots on /Volumes/AI_LAB -> isolated workspace -> isolated promotion worktree`
 
-### MCP 远端服务映射
+### Execution Isolation
 
-**配置端点**：`https://mcp.infoquest.bytepluses.com/mcp`
+`OpenHandsControlledBackendService` creates:
 
-**动态发现**：运行时注册企业级工具
+- `baseline/`
+- `workspace/`
+- `artifacts/`
 
-### 双 API 架构
+under a per-run root. The main repo checkout is copied, not edited in place.
 
-| API | 端口 | 职责 | 技术边界 |
-|-----|------|------|---------|
-| **LangGraph API** | 2024 | 智能体线程流转 | 状态追踪 + 流式返回 |
-| **Gateway API** | 8001 | 网关控制 | 模型路由 + Artifacts 管理 + MCP 凭证注入 |
+### Promotion Isolation
 
-### 关键指标
-- **Token 优化**：✅
-- **高并发稳定性**：✅
+`GitPromotionGateService` and `GitPromotionService` create git worktrees under salted `/tmp` paths derived from the repo root hash. That salt is there to stop same-named repos from colliding.
 
----
+Examples of the current patterns:
 
-## Part 5: Claude Code 终端集成
+- `/tmp/<repo-name>-<repo-hash>/promotion-worktrees/<run-id>`
+- `/tmp/repo-<repo-hash>/promotions/<promotion-id>/worktree`
 
-### 核心价值
-**开发者心流 + 四维执行模式**
+This separation matters because promotion is intentionally a second isolation hop, not a continuation of execution isolation.
 
-### 四维执行模式
+## Trust State Machines
 
-| 模式 | 能力 | 适用场景 | 延迟 |
-|------|------|---------|------|
-| **Flash** | 关闭深层思考 + 子智能体 | 快速问答 | < 1s |
-| **Standard** | 标准 LLM 推理 | 代码重构 | 1-10s |
-| **Pro** | 强制规划模式（is_plan_mode） | 项目搭建 | 10-60s |
-| **Ultra** | Lead Agent + 子智能体矩阵 | 深度研究 + Karpathy 循环 | 分钟级 |
+### Managed Skill Ladder
 
-### MCP 传输层矩阵
+Managed skills advance through:
 
-| 传输层 | 延迟 | 适用场景 | 稳定性 |
-|--------|------|---------|--------|
-| **stdio** | < 10ms | 本地开发 | ⭐⭐⭐⭐⭐ |
-| **SSE** | 100-500ms | 远程服务器 | ⭐⭐（风险高） |
-| **HTTP Streamable** | 50-200ms | 新规范 | ⭐⭐⭐⭐ |
+`pending -> quarantined -> cold_validated -> promoted`
 
-### SSE 流式挂起异常
+Interpretation:
 
-**实际风险**：
-- 🔴 停滞时间：59.2s - 138.6s
-- 🔴 失败模式：ECONNRESET + 5 分钟超时
+- `pending`: request has been accepted but not yet trusted
+- `quarantined`: copied into holding
+- `cold_validated`: static and contract checks passed
+- `promoted`: copied into the active skill root
 
-**工程解决方案**：
-- ✅ 自动重连（Auto-resume）
-- ✅ 心跳包保活（Keep-alive）
-- ✅ HTTP Streamable 协议迁移
+Promotion to active runtime is guarded by a writer lease. The system is intentionally biased toward rejection or stalling over unsafe activation.
 
----
+### Patch Promotion Ladder
 
-## Part 6: OpenClaw 持久化架构
+Patch promotion begins with a patch artifact and then computes a preflight report.
 
-### 核心价值
-**透明状态管理 + AppleDouble 污染防治**
+Patch-level checks include:
 
-### 三层状态管理
+- patch exists,
+- forbidden paths are untouched,
+- runtime artifacts are excluded,
+- changed file count limit,
+- patch line limit,
+- no binary changes unless explicitly allowed,
+- no direct write to the base branch,
+- writer lease is available.
 
-| 层级 | 文件 | 职责 | 生命周期 |
-|------|------|------|---------|
-| **核心骨架** | SOUL.md | 身份人格 + 操作边界 | 静态元数据 |
-| **动态大脑** | MEMORY.md | 用户偏好 + 项目原则 | 持续生长 |
-| **短期草稿** | Daily Logs | 运行时发现 + 遥测 | 仅追加模式 |
+Draft PR adds stricter checks:
 
-### 记忆刷新机制
+- remote is healthy,
+- base repo is clean,
+- credentials are available,
+- target base branch exists,
+- approval is granted.
 
-**流程**：
-1. Token 上限拦截
-2. LLM 提取提示词
-3. 写入 MEMORY.md
-4. 清空短期记忆
+If Draft PR cannot be safely upgraded but patch checks pass, the system degrades to patch mode.
 
-### AppleDouble 污染防治（P0 级）
+## Controlled Execution Loop
 
-**物理成因**：
-- macOS 双叉架构（数据分叉 + 资源分叉）
-- 跨文件系统（macOS → FAT32/exFAT/SMB）
-- 自动拆分（script.py → ._script.py）
+### Planner
 
-**致命破坏**：
-- 🔴 compileall 崩溃（语法解析错误）
-- 🔴 虚假失败判定（False Negative）
-- 🔴 正确改进回滚
+`AutoResearchPlannerService` is the current active-seeking layer.
 
-**防御方案**：
-```bash
-# 1. Mac 原生工具合并
-dot_clean -m /path/to/workspace
+It scans the repo for bounded, patch-friendly work. The current heuristics are intentionally simple and auditable:
 
-# 2. Linux 沙盒递归粉碎
-find /workspace -type f -name '._*' -delete
-find /workspace \( -name .DS_Store -o -name .apdisk \) -type f -delete
-rm -rf /workspace/{.Trashes,.Spotlight-V100,.fseventsd}
-```
+- high-signal backlog markers such as `FIXME`, `BUG`, `HACK`, `XXX`, `TODO`
+- source hotspots without a direct regression test
 
----
+The planner emits three downstream-ready contracts:
 
-## 🎯 架构价值总结
+- `OpenHandsWorkerJobSpec`
+- `ControlledExecutionRequest`
+- AEP `JobSpec`
 
-### 层级协同
+This means downstream execution does not need to reinterpret a vague natural-language task. The contract is explicit from the start.
 
-```
-MetaClaw（最顶层）
-    ↓ 提供自演化能力
-Autoresearch（科学准则层）
-    ↓ 提供标准化研究循环
-Deer-flow（物理熔炉层）
-    ↓ 提供并发隔离执行
-InfoQuest/MCP（知识引擎层）
-    ↓ 提供企业级知识获取
-Claude Code（传输层）
-    ↓ 提供开发者心流
-OpenClaw（记忆神经中枢层）
-    ↓ 提供透明状态管理
-```
+### Worker Contract
 
-### 关键指标
+`OpenHandsWorkerService` turns the selected plan into a strict worker prompt:
 
-| 指标 | 数值 |
-|------|------|
-| **架构层级** | 6 层 |
-| **核心技术** | 25+ 个 |
-| **P0 任务** | 3 个（全部完成 ✅） |
-| **关键指标** | 准确率 +89.7%，鲁棒性 +18.3% |
+- modify only allowed paths,
+- never touch forbidden paths,
+- do not perform git branching or commit actions,
+- keep the patch minimal,
+- leave promotion to the gate.
 
----
+### Controlled Backend
 
-**构建无需人类干预的超级智能体网络** 🚀
+`OpenHandsControlledBackendService` is the narrowest end-to-end path:
+
+- snapshot repo,
+- run backend,
+- collect changed files,
+- write patch artifact,
+- detect scope violations,
+- run validation command,
+- hand result to promotion gate only if policy and validation pass.
+
+If the repo root is dirty and the backend is OpenHands CLI, execution is blocked before it starts.
+
+### AEP Runner
+
+`AgentExecutionRunner` provides a contract-first execution path using:
+
+`JobSpec -> driver adapter -> DriverResult -> validation -> promotion patch -> decision`
+
+Both execution paths converge on the same architectural principle: promotion is downstream of validation and never worker-owned.
+
+## Persistent State and Artifacts
+
+The control plane stores typed metadata in SQLite repositories. This includes:
+
+- approvals,
+- managed skill installs,
+- AutoResearch plans,
+- execution runs,
+- evaluations,
+- capability snapshots,
+- other API-visible state.
+
+Per-run artifacts live on disk under runtime directories and include:
+
+- specs,
+- policies,
+- logs,
+- validation artifacts,
+- patch files,
+- summary JSON,
+- event streams.
+
+These runtime artifacts are intentionally excluded from promotion.
+
+## Canonical Files to Read During Handoff
+
+Start here when reloading context:
+
+- `ARCHITECTURE.md`
+- `memory/SOP/MASFactory_Strict_Execution_v1.md`
+- `src/autoresearch/core/services/autoresearch_planner.py`
+- `src/autoresearch/core/services/openhands_worker.py`
+- `src/autoresearch/core/services/openhands_controlled_backend.py`
+- `src/autoresearch/executions/runner.py`
+- `src/autoresearch/core/services/git_promotion_gate.py`
+- `src/autoresearch/core/services/managed_skill_registry.py`
+- `src/autoresearch/core/services/writer_lease.py`
+- `scripts/launch_ai_lab.sh`
+
+## Red Lines
+
+The current architecture is specifically designed to prevent:
+
+- direct pushes to `main` by workers,
+- direct activation of untrusted skill bundles,
+- concurrent mutation of shared promotion state,
+- runtime artifacts leaking into source patches,
+- uncontrolled widening of worker scope,
+- dirty local changes being mistaken for clean autonomous output.
+
+Those are not future features to "unlock". They are intentional safety boundaries.

@@ -11,8 +11,10 @@ from urllib.parse import parse_qs, urlencode, urlparse
 from fastapi.testclient import TestClient
 import pytest
 
+from autoresearch.agent_protocol.models import DriverResult, JobSpec, RunSummary, ValidationReport
 from autoresearch.api.dependencies import (
     get_approval_store_service,
+    get_autoresearch_planner_service,
     get_capability_provider_registry,
     get_claude_agent_service,
     get_openclaw_compat_service,
@@ -24,10 +26,12 @@ from autoresearch.api.main import app
 from autoresearch.core.adapters import CapabilityProviderDescriptorRead, CapabilityProviderRegistry
 from autoresearch.core.adapters.contracts import CapabilityDomain
 from autoresearch.core.services.approval_store import ApprovalStoreService
+from autoresearch.core.services.autoresearch_planner import AutoResearchPlannerService
 from autoresearch.core.services.claude_agents import ClaudeAgentService
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.panel_access import PanelAccessService, assert_safe_bind_host
 from autoresearch.core.services.panel_audit import PanelAuditService
+from autoresearch.shared.autoresearch_planner_contract import AutoResearchPlanRead, AutoResearchPlannerRequest
 from autoresearch.shared.models import (
     ApprovalRequestCreateRequest,
     ApprovalRequestRead,
@@ -42,11 +46,30 @@ from autoresearch.shared.store import SQLiteModelRepository
 
 class StubTelegramNotifier:
     def __init__(self) -> None:
+        self.messages: list[dict[str, object]] = []
         self.manual_events: list[dict[str, str]] = []
         self.status_events: list[dict[str, str]] = []
 
     @property
     def enabled(self) -> bool:
+        return True
+
+    def send_message(
+        self,
+        *,
+        chat_id: str,
+        text: str,
+        disable_web_page_preview: bool = True,
+        reply_markup: dict[str, object] | None = None,
+    ) -> bool:
+        self.messages.append(
+            {
+                "chat_id": chat_id,
+                "text": text,
+                "disable_web_page_preview": disable_web_page_preview,
+                "reply_markup": reply_markup,
+            }
+        )
         return True
 
     def notify_manual_action(self, *, chat_id: str, entry: PanelAuditLogRead, run_status: str) -> bool:
@@ -97,9 +120,32 @@ class _StubCapabilityProvider:
         return self._descriptor
 
 
+def _write(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+
+
+def _successful_run_summary(job: JobSpec) -> RunSummary:
+    return RunSummary(
+        run_id=job.run_id,
+        final_status="ready_for_promotion",
+        driver_result=DriverResult(
+            run_id=job.run_id,
+            agent_id=job.agent_id,
+            status="succeeded",
+            summary="panel dispatch completed",
+            changed_paths=list(job.policy.allowed_paths),
+            recommended_action="promote",
+        ),
+        validation=ValidationReport(run_id=job.run_id, passed=True),
+        promotion_patch_uri="/tmp/panel-dispatch.patch",
+    )
+
+
 @pytest.fixture
 def panel_client(tmp_path: Path) -> TestClient:
     db_path = tmp_path / "panel-security.sqlite3"
+    planner_repo_root = tmp_path / "planner-repo"
     openclaw_service = OpenClawCompatService(
         repository=SQLiteModelRepository(
             db_path=db_path,
@@ -141,6 +187,15 @@ def panel_client(tmp_path: Path) -> TestClient:
     capability_registry = CapabilityProviderRegistry()
     capability_registry.register(_StubCapabilityProvider("apple-calendar", CapabilityDomain.CALENDAR, "Apple Calendar"))
     capability_registry.register(_StubCapabilityProvider("openclaw-skills", CapabilityDomain.SKILL, "OpenClaw Skills"))
+    planner_service = AutoResearchPlannerService(
+        repository=SQLiteModelRepository(
+            db_path=db_path,
+            table_name="autoresearch_plans_panel_it",
+            model_cls=AutoResearchPlanRead,
+        ),
+        repo_root=planner_repo_root,
+        dispatch_runner=_successful_run_summary,
+    )
     notifier = StubTelegramNotifier()
 
     app.dependency_overrides[get_openclaw_compat_service] = lambda: openclaw_service
@@ -148,6 +203,7 @@ def panel_client(tmp_path: Path) -> TestClient:
     app.dependency_overrides[get_panel_access_service] = lambda: panel_access
     app.dependency_overrides[get_panel_audit_service] = lambda: panel_audit
     app.dependency_overrides[get_approval_store_service] = lambda: approval_service
+    app.dependency_overrides[get_autoresearch_planner_service] = lambda: planner_service
     app.dependency_overrides[get_capability_provider_registry] = lambda: capability_registry
     app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
 
@@ -156,6 +212,8 @@ def panel_client(tmp_path: Path) -> TestClient:
         setattr(client, "_claude", claude_service)
         setattr(client, "_panel_access", panel_access)
         setattr(client, "_approval_store", approval_service)
+        setattr(client, "_planner", planner_service)
+        setattr(client, "_planner_repo_root", planner_repo_root)
         setattr(client, "_capability_registry", capability_registry)
         setattr(client, "_notifier", notifier)
         yield client
@@ -185,6 +243,8 @@ def test_panel_view_contains_capability_section(panel_client: TestClient) -> Non
     assert "capability_providers" in response.text
     assert "待审批" in response.text
     assert "pending_approvals" in response.text
+    assert "AutoResearch Plans" in response.text
+    assert "pending_autoresearch_plans" in response.text
 
 
 def test_panel_state_is_scoped_by_telegram_uid(panel_client: TestClient) -> None:
@@ -407,6 +467,63 @@ def test_panel_rejects_tampered_telegram_init_data(panel_client: TestClient) -> 
         headers={"x-telegram-init-data": tampered},
     )
     assert response.status_code == 401
+
+
+def test_panel_lists_and_dispatches_autoresearch_plans(panel_client: TestClient) -> None:
+    panel_access = getattr(panel_client, "_panel_access")
+    planner = getattr(panel_client, "_planner")
+    planner_repo_root = getattr(panel_client, "_planner_repo_root")
+    notifier = getattr(panel_client, "_notifier")
+
+    _write(
+        planner_repo_root / "src" / "autoresearch" / "core" / "services" / "panel_target.py",
+        "\n".join(
+            [
+                "def panel_target() -> bool:",
+                "    # FIXME: add regression coverage for panel dispatch",
+                "    return True",
+                "",
+            ]
+        ),
+    )
+    plan = planner.create(AutoResearchPlannerRequest(telegram_uid="9527"))
+
+    token = _token_from_magic_link(panel_access.create_magic_link("9527").url)
+    headers = {"x-autoresearch-panel-token": token}
+
+    state = panel_client.get("/api/v1/panel/state", headers=headers)
+    assert state.status_code == 200
+    pending_plans = state.json()["pending_autoresearch_plans"]
+    assert len(pending_plans) == 1
+    assert pending_plans[0]["plan_id"] == plan.plan_id
+    assert pending_plans[0]["selected_candidate"]["source_path"] == (
+        "src/autoresearch/core/services/panel_target.py"
+    )
+
+    dispatch = panel_client.post(
+        f"/api/v1/panel/autoresearch/plans/{plan.plan_id}/dispatch",
+        headers=headers,
+        json={"note": "ship it", "metadata": {"source": "panel-test"}},
+    )
+    assert dispatch.status_code == 200
+    assert dispatch.json()["dispatch_status"] == "dispatching"
+
+    stored = planner.get(plan.plan_id)
+    assert stored is not None
+    assert stored.dispatch_status.value == "dispatched"
+    assert stored.run_summary is not None
+    assert stored.run_summary.final_status == "ready_for_promotion"
+
+    refreshed = panel_client.get("/api/v1/panel/state", headers=headers)
+    assert refreshed.status_code == 200
+    assert refreshed.json()["pending_autoresearch_plans"] == []
+
+    audit = panel_client.get("/api/v1/panel/audit/logs?limit=20", headers=headers)
+    assert audit.status_code == 200
+    assert any(item["action"] == "dispatch" for item in audit.json())
+
+    assert any("[AutoResearch Dispatch]" in str(message["text"]) for message in notifier.messages)
+    assert any(message["chat_id"] == "9527" for message in notifier.messages)
 
 
 def _token_from_magic_link(url: str) -> str:

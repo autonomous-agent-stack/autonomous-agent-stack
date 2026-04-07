@@ -34,8 +34,9 @@ from autoresearch.shared.store import InMemoryRepository, SQLiteModelRepository
 
 
 class StubTelegramNotifier:
-    def __init__(self) -> None:
+    def __init__(self, *, send_results: list[bool] | None = None) -> None:
         self.messages: list[dict[str, object]] = []
+        self._send_results = list(send_results or [])
 
     @property
     def enabled(self) -> bool:
@@ -57,6 +58,8 @@ class StubTelegramNotifier:
                 "reply_markup": reply_markup,
             }
         )
+        if self._send_results:
+            return self._send_results.pop(0)
         return True
 
 
@@ -188,6 +191,7 @@ def admin_skill_client(tmp_path: Path) -> TestClient:
         telegram_bot_token="123456:TEST_BOT_TOKEN",
         telegram_init_data_max_age_seconds=900,
         base_url="https://panel.example/api/v1/panel/view",
+        mini_app_url="https://panel.example/api/v1/panel/view",
         allowed_uids={"10001"},
     )
     notifier = StubTelegramNotifier()
@@ -283,12 +287,86 @@ def test_admin_managed_skill_promote_creates_approval_and_mini_app_link(
     assert "actionNonce=" in payload["mini_app_url"]
     assert "actionHash=" in payload["mini_app_url"]
     assert "actionIssuedAt=" in payload["mini_app_url"]
+    assert "token=" in payload["mini_app_url"]
     assert payload["notification_sent"] is True
     assert notifier.messages[0]["chat_id"] == "10001"
     reply_markup = notifier.messages[0]["reply_markup"]
     assert isinstance(reply_markup, dict)
     button = reply_markup["inline_keyboard"][0][0]
     assert button["web_app"]["url"] == payload["mini_app_url"]
+
+
+def test_admin_managed_skill_promote_falls_back_to_url_button_when_web_app_send_fails(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "admin-managed-skills-fallback.sqlite3"
+    auth_service = AdminAuthService(
+        secret="test-admin-jwt-secret",
+        bootstrap_key="bootstrap-test-key",
+    )
+    approval_store = ApprovalStoreService(
+        repository=SQLiteModelRepository(
+            db_path=db_path,
+            table_name="approval_requests_admin_skill_fallback",
+            model_cls=ApprovalRequestRead,
+        )
+    )
+    private_key, public_key = _trusted_keys()
+    registry = ManagedSkillRegistryService(
+        repo_root=tmp_path,
+        repository=InMemoryRepository(),
+        quarantine_root=tmp_path / "artifacts" / "managed_skills" / "quarantine",
+        active_root=tmp_path / "artifacts" / "managed_skills" / "active",
+        trusted_signers={"test-signer": public_key},
+        allowed_capabilities={"prompt", "filesystem_read"},
+    )
+    panel_access = PanelAccessService(
+        secret="panel-secret",
+        telegram_bot_token="123456:TEST_BOT_TOKEN",
+        telegram_init_data_max_age_seconds=900,
+        base_url="https://panel.example/api/v1/panel/view",
+        mini_app_url="https://panel.example/api/v1/panel/view",
+        allowed_uids={"10001"},
+    )
+    notifier = StubTelegramNotifier(send_results=[False, True])
+
+    app.dependency_overrides[get_admin_auth_service] = lambda: auth_service
+    app.dependency_overrides[get_approval_store_service] = lambda: approval_store
+    app.dependency_overrides[get_managed_skill_registry_service] = lambda: registry
+    app.dependency_overrides[get_panel_access_service] = lambda: panel_access
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+
+    with TestClient(app) as client:
+        token_response = client.post(
+            "/api/v1/admin/auth/token",
+            json={"subject": "test-owner", "roles": ["owner"], "ttl_seconds": 3600},
+            headers={"x-admin-bootstrap-key": "bootstrap-test-key"},
+        )
+        assert token_response.status_code == 200
+        client.headers.update({"authorization": f"Bearer {token_response.json()['token']}"})
+
+        bundle_dir = _build_bundle(tmp_path / "bundle-promote-fallback", private_key=private_key)
+        validated = registry.run_cold_validation(
+            registry.install_to_quarantine(
+                ManagedSkillInstallRequest(bundle_dir=str(bundle_dir), requested_by="owner")
+            ).install_id
+        )
+
+        response = client.post(
+            f"/api/v1/admin/skills/{validated.install_id}/promote",
+            json={"note": "retry with url button"},
+        )
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["notification_sent"] is True
+    assert len(notifier.messages) == 2
+    assert notifier.messages[0]["reply_markup"]["inline_keyboard"][0][0]["web_app"]["url"] == payload["mini_app_url"]
+    assert notifier.messages[1]["reply_markup"] == {
+        "inline_keyboard": [[{"text": "打开 Panel 审批", "url": payload["mini_app_url"]}]]
+    }
 
 
 def test_admin_managed_skill_promote_execute_requires_approved_telegram_flow(

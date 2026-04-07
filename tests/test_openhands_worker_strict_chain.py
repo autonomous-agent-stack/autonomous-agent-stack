@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import shutil
 import sys
+import time
+
+import pytest
 
 from autoresearch.agent_protocol.models import ExecutionPolicy, JobSpec, ValidatorSpec
 from autoresearch.core.services.git_promotion_gate import GitPromotionGateService
@@ -100,6 +104,13 @@ def _copy_worker_scripts(repo_root: Path) -> None:
         target.chmod(0o755)
 
 
+def _write_adapter(repo_root: Path, relative: str, source: str) -> None:
+    target = repo_root / relative
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(source, encoding="utf-8")
+    target.chmod(0o755)
+
+
 def test_openhands_dry_run_emits_patch_candidate_and_reaches_draft_pr(
     tmp_path: Path,
     monkeypatch,
@@ -163,3 +174,680 @@ def test_openhands_dry_run_emits_patch_candidate_and_reaches_draft_pr(
 
     patch_text = Path(summary.promotion_patch_uri or "").read_text(encoding="utf-8")
     assert "src/generated_worker.py" in patch_text
+
+
+def test_runner_shadow_workspace_blocks_out_of_scope_write_with_permission_error(
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    (repo_root / "src").mkdir(parents=True, exist_ok=True)
+    (repo_root / "src" / "__init__.py").write_text("", encoding="utf-8")
+    (repo_root / "src" / "allowed.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (repo_root / "src" / "forbidden.py").write_text("SECRET = 1\n", encoding="utf-8")
+    _write_adapter(
+        repo_root,
+        "drivers/shadow_probe.py",
+        """#!/usr/bin/env python3
+import json
+import os
+from pathlib import Path
+
+workspace = Path(os.environ["AEP_WORKSPACE"])
+result_path = Path(os.environ["AEP_RESULT_PATH"])
+allowed = workspace / "src" / "allowed.py"
+forbidden = workspace / "src" / "forbidden.py"
+
+error = "missing denial"
+try:
+    forbidden.write_text("SECRET = 2\\n", encoding="utf-8")
+except Exception as exc:  # pragma: no cover - exercised via runner integration
+    error = f"{type(exc).__name__}: {exc}"
+
+allowed.write_text("VALUE = 2\\n", encoding="utf-8")
+payload = {
+    "protocol_version": "aep/v0",
+    "run_id": "run-shadow-probe",
+    "agent_id": "openhands",
+    "attempt": 1,
+    "status": "succeeded",
+    "summary": error,
+    "changed_paths": ["src/allowed.py"],
+    "output_artifacts": [],
+    "metrics": {"duration_ms": 0, "steps": 0, "commands": 0, "prompt_tokens": None, "completion_tokens": None},
+    "recommended_action": "promote",
+    "error": None,
+}
+result_path.write_text(json.dumps(payload), encoding="utf-8")
+""",
+    )
+    _write_manifest(repo_root, "drivers/shadow_probe.py")
+
+    runner = AgentExecutionRunner(
+        repo_root=repo_root,
+        runtime_root=tmp_path / "runtime",
+        manifests_dir=repo_root / "configs" / "agents",
+    )
+
+    summary = runner.run_job(
+        JobSpec(
+            run_id="run-shadow-probe",
+            agent_id="openhands",
+            task="Only update src/allowed.py.",
+            validators=[
+                ValidatorSpec(
+                    id="worker.test_command",
+                    kind="command",
+                    command=f"{sys.executable} -m py_compile src/allowed.py",
+                )
+            ],
+            policy=ExecutionPolicy(
+                allowed_paths=["src/allowed.py"],
+                forbidden_paths=["src/forbidden.py", ".git/**", "logs/**", ".masfactory_runtime/**", "memory/**"],
+                cleanup_on_success=False,
+            ),
+            metadata={"pipeline_target": "patch"},
+        )
+    )
+
+    assert summary.driver_result.status == "succeeded"
+    assert "PermissionError" in summary.driver_result.summary
+    assert (repo_root / "src" / "forbidden.py").read_text(encoding="utf-8") == "SECRET = 1\n"
+    assert "src/forbidden.py" not in summary.driver_result.changed_paths
+
+    repeated = runner.run_job(
+        JobSpec(
+            run_id="run-shadow-probe",
+            agent_id="openhands",
+            task="Only update src/allowed.py.",
+            validators=[
+                ValidatorSpec(
+                    id="worker.test_command",
+                    kind="command",
+                    command=f"{sys.executable} -m py_compile src/allowed.py",
+                )
+            ],
+            policy=ExecutionPolicy(
+                allowed_paths=["src/allowed.py"],
+                forbidden_paths=["src/forbidden.py", ".git/**", "logs/**", ".masfactory_runtime/**", "memory/**"],
+                cleanup_on_success=False,
+            ),
+            metadata={"pipeline_target": "patch"},
+        )
+    )
+
+    assert repeated.driver_result.status == "succeeded"
+
+
+def test_runner_shadow_workspace_allows_creating_new_scoped_app_directory_without_unlocking_repo(
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    (repo_root / "src").mkdir(parents=True, exist_ok=True)
+    (repo_root / "src" / "__init__.py").write_text("", encoding="utf-8")
+    (repo_root / "src" / "forbidden.py").write_text("SECRET = 1\n", encoding="utf-8")
+    _write_adapter(
+        repo_root,
+        "drivers/new_surface_probe.py",
+        """#!/usr/bin/env python3
+import json
+import os
+from pathlib import Path
+
+workspace = Path(os.environ["AEP_WORKSPACE"])
+result_path = Path(os.environ["AEP_RESULT_PATH"])
+allowed = workspace / "apps" / "malu" / "lead_capture.py"
+forbidden = workspace / "src" / "forbidden.py"
+
+allowed.parent.mkdir(parents=True, exist_ok=True)
+allowed.write_text("PHONE_PATTERN = r'^1[3-9]\\\\d{9}$'\\n", encoding="utf-8")
+
+error = "missing denial"
+try:
+    forbidden.write_text("SECRET = 2\\n", encoding="utf-8")
+except Exception as exc:  # pragma: no cover - exercised via runner integration
+    error = f"{type(exc).__name__}: {exc}"
+
+payload = {
+    "protocol_version": "aep/v0",
+    "run_id": "run-new-surface-probe",
+    "agent_id": "openhands",
+    "attempt": 1,
+    "status": "succeeded",
+    "summary": error,
+    "changed_paths": ["apps/malu/lead_capture.py"],
+    "output_artifacts": [],
+    "metrics": {"duration_ms": 0, "steps": 0, "commands": 0, "prompt_tokens": None, "completion_tokens": None},
+    "recommended_action": "promote",
+    "error": None,
+}
+result_path.write_text(json.dumps(payload), encoding="utf-8")
+""",
+    )
+    _write_manifest(repo_root, "drivers/new_surface_probe.py")
+
+    runner = AgentExecutionRunner(
+        repo_root=repo_root,
+        runtime_root=tmp_path / "runtime",
+        manifests_dir=repo_root / "configs" / "agents",
+    )
+
+    summary = runner.run_job(
+        JobSpec(
+            run_id="run-new-surface-probe",
+            agent_id="openhands",
+            task="Create apps/malu/lead_capture.py without touching src/forbidden.py.",
+            validators=[
+                ValidatorSpec(
+                    id="worker.test_command",
+                    kind="command",
+                    command=f"{sys.executable} -m py_compile apps/malu/lead_capture.py",
+                )
+            ],
+            policy=ExecutionPolicy(
+                allowed_paths=["apps/malu/**"],
+                forbidden_paths=["src/forbidden.py", ".git/**", "logs/**", ".masfactory_runtime/**", "memory/**"],
+                cleanup_on_success=False,
+            ),
+            metadata={"pipeline_target": "patch"},
+        )
+    )
+
+    assert summary.driver_result.status == "succeeded"
+    assert summary.driver_result.changed_paths == ["apps/malu/lead_capture.py"]
+    assert "PermissionError" in summary.driver_result.summary
+    assert (repo_root / "src" / "forbidden.py").read_text(encoding="utf-8") == "SECRET = 1\n"
+    patch_text = Path(summary.promotion_patch_uri or "").read_text(encoding="utf-8")
+    assert "apps/malu/lead_capture.py" in patch_text
+    assert "PHONE_PATTERN = r'^1[3-9]\\d{9}$'" in patch_text
+
+
+def test_runner_fast_fail_aborts_long_running_syntax_breakage(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    (repo_root / "src").mkdir(parents=True, exist_ok=True)
+    (repo_root / "src" / "__init__.py").write_text("", encoding="utf-8")
+    (repo_root / "src" / "broken_worker.py").write_text("VALUE = 1\n", encoding="utf-8")
+    _write_adapter(
+        repo_root,
+        "drivers/slow_broken_probe.py",
+        """#!/usr/bin/env python3
+import os
+import time
+from pathlib import Path
+
+workspace = Path(os.environ["AEP_WORKSPACE"])
+target = workspace / "src" / "broken_worker.py"
+target.write_text("def broken(:\\n", encoding="utf-8")
+time.sleep(30)
+""",
+    )
+    _write_manifest(repo_root, "drivers/slow_broken_probe.py")
+
+    runner = AgentExecutionRunner(
+        repo_root=repo_root,
+        runtime_root=tmp_path / "runtime",
+        manifests_dir=repo_root / "configs" / "agents",
+    )
+
+    started = time.perf_counter()
+    summary = runner.run_job(
+        JobSpec(
+            run_id="run-fast-fail-probe",
+            agent_id="openhands",
+            task="Update src/broken_worker.py.",
+            validators=[
+                ValidatorSpec(
+                    id="worker.test_command",
+                    kind="command",
+                    command=f"{sys.executable} -m py_compile src/broken_worker.py",
+                )
+            ],
+            policy=ExecutionPolicy(
+                timeout_sec=60,
+                allowed_paths=["src/broken_worker.py"],
+                cleanup_on_success=False,
+            ),
+        )
+    )
+    duration = time.perf_counter() - started
+
+    assert duration < 15
+    assert summary.final_status == "failed"
+    assert summary.driver_result.status == "failed"
+    assert summary.driver_result.summary == "adapter aborted by fast-fail probe"
+    assert "SyntaxError" in (summary.driver_result.error or "")
+
+
+def test_runner_stall_watchdog_aborts_no_progress_adapter(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    (repo_root / "src").mkdir(parents=True, exist_ok=True)
+    (repo_root / "src" / "__init__.py").write_text("", encoding="utf-8")
+    (repo_root / "src" / "idle_worker.py").write_text("VALUE = 1\n", encoding="utf-8")
+    _write_adapter(
+        repo_root,
+        "drivers/idle_probe.py",
+        """#!/usr/bin/env python3
+import time
+
+time.sleep(30)
+""",
+    )
+    _write_manifest(repo_root, "drivers/idle_probe.py")
+
+    runner = AgentExecutionRunner(
+        repo_root=repo_root,
+        runtime_root=tmp_path / "runtime",
+        manifests_dir=repo_root / "configs" / "agents",
+    )
+    monkeypatch.setattr(runner, "_stall_progress_timeout_sec", lambda timeout_sec: 2)
+
+    started = time.perf_counter()
+    summary = runner.run_job(
+        JobSpec(
+            run_id="run-stall-probe",
+            agent_id="openhands",
+            task="Wait forever without writing any files.",
+            validators=[
+                ValidatorSpec(
+                    id="worker.test_command",
+                    kind="command",
+                    command=f"{sys.executable} -m py_compile src/idle_worker.py",
+                )
+            ],
+            policy=ExecutionPolicy(
+                timeout_sec=60,
+                allowed_paths=["src/idle_worker.py"],
+                cleanup_on_success=False,
+            ),
+        )
+    )
+    duration = time.perf_counter() - started
+
+    assert duration < 10
+    assert summary.final_status == "failed"
+    assert summary.driver_result.status == "stalled_no_progress"
+    assert summary.driver_result.summary == "adapter stalled after 2s without workspace progress"
+    assert summary.driver_result.error == "no workspace progress for 2s"
+    assert summary.driver_result.metrics.first_scoped_write_ms is None
+
+
+def test_runner_records_first_progress_metrics_for_state_and_scoped_write(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    (repo_root / "src").mkdir(parents=True, exist_ok=True)
+    (repo_root / "src" / "__init__.py").write_text("", encoding="utf-8")
+    (repo_root / "src" / "active_worker.py").write_text("VALUE = 1\n", encoding="utf-8")
+    _write_adapter(
+        repo_root,
+        "drivers/progress_probe.py",
+        """#!/usr/bin/env python3
+import json
+import os
+import time
+from pathlib import Path
+
+workspace = Path(os.environ["AEP_WORKSPACE"])
+result_path = Path(os.environ["AEP_RESULT_PATH"])
+state_dir = workspace / ".openhands-state"
+target = workspace / "src" / "active_worker.py"
+
+time.sleep(1)
+state_dir.mkdir(parents=True, exist_ok=True)
+(state_dir / "heartbeat.json").write_text("{\\"ok\\": true}\\n", encoding="utf-8")
+time.sleep(1.5)
+target.write_text("VALUE = 2\\n", encoding="utf-8")
+time.sleep(2.5)
+payload = {
+    "protocol_version": "aep/v0",
+    "run_id": "run-progress-probe",
+    "agent_id": "openhands",
+    "attempt": 1,
+    "status": "succeeded",
+    "summary": "progress recorded",
+    "changed_paths": ["src/active_worker.py"],
+    "output_artifacts": [],
+    "metrics": {"duration_ms": 0, "steps": 1, "commands": 1, "prompt_tokens": None, "completion_tokens": None},
+    "recommended_action": "promote",
+    "error": None,
+}
+result_path.write_text(json.dumps(payload), encoding="utf-8")
+""",
+    )
+    _write_manifest(repo_root, "drivers/progress_probe.py")
+
+    runner = AgentExecutionRunner(
+        repo_root=repo_root,
+        runtime_root=tmp_path / "runtime",
+        manifests_dir=repo_root / "configs" / "agents",
+    )
+
+    summary = runner.run_job(
+        JobSpec(
+            run_id="run-progress-probe",
+            agent_id="openhands",
+            task="Touch .openhands-state first, then update src/active_worker.py.",
+            validators=[
+                ValidatorSpec(
+                    id="worker.test_command",
+                    kind="command",
+                    command=f"{sys.executable} -m py_compile src/active_worker.py",
+                )
+            ],
+            policy=ExecutionPolicy(
+                timeout_sec=60,
+                allowed_paths=["src/active_worker.py"],
+                cleanup_on_success=False,
+            ),
+        )
+    )
+
+    assert summary.final_status == "blocked"
+    assert summary.driver_result.status == "policy_blocked"
+    assert summary.driver_result.metrics.first_progress_ms is not None
+    assert summary.driver_result.metrics.first_scoped_write_ms is not None
+    assert summary.driver_result.metrics.first_state_heartbeat_ms is not None
+    assert summary.driver_result.metrics.first_progress_ms <= summary.driver_result.metrics.first_state_heartbeat_ms
+    assert (
+        summary.driver_result.metrics.first_state_heartbeat_ms
+        <= summary.driver_result.metrics.first_scoped_write_ms
+    )
+
+
+def test_runner_does_not_treat_stdout_as_runtime_heartbeat(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    (repo_root / "src").mkdir(parents=True, exist_ok=True)
+    (repo_root / "src" / "__init__.py").write_text("", encoding="utf-8")
+    (repo_root / "src" / "chatty_worker.py").write_text("VALUE = 1\n", encoding="utf-8")
+    _write_adapter(
+        repo_root,
+        "drivers/output_heartbeat_probe.py",
+        """#!/usr/bin/env python3
+import json
+import os
+import sys
+import time
+from pathlib import Path
+
+workspace = Path(os.environ["AEP_WORKSPACE"])
+result_path = Path(os.environ["AEP_RESULT_PATH"])
+target = workspace / "src" / "chatty_worker.py"
+
+for step in range(4):
+    print(f"heartbeat {step}", flush=True)
+    time.sleep(1)
+
+target.write_text("VALUE = 2\\n", encoding="utf-8")
+time.sleep(2.5)
+payload = {
+    "protocol_version": "aep/v0",
+    "run_id": "run-output-heartbeat-probe",
+    "agent_id": "openhands",
+    "attempt": 1,
+    "status": "succeeded",
+    "summary": "stdout heartbeat should not keep adapter alive",
+    "changed_paths": ["src/chatty_worker.py"],
+    "output_artifacts": [],
+    "metrics": {"duration_ms": 0, "steps": 1, "commands": 1, "prompt_tokens": None, "completion_tokens": None},
+    "recommended_action": "promote",
+    "error": None,
+}
+result_path.write_text(json.dumps(payload), encoding="utf-8")
+""",
+    )
+    _write_manifest(repo_root, "drivers/output_heartbeat_probe.py")
+
+    runner = AgentExecutionRunner(
+        repo_root=repo_root,
+        runtime_root=tmp_path / "runtime",
+        manifests_dir=repo_root / "configs" / "agents",
+    )
+    monkeypatch.setattr(runner, "_stall_progress_timeout_sec", lambda timeout_sec: 2)
+
+    summary = runner.run_job(
+        JobSpec(
+            run_id="run-output-heartbeat-probe",
+            agent_id="openhands",
+            task="Emit stdout heartbeats before touching the workspace.",
+            validators=[
+                ValidatorSpec(
+                    id="worker.test_command",
+                    kind="command",
+                    command=f"{sys.executable} -m py_compile src/chatty_worker.py",
+                )
+            ],
+            policy=ExecutionPolicy(
+                timeout_sec=60,
+                allowed_paths=["src/chatty_worker.py"],
+                cleanup_on_success=False,
+            ),
+        )
+    )
+
+    assert summary.final_status == "failed"
+    assert summary.driver_result.status == "stalled_no_progress"
+    assert summary.driver_result.metrics.first_state_heartbeat_ms is None
+    assert summary.driver_result.metrics.first_scoped_write_ms is None
+
+
+def test_runner_ignores_agent_is_working_spinner_noise(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    (repo_root / "src").mkdir(parents=True, exist_ok=True)
+    (repo_root / "src" / "__init__.py").write_text("", encoding="utf-8")
+    (repo_root / "src" / "chatty_worker.py").write_text("VALUE = 1\n", encoding="utf-8")
+    _write_adapter(
+        repo_root,
+        "drivers/agent_working_noise_probe.py",
+        """#!/usr/bin/env python3
+import time
+
+for _ in range(10):
+    print("Agent is working", flush=True)
+    time.sleep(0.5)
+""",
+    )
+    _write_manifest(repo_root, "drivers/agent_working_noise_probe.py")
+
+    runner = AgentExecutionRunner(
+        repo_root=repo_root,
+        runtime_root=tmp_path / "runtime",
+        manifests_dir=repo_root / "configs" / "agents",
+    )
+    monkeypatch.setattr(runner, "_stall_progress_timeout_sec", lambda timeout_sec: 2)
+
+    started = time.perf_counter()
+    summary = runner.run_job(
+        JobSpec(
+            run_id="run-agent-working-noise-probe",
+            agent_id="openhands",
+            task="Emit only spinner-like Agent is working noise forever.",
+            validators=[
+                ValidatorSpec(
+                    id="worker.test_command",
+                    kind="command",
+                    command=f"{sys.executable} -m py_compile src/chatty_worker.py",
+                )
+            ],
+            policy=ExecutionPolicy(
+                timeout_sec=60,
+                allowed_paths=["src/chatty_worker.py"],
+                cleanup_on_success=False,
+            ),
+        )
+    )
+    duration = time.perf_counter() - started
+
+    assert duration < 8
+    assert summary.final_status == "failed"
+    assert summary.driver_result.status == "stalled_no_progress"
+    assert summary.driver_result.metrics.first_state_heartbeat_ms is None
+    assert summary.driver_result.metrics.first_scoped_write_ms is None
+
+
+def test_runner_kills_process_group_and_persists_summary_for_invalid_log_hang(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    (repo_root / "src").mkdir(parents=True, exist_ok=True)
+    (repo_root / "src" / "__init__.py").write_text("", encoding="utf-8")
+    (repo_root / "src" / "chatty_worker.py").write_text("VALUE = 1\n", encoding="utf-8")
+    _write_adapter(
+        repo_root,
+        "drivers/process_group_noise_probe.py",
+        """#!/usr/bin/env python3
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+artifacts_dir = Path(os.environ["AEP_ARTIFACT_DIR"])
+pid_file = artifacts_dir / "child.pid"
+
+child = subprocess.Popen(
+    [
+        sys.executable,
+        "-c",
+        "import time\\nwhile True:\\n    print('Agent is working', flush=True)\\n    time.sleep(0.5)\\n",
+    ]
+)
+pid_file.write_text(str(child.pid), encoding="utf-8")
+
+while True:
+    print("Agent is working", flush=True)
+    time.sleep(0.5)
+""",
+    )
+    _write_manifest(repo_root, "drivers/process_group_noise_probe.py")
+
+    runner = AgentExecutionRunner(
+        repo_root=repo_root,
+        runtime_root=tmp_path / "runtime",
+        manifests_dir=repo_root / "configs" / "agents",
+    )
+    monkeypatch.setattr(runner, "_stall_progress_timeout_sec", lambda timeout_sec: 2)
+
+    summary = runner.run_job(
+        JobSpec(
+            run_id="run-process-group-noise-probe",
+            agent_id="openhands",
+            task="Spawn a child process that only emits invalid progress noise forever.",
+            validators=[
+                ValidatorSpec(
+                    id="worker.test_command",
+                    kind="command",
+                    command=f"{sys.executable} -m py_compile src/chatty_worker.py",
+                )
+            ],
+            policy=ExecutionPolicy(
+                timeout_sec=60,
+                allowed_paths=["src/chatty_worker.py"],
+                cleanup_on_success=False,
+            ),
+        )
+    )
+
+    run_dir = tmp_path / "runtime" / "run-process-group-noise-probe"
+    summary_path = run_dir / "summary.json"
+    pid_path = run_dir / "artifacts" / "child.pid"
+
+    assert summary.final_status == "failed"
+    assert summary.driver_result.status == "stalled_no_progress"
+    assert summary_path.exists()
+    assert pid_path.exists()
+
+    child_pid = int(pid_path.read_text(encoding="utf-8").strip())
+    time.sleep(0.2)
+    with pytest.raises(ProcessLookupError):
+        os.kill(child_pid, 0)
+
+
+def test_runner_ignores_log_heartbeat_after_first_scoped_write(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    (repo_root / "src").mkdir(parents=True, exist_ok=True)
+    (repo_root / "src" / "__init__.py").write_text("", encoding="utf-8")
+    (repo_root / "src" / "chatty_worker.py").write_text("VALUE = 1\n", encoding="utf-8")
+    _write_adapter(
+        repo_root,
+        "drivers/output_then_spin_probe.py",
+        """#!/usr/bin/env python3
+import os
+import shutil
+import time
+from pathlib import Path
+
+workspace = Path(os.environ["AEP_WORKSPACE"])
+target = workspace / "src" / "chatty_worker.py"
+state_dir = workspace / ".openhands-state"
+
+for step in range(3):
+    state_dir.mkdir(parents=True, exist_ok=True)
+    (state_dir / "heartbeat.json").write_text(f"{{\\"step\\": {step}}}\\n", encoding="utf-8")
+    print(f"warmup heartbeat {step}", flush=True)
+    time.sleep(1)
+
+target.write_text("VALUE = 2\\n", encoding="utf-8")
+shutil.rmtree(state_dir)
+
+step = 0
+while True:
+    print(f"post-write heartbeat {step}", flush=True)
+    step += 1
+    time.sleep(1)
+""",
+    )
+    _write_manifest(repo_root, "drivers/output_then_spin_probe.py")
+
+    runner = AgentExecutionRunner(
+        repo_root=repo_root,
+        runtime_root=tmp_path / "runtime",
+        manifests_dir=repo_root / "configs" / "agents",
+    )
+    monkeypatch.setattr(runner, "_stall_progress_timeout_sec", lambda timeout_sec: 2)
+
+    started = time.perf_counter()
+    summary = runner.run_job(
+        JobSpec(
+            run_id="run-output-then-spin-probe",
+            agent_id="openhands",
+            task="Emit stdout heartbeats, write once, then spin forever without state updates.",
+            validators=[
+                ValidatorSpec(
+                    id="worker.test_command",
+                    kind="command",
+                    command=f"{sys.executable} -m py_compile src/chatty_worker.py",
+                )
+            ],
+            policy=ExecutionPolicy(
+                timeout_sec=60,
+                allowed_paths=["src/chatty_worker.py"],
+                cleanup_on_success=False,
+            ),
+        )
+    )
+    duration = time.perf_counter() - started
+
+    assert duration < 12
+    assert summary.final_status == "failed"
+    assert summary.driver_result.status == "stalled_no_progress"
+    assert summary.driver_result.metrics.first_state_heartbeat_ms is not None
+    assert summary.driver_result.metrics.first_scoped_write_ms is not None
