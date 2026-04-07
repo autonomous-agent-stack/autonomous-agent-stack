@@ -123,7 +123,7 @@ class GitHubAdminService:
             run_id=run_id,
             run_type=GitHubAdminRunType.TRANSFER_PLAN,
             status=status,
-            dry_run=request.dry_run,
+            dry_run=True,
             source_owners=request.source_owners,
             target_owner=request.target_owner,
             visibility=request.visibility,
@@ -184,8 +184,10 @@ class GitHubAdminService:
 
     def _placeholder_results(self, status_label: str, failures: list[GitHubAdminFailureRead]) -> dict[str, object]:
         return {
+            "mode": "dry_run",
             "status": status_label,
             "executed": False,
+            "reason": "real transfer not enabled",
             "failures": [failure.model_dump(mode="json") for failure in failures],
         }
 

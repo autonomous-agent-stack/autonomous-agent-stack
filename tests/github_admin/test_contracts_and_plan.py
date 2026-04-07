@@ -99,7 +99,7 @@ def test_transfer_plan_markdown_lists_all_sections() -> None:
     )
 
     assert "# GitHub Admin Dry-Run Transfer Plan" in markdown
-    assert "## Planned Transfers" in markdown
+    assert "## recommended_to_transfer" in markdown
     assert "`Lisa/repo-a`" in markdown
-    assert "## Manual Review" in markdown
-    assert "## Skipped" in markdown
+    assert "## not_recommended_to_transfer" in markdown
+    assert "## reasons" in markdown

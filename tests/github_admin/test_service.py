@@ -131,12 +131,21 @@ def test_inventory_run_writes_artifacts_and_annotations_repos(tmp_path: Path) ->
     )
 
     assert run.run_type.value == "inventory"
+    assert run.dry_run is True
     assert run.summary.repo_count == 3
     assert run.summary.excluded_repo_count == 2
     assert run.summary.failure_count == 1
     assert "inventory.json" in run.artifacts
     inventory_payload = json.loads((Path(run.run_dir) / "inventory.json").read_text(encoding="utf-8"))
+    assert inventory_payload["dry_run"] is True
     assert inventory_payload["summary"]["repo_count"] == 3
+    transfer_results = json.loads((Path(run.run_dir) / "transfer_results.json").read_text(encoding="utf-8"))
+    invitation_results = json.loads((Path(run.run_dir) / "invitation_results.json").read_text(encoding="utf-8"))
+    assert transfer_results["mode"] == "dry_run"
+    assert transfer_results["executed"] is False
+    assert transfer_results["reason"] == "real transfer not enabled"
+    assert invitation_results["mode"] == "dry_run"
+    assert invitation_results["executed"] is False
     repos = {item["full_name"]: item for item in inventory_payload["repositories"]}
     assert repos["Lisa/client-portal"]["other_collaborators"] == ["dd"]
     assert repos["Lisa/demo-playground"]["suggested_exclude"] is True
@@ -163,13 +172,22 @@ def test_transfer_plan_marks_review_and_writes_plan_markdown(tmp_path: Path) -> 
     )
 
     assert run.run_type.value == "transfer_plan"
+    assert run.dry_run is True
     decisions = {item.full_name: item for item in run.decisions}
     assert decisions["Lisa/client-portal"].action == "plan_transfer"
     assert decisions["Lisa/client-portal"].confirmation_profile_id == "github_project_admin"
     assert decisions["Lisa/client-portal"].planned_collaborators == ["dd"]
     assert decisions["Lisa/demo-playground"].action == "review"
     assert decisions["dd/ops-scripts"].action == "skip"
+    transfer_results = json.loads((Path(run.run_dir) / "transfer_results.json").read_text(encoding="utf-8"))
+    invitation_results = json.loads((Path(run.run_dir) / "invitation_results.json").read_text(encoding="utf-8"))
+    assert transfer_results["mode"] == "dry_run"
+    assert transfer_results["executed"] is False
+    assert invitation_results["mode"] == "dry_run"
+    assert invitation_results["executed"] is False
     plan_md = (Path(run.run_dir) / "plan.md").read_text(encoding="utf-8")
-    assert "Planned Transfers" in plan_md
+    assert "recommended_to_transfer" in plan_md
+    assert "not_recommended_to_transfer" in plan_md
+    assert "reasons" in plan_md
     assert "`Lisa/client-portal`" in plan_md
-    assert "Manual Review" in plan_md
+    assert "`Lisa/demo-playground`" in plan_md

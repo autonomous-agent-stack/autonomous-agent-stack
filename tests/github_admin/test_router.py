@@ -70,6 +70,7 @@ def test_github_admin_routes_return_dry_run_payloads(tmp_path: Path) -> None:
             assert inventory.status_code == 200
             inventory_payload = inventory.json()
             assert inventory_payload["run_type"] == "inventory"
+            assert inventory_payload["dry_run"] is True
             assert inventory_payload["summary"]["repo_count"] == 1
 
             plan = client.post(
@@ -85,9 +86,12 @@ def test_github_admin_routes_return_dry_run_payloads(tmp_path: Path) -> None:
             assert plan.status_code == 200
             plan_payload = plan.json()
             assert plan_payload["run_type"] == "transfer_plan"
+            assert plan_payload["dry_run"] is True
             assert plan_payload["decisions"][0]["action"] == "plan_transfer"
 
             execute = client.post("/api/jobs/github-admin/execute-transfer")
             assert execute.status_code == 501
+            assert "dry-run only" in execute.json()["detail"].lower()
+            assert "not implemented yet" in execute.json()["detail"].lower()
     finally:
         app.dependency_overrides.clear()
