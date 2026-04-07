@@ -1,5 +1,37 @@
 #!/usr/bin/env bash
 
+mask_secret_value() {
+  local raw_value="$1"
+  local length="${#raw_value}"
+  if [[ "${length}" -le 8 ]]; then
+    printf '***'
+    return
+  fi
+  printf '%s...%s' "${raw_value:0:4}" "${raw_value:length-4:4}"
+}
+
+is_sensitive_env_var() {
+  local var_name="$1"
+  case "${var_name}" in
+    *TOKEN*|*KEY*|*SECRET*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+format_env_value_for_output() {
+  local var_name="$1"
+  local raw_value="$2"
+  if is_sensitive_env_var "${var_name}"; then
+    mask_secret_value "${raw_value}"
+    return
+  fi
+  printf '%s' "${raw_value}"
+}
+
 load_shared_env_files() {
   local project_root="$1"
   local root_dir="$2"
@@ -52,7 +84,7 @@ warn_env_conflicts() {
         continue
       fi
       if [[ "${parsed_value}" != "${seen_value}" ]]; then
-        echo "[env-warning] ${var_name} conflict: ${seen_file}='${seen_value}' vs ${env_file}='${parsed_value}'"
+        echo "[env-warning] ${var_name} conflict: ${seen_file}='$(format_env_value_for_output "${var_name}" "${seen_value}")' vs ${env_file}='$(format_env_value_for_output "${var_name}" "${parsed_value}")'"
       fi
     done
   done
@@ -65,7 +97,7 @@ print_effective_env_values() {
   for var_name in "${vars[@]}"; do
     value="${!var_name:-}"
     if [[ -n "${value}" ]]; then
-      echo "[env] ${var_name}=${value}"
+      echo "[env] ${var_name}=$(format_env_value_for_output "${var_name}" "${value}")"
     else
       echo "[env] ${var_name}=<unset>"
     fi
