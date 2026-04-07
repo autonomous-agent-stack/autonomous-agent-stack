@@ -1,3 +1,89 @@
-name: github_admin
-version: 1.0.0
-description: GitHub repository administration and management
+version: "1"
+
+agent:
+  id: "github_admin"
+  name: "GitHub Admin Agent"
+  description: "负责 GitHub 仓库盘点、迁移计划、协作者同步、邀请接受检查"
+  role: "specialist"
+
+routing:
+  task_types:
+    - "github_admin"
+    - "repo_inventory"
+    - "repo_transfer"
+    - "collaborator_sync"
+  keywords:
+    - "GitHub迁移"
+    - "仓库转移"
+    - "公开项目管理"
+    - "协作者"
+    - "邀请接受"
+
+execution:
+  default_driver: "codex"
+  fallback_drivers:
+    - "claude_code"
+  workspace_mode: "isolated"
+  allow_code_change: true
+  require_patch_gate: true
+
+inputs:
+  required:
+    - "task_brief"
+  optional:
+    - "source_owners"
+    - "target_owner"
+    - "visibility"
+    - "include_archived"
+    - "dry_run"
+    - "post_actions"
+    - "profile"
+
+outputs:
+  artifacts:
+    - "inventory.json"
+    - "plan.md"
+    - "transfer_results.json"
+    - "invitation_results.json"
+
+permissions:
+  filesystem:
+    read:
+      - "configs/github_profiles/"
+      - "artifacts/"
+      - "src/github_admin/"
+      - "tests/github_admin/"
+    write:
+      - "artifacts/github_admin/"
+      - "src/github_admin/"
+      - "tests/github_admin/"
+  network: "allow"
+  git:
+    commit: false
+    push: false
+
+gates:
+  validators:
+    - "pytest -q tests/github_admin"
+  approvals:
+    human_required_for:
+      - "execute_repo_transfer"
+      - "add_or_remove_admin_collaborators"
+      - "accept_invitations_using_secondary_profile"
+
+runtime:
+  default_mode: "dry_run"
+  require_profile_isolation: true
+  continue_on_error: true
+
+profiles:
+  supported:
+    - "github_lisa"
+    - "github_dd"
+    - "github_project_admin"
+
+prompts:
+  repo_inventory: "agents/github_admin/prompts/repo_inventory.md"
+  transfer_plan: "agents/github_admin/prompts/transfer_plan.md"
+  collaborator_sync: "agents/github_admin/prompts/collaborator_sync.md"
+  invitation_accept: "agents/github_admin/prompts/invitation_accept.md"

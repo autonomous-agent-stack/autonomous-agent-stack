@@ -35,6 +35,7 @@ from autoresearch.core.services.claude_runtime_service import ClaudeRuntimeServi
 from autoresearch.core.services.claude_session_records import ClaudeSessionRecordService
 from autoresearch.core.services.evaluations import EvaluationService
 from autoresearch.core.services.executions import ExecutionService
+from autoresearch.core.services.github_admin import GitHubAdminService
 from autoresearch.core.services.github_issue_service import GitHubIssueService
 from autoresearch.core.services.mirofish_prediction import MiroFishPredictionService
 from autoresearch.core.services.managed_skill_registry import ManagedSkillRegistryService
@@ -87,6 +88,7 @@ from autoresearch.shared.autoresearch_planner_contract import AutoResearchPlanRe
 from autoresearch.shared.excel_audit_contract import ExcelAuditRead
 from autoresearch.shared.manager_agent_contract import ManagerDispatchRead
 from autoresearch.shared.store import SQLiteModelRepository
+from github_admin.contracts import GitHubAdminRunRead
 from autoresearch.train.services.experiments import ExperimentService
 from autoresearch.train.services.optimizations import OptimizationService
 from integrations.apple_bridge.calendar import CalendarService
@@ -215,6 +217,18 @@ def get_github_assistant_service_registry() -> GitHubAssistantServiceRegistry:
 
 def get_github_assistant_service(profile: str | None = None) -> GitHubAssistantService:
     return get_github_assistant_service_registry().get(profile)
+
+
+@lru_cache(maxsize=1)
+def get_github_admin_service() -> GitHubAdminService:
+    return GitHubAdminService(
+        repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="github_admin_runs",
+            model_cls=GitHubAdminRunRead,
+        ),
+        repo_root=_repo_root(),
+    )
 
 
 @lru_cache(maxsize=1)
@@ -535,6 +549,7 @@ def clear_dependency_caches() -> None:
     get_youtube_agent_service.cache_clear()
     get_manager_agent_service.cache_clear()
     get_github_issue_service.cache_clear()
+    get_github_admin_service.cache_clear()
     get_worker_registry_service.cache_clear()
     get_worker_scheduler_service.cache_clear()
     get_openclaw_compat_service.cache_clear()
