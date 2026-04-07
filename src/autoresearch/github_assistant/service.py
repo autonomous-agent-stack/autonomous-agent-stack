@@ -11,12 +11,19 @@ import shutil
 import subprocess
 from typing import Any, Callable
 
-from autoresearch.core.services.git_promotion_gate import GitPromotionGateService, GitPromotionProvider
+from autoresearch.core.services.git_promotion_gate import (
+    CliGitPromotionProvider,
+    GitPromotionGateService,
+    GitPromotionProvider,
+)
 from autoresearch.github_assistant.config import (
+    ResolvedGitHubAssistantProfile,
     load_assistant_config,
     load_policy,
     load_repo_catalog,
+    list_resolved_profiles,
     resolve_repo,
+    resolve_profile,
     resolve_repo_relative_path,
 )
 from autoresearch.github_assistant.executors import AssistantExecutorRunner
@@ -30,6 +37,8 @@ from autoresearch.github_assistant.models import (
     GitHubAssistantDoctorRead,
     GitHubAssistantHealthRead,
     GitHubIssue,
+    GitHubAssistantYouTubePublishRequest,
+    GitHubAssistantYouTubePublishResult,
     GitHubPullRequest,
     ManagedRepoConfig,
     PreparedWorkspace,
@@ -51,10 +60,46 @@ _PR_URL_RE = re.compile(r"/pull/(?P<number>\d+)(?:$|[/?#])")
 
 @dataclass(frozen=True, slots=True)
 class LoadedAssistantContext:
+    profile: ResolvedGitHubAssistantProfile
     assistant: AssistantConfig
     repos: RepoCatalog
     policy: AssistantPolicy
     prompts: PromptCatalog
+
+
+class GitHubAssistantServiceRegistry:
+    def __init__(self, *, repo_root: Path | None = None) -> None:
+        self._repo_root = (repo_root or Path(__file__).resolve().parents[3]).resolve()
+        self._services: dict[str, GitHubAssistantService] = {}
+        self._signatures: dict[str, tuple[object, ...]] = {}
+
+    def list_profiles(self) -> list[ResolvedGitHubAssistantProfile]:
+        return list_resolved_profiles(self._repo_root)
+
+    def default_profile_id(self) -> str | None:
+        for profile in self.list_profiles():
+            if profile.is_default:
+                return profile.id
+        return None
+
+    def get(self, profile_id: str | None = None) -> GitHubAssistantService:
+        profile = resolve_profile(self._repo_root, profile_id)
+        signature = (
+            profile.id,
+            str(profile.root),
+            profile.display_name,
+            profile.github_host,
+            str(profile.gh_config_dir),
+            profile.explicit,
+            profile.is_default,
+        )
+        cached = self._services.get(profile.id)
+        if cached is not None and self._signatures.get(profile.id) == signature:
+            return cached
+        service = GitHubAssistantService(repo_root=self._repo_root, profile=profile)
+        self._services[profile.id] = service
+        self._signatures[profile.id] = signature
+        return service
 
 
 class GitHubAssistantService:
@@ -62,6 +107,7 @@ class GitHubAssistantService:
         self,
         *,
         repo_root: Path | None = None,
+        profile: ResolvedGitHubAssistantProfile | None = None,
         github: Any | None = None,
         workspace_manager: Any | None = None,
         promotion_provider: GitPromotionProvider | None = None,
@@ -69,20 +115,34 @@ class GitHubAssistantService:
         now_factory: Callable[[], datetime] | None = None,
     ) -> None:
         self._repo_root = (repo_root or Path(__file__).resolve().parents[3]).resolve()
-        self._github = github or GhCliGateway(repo_root=self._repo_root)
+        self._profile = profile or resolve_profile(self._repo_root)
+        self._github_env = self._build_github_env(self._profile)
+        self._github = github or GhCliGateway(
+            repo_root=self._repo_root,
+            env=self._github_env,
+            github_host=self._profile.github_host,
+        )
         self._workspace_manager = workspace_manager
-        self._promotion_provider = promotion_provider
+        self._promotion_provider = promotion_provider or CliGitPromotionProvider(
+            env=self._github_env,
+            github_host=self._profile.github_host,
+        )
         self._executor_runner = executor_runner
         self._now_factory = now_factory or (lambda: datetime.now(timezone.utc))
         self._executor_adapter = AssistantExecutorRunner(repo_root=self._repo_root)
 
+    @property
+    def profile(self) -> ResolvedGitHubAssistantProfile:
+        return self._profile
+
     def load_context(self) -> LoadedAssistantContext:
-        assistant = load_assistant_config(self._repo_root)
-        repos = load_repo_catalog(self._repo_root)
-        policy = load_policy(self._repo_root, assistant)
-        prompts_root = resolve_repo_relative_path(self._repo_root, assistant.prompts_dir)
+        assistant = load_assistant_config(self._profile.root)
+        repos = load_repo_catalog(self._profile.root)
+        policy = load_policy(self._profile.root, assistant)
+        prompts_root = resolve_repo_relative_path(self._profile.root, assistant.prompts_dir)
         prompts = PromptCatalog(prompts_root)
         return LoadedAssistantContext(
+            profile=self._profile,
             assistant=assistant,
             repos=repos,
             policy=policy,
@@ -91,18 +151,25 @@ class GitHubAssistantService:
 
     def doctor_report(self) -> GitHubAssistantDoctorRead:
         checks, ok = self.doctor()
-        expected_bot_account = None
+        expected_github_login = None
+        managed_repo_count = 0
         try:
-            expected_bot_account = self.load_context().assistant.bot_account
+            context = self.load_context()
+            expected_github_login = context.assistant.github_login
+            managed_repo_count = len(context.repos.repos)
         except Exception:
-            expected_bot_account = None
+            expected_github_login = None
         try:
             active_login = getattr(self._github, "current_login", lambda: None)()
         except Exception:
             active_login = None
         return GitHubAssistantDoctorRead(
             ok=ok,
-            expected_bot_account=expected_bot_account,
+            profile_id=self._profile.id,
+            profile_display_name=self._profile.display_name,
+            github_host=self._profile.github_host,
+            managed_repo_count=managed_repo_count,
+            expected_github_login=expected_github_login,
             active_login=active_login,
             checks=checks,
         )
@@ -113,9 +180,13 @@ class GitHubAssistantService:
         gh_auth_ok = auth_check is not None and auth_check.status == DoctorStatus.PASS
         return GitHubAssistantHealthRead(
             status="ok" if doctor.ok else "degraded",
+            profile_id=self._profile.id,
+            profile_display_name=self._profile.display_name,
+            github_host=self._profile.github_host,
+            managed_repo_count=doctor.managed_repo_count,
             doctor_ok=doctor.ok,
             gh_auth_ok=gh_auth_ok,
-            expected_bot_account=doctor.expected_bot_account,
+            expected_github_login=doctor.expected_github_login,
             active_login=doctor.active_login,
             checks=doctor.checks,
         )
@@ -133,11 +204,36 @@ class GitHubAssistantService:
 
     def doctor(self) -> tuple[list[DoctorCheck], bool]:
         checks: list[DoctorCheck] = []
-        assistant_path = self._repo_root / "assistant.yaml"
-        repos_path = self._repo_root / "repos.yaml"
+        assistant_path = self._profile.root / "assistant.yaml"
+        repos_path = self._profile.root / "repos.yaml"
+
+        if self._profile.explicit:
+            profiles_path = self._repo_root / "profiles.yaml"
+            if profiles_path.exists():
+                checks.append(
+                    DoctorCheck(
+                        name="profiles.yaml",
+                        status=DoctorStatus.PASS,
+                        detail=self._relative_to_template_root(profiles_path),
+                    )
+                )
+            else:
+                checks.append(
+                    DoctorCheck(
+                        name="profiles.yaml",
+                        status=DoctorStatus.FAIL,
+                        detail="missing profiles.yaml",
+                    )
+                )
 
         if assistant_path.exists():
-            checks.append(DoctorCheck(name="assistant.yaml", status=DoctorStatus.PASS, detail="found"))
+            checks.append(
+                DoctorCheck(
+                    name="assistant.yaml",
+                    status=DoctorStatus.PASS,
+                    detail=self._relative_to_template_root(assistant_path),
+                )
+            )
         else:
             checks.append(
                 DoctorCheck(
@@ -148,7 +244,13 @@ class GitHubAssistantService:
                 )
             )
         if repos_path.exists():
-            checks.append(DoctorCheck(name="repos.yaml", status=DoctorStatus.PASS, detail="found"))
+            checks.append(
+                DoctorCheck(
+                    name="repos.yaml",
+                    status=DoctorStatus.PASS,
+                    detail=self._relative_to_template_root(repos_path),
+                )
+            )
         else:
             checks.append(
                 DoctorCheck(
@@ -206,24 +308,31 @@ class GitHubAssistantService:
                     DoctorCheck(
                         name=f"prompt:{filename}",
                         status=DoctorStatus.PASS,
-                        detail=str(path.relative_to(self._repo_root)),
+                        detail=self._relative_to_template_root(path),
                     )
                 )
 
-        policy_path = resolve_repo_relative_path(self._repo_root, context.assistant.policy_path)
+        policy_path = resolve_repo_relative_path(self._profile.root, context.assistant.policy_path)
+        checks.append(
+            DoctorCheck(
+                name="profile",
+                status=DoctorStatus.PASS,
+                detail=f"{self._profile.id} ({self._profile.display_name})",
+            )
+        )
         checks.append(
             DoctorCheck(
                 name="policy",
                 status=DoctorStatus.PASS,
-                detail=str(policy_path.relative_to(self._repo_root)),
+                detail=self._relative_to_template_root(policy_path),
             )
         )
 
-        checks.append(self._directory_check(name="runs dir", path=resolve_repo_relative_path(self._repo_root, context.assistant.runs_dir)))
+        checks.append(self._directory_check(name="runs dir", path=self._runtime_runs_root(context.assistant)))
         checks.append(
             self._directory_check(
                 name="workspace root",
-                path=resolve_repo_relative_path(self._repo_root, context.assistant.workspace_root),
+                path=self._runtime_workspace_root(context.assistant),
             )
         )
         checks.append(self._executor_check(context.assistant))
@@ -272,19 +381,19 @@ class GitHubAssistantService:
             current_login = getattr(self._github, "current_login", lambda: None)()
         except Exception:
             current_login = None
-        if current_login and current_login != context.assistant.bot_account:
+        if current_login and current_login != context.assistant.github_login:
             checks.append(
                 DoctorCheck(
-                    name="gh bot account",
+                    name="gh login",
                     status=DoctorStatus.WARN,
-                    detail=f"active gh login is {current_login}, config expects {context.assistant.bot_account}",
+                    detail=f"active gh login is {current_login}, config expects {context.assistant.github_login}",
                     hint="Switch gh login or update assistant.yaml.",
                 )
             )
         elif current_login:
             checks.append(
                 DoctorCheck(
-                    name="gh bot account",
+                    name="gh login",
                     status=DoctorStatus.PASS,
                     detail=current_login,
                 )
@@ -356,6 +465,8 @@ class GitHubAssistantService:
         )
         summary = RunSummary(
             run_id=run_id,
+            profile_id=self._profile.id,
+            profile_display_name=self._profile.display_name,
             repo=repo_config.repo,
             status="reviewed_pr",
             started_at=self._now_factory(),
@@ -400,6 +511,8 @@ class GitHubAssistantService:
         )
         summary = RunSummary(
             run_id=run_id,
+            profile_id=self._profile.id,
+            profile_display_name=self._profile.display_name,
             repo=repo_config.repo,
             status="release_planned",
             started_at=self._now_factory(),
@@ -425,6 +538,8 @@ class GitHubAssistantService:
         self._write_triage_artifacts(run_dir, context.prompts, repo_config, issue, triage)
         summary = RunSummary(
             run_id=run_id,
+            profile_id=self._profile.id,
+            profile_display_name=self._profile.display_name,
             repo=repo_config.repo,
             issue_number=issue.number,
             issue_url=issue.url,
@@ -463,6 +578,8 @@ class GitHubAssistantService:
 
         summary = RunSummary(
             run_id=run_id,
+            profile_id=self._profile.id,
+            profile_display_name=self._profile.display_name,
             repo=repo_config.repo,
             issue_number=issue.number,
             issue_url=issue.url,
@@ -483,7 +600,7 @@ class GitHubAssistantService:
 
         workspace_manager = self._workspace_manager or LocalWorkspaceManager(
             github=self._github,
-            workspace_root=resolve_repo_relative_path(self._repo_root, context.assistant.workspace_root),
+            workspace_root=self._runtime_workspace_root(context.assistant),
         )
         prepared = workspace_manager.prepare(repo=repo_config.repo, run_id=summary.run_id)
         warning_messages: list[str] = []
@@ -530,8 +647,8 @@ class GitHubAssistantService:
             ).finalize(
                 intent=PromotionIntent(
                     run_id=summary.run_id,
-                    actor_id=context.assistant.bot_account,
-                    writer_id=context.assistant.bot_account,
+                    actor_id=context.assistant.github_login,
+                    writer_id=context.assistant.github_login,
                     writer_lease_key=f"github-assistant:{repo_config.repo}",
                     patch_uri=str(patch_path),
                     changed_files=changed_files,
@@ -603,9 +720,195 @@ class GitHubAssistantService:
         finally:
             workspace_manager.cleanup(prepared)
 
+    def publish_youtube(
+        self,
+        payload: GitHubAssistantYouTubePublishRequest,
+    ) -> tuple[Path, GitHubAssistantYouTubePublishResult]:
+        context = self.load_context()
+        repo_config, route_reason = self._resolve_youtube_repo(context.repos, payload)
+        run_id = self._build_run_id()
+        run_dir = self._build_named_run_dir(context.assistant, run_id, repo_config.repo, f"youtube-{payload.video_id}")
+        run_dir.mkdir(parents=True, exist_ok=True)
+        started_at = self._now_factory()
+
+        output_path = self._build_youtube_output_path(repo_config, payload)
+        publish_payload = {
+            "repo": repo_config.repo,
+            "route_reason": route_reason,
+            "output_path": output_path,
+            "video_id": payload.video_id,
+            "source_url": payload.source_url,
+            "digest_id": payload.digest_id,
+            "transcript_id": payload.transcript_id,
+            "requested_by": payload.requested_by,
+            "channel_id": payload.channel_id,
+            "channel_title": payload.channel_title,
+            "has_transcript_content": bool(payload.transcript_content and payload.transcript_content.strip()),
+        }
+        (run_dir / "publish_payload.json").write_text(
+            json.dumps(publish_payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+        summary = RunSummary(
+            run_id=run_id,
+            profile_id=self._profile.id,
+            profile_display_name=self._profile.display_name,
+            repo=repo_config.repo,
+            status="planning",
+            started_at=started_at,
+            updated_at=self._now_factory(),
+            metadata={
+                **publish_payload,
+                "content_source": "youtube",
+            },
+        )
+        self._write_summary(run_dir, summary)
+
+        workspace_manager = self._workspace_manager or LocalWorkspaceManager(
+            github=self._github,
+            workspace_root=self._runtime_workspace_root(context.assistant),
+        )
+        prepared = workspace_manager.prepare(repo=repo_config.repo, run_id=summary.run_id)
+        warning_messages: list[str] = []
+        try:
+            relative_output = output_path.replace("\\", "/")
+            if not self._matches_any(relative_output, repo_config.allowed_paths):
+                summary.status = "blocked"
+                summary.warnings = [f"output path outside allowed_paths: {relative_output}"]
+                summary.updated_at = self._now_factory()
+                self._write_summary(run_dir, summary)
+                return run_dir, GitHubAssistantYouTubePublishResult(
+                    repo=repo_config.repo,
+                    output_path=relative_output,
+                    route_reason=route_reason,
+                )
+
+            destination = (prepared.execution_workspace_dir / relative_output).resolve()
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            if prepared.execution_workspace_dir.resolve() not in destination.parents and destination != prepared.execution_workspace_dir.resolve():
+                raise RuntimeError(f"refusing to write outside workspace: {relative_output}")
+
+            destination.write_text(
+                self._render_youtube_markdown(payload),
+                encoding="utf-8",
+            )
+            (run_dir / "publish.md").write_text(destination.read_text(encoding="utf-8"), encoding="utf-8")
+
+            changed_files = self._changed_files(prepared.execution_workspace_dir)
+            summary.changed_files = changed_files
+            if not changed_files:
+                summary.status = "no_changes"
+                summary.updated_at = self._now_factory()
+                self._write_summary(run_dir, summary)
+                return run_dir, GitHubAssistantYouTubePublishResult(
+                    repo=repo_config.repo,
+                    output_path=relative_output,
+                    route_reason=route_reason,
+                )
+
+            disallowed = [
+                path for path in changed_files if not self._matches_any(path, repo_config.allowed_paths)
+            ]
+            if disallowed:
+                summary.status = "blocked"
+                warning_messages.append("changed files outside allowed_paths: " + ", ".join(disallowed))
+                summary.warnings = warning_messages
+                summary.updated_at = self._now_factory()
+                self._write_summary(run_dir, summary)
+                return run_dir, GitHubAssistantYouTubePublishResult(
+                    repo=repo_config.repo,
+                    output_path=relative_output,
+                    route_reason=route_reason,
+                )
+
+            patch_path = run_dir / "patch.diff"
+            patch_path.write_text(
+                self._build_patch(prepared.execution_workspace_dir),
+                encoding="utf-8",
+            )
+
+            branch_name = self._build_youtube_branch_name(context.assistant, payload)
+            pr_title = f"Ingest YouTube digest: {(payload.title or payload.video_id).strip()[:72]}"
+            pr_body = "\n".join(
+                [
+                    f"Source URL: {payload.source_url}",
+                    f"Video ID: {payload.video_id}",
+                    f"Digest ID: {payload.digest_id}",
+                    f"Transcript ID: {payload.transcript_id or '(none)'}",
+                    f"Output path: `{relative_output}`",
+                    f"Route reason: {route_reason}",
+                ]
+            )
+            preflight, result = GitPromotionGateService(
+                repo_root=prepared.source_repo_dir,
+                provider=self._promotion_provider,
+            ).finalize(
+                intent=PromotionIntent(
+                    run_id=summary.run_id,
+                    actor_id=context.assistant.github_login,
+                    writer_id=context.assistant.github_login,
+                    writer_lease_key=f"github-assistant:{repo_config.repo}",
+                    patch_uri=str(patch_path),
+                    changed_files=changed_files,
+                    base_ref=repo_config.default_branch,
+                    preferred_mode=GitPromotionMode.DRAFT_PR,
+                    target_base_branch=repo_config.default_branch,
+                    approval_granted=True,
+                    metadata={
+                        "branch_name": branch_name,
+                        "commit_message": f"docs(youtube): ingest {payload.video_id}",
+                        "pr_title": pr_title,
+                        "pr_body": pr_body,
+                        "validator_commands": [
+                            item for item in [repo_config.lint_command, repo_config.test_command] if item
+                        ],
+                        "forbidden_paths": context.policy.forbidden_paths,
+                        "max_changed_files": context.assistant.max_changed_files,
+                        "max_patch_lines": context.assistant.max_patch_lines,
+                    },
+                ),
+                artifacts_dir=run_dir,
+            )
+
+            summary.status = "draft_pr_opened" if result.pr_url else "promotion_complete"
+            summary.pr_url = result.pr_url
+            summary.warnings = warning_messages
+            summary.updated_at = self._now_factory()
+            summary.metadata.update(
+                {
+                    "output_path": relative_output,
+                    "route_reason": route_reason,
+                    "promotion_preflight": preflight.model_dump(mode="json"),
+                    "promotion_result": result.model_dump(mode="json"),
+                }
+            )
+            if not result.success:
+                summary.status = "promotion_failed"
+                if result.reason:
+                    summary.warnings.append(result.reason)
+            self._write_summary(run_dir, summary)
+            return run_dir, GitHubAssistantYouTubePublishResult(
+                repo=repo_config.repo,
+                output_path=relative_output,
+                route_reason=route_reason,
+                pr_url=result.pr_url,
+                branch_name=result.branch_name,
+            )
+        except Exception as exc:
+            summary.status = "failed"
+            summary.warnings.append(str(exc))
+            summary.updated_at = self._now_factory()
+            self._write_summary(run_dir, summary)
+            raise
+        finally:
+            workspace_manager.cleanup(prepared)
+
     def schedule_run(self) -> ScheduleSummary:
         context = self.load_context()
         summary = ScheduleSummary(
+            profile_id=self._profile.id,
+            profile_display_name=self._profile.display_name,
             scheduled_trigger_enabled=context.assistant.scheduled_trigger_enabled,
             issue_label=context.assistant.schedule.issue_label,
         )
@@ -826,7 +1129,7 @@ class GitHubAssistantService:
         leaf_name: str,
     ) -> Path:
         owner, name = repo.split("/", 1)
-        runs_root = resolve_repo_relative_path(self._repo_root, assistant.runs_dir)
+        runs_root = self._runtime_runs_root(assistant)
         return runs_root / run_id / owner / name / leaf_name
 
     def _build_run_dir(
@@ -837,6 +1140,26 @@ class GitHubAssistantService:
         issue_number: int,
     ) -> Path:
         return self._build_named_run_dir(assistant, run_id, repo, f"issue-{issue_number}")
+
+    def _runtime_runs_root(self, assistant: AssistantConfig) -> Path:
+        return self._resolve_runtime_path(assistant.runs_dir)
+
+    def _runtime_workspace_root(self, assistant: AssistantConfig) -> Path:
+        return self._resolve_runtime_path(assistant.workspace_root)
+
+    def _resolve_runtime_path(self, value: str) -> Path:
+        root = resolve_repo_relative_path(self._repo_root, value)
+        if not self._profile.explicit:
+            return root
+        if root.name == self._profile.id:
+            return root
+        return root / self._profile.id
+
+    def _relative_to_template_root(self, path: Path) -> str:
+        try:
+            return str(path.relative_to(self._repo_root))
+        except ValueError:
+            return str(path)
 
     def _write_summary(self, run_dir: Path, summary: RunSummary) -> None:
         (run_dir / "summary.json").write_text(
@@ -916,6 +1239,143 @@ class GitHubAssistantService:
             raise RuntimeError((completed.stderr or completed.stdout or "git diff failed").strip())
         return completed.stdout
 
+    def _resolve_youtube_repo(
+        self,
+        repo_catalog: RepoCatalog,
+        payload: GitHubAssistantYouTubePublishRequest,
+    ) -> tuple[ManagedRepoConfig, str]:
+        if payload.repo_hint and payload.repo_hint.strip():
+            repo = resolve_repo(repo_catalog, payload.repo_hint)
+            if not repo.youtube_ingest.enabled:
+                raise ValueError(f"managed repo {repo.repo} does not enable youtube_ingest")
+            return repo, f"repo_hint matched {repo.repo}"
+
+        candidates: list[tuple[int, ManagedRepoConfig, str]] = []
+        haystack = "\n".join(
+            item.strip().lower()
+            for item in (
+                payload.title or "",
+                payload.channel_title or "",
+                payload.description or "",
+                payload.digest_content or "",
+            )
+            if item and item.strip()
+        )
+        for repo in repo_catalog.repos:
+            route = repo.youtube_ingest
+            if not route.enabled:
+                continue
+            score = 0
+            reasons: list[str] = []
+            if payload.channel_id and payload.channel_id in route.channel_ids:
+                score += 100
+                reasons.append(f"channel_id={payload.channel_id}")
+            if payload.channel_title:
+                lowered_title = payload.channel_title.strip().lower()
+                for candidate in route.channel_titles:
+                    candidate_text = candidate.strip().lower()
+                    if candidate_text and candidate_text in lowered_title:
+                        score += 50
+                        reasons.append(f"channel_title~={candidate}")
+                        break
+            matched_keywords = [keyword for keyword in route.keywords if keyword.lower() in haystack]
+            if matched_keywords:
+                score += len(matched_keywords) * 10
+                reasons.append("keywords=" + ",".join(matched_keywords))
+            if score > 0:
+                candidates.append((score, repo, "; ".join(reasons)))
+
+        if not candidates:
+            raise ValueError("no youtube_ingest route matched any managed repo")
+
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        top_score, top_repo, top_reason = candidates[0]
+        if len(candidates) > 1 and candidates[1][0] == top_score:
+            tied = ", ".join(candidate.repo for score, candidate, _reason in candidates if score == top_score)
+            raise ValueError(f"ambiguous youtube_ingest route across managed repos: {tied}")
+        return top_repo, top_reason
+
+    def _build_youtube_output_path(
+        self,
+        repo_config: ManagedRepoConfig,
+        payload: GitHubAssistantYouTubePublishRequest,
+    ) -> str:
+        route = repo_config.youtube_ingest
+        published_date = payload.published_at.date().isoformat() if payload.published_at else "undated"
+        slug = self._slugify(payload.title or payload.video_id) or payload.video_id
+        relative = Path(route.output_dir) / route.filename_template.format(
+            video_id=payload.video_id,
+            slug=slug,
+            published_date=published_date,
+            channel_slug=self._slugify(payload.channel_title or payload.channel_id or "unknown"),
+        )
+        normalized = relative.as_posix().strip()
+        if not normalized or normalized.startswith("/") or ".." in Path(normalized).parts:
+            raise ValueError(f"invalid youtube_ingest output path: {normalized or '<empty>'}")
+        return normalized
+
+    def _render_youtube_markdown(self, payload: GitHubAssistantYouTubePublishRequest) -> str:
+        published_at = payload.published_at.isoformat() if payload.published_at else "unknown"
+        lines = [
+            "---",
+            "source: youtube",
+            f"video_id: {payload.video_id}",
+            f"digest_id: {payload.digest_id}",
+            f"transcript_id: {payload.transcript_id or ''}",
+            f"transcript_language: {payload.transcript_language or ''}",
+            f"source_url: {payload.source_url}",
+            f"channel_id: {payload.channel_id or ''}",
+            f"channel_title: {payload.channel_title or ''}",
+            f"published_at: {published_at}",
+            "---",
+            "",
+            f"# {payload.title or payload.video_id}",
+            "",
+            f"- Source URL: {payload.source_url}",
+            f"- Channel: {payload.channel_title or payload.channel_id or 'unknown'}",
+            f"- Published At: {published_at}",
+            f"- Transcript Language: {payload.transcript_language or 'unknown'}",
+            "",
+            "## Digest",
+            "",
+            payload.digest_content.strip(),
+            "",
+        ]
+        if payload.transcript_content and payload.transcript_content.strip():
+            lines.extend(
+                [
+                    "## Transcript",
+                    "",
+                    payload.transcript_content.strip(),
+                    "",
+                ]
+            )
+        if payload.description and payload.description.strip():
+            lines.extend(
+                [
+                    "## Video Description",
+                    "",
+                    payload.description.strip(),
+                    "",
+                ]
+            )
+        return "\n".join(lines)
+
+    def _build_youtube_branch_name(
+        self,
+        assistant: AssistantConfig,
+        payload: GitHubAssistantYouTubePublishRequest,
+    ) -> str:
+        prefix = assistant.branch_prefix.rstrip("/")
+        if prefix.endswith("/issue"):
+            prefix = prefix[: -len("/issue")] + "/youtube"
+        elif prefix.endswith("issue"):
+            prefix = prefix[: -len("issue")] + "youtube"
+        else:
+            prefix = f"{prefix}/youtube"
+        slug = self._slugify(payload.title or payload.video_id) or payload.video_id
+        return f"{prefix}/{payload.video_id}-{slug}"[:120]
+
     def _maybe_apply_issue_metadata(
         self,
         *,
@@ -958,7 +1418,7 @@ class GitHubAssistantService:
                     "\n".join(
                         [
                             f"Draft PR opened: {pr_url}",
-                            f"Run artifacts: `{run_dir.relative_to(self._repo_root)}`",
+                            f"Run artifacts: `{self._relative_to_template_root(run_dir)}`",
                         ]
                     ),
                 )
@@ -972,7 +1432,7 @@ class GitHubAssistantService:
                     self._github.comment_pr(
                         repo,
                         pr_number,
-                        f"Linked issue: {issue_url}\nRun artifacts: `{run_dir.relative_to(self._repo_root)}`",
+                        f"Linked issue: {issue_url}\nRun artifacts: `{self._relative_to_template_root(run_dir)}`",
                     )
                     results["pr_comment"] = "posted"
                 except Exception as exc:
@@ -1150,3 +1610,11 @@ class GitHubAssistantService:
     def _slugify(value: str) -> str:
         slug = re.sub(r"[^a-zA-Z0-9]+", "-", value.strip().lower()).strip("-")
         return slug[:48]
+
+    @staticmethod
+    def _build_github_env(profile: ResolvedGitHubAssistantProfile) -> dict[str, str]:
+        if not profile.explicit:
+            return {}
+        return {
+            "GH_CONFIG_DIR": str(profile.gh_config_dir),
+        }

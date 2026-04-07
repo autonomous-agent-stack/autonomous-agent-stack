@@ -17,39 +17,6 @@
 - `process driver lane` 已成熟，适合先交付第 4 类业务。
 - `openclaw runtime` 更适合后续把通用能力做成 skill，再按需 runtime 化。
 
-## 重型 Claude Code 工作台和 OpenHands 的关系
-
-如果你的目标不是“单次调用 Claude Code CLI”，而是打造一整套重型 Claude Code 工作台，那么它和 OpenHands 最合理的关系不是替代，而是分层协作：
-
-- 重型 Claude Code 工作台
-  - 主入口
-  - 长期上下文
-  - rules / hooks / memory / skills
-  - review / QA / release 流程
-- OpenHands
-  - 受控执行器
-  - 隔离 workspace 内的实现手
-  - bounded task 的 patch 产出器
-- `autonomous-agent-stack`
-  - control plane
-  - 任务路由、policy merge、validation、promotion
-
-可以把它理解成：
-
-`你 -> Claude Code 工作台 -> AAS control plane -> OpenHands / Claude Code adapters -> validators -> promotion`
-
-对应到当前仓库的已有边界：
-
-- `ARCHITECTURE.md` 明确把 OpenHands 视为 constrained worker，而不是 control plane。
-- `docs/agent-execution-protocol.md` 明确规定 agent 只是 driver adapter。
-- `README.md` 也已经把 OpenHands 的角色收口到隔离执行，而不是长期工作台。
-
-所以答案是：
-
-- 可以用 OpenHands 开发，而且适合做受控实现任务。
-- 但不建议让 OpenHands 承担“重型 Claude Code 工作台”的长期职责。
-- 最佳做法是让 Claude Code 工作台做主脑，OpenHands 做执行手。
-
 ## 对应到当前仓库，应该挂哪条链
 
 如果是“开发和维护 Excel 处理程序”，优先挂当前已经稳定的这条链：

@@ -22,7 +22,7 @@ from autoresearch.core.adapters import (
     MCPContextProviderAdapter,
     OpenClawSkillProviderAdapter,
 )
-from autoresearch.github_assistant.service import GitHubAssistantService
+from autoresearch.github_assistant.service import GitHubAssistantService, GitHubAssistantServiceRegistry
 from autoresearch.core.repositories import SQLiteEvaluationRepository
 from autoresearch.core.services.admin_auth import AdminAuthService
 from autoresearch.core.services.admin_config import AdminConfigService
@@ -31,6 +31,8 @@ from autoresearch.core.services.agent_audit_trail import AgentAuditTrailService
 from autoresearch.core.services.approval_store import ApprovalStoreService
 from autoresearch.core.services.autoresearch_planner import AutoResearchPlannerService
 from autoresearch.core.services.claude_agents import ClaudeAgentService
+from autoresearch.core.services.claude_runtime_service import ClaudeRuntimeService
+from autoresearch.core.services.claude_session_records import ClaudeSessionRecordService
 from autoresearch.core.services.evaluations import EvaluationService
 from autoresearch.core.services.executions import ExecutionService
 from autoresearch.core.services.github_issue_service import GitHubIssueService
@@ -48,8 +50,12 @@ from autoresearch.core.services.self_integration import SelfIntegrationService
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
 from autoresearch.core.services.upstream_watcher import UpstreamWatcherService
 from autoresearch.core.services.variants import VariantService
+from autoresearch.core.services.worker_scheduler import WorkerSchedulerService
+from autoresearch.core.services.worker_registry import WorkerRegistryService
+from autoresearch.core.services.youtube_agent import YouTubeAgentService
 from autoresearch.shared.models import (
     ClaudeAgentRunRead,
+    ClaudeRuntimeSessionRecordRead,
     AdminAgentConfigRead,
     AdminChannelConfigRead,
     AdminConfigRevisionRead,
@@ -67,6 +73,14 @@ from autoresearch.shared.models import (
     PanelAuditLogRead,
     ReportRead,
     VariantRead,
+    WorkerLeaseRead,
+    WorkerQueueItemRead,
+    WorkerRegistrationRead,
+    YouTubeDigestRead,
+    YouTubeRunRead,
+    YouTubeSubscriptionRead,
+    YouTubeTranscriptRead,
+    YouTubeVideoRead,
 )
 from autoresearch.shared.autoresearch_planner_contract import AutoResearchPlanRead
 from autoresearch.shared.manager_agent_contract import ManagerDispatchRead
@@ -193,8 +207,40 @@ def get_github_issue_service() -> GitHubIssueService:
 
 
 @lru_cache(maxsize=1)
-def get_github_assistant_service() -> GitHubAssistantService:
-    return GitHubAssistantService(repo_root=_repo_root())
+def get_github_assistant_service_registry() -> GitHubAssistantServiceRegistry:
+    return GitHubAssistantServiceRegistry(repo_root=_repo_root())
+
+
+def get_github_assistant_service(profile: str | None = None) -> GitHubAssistantService:
+    return get_github_assistant_service_registry().get(profile)
+
+
+@lru_cache(maxsize=1)
+def get_worker_registry_service() -> WorkerRegistryService:
+    return WorkerRegistryService(
+        repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="worker_registrations",
+            model_cls=WorkerRegistrationRead,
+        )
+    )
+
+
+@lru_cache(maxsize=1)
+def get_worker_scheduler_service() -> WorkerSchedulerService:
+    return WorkerSchedulerService(
+        worker_registry=get_worker_registry_service(),
+        queue_repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="worker_run_queue",
+            model_cls=WorkerQueueItemRead,
+        ),
+        lease_repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="worker_leases",
+            model_cls=WorkerLeaseRead,
+        ),
+    )
 
 
 @lru_cache(maxsize=1)
@@ -269,6 +315,25 @@ def get_claude_agent_service() -> ClaudeAgentService:
         max_agents=feature_settings.agent_max_concurrency,
         max_depth=feature_settings.agent_max_depth,
         openclaw_skill_service=get_openclaw_skill_service(),
+    )
+
+
+@lru_cache(maxsize=1)
+def get_claude_session_record_service() -> ClaudeSessionRecordService:
+    return ClaudeSessionRecordService(
+        repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="claude_runtime_session_records",
+            model_cls=ClaudeRuntimeSessionRecordRead,
+        )
+    )
+
+
+@lru_cache(maxsize=1)
+def get_claude_runtime_service() -> ClaudeRuntimeService:
+    return ClaudeRuntimeService(
+        agent_service=get_claude_agent_service(),
+        session_record_service=get_claude_session_record_service(),
     )
 
 
@@ -456,12 +521,16 @@ def clear_dependency_caches() -> None:
     get_youtube_agent_service.cache_clear()
     get_manager_agent_service.cache_clear()
     get_github_issue_service.cache_clear()
+    get_worker_registry_service.cache_clear()
+    get_worker_scheduler_service.cache_clear()
     get_openclaw_compat_service.cache_clear()
     get_openclaw_memory_service.cache_clear()
     get_capability_provider_registry.cache_clear()
     get_managed_skill_registry_service.cache_clear()
     get_openclaw_skill_service.cache_clear()
     get_claude_agent_service.cache_clear()
+    get_claude_session_record_service.cache_clear()
+    get_claude_runtime_service.cache_clear()
     get_mirofish_prediction_service.cache_clear()
     get_self_integration_service.cache_clear()
     get_panel_access_service.cache_clear()

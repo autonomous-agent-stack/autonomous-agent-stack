@@ -180,6 +180,31 @@ PORT=8010 make start
 协议文档：[Agent Execution Protocol (AEP v0)](./docs/agent-execution-protocol.md)
 如果你正在评估“重型 Claude Code 工作台”和 OpenHands 的分层关系，以及 Claude Code CLI 处理 Excel / 销售统计 / 提成发放这类强规则业务的落地方式，可参考 [Claude Code CLI 业务落地案例：销售统计表与提成发放表](./docs/claude-code-excel-business-case.md)。
 
+## Claude Code CLI 接入方式
+
+`autonomous-agent-stack` 不是把 Claude Code CLI 嵌进 Python 进程里，而是把它当成一个可调用的仓库执行器。
+
+最常见的调用模式是：
+
+1. 外环先收件、分类、选仓库
+2. 在目标仓库目录里写 task brief
+3. `cd` 到目标仓库
+4. 直接调用 `claude -p`
+5. 让 Claude Code CLI 读取该仓库的 `CLAUDE.md` 和 docs 后执行修改
+
+最小命令范式：
+
+```bash
+cd /path/to/target-repo
+claude -p "请先阅读 CLAUDE.md 和相关 docs，再完成这份 task brief：...。最后只输出 files changed / verification / manual follow-up。"
+```
+
+更完整的写法见 [Task Brief / 桥接文档指南](./docs/task-brief-guide.md)。
+
+如果你要把 Claude Code CLI 用在强规则业务开发上，例如“销售统计表 / 提成发放表 / 各种 Excel 处理与统计”，可直接参考 [Claude Code CLI 业务落地案例：销售统计表与提成发放表](./docs/claude-code-excel-business-case.md)。
+
+如果你把 `autonomous-agent-stack` 当作长期在线外环，这种接法的重点不是“调用某个内部 API”，而是“把执行边界收在仓库目录和 task brief 上”。
+
 ## 关键入口
 
 - [API 主入口](./src/autoresearch/api/main.py)
@@ -198,6 +223,7 @@ PORT=8010 make start
 
 - `assistant.yaml`
 - `repos.yaml`
+- `profiles.yaml`（可选，多 profile 时启用）
 - `prompts/`
 - `policies/default-policy.yaml`
 - `./assistant`
@@ -206,6 +232,7 @@ PORT=8010 make start
 
 - `GET /api/v1/github-assistant/health`
 - `GET /api/v1/github-assistant/doctor`
+- `GET /api/v1/github-assistant/profiles`
 - `POST /api/v1/github-assistant/triage`
 - `POST /api/v1/github-assistant/execute`
 - `POST /api/v1/github-assistant/review-pr`
@@ -218,6 +245,9 @@ PORT=8010 make start
 
 ```bash
 ./assistant doctor
+./assistant profile list
+./assistant profile init work --display-name "Work"
+./assistant auth status --profile work
 ./assistant triage owner/repo 123
 ./assistant execute owner/repo 123
 ./assistant review-pr owner/repo 456
@@ -241,7 +271,7 @@ executor 适配层已内建 4 种模式：
 
 运行时支持用环境变量覆盖关键配置：
 
-- `GH_ASSISTANT_BOT_ACCOUNT`
+- `GH_ASSISTANT_GITHUB_LOGIN`
 - `GH_ASSISTANT_WORKSPACE_ROOT`
 - `GH_ASSISTANT_EXECUTOR_ADAPTER`
 - `GH_ASSISTANT_EXECUTOR_BINARY`

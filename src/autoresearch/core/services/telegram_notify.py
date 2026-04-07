@@ -39,6 +39,8 @@ class TelegramNotifierService:
         text: str,
         disable_web_page_preview: bool = True,
         reply_markup: dict[str, Any] | None = None,
+        message_thread_id: int | None = None,
+        reply_to_message_id: int | None = None,
     ) -> bool:
         if not self.enabled:
             return False
@@ -48,6 +50,10 @@ class TelegramNotifierService:
             "text": text,
             "disable_web_page_preview": disable_web_page_preview,
         }
+        if message_thread_id is not None:
+            payload["message_thread_id"] = message_thread_id
+        if reply_to_message_id is not None:
+            payload["reply_to_message_id"] = reply_to_message_id
         if reply_markup is not None:
             payload["reply_markup"] = reply_markup
         endpoint = f"{self._api_base}/bot{self._bot_token}/sendMessage"
@@ -97,6 +103,7 @@ class TelegramNotifierService:
         expires_at_iso: str | None,
         is_group_link: bool = False,
         mini_app_url: str | None = None,
+        message_thread_id: int | None = None,
     ) -> bool:
         """Send status notification with magic link.
 
@@ -120,6 +127,7 @@ class TelegramNotifierService:
                 chat_id=chat_id,
                 magic_link_url=magic_link_url,
                 expires_at_iso=expires_at_iso,
+                message_thread_id=message_thread_id,
             )
 
         # For regular links, use text message (with optional Mini App button)
@@ -142,7 +150,7 @@ class TelegramNotifierService:
                     ]
                 ]
             }
-        return self.send_message(chat_id=chat_id, text="\n".join(lines), reply_markup=reply_markup)
+        return self.send_message(chat_id=chat_id, text="\n".join(lines), reply_markup=reply_markup, message_thread_id=message_thread_id)
 
     def _send_group_magic_link(
         self,
@@ -150,6 +158,7 @@ class TelegramNotifierService:
         chat_id: str,
         magic_link_url: str,
         expires_at_iso: str | None,
+        message_thread_id: int | None = None,
     ) -> bool:
         """Send magic link with Inline Button for group chats.
 
@@ -187,6 +196,8 @@ class TelegramNotifierService:
             "reply_markup": inline_keyboard,
             "disable_web_page_preview": True,
         }
+        if message_thread_id is not None:
+            payload["message_thread_id"] = message_thread_id
 
         # Send to Telegram API
         endpoint = f"{self._api_base}/bot{self._bot_token}/sendMessage"

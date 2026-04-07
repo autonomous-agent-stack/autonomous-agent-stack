@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import fnmatch
 import hashlib
 import json
+import os
 import re
 import shlex
 import shutil
@@ -97,6 +98,10 @@ class GitPromotionProvider(Protocol):
 
 
 class CliGitPromotionProvider:
+    def __init__(self, *, env: dict[str, str] | None = None, github_host: str = "github.com") -> None:
+        self._env = dict(env or {})
+        self._github_host = github_host.strip() or "github.com"
+
     def probe_remote_health(self, repo_root: Path, *, base_branch: str) -> GitRemoteProbe:
         if not (repo_root / ".git").exists():
             return GitRemoteProbe(reason="repository is not a git checkout")
@@ -113,11 +118,12 @@ class CliGitPromotionProvider:
         gh_path = shutil.which("gh")
         if gh_path is not None:
             auth = subprocess.run(
-                [gh_path, "auth", "status"],
+                [gh_path, "auth", "status", "--hostname", self._github_host],
                 cwd=repo_root,
                 capture_output=True,
                 text=True,
                 check=False,
+                env={**os.environ, **self._env},
             )
             credentials_available = auth.returncode == 0
 
@@ -251,6 +257,7 @@ class CliGitPromotionProvider:
             capture_output=True,
             text=True,
             check=False,
+            env={**os.environ, **self._env},
         )
         if completed.returncode != 0:
             raise RuntimeError((completed.stderr or completed.stdout or "gh pr create failed").strip())

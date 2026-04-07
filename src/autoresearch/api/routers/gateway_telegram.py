@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import inspect
+import re
 import threading
 import time
 from typing import Any
@@ -13,15 +14,19 @@ from autoresearch.api.dependencies import (
     get_approval_store_service,
     get_capability_provider_registry,
     get_claude_agent_service,
+    get_claude_session_record_service,
     get_github_issue_service,
     get_manager_agent_service,
     get_openclaw_compat_service,
     get_openclaw_memory_service,
     get_panel_access_service,
     get_telegram_notifier_service,
+    get_worker_registry_service,
+    get_worker_scheduler_service,
 )
 from autoresearch.api.settings import load_panel_settings, load_runtime_settings, load_telegram_settings
 from autoresearch.core.adapters import CapabilityDomain, CapabilityProviderRegistry, SkillProvider
+from autoresearch.core.runtime_identity import get_runtime_identity
 from autoresearch.core.services.admin_config import AdminConfigService
 from autoresearch.core.services.approval_store import ApprovalStoreService
 from autoresearch.core.services.claude_agents import ClaudeAgentService
@@ -31,11 +36,18 @@ from autoresearch.agents.manager_agent import ManagerAgentService
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.openclaw_memory import OpenClawMemoryService
 from autoresearch.core.services.panel_access import PanelAccessService
+from autoresearch.core.services.standby_youtube_autoflow import (
+    extract_urls_from_text,
+    extract_youtube_urls_from_text,
+)
 from autoresearch.core.services.telegram_identity import (
     TelegramSessionIdentityRead,
     build_telegram_session_identity,
 )
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
+from autoresearch.core.services.worker_registry import WorkerRegistryService
+from autoresearch.core.services.worker_scheduler import WorkerSchedulerService
+from autoresearch.core.services.claude_session_records import ClaudeSessionRecordService
 from autoresearch.shared.models import (
     AdminChannelConfigCreateRequest,
     AdminChannelConfigUpdateRequest,
@@ -55,7 +67,11 @@ from autoresearch.shared.models import (
     OpenClawSessionEventAppendRequest,
     OpenClawSessionRead,
     ChatType,
+    StandbyYouTubeAutoflowRequest,
     TelegramWebhookAck,
+    WorkerMode,
+    WorkerQueueItemCreateRequest,
+    WorkerTaskType,
 )
 from autoresearch.shared.manager_agent_contract import ManagerDispatchRead, ManagerDispatchRequest
 
@@ -68,6 +84,8 @@ _RATE_MAX_REQUESTS_PER_CHAT = 30
 _SEEN_UPDATES: dict[str, float] = {}
 _CHAT_RATE_WINDOWS: dict[str, list[float]] = {}
 _GUARD_LOCK = threading.Lock()
+_SHORT_AFFIRMATIVE_RE = re.compile(r"^(好|好的|好啊|好呀|行|行啊|行呀|可以|可以啊|可以呀|开始|开始吧|来吧|继续|确认|是|是的|嗯|嗯嗯)\s*[.!。！？~～]*$")
+_YOUTUBE_PROCESS_CONFIRM_RE = re.compile(r"(现在)?触发(?:一次)?(?:视频)?(?:字幕)?处理")
 
 
 @router.get("/health", tags=["gateway"])
@@ -94,6 +112,9 @@ def telegram_webhook(
     panel_access_service: PanelAccessService = Depends(get_panel_access_service),
     notifier: TelegramNotifierService = Depends(get_telegram_notifier_service),
     admin_config_service: AdminConfigService = Depends(get_admin_config_service),
+    worker_registry: WorkerRegistryService = Depends(get_worker_registry_service),
+    worker_scheduler: WorkerSchedulerService = Depends(get_worker_scheduler_service),
+    session_record_service: ClaudeSessionRecordService = Depends(get_claude_session_record_service),
 ) -> TelegramWebhookAck:
     return _handle_telegram_webhook(
         update=update,
@@ -109,6 +130,9 @@ def telegram_webhook(
         panel_access_service=panel_access_service,
         notifier=notifier,
         admin_config_service=admin_config_service,
+        worker_registry=worker_registry,
+        worker_scheduler=worker_scheduler,
+        session_record_service=session_record_service,
     )
 
 
@@ -131,6 +155,9 @@ def legacy_telegram_webhook(
     panel_access_service: PanelAccessService = Depends(get_panel_access_service),
     notifier: TelegramNotifierService = Depends(get_telegram_notifier_service),
     admin_config_service: AdminConfigService = Depends(get_admin_config_service),
+    worker_registry: WorkerRegistryService = Depends(get_worker_registry_service),
+    worker_scheduler: WorkerSchedulerService = Depends(get_worker_scheduler_service),
+    session_record_service: ClaudeSessionRecordService = Depends(get_claude_session_record_service),
 ) -> TelegramWebhookAck:
     return _handle_telegram_webhook(
         update=update,
@@ -146,6 +173,9 @@ def legacy_telegram_webhook(
         panel_access_service=panel_access_service,
         notifier=notifier,
         admin_config_service=admin_config_service,
+        worker_registry=worker_registry,
+        worker_scheduler=worker_scheduler,
+        session_record_service=session_record_service,
     )
 
 
@@ -164,6 +194,9 @@ def _handle_telegram_webhook(
     panel_access_service: PanelAccessService,
     notifier: TelegramNotifierService,
     admin_config_service: AdminConfigService,
+    worker_registry: WorkerRegistryService,
+    worker_scheduler: WorkerSchedulerService,
+    session_record_service: ClaudeSessionRecordService,
 ) -> TelegramWebhookAck:
     _validate_secret_token(raw_request)
     _guard_webhook_replay_and_rate(update)
@@ -235,6 +268,7 @@ def _handle_telegram_webhook(
             panel_access_service=panel_access_service,
             notifier=notifier,
             session_identity=session_identity,
+            worker_registry=worker_registry,
         )
 
     if _is_help_command(text):
@@ -316,10 +350,33 @@ def _handle_telegram_webhook(
             session_identity=session_identity,
         )
 
+    youtube_ingress_decision, youtube_source_url, youtube_rejection_reason = _classify_telegram_youtube_ingress(text)
+    if youtube_ingress_decision != "skip":
+        return _handle_telegram_youtube_autoflow(
+            chat_id=chat_id,
+            text=text,
+            update=update,
+            extracted=extracted,
+            background_tasks=background_tasks,
+            openclaw_service=openclaw_service,
+            notifier=notifier,
+            session_identity=session_identity,
+            worker_scheduler=worker_scheduler,
+            decision=youtube_ingress_decision,
+            source_url=youtube_source_url,
+            rejection_reason=youtube_rejection_reason,
+        )
+
     session = _find_or_create_telegram_session(
         openclaw_service=openclaw_service,
         chat_id=chat_id,
         session_identity=session_identity,
+        background_tasks=background_tasks,
+        notifier=notifier,
+    )
+    resolved_prompt = _resolve_contextual_followup_prompt(
+        session=session,
+        text=text,
     )
 
     _append_user_event(
@@ -331,79 +388,71 @@ def _handle_telegram_webhook(
         session_identity=session_identity,
     )
 
-    request_payload = ClaudeAgentCreateRequest(
-        task_name=_build_task_name(chat_id, update, extracted),
-        prompt=text,
-        session_id=session.session_id,
-        agent_name=telegram_settings.agent_name,
-        generation_depth=max(1, min(telegram_settings.generation_depth, 10)),
-        timeout_seconds=max(1, min(telegram_settings.timeout_seconds, 7200)),
-        work_dir=str(telegram_settings.work_dir) if telegram_settings.work_dir else None,
-        cli_args=telegram_settings.claude_args,
-        command_override=telegram_settings.command_override,
-        append_prompt=telegram_settings.append_prompt,
-        images=extracted.get("images", []),  # 新增图片字段
-        env={},
+    # Resolve preferred worker from sticky session record
+    preferred_worker_id: str | None = None
+    sticky_record = session_record_service.get_by_session_key(session_identity.session_key)
+    if sticky_record and sticky_record.worker_id:
+        preferred_worker_id = sticky_record.worker_id
+
+    # Build claude_runtime task payload
+    runtime_payload = {
+        "session_id": session.session_id,
+        "session_key": session_identity.session_key,
+        "assistant_id": session_identity.assistant_id,
+        "chat_id": chat_id,
+        "message_thread_id": extracted.get("message_thread_id"),
+        "is_topic_message": extracted.get("is_topic_message", False),
+        "reply_to_message_id": extracted.get("reply_to_message_id"),
+        "prompt": resolved_prompt,
+        "task_name": _build_task_name(chat_id, update, extracted),
+        "actor_user_id": session_identity.actor.user_id,
+        "actor_role": session_identity.actor.role.value,
+        "actor_username": session_identity.actor.username,
+        "timeout_seconds": max(1, min(telegram_settings.timeout_seconds, 7200)),
+        "work_dir": str(telegram_settings.work_dir) if telegram_settings.work_dir else None,
+        "agent_name": telegram_settings.agent_name,
+        "cli_args": telegram_settings.claude_args or [],
+        "command_override": telegram_settings.command_override,
+        "skill_names": [],
+        "images": extracted.get("images", []),
+        "preferred_worker_id": preferred_worker_id,
+        "source": "telegram_webhook",
+        "scope": session_identity.scope.value,
+        "chat_type": session_identity.chat_context.chat_type.value,
+    }
+
+    queue_item = worker_scheduler.enqueue(WorkerQueueItemCreateRequest(
+        task_type=WorkerTaskType.CLAUDE_RUNTIME,
+        payload=runtime_payload,
+        requested_by=session_identity.actor.user_id,
         metadata={
-            "source": "telegram_webhook",
-            "chat_id": chat_id,
-            "update_id": _safe_int(update.get("update_id")),
-            "message_id": extracted.get("message_id"),
-            "username": extracted.get("username"),
-            "has_images": len(extracted.get("images", [])) > 0,  # 标记是否有图片
-            "scope": session_identity.scope.value,
             "session_key": session_identity.session_key,
-            "assistant_id": session_identity.assistant_id,
-            "chat_type": session_identity.chat_context.chat_type.value,
-            "actor_role": session_identity.actor.role.value,
-            "actor_user_id": session_identity.actor.user_id,
+            "preferred_worker_id": preferred_worker_id,
+            "chat_id": chat_id,
         },
-    )
+    ))
 
-    try:
-        agent_run = agent_service.create(request_payload)
-    except ValueError as exc:
-        return TelegramWebhookAck(
-            accepted=False,
-            update_id=_safe_int(update.get("update_id")),
-            chat_id=chat_id,
-            session_id=session.session_id,
-            reason=str(exc),
-        )
-    except RuntimeError as exc:
-        return TelegramWebhookAck(
-            accepted=False,
-            update_id=_safe_int(update.get("update_id")),
-            chat_id=chat_id,
-            session_id=session.session_id,
-            reason=str(exc),
-        )
-
+    # Notify user that task is queued
+    thread_id_int = _safe_int(extracted.get("message_thread_id"))
     if notifier.enabled:
         background_tasks.add_task(
             notifier.send_message,
             chat_id=chat_id,
-            text=f"已接收，开始处理：{request_payload.task_name}",
+            text=f"已接收，已排队：{runtime_payload['task_name']} (run: {queue_item.run_id})",
+            message_thread_id=thread_id_int,
         )
 
-    background_tasks.add_task(
-        _execute_agent_and_notify,
-        agent_service=agent_service,
-        notifier=notifier,
-        chat_id=chat_id,
-        agent_run_id=agent_run.agent_run_id,
-        request_payload=request_payload,
-    )
     return TelegramWebhookAck(
         accepted=True,
         update_id=_safe_int(update.get("update_id")),
         chat_id=chat_id,
         session_id=session.session_id,
-        agent_run_id=agent_run.agent_run_id,
+        agent_run_id=None,
         metadata={
-            "task_name": request_payload.task_name,
-            "generation_depth": request_payload.generation_depth,
-            "timeout_seconds": request_payload.timeout_seconds,
+            "run_id": queue_item.run_id,
+            "task_name": runtime_payload["task_name"],
+            "routed_to": "worker_queue",
+            "preferred_worker_id": preferred_worker_id,
         },
     )
 
@@ -457,8 +506,11 @@ def _extract_telegram_message(update: dict[str, Any]) -> dict[str, Any] | None:
             "reply_to_user_id": _safe_int(((message.get("reply_to_message") or {}).get("from") or {}).get("id")),
             "reply_to_username": _safe_str(((message.get("reply_to_message") or {}).get("from") or {}).get("username")),
             "reply_to_is_bot": bool(((message.get("reply_to_message") or {}).get("from") or {}).get("is_bot")),
+            "message_thread_id": message.get("message_thread_id"),
+            "is_topic_message": bool(message.get("is_topic_message", False)),
+            "reply_to_message_id": message.get("reply_to_message", {}).get("message_id") if isinstance(message.get("reply_to_message"), dict) else None,
             "raw_type": "message",
-            "images": image_urls,  # 新增图片字段
+            "images": image_urls,
         }
 
     callback = update.get("callback_query")
@@ -477,6 +529,9 @@ def _extract_telegram_message(update: dict[str, Any]) -> dict[str, Any] | None:
             "reply_to_user_id": None,
             "reply_to_username": None,
             "reply_to_is_bot": False,
+            "message_thread_id": callback_message.get("message_thread_id"),
+            "is_topic_message": bool(callback_message.get("is_topic_message", False)),
+            "reply_to_message_id": None,
             "raw_type": "callback_query",
         }
     return None
@@ -580,6 +635,254 @@ def _gc_guard_state(now_ts: float) -> None:
         _CHAT_RATE_WINDOWS.pop(chat_id, None)
 
 
+def _classify_telegram_youtube_ingress(text: str) -> tuple[str, str | None, str | None]:
+    normalized_text = text.strip()
+    if not normalized_text:
+        return ("skip", None, None)
+
+    all_urls = extract_urls_from_text(normalized_text)
+    youtube_urls = extract_youtube_urls_from_text(normalized_text)
+    has_youtube_hint = "youtu" in normalized_text.lower()
+
+    if not all_urls:
+        if has_youtube_hint:
+            return ("reject", None, "未找到合法的 YouTube URL。")
+        return ("skip", None, None)
+
+    if len(all_urls) > 1:
+        if youtube_urls or has_youtube_hint:
+            return ("reject", None, "当前只支持每条消息提交 1 条 YouTube 链接。")
+        return ("skip", None, None)
+
+    only_url = all_urls[0]
+    if len(youtube_urls) == 1 and youtube_urls[0] == only_url:
+        return ("accept", only_url, None)
+    if has_youtube_hint:
+        return ("reject", None, "消息里必须只包含 1 条合法的 YouTube URL。")
+    return ("skip", None, None)
+
+
+def _handle_telegram_youtube_autoflow(
+    *,
+    chat_id: str,
+    text: str,
+    update: dict[str, Any],
+    extracted: dict[str, Any],
+    background_tasks: BackgroundTasks,
+    openclaw_service: OpenClawCompatService,
+    notifier: TelegramNotifierService,
+    session_identity: TelegramSessionIdentityRead,
+    worker_scheduler: WorkerSchedulerService,
+    decision: str,
+    source_url: str | None,
+    rejection_reason: str | None,
+) -> TelegramWebhookAck:
+    session = _find_or_create_telegram_session(
+        openclaw_service=openclaw_service,
+        chat_id=chat_id,
+        session_identity=session_identity,
+        background_tasks=background_tasks,
+        notifier=notifier,
+    )
+    _append_user_event(
+        openclaw_service=openclaw_service,
+        session=session,
+        text=text,
+        update=update,
+        extracted=extracted,
+        session_identity=session_identity,
+    )
+
+    metadata = {
+        "source": "telegram_youtube_autoflow",
+        "chat_id": chat_id,
+        "update_id": _safe_int(update.get("update_id")),
+        "message_id": extracted.get("message_id"),
+        "username": extracted.get("username"),
+        "scope": session_identity.scope.value,
+        "session_key": session_identity.session_key,
+        "assistant_id": session_identity.assistant_id,
+        "chat_type": session_identity.chat_context.chat_type.value,
+        "actor_role": session_identity.actor.role.value,
+        "actor_user_id": session_identity.actor.user_id,
+        "session_id": session.session_id,
+    }
+
+    if decision != "accept" or source_url is None:
+        reason = rejection_reason or "消息里必须只包含 1 条合法的 YouTube URL。"
+        _record_telegram_youtube_autoflow_status(
+            openclaw_service=openclaw_service,
+            session_id=session.session_id,
+            content="youtube autoflow rejected",
+            metadata={
+                **metadata,
+                "status": "rejected",
+                "reason": reason,
+            },
+        )
+        if notifier.enabled:
+            background_tasks.add_task(
+                notifier.send_message,
+                chat_id=chat_id,
+                text=_build_telegram_youtube_autoflow_message(
+                    status="rejected",
+                    reason=reason,
+                ),
+            )
+        return TelegramWebhookAck(
+            accepted=False,
+            update_id=_safe_int(update.get("update_id")),
+            chat_id=chat_id,
+            session_id=session.session_id,
+            reason=reason,
+            metadata={
+                **metadata,
+                "status": "rejected",
+            },
+        )
+
+    requested_by = session_identity.actor.user_id or _safe_str(extracted.get("from_user_id")) or chat_id
+    request_payload = StandbyYouTubeAutoflowRequest(
+        source_url=source_url,
+        input_text=text,
+        requested_by=requested_by,
+        source="telegram_gateway",
+        metadata=metadata,
+    )
+
+    try:
+        queued_run = worker_scheduler.enqueue(
+            WorkerQueueItemCreateRequest(
+                task_name="telegram_youtube_autoflow",
+                task_type=WorkerTaskType.YOUTUBE_AUTOFLOW,
+                payload=request_payload.model_dump(mode="json"),
+                requested_by=requested_by,
+                metadata={
+                    **metadata,
+                    "source_url": source_url,
+                },
+            )
+        )
+    except Exception as exc:
+        reason = str(exc).strip() or "failed to enqueue youtube_autoflow"
+        _record_telegram_youtube_autoflow_status(
+            openclaw_service=openclaw_service,
+            session_id=session.session_id,
+            content="youtube autoflow enqueue failed",
+            metadata={
+                **metadata,
+                "status": "failed",
+                "reason": reason,
+                "source_url": source_url,
+            },
+        )
+        if notifier.enabled:
+            background_tasks.add_task(
+                notifier.send_message,
+                chat_id=chat_id,
+                text=_build_telegram_youtube_autoflow_message(
+                    status="failed",
+                    reason=reason,
+                    source_url=source_url,
+                ),
+            )
+        return TelegramWebhookAck(
+            accepted=False,
+            update_id=_safe_int(update.get("update_id")),
+            chat_id=chat_id,
+            session_id=session.session_id,
+            reason=reason,
+            metadata={
+                **metadata,
+                "status": "failed",
+                "source_url": source_url,
+            },
+        )
+
+    _record_telegram_youtube_autoflow_status(
+        openclaw_service=openclaw_service,
+        session_id=session.session_id,
+        content=f"youtube autoflow queued: {queued_run.run_id}",
+        metadata={
+            **metadata,
+            "status": "accepted",
+            "run_id": queued_run.run_id,
+            "task_type": queued_run.task_type.value,
+            "source_url": source_url,
+        },
+    )
+    if notifier.enabled:
+        background_tasks.add_task(
+            notifier.send_message,
+            chat_id=chat_id,
+            text=_build_telegram_youtube_autoflow_message(
+                status="accepted",
+                run_id=queued_run.run_id,
+                source_url=source_url,
+            ),
+        )
+    return TelegramWebhookAck(
+        accepted=True,
+        update_id=_safe_int(update.get("update_id")),
+        chat_id=chat_id,
+        session_id=session.session_id,
+        metadata={
+            **metadata,
+            "status": "accepted",
+            "run_id": queued_run.run_id,
+            "task_type": queued_run.task_type.value,
+            "source_url": source_url,
+        },
+    )
+
+
+def _record_telegram_youtube_autoflow_status(
+    *,
+    openclaw_service: OpenClawCompatService,
+    session_id: str,
+    content: str,
+    metadata: dict[str, Any],
+) -> None:
+    openclaw_service.append_event(
+        session_id=session_id,
+        request=OpenClawSessionEventAppendRequest(
+            role="status",
+            content=content,
+            metadata=metadata,
+        ),
+    )
+    openclaw_service.update_metadata(
+        session_id=session_id,
+        metadata_updates={
+            "latest_telegram_youtube_autoflow_status": metadata.get("status"),
+            "latest_telegram_youtube_autoflow_reason": metadata.get("reason"),
+            "latest_telegram_youtube_autoflow_run_id": metadata.get("run_id"),
+            "latest_telegram_youtube_autoflow_task_type": metadata.get("task_type"),
+            "latest_telegram_youtube_autoflow_source_url": metadata.get("source_url"),
+        },
+    )
+
+
+def _build_telegram_youtube_autoflow_message(
+    *,
+    status: str,
+    reason: str | None = None,
+    run_id: str | None = None,
+    source_url: str | None = None,
+) -> str:
+    lines = [
+        "[YouTube Autoflow]",
+        f"status: {status}",
+    ]
+    if run_id:
+        lines.append(f"run: {run_id}")
+    if source_url:
+        lines.append(f"url: {source_url}")
+    if reason:
+        lines.extend(["", reason])
+    return _truncate_telegram_text("\n".join(lines).strip())
+
+
 def _append_user_event(
     openclaw_service: OpenClawCompatService,
     session: OpenClawSessionRead,
@@ -610,42 +913,160 @@ def _append_user_event(
     )
 
 
+def _resolve_contextual_followup_prompt(
+    *,
+    session: OpenClawSessionRead,
+    text: str,
+) -> str:
+    normalized_text = text.strip()
+    if not _SHORT_AFFIRMATIVE_RE.fullmatch(normalized_text):
+        return text
+
+    last_assistant_message = _latest_assistant_message(session)
+    if not last_assistant_message:
+        return text
+
+    if _YOUTUBE_PROCESS_CONFIRM_RE.search(last_assistant_message) and (
+        "?" in last_assistant_message or "？" in last_assistant_message
+    ):
+        return (
+            "请按我上一条确认，立即触发一次今天的视频字幕处理。"
+            "如果当前系统仍是手动触发模式，就直接执行可用的手动处理入口，"
+            "并返回本次实际执行结果，不要再重复问我要不要开始。"
+        )
+
+    return text
+
+
+def _latest_assistant_message(session: OpenClawSessionRead) -> str | None:
+    for event in reversed(session.events):
+        role = event.get("role") if isinstance(event, dict) else None
+        content = event.get("content") if isinstance(event, dict) else None
+        if role == "assistant" and isinstance(content, str):
+            normalized = content.strip()
+            if normalized:
+                return normalized
+    return None
+
+
 def _find_or_create_telegram_session(
     *,
     openclaw_service: OpenClawCompatService,
     chat_id: str,
     session_identity: TelegramSessionIdentityRead,
+    background_tasks: BackgroundTasks,
+    notifier: TelegramNotifierService,
 ) -> OpenClawSessionRead:
     session = _find_existing_telegram_session(
         openclaw_service=openclaw_service,
         chat_id=chat_id,
         session_identity=session_identity,
     )
-    if session is not None:
-        return session
+    if session is None:
+        session = openclaw_service.create_session(
+            OpenClawSessionCreateRequest(
+                channel="telegram",
+                external_id=chat_id,
+                title=_build_session_title(chat_id=chat_id, session_identity=session_identity),
+                scope=session_identity.scope,
+                session_key=session_identity.session_key,
+                assistant_id=session_identity.assistant_id,
+                actor=session_identity.actor,
+                chat_context=session_identity.chat_context,
+                metadata={
+                    "source": "telegram_webhook",
+                    "created_at": _utc_now(),
+                    "identity_version": 1,
+                    "scope": session_identity.scope.value,
+                    "session_key": session_identity.session_key,
+                    "assistant_id": session_identity.assistant_id,
+                    "chat_type": session_identity.chat_context.chat_type.value,
+                    "actor_role": session_identity.actor.role.value,
+                    "actor_user_id": session_identity.actor.user_id,
+                    "telegram_mode_preference": session_identity.scope.value,
+                },
+            )
+        )
 
-    return openclaw_service.create_session(
-        OpenClawSessionCreateRequest(
-            channel="telegram",
-            external_id=chat_id,
-            title=_build_session_title(chat_id=chat_id, session_identity=session_identity),
-            scope=session_identity.scope,
-            session_key=session_identity.session_key,
-            assistant_id=session_identity.assistant_id,
-            actor=session_identity.actor,
-            chat_context=session_identity.chat_context,
+    return _sync_session_runtime_identity(
+        openclaw_service=openclaw_service,
+        session=session,
+        background_tasks=background_tasks,
+        notifier=notifier,
+        chat_id=chat_id,
+    )
+
+
+def _sync_session_runtime_identity(
+    *,
+    openclaw_service: OpenClawCompatService,
+    session: OpenClawSessionRead,
+    background_tasks: BackgroundTasks,
+    notifier: TelegramNotifierService,
+    chat_id: str,
+) -> OpenClawSessionRead:
+    runtime = get_runtime_identity()
+    current_fingerprint = runtime["runtime_fingerprint"]
+    current_display = runtime["runtime_display"]
+    previous_fingerprint = str(session.metadata.get("runtime_fingerprint") or "").strip()
+    previous_display = str(session.metadata.get("runtime_display") or "").strip() or previous_fingerprint
+    now_iso = _utc_now()
+    switched = bool(previous_fingerprint and previous_fingerprint != current_fingerprint)
+
+    metadata_updates: dict[str, Any] = {
+        **runtime,
+        "runtime_last_seen_at": now_iso,
+    }
+    if switched:
+        metadata_updates.update(
+            {
+                "runtime_switched_at": now_iso,
+                "runtime_previous_display": previous_display,
+            }
+        )
+
+    updated_session = openclaw_service.update_metadata(
+        session.session_id,
+        metadata_updates=metadata_updates,
+    )
+    if not switched:
+        return updated_session
+
+    openclaw_service.append_event(
+        session_id=updated_session.session_id,
+        request=OpenClawSessionEventAppendRequest(
+            role="status",
+            content=f"runtime switched: {previous_display} -> {current_display}",
             metadata={
-                "source": "telegram_webhook",
-                "created_at": _utc_now(),
-                "identity_version": 1,
-                "scope": session_identity.scope.value,
-                "session_key": session_identity.session_key,
-                "assistant_id": session_identity.assistant_id,
-                "chat_type": session_identity.chat_context.chat_type.value,
-                "actor_role": session_identity.actor.role.value,
-                "actor_user_id": session_identity.actor.user_id,
-                "telegram_mode_preference": session_identity.scope.value,
+                "source": "telegram_runtime_switch",
+                "previous_runtime_display": previous_display,
+                "previous_runtime_fingerprint": previous_fingerprint,
+                **runtime,
             },
+        ),
+    )
+    if notifier.enabled:
+        background_tasks.add_task(
+            notifier.send_message,
+            chat_id=chat_id,
+            text=_build_runtime_switch_message(
+                previous_display=previous_display,
+                current_display=current_display,
+            ),
+        )
+    refreshed = openclaw_service.get_session(updated_session.session_id)
+    return refreshed or updated_session
+
+
+def _build_runtime_switch_message(*, previous_display: str, current_display: str) -> str:
+    return _truncate_telegram_text(
+        "\n".join(
+            [
+                "[Runtime]",
+                "执行环境已切换",
+                f"from: {previous_display}",
+                f"to: {current_display}",
+            ]
         )
     )
 
@@ -685,6 +1106,8 @@ def _handle_task_command(
         openclaw_service=openclaw_service,
         chat_id=chat_id,
         session_identity=session_identity,
+        background_tasks=background_tasks,
+        notifier=notifier,
     )
     _append_user_event(
         openclaw_service=openclaw_service,
@@ -830,6 +1253,8 @@ def _handle_memory_command(
         openclaw_service=openclaw_service,
         chat_id=chat_id,
         session_identity=session_identity,
+        background_tasks=background_tasks,
+        notifier=notifier,
     )
     memory_content = _extract_memory_content(extracted["text"])
     if not memory_content:
@@ -1007,6 +1432,13 @@ def _handle_reset_command(
             },
         )
     )
+    session = _sync_session_runtime_identity(
+        openclaw_service=openclaw_service,
+        session=session,
+        background_tasks=background_tasks,
+        notifier=notifier,
+        chat_id=chat_id,
+    )
     openclaw_service.append_event(
         session_id=session.session_id,
         request=OpenClawSessionEventAppendRequest(
@@ -1099,6 +1531,8 @@ def _handle_mode_command(
         openclaw_service=openclaw_service,
         chat_id=chat_id,
         session_identity=target_identity,
+        background_tasks=background_tasks,
+        notifier=notifier,
     )
     session = openclaw_service.update_metadata(
         session.session_id,
@@ -1664,7 +2098,9 @@ def _handle_status_query(
     panel_access_service: PanelAccessService,
     notifier: TelegramNotifierService,
     session_identity: TelegramSessionIdentityRead,
+    worker_registry: WorkerRegistryService,
 ) -> TelegramWebhookAck:
+    runtime_identity = get_runtime_identity()
     session = _find_existing_telegram_session(
         openclaw_service=openclaw_service,
         chat_id=chat_id,
@@ -1672,9 +2108,17 @@ def _handle_status_query(
     )
     runs = []
     if session is not None:
+        session = _sync_session_runtime_identity(
+            openclaw_service=openclaw_service,
+            session=session,
+            background_tasks=background_tasks,
+            notifier=notifier,
+            chat_id=chat_id,
+        )
         runs = [run for run in agent_service.list() if run.session_id == session.session_id]
         runs.sort(key=lambda item: item.updated_at, reverse=True)
     memory_bundle = memory_service.bundle_for_session(session.session_id) if session is not None else None
+    workers = worker_registry.list_workers()
 
     summary_lines = _build_status_summary_lines(
         chat_id=chat_id,
@@ -1683,6 +2127,8 @@ def _handle_status_query(
         session_identity=session_identity,
         memory_bundle=memory_bundle,
         capability_registry=capability_registry,
+        runtime_identity=runtime_identity,
+        workers=workers,
     )
 
     # Initialize GroupAccessManager for whitelist groups
@@ -1766,7 +2212,7 @@ def _is_status_query(text: str) -> bool:
         return True
     if normalized.startswith("/panel"):
         return True
-    return normalized in {
+    if normalized in {
         "status",
         "task status",
         "任务状态",
@@ -1775,7 +2221,30 @@ def _is_status_query(text: str) -> bool:
         "查看状态",
         "进度",
         "面板",
-    }
+        "在哪",
+        "在哪儿",
+        "你在哪",
+        "你在哪儿",
+    }:
+        return True
+    return any(
+        phrase in normalized
+        for phrase in (
+            "在哪台电脑",
+            "在哪个电脑",
+            "在哪台机器",
+            "在哪个机器",
+            "在哪台主机",
+            "在哪个主机",
+            "在哪里运行",
+            "在哪运行",
+            "mac还是linux",
+            "mac 还是 linux",
+            "which computer",
+            "what host",
+            "where are you running",
+        )
+    )
 
 
 def _is_help_command(text: str) -> bool:
@@ -2061,12 +2530,20 @@ def _build_status_summary_lines(
     session_identity: TelegramSessionIdentityRead,
     memory_bundle: OpenClawMemoryBundleRead | None,
     capability_registry: CapabilityProviderRegistry,
+    runtime_identity: dict[str, str],
+    workers: list[Any],
 ) -> list[str]:
     descriptors = capability_registry.list_descriptors()
     skill_provider_count = len([item for item in descriptors if item.domain == CapabilityDomain.SKILL])
+    runtime_display = runtime_identity["runtime_display"]
+    runtime_host = runtime_identity["runtime_host"]
+    runtime_platform = runtime_identity["runtime_platform"]
     if session is None:
-        return [
+        lines = [
             f"chat_id: {chat_id}",
+            f"runtime: {runtime_display}",
+            f"runtime_host: {runtime_host}",
+            f"runtime_platform: {runtime_platform}",
             f"scope: {session_identity.scope.value}",
             f"session_key: {session_identity.session_key}",
             f"providers: {len(descriptors)}",
@@ -2074,9 +2551,17 @@ def _build_status_summary_lines(
             "当前没有历史会话。",
             "发送任务文本后系统会自动创建会话并执行。",
         ]
+        _append_worker_summary_lines(lines, workers)
+        return lines
 
+    runtime_display = str(session.metadata.get("runtime_display") or runtime_display)
+    runtime_host = str(session.metadata.get("runtime_host") or runtime_host)
+    runtime_platform = str(session.metadata.get("runtime_platform") or runtime_platform)
     lines = [
         f"chat_id: {chat_id}",
+        f"runtime: {runtime_display}",
+        f"runtime_host: {runtime_host}",
+        f"runtime_platform: {runtime_platform}",
         f"scope: {session.scope.value}",
         f"session_key: {session.session_key or session_identity.session_key}",
         f"session: {session.session_id}",
@@ -2085,11 +2570,16 @@ def _build_status_summary_lines(
         f"providers: {len(descriptors)}",
         f"skill_providers: {skill_provider_count}",
     ]
+    previous_runtime = str(session.metadata.get("runtime_previous_display") or "").strip()
+    switched_at = str(session.metadata.get("runtime_switched_at") or "").strip()
+    if previous_runtime and switched_at:
+        lines.append(f"runtime_switched: {previous_runtime} -> {runtime_display} @ {switched_at}")
     if memory_bundle is not None:
         lines.append(f"personal_memories: {len(memory_bundle.personal_memories)}")
         lines.append(f"shared_memories: {len(memory_bundle.shared_memories)}")
     if session.actor is not None:
         lines.append(f"actor_role: {session.actor.role.value}")
+    _append_worker_summary_lines(lines, workers)
     if not runs:
         lines.append("最近任务: 暂无")
         return lines
@@ -2098,6 +2588,23 @@ def _build_status_summary_lines(
     for run in runs[:3]:
         lines.append(f"- {run.agent_run_id} | {run.status.value} | {run.task_name}")
     return lines
+
+
+def _append_worker_summary_lines(lines: list[str], workers: list[Any]) -> None:
+    online_workers = [
+        worker
+        for worker in workers
+        if not getattr(worker, "is_stale", False)
+        and getattr(getattr(worker, "mode", None), "value", getattr(worker, "mode", None)) != WorkerMode.OFFLINE.value
+    ]
+    lines.append(f"workers_online: {len(online_workers)}")
+    for worker in online_workers[:3]:
+        metadata = getattr(worker, "metadata", {}) or {}
+        host = getattr(worker, "host", None) or str(metadata.get("runtime_host_short") or metadata.get("runtime_host") or "unknown")
+        worker_type = getattr(getattr(worker, "worker_type", None), "value", getattr(worker, "worker_type", "unknown"))
+        mode = getattr(getattr(worker, "mode", None), "value", getattr(worker, "mode", "unknown"))
+        health = getattr(getattr(worker, "health", None), "value", getattr(worker, "health", "unknown"))
+        lines.append(f"- worker {worker.worker_id} | {worker_type}/{mode} | {host} | {health}")
 
 
 def _build_help_message(*, session_identity: TelegramSessionIdentityRead) -> str:

@@ -55,6 +55,8 @@ artifacts/
 .env.linux
 ai_lab.env
 .masfactory_runtime/
+runs/
+.gh-profiles/
 
 # Logs
 *.log
@@ -68,3 +70,5 @@ htmlcov/
 # Memory
 memory/daily-logs/*.md
 !memory/daily-logs/.gitkeep
+gstack/
+.autoresearch/p4_runs/
