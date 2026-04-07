@@ -30,6 +30,7 @@ from autoresearch.core.services.admin_secrets import AdminSecretCipher
 from autoresearch.core.services.agent_audit_trail import AgentAuditTrailService
 from autoresearch.core.services.approval_store import ApprovalStoreService
 from autoresearch.core.services.autoresearch_planner import AutoResearchPlannerService
+from autoresearch.core.services.butler_router import ButlerIntentRouter
 from autoresearch.core.services.claude_agents import ClaudeAgentService
 from autoresearch.core.services.claude_runtime_service import ClaudeRuntimeService
 from autoresearch.core.services.claude_session_records import ClaudeSessionRecordService
@@ -539,6 +540,11 @@ def get_excel_audit_service() -> ExcelAuditService:
     )
 
 
+@lru_cache(maxsize=1)
+def get_butler_router() -> ButlerIntentRouter:
+    return ButlerIntentRouter()
+
+
 def clear_dependency_caches() -> None:
     get_evaluation_service.cache_clear()
     get_report_service.cache_clear()
@@ -571,3 +577,4 @@ def clear_dependency_caches() -> None:
     get_admin_secret_cipher.cache_clear()
     get_admin_auth_service.cache_clear()
     get_excel_audit_service.cache_clear()
+    get_butler_router.cache_clear()

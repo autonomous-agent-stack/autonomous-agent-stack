@@ -367,6 +367,24 @@ def _handle_telegram_webhook(
             rejection_reason=youtube_rejection_reason,
         )
 
+    # --- Butler intent router: check if message should go to a specialist agent ---
+    from autoresearch.core.services.butler_router import ButlerTaskType
+    from autoresearch.api.dependencies import get_butler_router, get_excel_audit_service
+
+    butler = get_butler_router()
+    butler_result = butler.classify(text)
+    if butler_result.task_type == ButlerTaskType.EXCEL_AUDIT:
+        return _handle_butler_excel_audit(
+            chat_id=chat_id,
+            update=update,
+            extracted=extracted,
+            text=text,
+            background_tasks=background_tasks,
+            notifier=notifier,
+            session_identity=session_identity,
+            butler_classification=butler_result,
+        )
+
     session = _find_or_create_telegram_session(
         openclaw_service=openclaw_service,
         chat_id=chat_id,
@@ -660,6 +678,70 @@ def _classify_telegram_youtube_ingress(text: str) -> tuple[str, str | None, str 
     if has_youtube_hint:
         return ("reject", None, "消息里必须只包含 1 条合法的 YouTube URL。")
     return ("skip", None, None)
+
+def _handle_butler_excel_audit(
+    *,
+    chat_id: str,
+    update: dict[str, Any],
+    extracted: dict[str, Any],
+    text: str,
+    background_tasks: BackgroundTasks,
+    notifier: TelegramNotifierService,
+    session_identity: _TelegramSessionIdentity,
+    butler_classification: Any,
+) -> TelegramWebhookAck:
+    """Route detected Excel audit intent to ExcelAuditService."""
+    from autoresearch.shared.excel_audit_contract import ExcelAuditCreateRequest
+    from autoresearch.api.dependencies import get_excel_audit_service
+
+    attachments = butler_classification.extracted_params.get("attachments", [])
+
+    try:
+        service = get_excel_audit_service()
+        req = ExcelAuditCreateRequest(
+            task_brief=text,
+            source_files=attachments,
+        )
+        result = service.create_and_execute(req)
+
+        summary_lines = [
+            "📊 Excel 核对完成",
+            f"状态: {result.status.value}",
+            f"检查行数: {result.result.rows_checked}",
+            f"差异行数: {result.result.rows_mismatched}",
+            f"差异金额: {result.result.mismatch_amount_total:.2f}",
+        ]
+        if result.artifacts:
+            summary_lines.append("")
+            summary_lines.append("报告文件:")
+            for a in result.artifacts:
+                summary_lines.append(f"  - {a}")
+        if result.error:
+            summary_lines.append(f"错误: {result.error}")
+
+        reply_text = "\n".join(summary_lines)
+    except Exception as exc:
+        reply_text = f"Excel 核对失败: {exc}"
+
+    if notifier.enabled:
+        thread_id = _safe_int(extracted.get("message_thread_id"))
+        background_tasks.add_task(
+            notifier.send_message,
+            chat_id=chat_id,
+            text=reply_text,
+            message_thread_id=thread_id,
+        )
+
+    return TelegramWebhookAck(
+        accepted=True,
+        update_id=_safe_int(update.get("update_id")),
+        chat_id=chat_id,
+        reason="butler routed to excel_audit",
+        metadata={
+            "butler_task_type": "excel_audit",
+            "butler_confidence": butler_classification.confidence,
+        },
+    )
 
 
 def _handle_telegram_youtube_autoflow(
