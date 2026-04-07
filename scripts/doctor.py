@@ -30,6 +30,7 @@ CORE_IMPORTS = (
     "workflow.workflow_engine",
 )
 OPTIONAL_COMMANDS = ("git", "curl", "lsof")
+LINUX_REMOTE_OPTIONAL_COMMANDS = ("gh", "tmux")
 
 
 @dataclass(frozen=True)
@@ -55,11 +56,17 @@ def _fail(name: str, detail: str, hint: str | None = None) -> CheckResult:
 def _check_python() -> CheckResult:
     major, minor = sys.version_info[:2]
     if (major, minor) >= REQUIRED_PYTHON:
-        return _ok("Python version", f"{major}.{minor}")
+        return _ok(
+            "Python version",
+            f"{major}.{minor} (project baseline: {REQUIRED_PYTHON[0]}.{REQUIRED_PYTHON[1]}+)",
+        )
     return _fail(
         "Python version",
-        f"{major}.{minor} is too old",
-        f"Use Python {REQUIRED_PYTHON[0]}.{REQUIRED_PYTHON[1]}+.",
+        f"{major}.{minor} is too old for this repository",
+        (
+            f"Use Python {REQUIRED_PYTHON[0]}.{REQUIRED_PYTHON[1]}+ so packaging, "
+            "README, doctor, and CI stay aligned."
+        ),
     )
 
 
@@ -214,6 +221,89 @@ def _check_commands() -> CheckResult:
     return _ok("System commands", "git, curl, lsof are available")
 
 
+def _check_profile_platform(profile: str) -> CheckResult:
+    if profile != "linux-remote":
+        return _ok("Doctor profile", "standard local checks")
+    if sys.platform.startswith("linux"):
+        return _ok("Doctor profile", "linux-remote checks on Linux host")
+    return _warn(
+        "Doctor profile",
+        f"linux-remote selected on {sys.platform}",
+        "Run `make doctor-linux` on the actual Linux worker node for the most useful signal.",
+    )
+
+
+def _check_linux_runtime_mode(repo_root: Path, profile: str) -> CheckResult | None:
+    if profile != "linux-remote":
+        return None
+    runtime = (_read_env_value(repo_root, "OPENHANDS_RUNTIME") or "").strip().lower()
+    if not runtime:
+        runtime = os.getenv("OPENHANDS_RUNTIME", "").strip().lower()
+    if not runtime:
+        return _warn(
+            "OpenHands runtime",
+            "OPENHANDS_RUNTIME is not set",
+            "Set `OPENHANDS_RUNTIME=host` on Linux workers unless you have a validated container runtime.",
+        )
+    if runtime != "host":
+        return _warn(
+            "OpenHands runtime",
+            f"OPENHANDS_RUNTIME={runtime}",
+            "Linux workers are best started with `OPENHANDS_RUNTIME=host` for the first stable bring-up.",
+        )
+    return _ok("OpenHands runtime", "OPENHANDS_RUNTIME=host")
+
+
+def _check_linux_docker_host(profile: str) -> CheckResult | None:
+    if profile != "linux-remote":
+        return None
+    docker_host = os.getenv("DOCKER_HOST", "").strip()
+    if not docker_host:
+        return _ok("Docker host", "DOCKER_HOST is not set")
+    if any(token in docker_host for token in ("colima", "/Users/", "/Volumes/")):
+        return _warn(
+            "Docker host",
+            docker_host,
+            "Unset DOCKER_HOST or point it to a local Linux daemon; do not inherit a Mac Colima socket on a Linux worker.",
+        )
+    return _ok("Docker host", docker_host)
+
+
+def _check_linux_runtime_paths(repo_root: Path, profile: str) -> CheckResult | None:
+    if profile != "linux-remote":
+        return None
+    required_roots = (
+        repo_root / ".masfactory_runtime",
+        repo_root / "artifacts",
+        repo_root / "logs",
+    )
+    blocked: list[str] = []
+    for path in required_roots:
+        target = path if path.exists() else path.parent
+        if not os.access(target, os.W_OK):
+            blocked.append(str(path))
+    if blocked:
+        return _fail(
+            "Runtime paths",
+            "Not writable: " + ", ".join(blocked),
+            "Grant the Linux worker write access to runtime directories before dispatching real jobs.",
+        )
+    return _ok("Runtime paths", "runtime directories are writable")
+
+
+def _check_linux_optional_commands(profile: str) -> CheckResult | None:
+    if profile != "linux-remote":
+        return None
+    missing = [cmd for cmd in LINUX_REMOTE_OPTIONAL_COMMANDS if shutil.which(cmd) is None]
+    if missing:
+        return _warn(
+            "Linux extras",
+            "Missing: " + ", ".join(missing),
+            "Install `gh` for promotion/PR workflows and `tmux` for resilient long-lived remote sessions.",
+        )
+    return _ok("Linux extras", "gh and tmux are available")
+
+
 def _is_port_occupied(host: str, port: int) -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.settimeout(0.2)
@@ -231,8 +321,9 @@ def _check_port(port: int) -> CheckResult:
     return _ok("API port", f"{host}:{port} is available")
 
 
-def _run_checks(repo_root: Path, port: int) -> list[CheckResult]:
+def _run_checks(repo_root: Path, port: int, profile: str) -> list[CheckResult]:
     checks: list[CheckResult] = []
+    checks.append(_check_profile_platform(profile))
     checks.append(_check_python())
     checks.extend(_check_virtualenv(repo_root))
     checks.append(_check_requirements(repo_root))
@@ -240,6 +331,14 @@ def _run_checks(repo_root: Path, port: int) -> list[CheckResult]:
     checks.append(_check_env_files(repo_root))
     checks.append(_check_telegram_secret_policy(repo_root))
     checks.append(_check_commands())
+    for extra_check in (
+        _check_linux_runtime_mode(repo_root, profile),
+        _check_linux_docker_host(profile),
+        _check_linux_runtime_paths(repo_root, profile),
+        _check_linux_optional_commands(profile),
+    ):
+        if extra_check is not None:
+            checks.append(extra_check)
     checks.append(_check_port(port))
     return checks
 
@@ -275,11 +374,17 @@ def main() -> int:
         default=int(os.getenv("AUTORESEARCH_API_PORT", "8001")),
         help="Port used for API start checks (default: AUTORESEARCH_API_PORT or 8001).",
     )
+    parser.add_argument(
+        "--profile",
+        choices=("local", "linux-remote"),
+        default="local",
+        help="Check profile: local workstation or Linux remote worker.",
+    )
     args = parser.parse_args()
 
     repo_root = Path(__file__).resolve().parents[1]
     os.chdir(repo_root)
-    results = _run_checks(repo_root=repo_root, port=args.port)
+    results = _run_checks(repo_root=repo_root, port=args.port, profile=args.profile)
     return _print_report(results)
 
 

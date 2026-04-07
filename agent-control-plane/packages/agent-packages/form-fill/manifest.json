@@ -1,0 +1,202 @@
+{
+  "id": "yingdao_form_fill_agent_v0",
+  "name": "影刀表单录入 Agent",
+  "description": "自动录入客户订单信息到 ERP 系统",
+  "version": "0.1.0",
+
+  "input_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "required": ["customer_name", "order_id", "amount"],
+    "properties": {
+      "customer_name": {
+        "type": "string",
+        "minLength": 2,
+        "maxLength": 100,
+        "description": "客户姓名"
+      },
+      "order_id": {
+        "type": "string",
+        "pattern": "^ORD[0-9]{8}$",
+        "description": "订单号，格式: ORD + 8位数字"
+      },
+      "amount": {
+        "type": "number",
+        "minimum": 0.01,
+        "maximum": 999999.99,
+        "description": "订单金额"
+      },
+      "priority": {
+        "type": "string",
+        "enum": ["normal", "urgent", "critical"],
+        "default": "normal",
+        "description": "优先级"
+      }
+    }
+  },
+
+  "output_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "required": ["success", "receipt"],
+    "properties": {
+      "success": {
+        "type": "boolean",
+        "description": "是否成功"
+      },
+      "receipt": {
+        "type": "object",
+        "properties": {
+          "erp_id": {
+            "type": "string",
+            "description": "ERP 系统内的记录 ID"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "录入时间戳"
+          },
+          "operator": {
+            "type": "string",
+            "description": "操作员"
+          }
+        }
+      },
+      "artifacts": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["screenshot", "log", "receipt"]
+            },
+            "path": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  },
+
+  "required_capabilities": {
+    "platform": ["win_yingdao"],
+    "tools": ["flow_runner", "screenshot", "file_system"],
+    "min_versions": {
+      "win_yingdao": "3.0.0"
+    }
+  },
+
+  "supported_worker_types": ["win_yingdao"],
+
+  "governance": {
+    "risk_level": "high",
+    "approval_rules": {
+      "requires_approval_for_write": true,
+      "requires_approval_for_delete": true,
+      "approval_threshold": 1,
+      "auto_approve_conditions": {
+        "max_amount": 1000,
+        "trusted_sources": ["internal_system", "verified_api"]
+      }
+    },
+    "permission_boundaries": {
+      "max_execution_time_sec": 300,
+      "max_retry_count": 3
+    }
+  },
+
+  "failure_handling": {
+    "fallback_strategy": "manual",
+    "retry_policy": {
+      "max_retries": 2,
+      "retry_delay_ms": 5000,
+      "backoff_multiplier": 2,
+      "retry_on_errors": ["NETWORK_ERROR", "TIMEOUT", "ERP_BUSY"]
+    },
+    "escalation_policy": {
+      "escalate_after_retries": true,
+      "escalate_to": "manual",
+      "escalation_timeout_ms": 60000
+    }
+  },
+
+  "execution": {
+    "timeout_ms": 300000,
+    "heartbeat_interval_ms": 10000,
+    "checkpoint_enabled": true,
+    "resource_limits": {
+      "max_memory_mb": 512,
+      "max_cpu_percent": 80,
+      "max_network_mb": 100
+    }
+  },
+
+  "artifacts": {
+    "required_artifacts": ["screenshot", "log", "receipt"],
+    "artifact_format": {
+      "screenshots": "png",
+      "logs": "json",
+      "receipts": "json"
+    },
+    "retention_policy": {
+      "keep_artifacts_for_hours": 168,
+      "archive_to": "s3://agent-artifacts"
+    }
+  },
+
+  "observability": {
+    "log_level": "info",
+    "metrics_to_collect": [
+      "execution_time",
+      "success_rate",
+      "retry_count",
+      "approval_rate"
+    ],
+    "custom_tags": {
+      "domain": "erp",
+      "team": "finance"
+    }
+  },
+
+  "dependencies": {},
+  "compatibility": {
+    "min_compatible_version": "0.1.0"
+  },
+
+  "metadata": {
+    "author": "Agent Control Plane Team",
+    "license": "MIT",
+    "tags": ["erp", "form", "automation", "yingdao", "data-entry"],
+    "categories": ["data-entry", "finance"],
+    "quality_metrics": {
+      "avg_success_rate": 0.95,
+      "avg_execution_time_ms": 15000,
+      "total_executions": 0,
+      "last_updated": "2026-03-31T15:20:00Z"
+    },
+    "documentation": {
+      "usage_guide": "https://docs.example.com/yingdao-form-fill",
+      "examples": [
+        {
+          "name": "标准订单录入",
+          "input": {
+            "customer_name": "张三",
+            "order_id": "ORD20260331",
+            "amount": 1500.00
+          },
+          "expected_output": {
+            "success": true,
+            "receipt": {
+              "erp_id": "ERP123456"
+            }
+          }
+        }
+      ]
+    }
+  },
+
+  "created_at": "2026-03-31T15:20:00Z",
+  "updated_at": "2026-03-31T15:20:00Z"
+}

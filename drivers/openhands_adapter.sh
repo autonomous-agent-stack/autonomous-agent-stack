@@ -79,7 +79,7 @@ PROMPT="${TASK}
 Execution contract:
 - Single task only.
 - Do not commit, push, or edit git settings.
-- Only edit files under /opt/workspace.
+- Only edit files inside the provided workspace root.
 - Return concise summary and changed files."
 
 mkdir -p "${AEP_ARTIFACT_DIR}"

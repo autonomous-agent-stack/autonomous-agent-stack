@@ -7,6 +7,7 @@ from fastapi.responses import HTMLResponse
 
 from autoresearch.api.dependencies import (
     get_approval_store_service,
+    get_autoresearch_planner_service,
     get_capability_provider_registry,
     get_claude_agent_service,
     get_openclaw_compat_service,
@@ -16,11 +17,13 @@ from autoresearch.api.dependencies import (
 )
 from autoresearch.core.adapters import CapabilityProviderRegistry
 from autoresearch.core.services.approval_store import ApprovalStoreService
+from autoresearch.core.services.autoresearch_planner import AutoResearchPlannerService
 from autoresearch.core.services.claude_agents import ClaudeAgentService
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.panel_access import PanelAccessService
 from autoresearch.core.services.panel_audit import PanelAuditService
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
+from autoresearch.shared.autoresearch_planner_contract import AutoResearchPlanRead
 from autoresearch.shared.models import (
     ApprovalDecisionRequest,
     ApprovalNoteRequest,
@@ -126,6 +129,7 @@ def get_panel_state(
     agent_service: ClaudeAgentService = Depends(get_claude_agent_service),
     audit_service: PanelAuditService = Depends(get_panel_audit_service),
     approval_service: ApprovalStoreService = Depends(get_approval_store_service),
+    planner_service: AutoResearchPlannerService = Depends(get_autoresearch_planner_service),
     capability_registry: CapabilityProviderRegistry = Depends(get_capability_provider_registry),
 ) -> PanelStateRead:
     sessions = _sessions_for_uid(openclaw_service=openclaw_service, telegram_uid=access.telegram_uid)
@@ -142,6 +146,10 @@ def get_panel_state(
         CapabilityProviderSummaryRead(**descriptor.model_dump())
         for descriptor in capability_registry.list_descriptors()
     ]
+    pending_autoresearch_plans = [
+        plan.model_dump(mode="json")
+        for plan in planner_service.list_pending(telegram_uid=access.telegram_uid, limit=20)
+    ]
     return PanelStateRead(
         telegram_uid=access.telegram_uid,
         sessions=sessions,
@@ -149,6 +157,7 @@ def get_panel_state(
         audit_logs=audit_logs,
         capability_providers=capability_providers,
         pending_approvals=pending_approvals,
+        pending_autoresearch_plans=pending_autoresearch_plans,
         issued_at=utc_now(),
     )
 
@@ -285,6 +294,54 @@ def reject_panel_approval(
             run_status=resolved.status.value,
         )
     return resolved
+
+
+@router.post("/autoresearch/plans/{plan_id}/dispatch", response_model=AutoResearchPlanRead)
+def dispatch_panel_autoresearch_plan(
+    plan_id: str,
+    payload: ApprovalNoteRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    access: PanelAccessContext = Depends(_require_panel_access),
+    planner_service: AutoResearchPlannerService = Depends(get_autoresearch_planner_service),
+    audit_service: PanelAuditService = Depends(get_panel_audit_service),
+    notifier: TelegramNotifierService = Depends(get_telegram_notifier_service),
+) -> AutoResearchPlanRead:
+    plan = _authorized_plan(
+        plan_id=plan_id,
+        telegram_uid=access.telegram_uid,
+        planner_service=planner_service,
+    )
+    try:
+        queued = planner_service.request_dispatch(plan.plan_id, requested_by=access.telegram_uid)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+    entry = audit_service.log_action(
+        telegram_uid=access.telegram_uid,
+        action="dispatch",
+        target_id=plan_id,
+        target_type="autoresearch_plan",
+        status="accepted",
+        reason=payload.note,
+        request_ip=_request_ip(request),
+        user_agent=request.headers.get("user-agent"),
+        metadata={
+            "plan_title": plan.selected_candidate.title if plan.selected_candidate is not None else None,
+            "plan_source_path": plan.selected_candidate.source_path if plan.selected_candidate is not None else None,
+            "auth_method": access.auth_method,
+            "token_id": access.token_id,
+        },
+    )
+    background_tasks.add_task(
+        _execute_autoresearch_plan_and_notify,
+        planner_service=planner_service,
+        notifier=notifier,
+        plan_id=plan.plan_id,
+        telegram_uid=access.telegram_uid,
+        audit_entry_id=entry.audit_id,
+    )
+    return queued
 
 
 @router.get("/agents/{agent_run_id}", response_model=ClaudeAgentRunRead)
@@ -443,6 +500,49 @@ def _authorized_approval(
     return approval
 
 
+def _authorized_plan(
+    *,
+    plan_id: str,
+    telegram_uid: str,
+    planner_service: AutoResearchPlannerService,
+) -> AutoResearchPlanRead:
+    plan = planner_service.get(plan_id)
+    if plan is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="autoresearch plan not found")
+    if plan.telegram_uid not in {None, telegram_uid}:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="forbidden")
+    return plan
+
+
+def _execute_autoresearch_plan_and_notify(
+    *,
+    planner_service: AutoResearchPlannerService,
+    notifier: TelegramNotifierService,
+    plan_id: str,
+    telegram_uid: str,
+    audit_entry_id: str,
+) -> None:
+    result = planner_service.execute_dispatch(plan_id)
+    if not notifier.enabled:
+        return
+    candidate = result.selected_candidate
+    title = candidate.title if candidate is not None else plan_id
+    status_value = result.dispatch_status.value
+    lines = [
+        f"[AutoResearch Dispatch] {title}",
+        f"- status: {status_value}",
+        f"- plan: {result.plan_id}",
+        f"- audit: {audit_entry_id}",
+    ]
+    if result.run_summary is not None:
+        lines.append(f"- final_status: {result.run_summary.final_status}")
+        if result.run_summary.promotion_patch_uri:
+            lines.append(f"- patch: {result.run_summary.promotion_patch_uri}")
+    if result.dispatch_error:
+        lines.append(f"- error: {result.dispatch_error}")
+    notifier.send_message(chat_id=telegram_uid, text="\n".join(lines))
+
+
 def _request_ip(request: Request) -> str | None:
     if request.client is None:
         return None
@@ -500,6 +600,10 @@ _PANEL_HTML = """<!doctype html>
     <div id="approvals"></div>
   </section>
   <section class="card">
+    <h2>AutoResearch Plans</h2>
+    <div id="autoresearch-plans"></div>
+  </section>
+  <section class="card">
     <h2>审计日志</h2>
     <pre id="audit"></pre>
   </section>
@@ -525,6 +629,7 @@ const promotionRejectBtn = document.getElementById("promotion-reject-btn");
 const runsEl = document.getElementById("runs");
 const capabilitiesEl = document.getElementById("capabilities");
 const approvalsEl = document.getElementById("approvals");
+const autoresearchPlansEl = document.getElementById("autoresearch-plans");
 const auditEl = document.getElementById("audit");
 
 if (tgWebApp) {
@@ -587,6 +692,23 @@ function approvalRow(item) {
       <td>
         <button class="btn-retry" data-approval-id="${item.approval_id}" data-approval-op="approve">Approve</button>
         <button class="btn-cancel" data-approval-id="${item.approval_id}" data-approval-op="reject">Reject</button>
+      </td>
+    </tr>
+  `;
+}
+
+function autoresearchPlanRow(item) {
+  const candidate = item.selected_candidate || {};
+  const estimatedChanges = (candidate.allowed_paths || []).length || 0;
+  return `
+    <tr>
+      <td>${item.plan_id}</td>
+      <td>${candidate.source_path || "-"}</td>
+      <td>${candidate.category || "-"}</td>
+      <td>${estimatedChanges}</td>
+      <td>${item.dispatch_status || "-"}</td>
+      <td>
+        <button class="btn-retry" data-plan-id="${item.plan_id}" data-plan-op="dispatch">Dispatch to OpenHands</button>
       </td>
     </tr>
   `;
@@ -657,18 +779,21 @@ async function refresh() {
   try {
     const state = await callApi("/api/v1/panel/state?limit_runs=60&limit_audit=40");
     const mode = token ? "JWT" : "Telegram Mini App";
-    summary.textContent = `UID: ${state.telegram_uid} | mode: ${mode} | sessions: ${state.sessions.length} | runs: ${state.agent_runs.length} | approvals: ${(state.pending_approvals || []).length} | providers: ${(state.capability_providers || []).length}`;
+    summary.textContent = `UID: ${state.telegram_uid} | mode: ${mode} | sessions: ${state.sessions.length} | runs: ${state.agent_runs.length} | approvals: ${(state.pending_approvals || []).length} | plans: ${(state.pending_autoresearch_plans || []).length} | providers: ${(state.capability_providers || []).length}`;
     const rows = state.agent_runs.map(runRow).join("");
     runsEl.innerHTML = `<table><thead><tr><th>Agent</th><th>Status</th><th>Task</th><th>Updated</th><th>Action</th><th>Hint</th></tr></thead><tbody>${rows}</tbody></table>`;
     const capabilityRows = (state.capability_providers || []).map(capabilityRow).join("");
     capabilitiesEl.innerHTML = `<table><thead><tr><th>Provider</th><th>Domain</th><th>Status</th><th>Capabilities</th></tr></thead><tbody>${capabilityRows || "<tr><td colspan='4'>暂无</td></tr>"}</tbody></table>`;
     const approvalRows = (state.pending_approvals || []).map(approvalRow).join("");
     approvalsEl.innerHTML = `<table><thead><tr><th>ID</th><th>Risk</th><th>Title</th><th>Source</th><th>Expires</th><th>Decision</th></tr></thead><tbody>${approvalRows || "<tr><td colspan='6'>暂无</td></tr>"}</tbody></table>`;
+    const planRows = (state.pending_autoresearch_plans || []).map(autoresearchPlanRow).join("");
+    autoresearchPlansEl.innerHTML = `<table><thead><tr><th>Plan</th><th>Target</th><th>Hotspot</th><th>Estimated</th><th>Status</th><th>Action</th></tr></thead><tbody>${planRows || "<tr><td colspan='6'>暂无</td></tr>"}</tbody></table>`;
     auditEl.textContent = JSON.stringify(state.audit_logs, null, 2);
   } catch (err) {
     summary.textContent = `加载失败: ${err.message}`;
     capabilitiesEl.innerHTML = "<p class='muted'>加载失败</p>";
     approvalsEl.innerHTML = "<p class='muted'>加载失败</p>";
+    autoresearchPlansEl.innerHTML = "<p class='muted'>加载失败</p>";
   }
 }
 
@@ -702,6 +827,19 @@ approvalsEl.addEventListener("click", async (event) => {
     await refresh();
   } catch (err) {
     alert(`操作失败: ${err.message}`);
+  }
+});
+
+autoresearchPlansEl.addEventListener("click", async (event) => {
+  const target = event.target;
+  if (!target || !target.dataset || !target.dataset.planId) return;
+  const planId = target.dataset.planId;
+  const note = prompt("输入 dispatch 备注", "approved via panel") || "";
+  try {
+    await callApi(`/api/v1/panel/autoresearch/plans/${planId}/dispatch`, "POST", {note, metadata: {}});
+    await refresh();
+  } catch (err) {
+    alert(`派发失败: ${err.message}`);
   }
 });
 

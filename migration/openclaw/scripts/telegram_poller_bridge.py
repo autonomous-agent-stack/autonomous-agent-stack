@@ -11,9 +11,14 @@ from urllib import error, parse, request
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = ROOT_DIR.parent.parent
 LOG_DIR = ROOT_DIR / "logs"
 OFFSET_FILE = LOG_DIR / "telegram-poller.offset"
-ENV_FILE = ROOT_DIR / ".env.local"
+ENV_FILES = (
+    PROJECT_ROOT / ".env",
+    PROJECT_ROOT / ".env.local",
+    ROOT_DIR / ".env.local",
+)
 OPENCLAW_CONFIG = Path("/Users/iCloud_GZ/.openclaw/openclaw.json")
 
 
@@ -127,13 +132,21 @@ def forward_update(update: dict[str, Any], webhook_url: str, secret_token: str |
 
 
 def main() -> int:
-    load_env_file(ENV_FILE)
+    for env_file in ENV_FILES:
+        load_env_file(env_file)
 
-    bot_token = normalize_token(os.getenv("TELEGRAM_BOT_TOKEN"))
+    bot_token = normalize_token(
+        os.getenv("AUTORESEARCH_TELEGRAM_BOT_TOKEN")
+        or os.getenv("TELEGRAM_BOT_TOKEN")
+    )
     if bot_token is None:
         bot_token = normalize_token(read_openclaw_bot_token())
+    if bot_token and not os.getenv("TELEGRAM_BOT_TOKEN"):
+        os.environ["TELEGRAM_BOT_TOKEN"] = bot_token
+    if bot_token and not os.getenv("AUTORESEARCH_TELEGRAM_BOT_TOKEN"):
+        os.environ["AUTORESEARCH_TELEGRAM_BOT_TOKEN"] = bot_token
     if not bot_token:
-        log("[poller] missing TELEGRAM_BOT_TOKEN and cannot read ~/.openclaw/openclaw.json")
+        log("[poller] missing TELEGRAM_BOT_TOKEN/AUTORESEARCH_TELEGRAM_BOT_TOKEN and cannot read ~/.openclaw/openclaw.json")
         return 2
 
     webhook_url = os.getenv(

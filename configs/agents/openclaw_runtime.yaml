@@ -1,0 +1,32 @@
+{
+  "id": "openclaw_runtime",
+  "kind": "process",
+  "entrypoint": "drivers/openclaw_runtime_adapter.py",
+  "version": "0.1",
+  "execution_semantics": "runtime",
+  "capabilities": [
+    "openclaw_runtime",
+    "send_message",
+    "run_skill"
+  ],
+  "default_mode": "runtime_only",
+  "policy_defaults": {
+    "timeout_sec": 120,
+    "max_steps": 1,
+    "network": "disabled",
+    "network_allowlist": [],
+    "tool_allowlist": ["read", "bash"],
+    "allowed_paths": [],
+    "forbidden_paths": [
+      ".git/**",
+      "logs/**",
+      ".masfactory_runtime/**",
+      "memory/**"
+    ],
+    "max_changed_files": 0,
+    "max_patch_lines": 0,
+    "allow_binary_changes": false,
+    "cleanup_on_success": true,
+    "retain_workspace_on_failure": true
+  }
+}

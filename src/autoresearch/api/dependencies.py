@@ -11,8 +11,10 @@ from autoresearch.api.settings import (
     get_panel_settings,
     get_runtime_settings,
     get_telegram_settings,
+    get_upstream_watcher_settings,
 )
 from autoresearch.agents.opensource_searcher import GitHubSearcher
+from autoresearch.agents.manager_agent import ManagerAgentService
 from autoresearch.core.adapters import (
     AppleCalendarAdapter,
     CapabilityProviderRegistry,
@@ -20,14 +22,18 @@ from autoresearch.core.adapters import (
     MCPContextProviderAdapter,
     OpenClawSkillProviderAdapter,
 )
+from autoresearch.github_assistant.service import GitHubAssistantService
 from autoresearch.core.repositories import SQLiteEvaluationRepository
 from autoresearch.core.services.admin_auth import AdminAuthService
 from autoresearch.core.services.admin_config import AdminConfigService
 from autoresearch.core.services.admin_secrets import AdminSecretCipher
+from autoresearch.core.services.agent_audit_trail import AgentAuditTrailService
 from autoresearch.core.services.approval_store import ApprovalStoreService
+from autoresearch.core.services.autoresearch_planner import AutoResearchPlannerService
 from autoresearch.core.services.claude_agents import ClaudeAgentService
 from autoresearch.core.services.evaluations import EvaluationService
 from autoresearch.core.services.executions import ExecutionService
+from autoresearch.core.services.github_issue_service import GitHubIssueService
 from autoresearch.core.services.mirofish_prediction import MiroFishPredictionService
 from autoresearch.core.services.managed_skill_registry import ManagedSkillRegistryService
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
@@ -40,6 +46,7 @@ from autoresearch.core.services.panel_audit import PanelAuditService
 from autoresearch.core.services.reports import ReportService
 from autoresearch.core.services.self_integration import SelfIntegrationService
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
+from autoresearch.core.services.upstream_watcher import UpstreamWatcherService
 from autoresearch.core.services.variants import VariantService
 from autoresearch.shared.models import (
     ClaudeAgentRunRead,
@@ -61,6 +68,8 @@ from autoresearch.shared.models import (
     ReportRead,
     VariantRead,
 )
+from autoresearch.shared.autoresearch_planner_contract import AutoResearchPlanRead
+from autoresearch.shared.manager_agent_contract import ManagerDispatchRead
 from autoresearch.shared.store import SQLiteModelRepository
 from autoresearch.train.services.experiments import ExperimentService
 from autoresearch.train.services.optimizations import OptimizationService
@@ -140,6 +149,52 @@ def get_execution_service() -> ExecutionService:
         ),
         repo_root=_repo_root(),
     )
+
+
+@lru_cache(maxsize=1)
+def get_youtube_agent_service():
+    from autoresearch.core.repositories import SQLiteYouTubeRepository
+    from autoresearch.core.services.youtube_agent import YouTubeAgentService
+
+    return YouTubeAgentService(
+        repository=SQLiteYouTubeRepository(db_path=_api_db_path()),
+        repo_root=_repo_root(),
+    )
+
+
+@lru_cache(maxsize=1)
+def get_autoresearch_planner_service() -> AutoResearchPlannerService:
+    return AutoResearchPlannerService(
+        repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="autoresearch_plans",
+            model_cls=AutoResearchPlanRead,
+        ),
+        repo_root=_repo_root(),
+        upstream_watcher=get_upstream_watcher_service(),
+    )
+
+
+@lru_cache(maxsize=1)
+def get_manager_agent_service() -> ManagerAgentService:
+    return ManagerAgentService(
+        repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="manager_agent_dispatches",
+            model_cls=ManagerDispatchRead,
+        ),
+        repo_root=_repo_root(),
+    )
+
+
+@lru_cache(maxsize=1)
+def get_github_issue_service() -> GitHubIssueService:
+    return GitHubIssueService(repo_root=_repo_root())
+
+
+@lru_cache(maxsize=1)
+def get_github_assistant_service() -> GitHubAssistantService:
+    return GitHubAssistantService(repo_root=_repo_root())
 
 
 @lru_cache(maxsize=1)
@@ -293,6 +348,7 @@ def get_panel_access_service() -> PanelAccessService:
     return PanelAccessService(
         secret=panel_settings.jwt_secret,
         base_url=panel_settings.base_url,
+        mini_app_url=panel_settings.mini_app_url,
         issuer=panel_settings.jwt_issuer,
         audience=panel_settings.jwt_audience,
         default_ttl_seconds=max(30, min(panel_settings.magic_link_ttl_seconds, 3600)),
@@ -315,12 +371,32 @@ def get_panel_audit_service() -> PanelAuditService:
 
 
 @lru_cache(maxsize=1)
+def get_agent_audit_trail_service() -> AgentAuditTrailService:
+    return AgentAuditTrailService(
+        repo_root=_repo_root(),
+        planner_service=get_autoresearch_planner_service(),
+        manager_service=get_manager_agent_service(),
+        agent_service=get_claude_agent_service(),
+    )
+
+
+@lru_cache(maxsize=1)
 def get_telegram_notifier_service() -> TelegramNotifierService:
     telegram_settings = get_telegram_settings()
     return TelegramNotifierService(
         bot_token=telegram_settings.bot_token,
         api_base=telegram_settings.api_base,
         timeout_seconds=max(1.0, min(telegram_settings.notify_timeout_seconds, 120.0)),
+    )
+
+
+@lru_cache(maxsize=1)
+def get_upstream_watcher_service() -> UpstreamWatcherService:
+    settings = get_upstream_watcher_settings()
+    return UpstreamWatcherService(
+        upstream_url=settings.upstream_url,
+        workspace_root=settings.workspace_root,
+        max_commits=max(1, min(settings.max_commits, 20)),
     )
 
 
@@ -377,6 +453,9 @@ def clear_dependency_caches() -> None:
     get_optimization_service.cache_clear()
     get_experiment_service.cache_clear()
     get_execution_service.cache_clear()
+    get_youtube_agent_service.cache_clear()
+    get_manager_agent_service.cache_clear()
+    get_github_issue_service.cache_clear()
     get_openclaw_compat_service.cache_clear()
     get_openclaw_memory_service.cache_clear()
     get_capability_provider_registry.cache_clear()
@@ -387,7 +466,9 @@ def clear_dependency_caches() -> None:
     get_self_integration_service.cache_clear()
     get_panel_access_service.cache_clear()
     get_panel_audit_service.cache_clear()
+    get_agent_audit_trail_service.cache_clear()
     get_telegram_notifier_service.cache_clear()
+    get_upstream_watcher_service.cache_clear()
     get_admin_config_service.cache_clear()
     get_admin_secret_cipher.cache_clear()
     get_admin_auth_service.cache_clear()

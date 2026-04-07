@@ -13,6 +13,8 @@ from autoresearch.api.dependencies import (
     get_approval_store_service,
     get_capability_provider_registry,
     get_claude_agent_service,
+    get_github_issue_service,
+    get_manager_agent_service,
     get_openclaw_memory_service,
     get_openclaw_compat_service,
     get_panel_access_service,
@@ -20,14 +22,18 @@ from autoresearch.api.dependencies import (
 )
 from autoresearch.api.main import app
 from autoresearch.api.routers import gateway_telegram
+from autoresearch.agent_protocol.models import DriverResult, RunSummary, ValidationReport
+from autoresearch.agents.manager_agent import ManagerAgentService
 from autoresearch.core.adapters import CapabilityProviderDescriptorRead, CapabilityProviderRegistry
 from autoresearch.core.adapters.contracts import CapabilityDomain, SkillCatalogRead
 from autoresearch.core.services.admin_config import AdminConfigService
 from autoresearch.core.services.approval_store import ApprovalStoreService
 from autoresearch.core.services.claude_agents import ClaudeAgentService
+from autoresearch.core.services.github_issue_service import GitHubIssueCommentRead, GitHubIssueRead, GitHubIssueReference
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.openclaw_memory import OpenClawMemoryService
 from autoresearch.core.services.panel_access import PanelAccessService
+from autoresearch.shared.manager_agent_contract import ManagerDispatchRead
 from autoresearch.shared.models import (
     AdminAgentConfigRead,
     AdminChannelConfigRead,
@@ -37,6 +43,9 @@ from autoresearch.shared.models import (
     ApprovalRequestCreateRequest,
     OpenClawMemoryRecordRead,
     OpenClawSessionRead,
+    PromotionDiffStats,
+    PromotionResult,
+    utc_now,
 )
 from autoresearch.shared.store import SQLiteModelRepository
 
@@ -125,6 +134,77 @@ class _StubTelegramNotifier:
 
     def notify_manual_action(self, *, chat_id: str, entry: object, run_status: str) -> bool:
         return True
+
+
+class _StubGitHubIssueService:
+    def __init__(self) -> None:
+        self.comments: list[dict[str, str]] = []
+
+    def fetch_issue(self, raw_reference: str) -> GitHubIssueRead:
+        return GitHubIssueRead(
+            reference=GitHubIssueReference(owner="owner", repo="repo", number=123),
+            title="Audit trail crashes when comment body is empty",
+            body="Steps:\n1. Trigger the task.\n2. Observe the failure.\n\nExpected: dispatch succeeds.",
+            url="https://github.com/owner/repo/issues/123",
+            state="OPEN",
+            author="founder",
+            labels=("bug", "telegram"),
+            comments=(
+                GitHubIssueCommentRead(author="reviewer", body="Please keep the fix scoped and tested."),
+            ),
+        )
+
+    def build_manager_prompt(self, issue: GitHubIssueRead, *, operator_note: str | None = None) -> str:
+        note = operator_note or ""
+        return f"Fix GitHub issue {issue.reference.display}. {note}".strip()
+
+    def post_comment(self, raw_reference: str, body: str) -> str:
+        self.comments.append({"issue_reference": raw_reference, "body": body})
+        return f"commented on {raw_reference}"
+
+
+def _build_manager_service(db_path: Path) -> ManagerAgentService:
+    repository = SQLiteModelRepository(
+        db_path=db_path,
+        table_name="manager_agent_dispatches_gateway_it",
+        model_cls=ManagerDispatchRead,
+    )
+
+    def _dispatch_runner(job_spec) -> RunSummary:
+        return RunSummary(
+            run_id=job_spec.run_id,
+            final_status="ready_for_promotion",
+            driver_result=DriverResult(
+                run_id=job_spec.run_id,
+                agent_id=job_spec.agent_id,
+                status="succeeded",
+                summary="stub manager runner completed",
+                changed_paths=["src/autoresearch/api/routers/admin.py"],
+                recommended_action="promote",
+            ),
+            validation=ValidationReport(run_id=job_spec.run_id, passed=True),
+            promotion_patch_uri="artifacts/promotion.patch",
+            promotion=None,
+        ).model_copy(
+            update={
+                "promotion": PromotionResult(
+                    run_id=job_spec.run_id,
+                    success=True,
+                    mode="draft_pr",
+                    pr_url=f"https://github.com/owner/repo/pull/{job_spec.run_id[-3:]}",
+                    changed_files=["src/autoresearch/api/routers/admin.py"],
+                    diff_stats=PromotionDiffStats(files_changed=1, insertions=12, deletions=2),
+                    created_at=utc_now(),
+                    updated_at=utc_now(),
+                )
+            }
+        )
+
+    return ManagerAgentService(
+        repository=repository,
+        repo_root=Path(__file__).resolve().parents[1],
+        dispatch_runner=_dispatch_runner,
+    )
 
 
 @pytest.fixture
@@ -716,12 +796,244 @@ def test_telegram_help_command_returns_available_commands(
         help_text = notifier.messages[0]["text"]
         assert "[Telegram Commands]" in help_text
         assert "/status" in help_text
+        assert "/task <需求>" in help_text
+        assert "/task --approve <需求>" in help_text
         assert "/approve <approval_id> approve" in help_text
         assert "/memory <内容>" in help_text
         assert "/mode shared" in help_text
         assert "/help" in help_text
     finally:
         app.dependency_overrides.pop(get_telegram_notifier_service, None)
+
+
+def test_telegram_start_command_returns_available_commands(
+    telegram_client: TestClient,
+) -> None:
+    notifier = _StubTelegramNotifier()
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+
+    try:
+        response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 3152,
+                "message": {
+                    "message_id": 151,
+                    "text": "/start",
+                    "chat": {"id": 9535, "type": "private"},
+                    "from": {"id": 9535, "username": "start-user"},
+                },
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["accepted"] is True
+        assert payload["agent_run_id"] is None
+        assert payload["metadata"]["source"] == "telegram_help"
+
+        assert len(notifier.messages) == 1
+        help_text = notifier.messages[0]["text"]
+        assert "[Telegram Commands]" in help_text
+        assert "/start 查看欢迎信息和命令列表" in help_text
+        assert "/status" in help_text
+        assert "/help" in help_text
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+
+
+def test_telegram_task_issue_dispatches_manager_and_queues_issue_reply_approval(
+    telegram_client: TestClient,
+    tmp_path: Path,
+) -> None:
+    notifier = _StubTelegramNotifier()
+    github_issue_service = _StubGitHubIssueService()
+    manager_service = _build_manager_service(tmp_path / "manager.sqlite3")
+    approval_service = getattr(telegram_client, "_approval_store")
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+    app.dependency_overrides[get_github_issue_service] = lambda: github_issue_service
+    app.dependency_overrides[get_manager_agent_service] = lambda: manager_service
+
+    try:
+        response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 3161,
+                "message": {
+                    "message_id": 154,
+                    "text": "/task issue owner/repo#123 优先检查 Telegram 审批回路",
+                    "chat": {"id": 9537, "type": "private"},
+                    "from": {"id": 9537, "username": "task-user"},
+                },
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["accepted"] is True
+        assert payload["agent_run_id"] is None
+        assert payload["metadata"]["source"] == "telegram_manager_task"
+        assert payload["metadata"]["task_source"] == "issue"
+        assert payload["metadata"]["dispatch_id"]
+        assert payload["metadata"]["issue_reference"] == "owner/repo#123"
+
+        dispatch = manager_service.get_dispatch(payload["metadata"]["dispatch_id"])
+        assert dispatch is not None
+        assert dispatch.status.value == "completed"
+        assert dispatch.run_summary is not None
+        assert dispatch.run_summary.promotion is not None
+        assert dispatch.run_summary.promotion.pr_url
+
+        approvals = approval_service.list_requests(telegram_uid="9537", limit=10)
+        assert len(approvals) == 1
+        approval = approvals[0]
+        assert approval.metadata["action_type"] == "github_issue_comment"
+        assert approval.metadata["issue_reference"] == "owner/repo#123"
+        assert "Automated progress update" in approval.metadata["comment_body"]
+
+        assert len(notifier.messages) >= 3
+        assert any("已接收，开始拆解并执行" in item["text"] for item in notifier.messages)
+        assert any("draft_pr:" in item["text"] for item in notifier.messages)
+        assert any("[GitHub Reply Pending]" in item["text"] for item in notifier.messages)
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+        app.dependency_overrides.pop(get_github_issue_service, None)
+        app.dependency_overrides.pop(get_manager_agent_service, None)
+
+
+def test_telegram_task_approve_flag_grants_owner_dispatch_context(
+    telegram_client: TestClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    notifier = _StubTelegramNotifier()
+    manager_service = _build_manager_service(tmp_path / "manager-approve-flag.sqlite3")
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+    app.dependency_overrides[get_manager_agent_service] = lambda: manager_service
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_OWNER_UIDS", "9541")
+
+    try:
+        response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 3164,
+                "message": {
+                    "message_id": 157,
+                    "text": "/task --approve 为美妆品牌玛露开发 6g 遮瑕膏落地页",
+                    "chat": {"id": 9541, "type": "private"},
+                    "from": {"id": 9541, "username": "owner-user"},
+                },
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        dispatch = manager_service.get_dispatch(payload["metadata"]["dispatch_id"])
+
+        assert dispatch is not None
+        backend_task = dispatch.execution_plan.tasks[0]
+        assert backend_task.worker_spec is not None
+        assert backend_task.agent_job is not None
+        assert backend_task.worker_spec.metadata["approval_granted"] is True
+        assert backend_task.agent_job.metadata["approval_granted"] is True
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+        app.dependency_overrides.pop(get_manager_agent_service, None)
+
+
+def test_telegram_task_approve_flag_is_ignored_for_non_admin_user(
+    telegram_client: TestClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    notifier = _StubTelegramNotifier()
+    manager_service = _build_manager_service(tmp_path / "manager-non-admin-approve.sqlite3")
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+    app.dependency_overrides[get_manager_agent_service] = lambda: manager_service
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_ALLOWED_UIDS", "9542")
+
+    try:
+        response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 3165,
+                "message": {
+                    "message_id": 158,
+                    "text": "/task --approve 为美妆品牌玛露开发 6g 遮瑕膏落地页",
+                    "chat": {"id": 9542, "type": "private"},
+                    "from": {"id": 9542, "username": "member-user"},
+                },
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        dispatch = manager_service.get_dispatch(payload["metadata"]["dispatch_id"])
+
+        assert dispatch is not None
+        backend_task = dispatch.execution_plan.tasks[0]
+        assert backend_task.worker_spec is not None
+        assert backend_task.agent_job is not None
+        assert backend_task.worker_spec.metadata["approval_granted"] is False
+        assert backend_task.agent_job.metadata["approval_granted"] is False
+        assert any("仅对 owner/partner 生效" in item["text"] for item in notifier.messages)
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+        app.dependency_overrides.pop(get_manager_agent_service, None)
+
+
+def test_telegram_approve_command_posts_github_issue_reply_for_issue_tasks(
+    telegram_client: TestClient,
+    tmp_path: Path,
+) -> None:
+    notifier = _StubTelegramNotifier()
+    github_issue_service = _StubGitHubIssueService()
+    manager_service = _build_manager_service(tmp_path / "manager-approve.sqlite3")
+    approval_service = getattr(telegram_client, "_approval_store")
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+    app.dependency_overrides[get_github_issue_service] = lambda: github_issue_service
+    app.dependency_overrides[get_manager_agent_service] = lambda: manager_service
+
+    try:
+        task_response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 3162,
+                "message": {
+                    "message_id": 155,
+                    "text": "/task issue #123 带上修复摘要",
+                    "chat": {"id": 9538, "type": "private"},
+                    "from": {"id": 9538, "username": "task-user"},
+                },
+            },
+        )
+        assert task_response.status_code == 200
+        approvals = approval_service.list_requests(telegram_uid="9538", limit=10)
+        assert len(approvals) == 1
+        approval = approvals[0]
+
+        approve_response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 3163,
+                "message": {
+                    "message_id": 156,
+                    "text": f"/approve {approval.approval_id} approve 发出去",
+                    "chat": {"id": 9538, "type": "private"},
+                    "from": {"id": 9538, "username": "task-user"},
+                },
+            },
+        )
+        assert approve_response.status_code == 200
+        assert approve_response.json()["accepted"] is True
+
+        resolved = approval_service.get_request(approval.approval_id)
+        assert resolved is not None
+        assert resolved.status.value == "approved"
+        assert resolved.metadata["comment_posted"] is True
+        assert github_issue_service.comments[0]["issue_reference"] == "owner/repo#123"
+        assert "Automated progress update" in github_issue_service.comments[0]["body"]
+        assert any("[GitHub Reply Posted]" in item["text"] for item in notifier.messages)
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+        app.dependency_overrides.pop(get_github_issue_service, None)
+        app.dependency_overrides.pop(get_manager_agent_service, None)
 
 
 def test_telegram_approve_command_lists_and_reads_pending_approvals(

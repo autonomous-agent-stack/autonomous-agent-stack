@@ -6,6 +6,19 @@ from pydantic import Field
 
 from autoresearch.shared.models import PromotionPreflight, PromotionResult, StrictModel
 
+ExecutionMode = Literal[
+    "plan_only", "patch_only", "apply_in_workspace", "review_only", "runtime_only"
+]
+AgentExecutionSemantics = Literal["patch", "runtime"]
+RunFinalStatus = Literal[
+    "ready_for_promotion",
+    "blocked",
+    "failed",
+    "promoted",
+    "human_review",
+    "completed",
+]
+
 
 class ArtifactRef(StrictModel):
     name: str
@@ -22,7 +35,9 @@ class ExecutionPolicy(StrictModel):
 
     tool_allowlist: list[str] = Field(default_factory=lambda: ["read", "write", "bash"])
 
-    allowed_paths: list[str] = Field(default_factory=lambda: ["src/**", "tests/**", "docs/**"])
+    allowed_paths: list[str] = Field(
+        default_factory=lambda: ["src/**", "tests/**", "docs/**", "apps/**"]
+    )
     forbidden_paths: list[str] = Field(
         default_factory=lambda: [
             ".git/**",
@@ -35,7 +50,7 @@ class ExecutionPolicy(StrictModel):
     )
 
     max_changed_files: int = Field(default=20, ge=0, le=1000)
-    max_patch_lines: int = Field(default=500, ge=0, le=100000)
+    max_patch_lines: int = Field(default=2000, ge=0, le=100000)
     allow_binary_changes: bool = False
 
     cleanup_on_success: bool = True
@@ -62,7 +77,7 @@ class JobSpec(StrictModel):
 
     agent_id: str
     role: Literal["planner", "executor", "reviewer", "analyst"] = "executor"
-    mode: Literal["plan_only", "patch_only", "apply_in_workspace", "review_only"] = "patch_only"
+    mode: ExecutionMode = "patch_only"
 
     task: str
     input_artifacts: list[ArtifactRef] = Field(default_factory=list)
@@ -80,6 +95,9 @@ class DriverMetrics(StrictModel):
     commands: int = 0
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
+    first_progress_ms: int | None = None
+    first_scoped_write_ms: int | None = None
+    first_state_heartbeat_ms: int | None = None
 
 
 class DriverResult(StrictModel):
@@ -94,6 +112,7 @@ class DriverResult(StrictModel):
         "partial",
         "failed",
         "timed_out",
+        "stalled_no_progress",
         "policy_blocked",
         "contract_error",
     ]
@@ -130,13 +149,7 @@ class ValidationReport(StrictModel):
 
 class RunSummary(StrictModel):
     run_id: str
-    final_status: Literal[
-        "ready_for_promotion",
-        "blocked",
-        "failed",
-        "promoted",
-        "human_review",
-    ]
+    final_status: RunFinalStatus
     driver_result: DriverResult
     validation: ValidationReport
     promotion_patch_uri: str | None = None
@@ -149,8 +162,7 @@ class AgentManifest(StrictModel):
     kind: Literal["process"] = "process"
     entrypoint: str
     version: str = "0.1"
+    execution_semantics: AgentExecutionSemantics = "patch"
     capabilities: list[str] = Field(default_factory=list)
-    default_mode: Literal["plan_only", "patch_only", "apply_in_workspace", "review_only"] = (
-        "apply_in_workspace"
-    )
+    default_mode: ExecutionMode = "apply_in_workspace"
     policy_defaults: ExecutionPolicy = Field(default_factory=ExecutionPolicy)

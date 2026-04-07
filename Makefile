@@ -23,23 +23,23 @@ AEP_AGENT ?= openhands
 AEP_TASK ?= Create src/demo_math.py with add(a,b).
 AEP_RUN_ID ?=
 AEP_RETRY ?= 0
-AEP_FALLBACK_AGENT ?=
-AGENT_SCAFFOLD_ID ?=
+AEP_FALLBACK_AGENT ?= mock
 PROMOTE_RUN_ID ?=
 PROMOTE_BASE_REF ?= main
 PROMOTE_BRANCH_PREFIX ?= codex/auto-upgrade
 PROMOTE_PUSH ?= 0
 PROMOTE_OPEN_DRAFT_PR ?= 0
 
-.PHONY: help setup doctor start test-quick clean
-.PHONY: ai-lab ai-lab-setup ai-lab-check ai-lab-up ai-lab-down ai-lab-status ai-lab-shell ai-lab-run masfactory-flight hygiene-check openhands openhands-dry-run openhands-controlled openhands-controlled-dry-run openhands-demo agent-run agent-scaffold promote-run
-.PHONY: review-gates-local
+.PHONY: help setup doctor doctor-linux start test-quick clean
+.PHONY: ai-lab ai-lab-setup ai-lab-check ai-lab-up ai-lab-down ai-lab-status ai-lab-shell ai-lab-run masfactory-flight hygiene-check openhands openhands-dry-run openhands-controlled openhands-controlled-dry-run openhands-demo agent-run promote-run
+.PHONY: review-gates-local assistant-doctor assistant-triage assistant-execute assistant-review-pr assistant-release-plan assistant-schedule
 
 help:
 	@echo "Autonomous Agent Stack - common commands"
 	@echo ""
 	@echo "  make setup       Create .venv and install dependencies"
 	@echo "  make doctor      Run environment checks"
+	@echo "  make doctor-linux Run Linux remote-worker checks"
 	@echo "  make start       Run doctor then start local API"
 	@echo "  make ai-lab      One-key launch AI lab shell"
 	@echo "  make ai-lab-setup Initialize AI lab user and quota volume"
@@ -55,8 +55,13 @@ help:
 	@echo "  make openhands-controlled-dry-run Preview controlled backend chain with dry-run OpenHands"
 	@echo "  make openhands-demo OH_BACKEND=mock Run minimal closed-loop demo (contract + failure policy)"
 	@echo "  make agent-run AEP_AGENT=openhands AEP_TASK='...' Run AEP v0 runner entrypoint"
-	@echo "  make agent-scaffold AGENT_SCAFFOLD_ID=local_repo_digest Generate a process-driver scaffold"
 	@echo "  make promote-run PROMOTE_RUN_ID='...' Turn a ready AEP run into branch/commit/draft PR payload"
+	@echo "  make assistant-doctor Validate GitHub assistant template setup"
+	@echo "  make assistant-triage REPO='owner/repo' ISSUE=123 Triage a managed issue"
+	@echo "  make assistant-execute REPO='owner/repo' ISSUE=123 Execute a managed issue"
+	@echo "  make assistant-review-pr REPO='owner/repo' PR=123 Review a managed pull request"
+	@echo "  make assistant-release-plan REPO='owner/repo' VERSION='v1.2.3' Build a release plan"
+	@echo "  make assistant-schedule Run scheduled issue triage"
 	@echo "  make hygiene-check FAIL_ON_FINDINGS=1 Run prompt hygiene audit for src/"
 	@echo "  make review-gates-local Run mypy/bandit/semgrep on reviewer core modules"
 	@echo "  make test-quick  Run quick smoke tests"
@@ -83,6 +88,13 @@ doctor:
 		exit 1; \
 	fi
 	$(VENV_PYTHON) scripts/doctor.py --port $(PORT)
+
+doctor-linux:
+	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \
+		echo "Missing $(VENV_PYTHON). Run 'make setup' first."; \
+		exit 1; \
+	fi
+	$(VENV_PYTHON) scripts/doctor.py --profile linux-remote --port $(PORT)
 
 start:
 	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \
@@ -201,17 +213,6 @@ agent-run:
 		eval "PYTHONPATH=src $(PYTHON) scripts/agent_run.py $$CMD_ARGS"; \
 	fi
 
-agent-scaffold:
-	@if [[ -z "$(strip $(AGENT_SCAFFOLD_ID))" ]]; then \
-		echo "Usage: make agent-scaffold AGENT_SCAFFOLD_ID='<agent_id>'"; \
-		exit 1; \
-	fi
-	@if [[ -x "$(VENV_PYTHON)" ]]; then \
-		PYTHONPATH=src $(VENV_PYTHON) scripts/new_process_driver.py "$(AGENT_SCAFFOLD_ID)"; \
-	else \
-		PYTHONPATH=src $(PYTHON) scripts/new_process_driver.py "$(AGENT_SCAFFOLD_ID)"; \
-	fi
-
 promote-run:
 	@if [[ -z "$(strip $(PROMOTE_RUN_ID))" ]]; then \
 		echo "Usage: make promote-run PROMOTE_RUN_ID='<run-id>'"; \
@@ -225,3 +226,39 @@ promote-run:
 	else \
 		eval "PYTHONPATH=src $(PYTHON) scripts/promote_run.py $$CMD_ARGS"; \
 	fi
+
+assistant-doctor:
+	@PYTHONPATH=src ./assistant doctor
+
+assistant-triage:
+	@if [[ -z "$(strip $(REPO))" || -z "$(strip $(ISSUE))" ]]; then \
+		echo "Usage: make assistant-triage REPO='owner/repo' ISSUE=123"; \
+		exit 1; \
+	fi
+	@PYTHONPATH=src ./assistant triage "$(REPO)" "$(ISSUE)"
+
+assistant-execute:
+	@if [[ -z "$(strip $(REPO))" || -z "$(strip $(ISSUE))" ]]; then \
+		echo "Usage: make assistant-execute REPO='owner/repo' ISSUE=123"; \
+		exit 1; \
+	fi
+	@PYTHONPATH=src ./assistant execute "$(REPO)" "$(ISSUE)"
+
+assistant-review-pr:
+	@if [[ -z "$(strip $(REPO))" || -z "$(strip $(PR))" ]]; then \
+		echo "Usage: make assistant-review-pr REPO='owner/repo' PR=123"; \
+		exit 1; \
+	fi
+	@PYTHONPATH=src ./assistant review-pr "$(REPO)" "$(PR)"
+
+assistant-release-plan:
+	@if [[ -z "$(strip $(REPO))" ]]; then \
+		echo "Usage: make assistant-release-plan REPO='owner/repo' VERSION='v1.2.3'"; \
+		exit 1; \
+	fi
+	@CMD_ARGS="release-plan \"$(REPO)\""; \
+	if [[ -n "$(strip $(VERSION))" ]]; then CMD_ARGS="$$CMD_ARGS --version \"$(VERSION)\""; fi; \
+	eval "PYTHONPATH=src ./assistant $$CMD_ARGS"
+
+assistant-schedule:
+	@PYTHONPATH=src ./assistant schedule run
