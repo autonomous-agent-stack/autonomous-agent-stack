@@ -19,6 +19,7 @@ from autoresearch.api.dependencies import (
     get_openclaw_compat_service,
     get_panel_access_service,
     get_telegram_notifier_service,
+    get_worker_scheduler_service,
 )
 from autoresearch.api.main import app
 from autoresearch.api.routers import gateway_telegram
@@ -33,6 +34,8 @@ from autoresearch.core.services.github_issue_service import GitHubIssueCommentRe
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.openclaw_memory import OpenClawMemoryService
 from autoresearch.core.services.panel_access import PanelAccessService
+from autoresearch.core.services.worker_registry import WorkerRegistryService
+from autoresearch.core.services.worker_scheduler import WorkerSchedulerService
 from autoresearch.shared.manager_agent_contract import ManagerDispatchRead
 from autoresearch.shared.models import (
     AdminAgentConfigRead,
@@ -45,6 +48,9 @@ from autoresearch.shared.models import (
     OpenClawSessionRead,
     PromotionDiffStats,
     PromotionResult,
+    WorkerLeaseRead,
+    WorkerQueueItemRead,
+    WorkerRegistrationRead,
     utc_now,
 )
 from autoresearch.shared.store import SQLiteModelRepository
@@ -253,6 +259,26 @@ def telegram_client(tmp_path: Path) -> TestClient:
         ),
         openclaw_service=openclaw_service,
     )
+    worker_registry = WorkerRegistryService(
+        repository=SQLiteModelRepository(
+            db_path=db_path,
+            table_name="worker_registrations_gateway_it",
+            model_cls=WorkerRegistrationRead,
+        )
+    )
+    worker_scheduler = WorkerSchedulerService(
+        worker_registry=worker_registry,
+        queue_repository=SQLiteModelRepository(
+            db_path=db_path,
+            table_name="worker_run_queue_gateway_it",
+            model_cls=WorkerQueueItemRead,
+        ),
+        lease_repository=SQLiteModelRepository(
+            db_path=db_path,
+            table_name="worker_leases_gateway_it",
+            model_cls=WorkerLeaseRead,
+        ),
+    )
     approval_service = ApprovalStoreService(
         repository=SQLiteModelRepository(
             db_path=db_path,
@@ -266,9 +292,11 @@ def telegram_client(tmp_path: Path) -> TestClient:
     app.dependency_overrides[get_approval_store_service] = lambda: approval_service
     app.dependency_overrides[get_claude_agent_service] = lambda: claude_service
     app.dependency_overrides[get_admin_config_service] = lambda: admin_config_service
+    app.dependency_overrides[get_worker_scheduler_service] = lambda: worker_scheduler
 
     with TestClient(app) as client:
         setattr(client, "_approval_store", approval_service)
+        setattr(client, "_worker_scheduler", worker_scheduler)
         yield client
 
     app.dependency_overrides.clear()
@@ -560,6 +588,157 @@ def test_telegram_group_reply_to_bot_is_accepted_when_group_whitelist_enabled(
     assert payload["accepted"] is True
     assert payload["session_id"] is not None
 
+
+def test_telegram_youtube_link_enqueues_existing_autoflow_and_tracks_session(
+    telegram_client: TestClient,
+) -> None:
+    notifier = _StubTelegramNotifier()
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+
+    try:
+        response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 1315,
+                "message": {
+                    "message_id": 88,
+                    "text": "请处理这个视频 https://www.youtube.com/watch?v=6yjJ7Prt-RI",
+                    "chat": {"id": 9710, "type": "private"},
+                    "from": {"id": 9710, "username": "youtube-user"},
+                },
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["accepted"] is True
+        assert payload["agent_run_id"] is None
+        assert payload["session_id"] is not None
+        assert payload["metadata"]["source"] == "telegram_youtube_autoflow"
+        assert payload["metadata"]["status"] == "accepted"
+        assert payload["metadata"]["task_type"] == "youtube_autoflow"
+        run_id = payload["metadata"]["run_id"]
+        assert run_id
+
+        worker_scheduler = getattr(telegram_client, "_worker_scheduler")
+        queued_run = worker_scheduler.get_run(run_id)
+        assert queued_run is not None
+        assert queued_run.task_type.value == "youtube_autoflow"
+        assert queued_run.payload["source_url"] == "https://www.youtube.com/watch?v=6yjJ7Prt-RI"
+        assert queued_run.payload["input_text"] == "请处理这个视频 https://www.youtube.com/watch?v=6yjJ7Prt-RI"
+        assert queued_run.payload["source"] == "telegram_gateway"
+        assert queued_run.metadata["session_id"] == payload["session_id"]
+
+        session = telegram_client.get(f"/api/v1/openclaw/sessions/{payload['session_id']}")
+        assert session.status_code == 200
+        session_payload = session.json()
+        assert any(event["role"] == "user" for event in session_payload["events"])
+        assert any("youtube autoflow queued" in event["content"] for event in session_payload["events"])
+        assert session_payload["metadata"]["latest_telegram_youtube_autoflow_run_id"] == run_id
+
+        assert len(notifier.messages) == 1
+        assert "status: accepted" in notifier.messages[0]["text"]
+        assert run_id in notifier.messages[0]["text"]
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+
+
+def test_telegram_youtube_link_rejects_multiple_urls(
+    telegram_client: TestClient,
+) -> None:
+    notifier = _StubTelegramNotifier()
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+
+    try:
+        response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 1316,
+                "message": {
+                    "message_id": 89,
+                    "text": "先处理 https://youtu.be/6yjJ7Prt-RI 再处理 https://youtu.be/dQw4w9WgXcQ",
+                    "chat": {"id": 9711, "type": "private"},
+                    "from": {"id": 9711, "username": "youtube-user"},
+                },
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["accepted"] is False
+        assert payload["session_id"] is not None
+        assert payload["metadata"]["source"] == "telegram_youtube_autoflow"
+        assert payload["metadata"]["status"] == "rejected"
+        assert payload["reason"] == "当前只支持每条消息提交 1 条 YouTube 链接。"
+
+        worker_scheduler = getattr(telegram_client, "_worker_scheduler")
+        assert worker_scheduler.list_queue() == []
+
+        assert len(notifier.messages) == 1
+        assert "status: rejected" in notifier.messages[0]["text"]
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+
+
+def test_telegram_youtube_reference_without_valid_url_is_rejected(
+    telegram_client: TestClient,
+) -> None:
+    notifier = _StubTelegramNotifier()
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+
+    try:
+        response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 1317,
+                "message": {
+                    "message_id": 90,
+                    "text": "处理这个 youtu.be/6yjJ7Prt-RI",
+                    "chat": {"id": 9712, "type": "private"},
+                    "from": {"id": 9712, "username": "youtube-user"},
+                },
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["accepted"] is False
+        assert payload["metadata"]["status"] == "rejected"
+        assert payload["reason"] == "未找到合法的 YouTube URL。"
+
+        worker_scheduler = getattr(telegram_client, "_worker_scheduler")
+        assert worker_scheduler.list_queue() == []
+
+        assert len(notifier.messages) == 1
+        assert "未找到合法的 YouTube URL" in notifier.messages[0]["text"]
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+
+
+def test_telegram_non_youtube_url_continues_to_existing_agent_path(
+    telegram_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "AUTORESEARCH_TELEGRAM_CLAUDE_COMMAND_OVERRIDE",
+        f"{sys.executable} -c \"print('non-youtube-link-ok')\"",
+    )
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_APPEND_PROMPT", "false")
+
+    response = telegram_client.post(
+        "/api/v1/gateway/telegram/webhook",
+        json={
+            "update_id": 1318,
+            "message": {
+                "message_id": 91,
+                "text": "请看这个链接 https://example.com/docs",
+                "chat": {"id": 9713, "type": "private"},
+                "from": {"id": 9713, "username": "link-user"},
+            },
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["accepted"] is True
+    assert payload["agent_run_id"] is not None
+    assert payload["metadata"].get("source") != "telegram_youtube_autoflow"
 
 def test_telegram_webhook_secret_token_guard(
     telegram_client: TestClient,

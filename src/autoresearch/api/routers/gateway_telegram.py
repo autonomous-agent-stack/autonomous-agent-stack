@@ -19,6 +19,7 @@ from autoresearch.api.dependencies import (
     get_openclaw_memory_service,
     get_panel_access_service,
     get_telegram_notifier_service,
+    get_worker_scheduler_service,
 )
 from autoresearch.api.settings import load_panel_settings, load_runtime_settings, load_telegram_settings
 from autoresearch.core.adapters import CapabilityDomain, CapabilityProviderRegistry, SkillProvider
@@ -31,11 +32,16 @@ from autoresearch.agents.manager_agent import ManagerAgentService
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.openclaw_memory import OpenClawMemoryService
 from autoresearch.core.services.panel_access import PanelAccessService
+from autoresearch.core.services.standby_youtube_autoflow import (
+    extract_urls_from_text,
+    extract_youtube_urls_from_text,
+)
 from autoresearch.core.services.telegram_identity import (
     TelegramSessionIdentityRead,
     build_telegram_session_identity,
 )
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
+from autoresearch.core.services.worker_scheduler import WorkerSchedulerService
 from autoresearch.shared.models import (
     AdminChannelConfigCreateRequest,
     AdminChannelConfigUpdateRequest,
@@ -55,7 +61,10 @@ from autoresearch.shared.models import (
     OpenClawSessionEventAppendRequest,
     OpenClawSessionRead,
     ChatType,
+    StandbyYouTubeAutoflowRequest,
     TelegramWebhookAck,
+    WorkerQueueItemCreateRequest,
+    WorkerTaskType,
 )
 from autoresearch.shared.manager_agent_contract import ManagerDispatchRead, ManagerDispatchRequest
 
@@ -94,6 +103,7 @@ def telegram_webhook(
     panel_access_service: PanelAccessService = Depends(get_panel_access_service),
     notifier: TelegramNotifierService = Depends(get_telegram_notifier_service),
     admin_config_service: AdminConfigService = Depends(get_admin_config_service),
+    worker_scheduler: WorkerSchedulerService = Depends(get_worker_scheduler_service),
 ) -> TelegramWebhookAck:
     return _handle_telegram_webhook(
         update=update,
@@ -109,6 +119,7 @@ def telegram_webhook(
         panel_access_service=panel_access_service,
         notifier=notifier,
         admin_config_service=admin_config_service,
+        worker_scheduler=worker_scheduler,
     )
 
 
@@ -131,6 +142,7 @@ def legacy_telegram_webhook(
     panel_access_service: PanelAccessService = Depends(get_panel_access_service),
     notifier: TelegramNotifierService = Depends(get_telegram_notifier_service),
     admin_config_service: AdminConfigService = Depends(get_admin_config_service),
+    worker_scheduler: WorkerSchedulerService = Depends(get_worker_scheduler_service),
 ) -> TelegramWebhookAck:
     return _handle_telegram_webhook(
         update=update,
@@ -146,6 +158,7 @@ def legacy_telegram_webhook(
         panel_access_service=panel_access_service,
         notifier=notifier,
         admin_config_service=admin_config_service,
+        worker_scheduler=worker_scheduler,
     )
 
 
@@ -164,6 +177,7 @@ def _handle_telegram_webhook(
     panel_access_service: PanelAccessService,
     notifier: TelegramNotifierService,
     admin_config_service: AdminConfigService,
+    worker_scheduler: WorkerSchedulerService,
 ) -> TelegramWebhookAck:
     _validate_secret_token(raw_request)
     _guard_webhook_replay_and_rate(update)
@@ -314,6 +328,23 @@ def _handle_telegram_webhook(
             memory_service=memory_service,
             notifier=notifier,
             session_identity=session_identity,
+        )
+
+    youtube_ingress_decision, youtube_source_url, youtube_rejection_reason = _classify_telegram_youtube_ingress(text)
+    if youtube_ingress_decision != "skip":
+        return _handle_telegram_youtube_autoflow(
+            chat_id=chat_id,
+            text=text,
+            update=update,
+            extracted=extracted,
+            background_tasks=background_tasks,
+            openclaw_service=openclaw_service,
+            notifier=notifier,
+            session_identity=session_identity,
+            worker_scheduler=worker_scheduler,
+            decision=youtube_ingress_decision,
+            source_url=youtube_source_url,
+            rejection_reason=youtube_rejection_reason,
         )
 
     session = _find_or_create_telegram_session(
@@ -578,6 +609,252 @@ def _gc_guard_state(now_ts: float) -> None:
             empty_chats.append(chat_id)
     for chat_id in empty_chats:
         _CHAT_RATE_WINDOWS.pop(chat_id, None)
+
+
+def _classify_telegram_youtube_ingress(text: str) -> tuple[str, str | None, str | None]:
+    normalized_text = text.strip()
+    if not normalized_text:
+        return ("skip", None, None)
+
+    all_urls = extract_urls_from_text(normalized_text)
+    youtube_urls = extract_youtube_urls_from_text(normalized_text)
+    has_youtube_hint = "youtu" in normalized_text.lower()
+
+    if not all_urls:
+        if has_youtube_hint:
+            return ("reject", None, "未找到合法的 YouTube URL。")
+        return ("skip", None, None)
+
+    if len(all_urls) > 1:
+        if youtube_urls or has_youtube_hint:
+            return ("reject", None, "当前只支持每条消息提交 1 条 YouTube 链接。")
+        return ("skip", None, None)
+
+    only_url = all_urls[0]
+    if len(youtube_urls) == 1 and youtube_urls[0] == only_url:
+        return ("accept", only_url, None)
+    if has_youtube_hint:
+        return ("reject", None, "消息里必须只包含 1 条合法的 YouTube URL。")
+    return ("skip", None, None)
+
+
+def _handle_telegram_youtube_autoflow(
+    *,
+    chat_id: str,
+    text: str,
+    update: dict[str, Any],
+    extracted: dict[str, Any],
+    background_tasks: BackgroundTasks,
+    openclaw_service: OpenClawCompatService,
+    notifier: TelegramNotifierService,
+    session_identity: TelegramSessionIdentityRead,
+    worker_scheduler: WorkerSchedulerService,
+    decision: str,
+    source_url: str | None,
+    rejection_reason: str | None,
+) -> TelegramWebhookAck:
+    session = _find_or_create_telegram_session(
+        openclaw_service=openclaw_service,
+        chat_id=chat_id,
+        session_identity=session_identity,
+    )
+    _append_user_event(
+        openclaw_service=openclaw_service,
+        session=session,
+        text=text,
+        update=update,
+        extracted=extracted,
+        session_identity=session_identity,
+    )
+
+    metadata = {
+        "source": "telegram_youtube_autoflow",
+        "chat_id": chat_id,
+        "update_id": _safe_int(update.get("update_id")),
+        "message_id": extracted.get("message_id"),
+        "username": extracted.get("username"),
+        "scope": session_identity.scope.value,
+        "session_key": session_identity.session_key,
+        "assistant_id": session_identity.assistant_id,
+        "chat_type": session_identity.chat_context.chat_type.value,
+        "actor_role": session_identity.actor.role.value,
+        "actor_user_id": session_identity.actor.user_id,
+        "session_id": session.session_id,
+    }
+
+    if decision != "accept" or source_url is None:
+        reason = rejection_reason or "消息里必须只包含 1 条合法的 YouTube URL。"
+        _record_telegram_youtube_autoflow_status(
+            openclaw_service=openclaw_service,
+            session_id=session.session_id,
+            content="youtube autoflow rejected",
+            metadata={
+                **metadata,
+                "status": "rejected",
+                "reason": reason,
+            },
+        )
+        if notifier.enabled:
+            background_tasks.add_task(
+                notifier.send_message,
+                chat_id=chat_id,
+                text=_build_telegram_youtube_autoflow_message(
+                    status="rejected",
+                    reason=reason,
+                ),
+            )
+        return TelegramWebhookAck(
+            accepted=False,
+            update_id=_safe_int(update.get("update_id")),
+            chat_id=chat_id,
+            session_id=session.session_id,
+            reason=reason,
+            metadata={
+                **metadata,
+                "status": "rejected",
+            },
+        )
+
+    requested_by = session_identity.actor.user_id or _safe_str(extracted.get("from_user_id")) or chat_id
+    request_payload = StandbyYouTubeAutoflowRequest(
+        source_url=source_url,
+        input_text=text,
+        requested_by=requested_by,
+        source="telegram_gateway",
+        metadata=metadata,
+    )
+
+    try:
+        queued_run = worker_scheduler.enqueue(
+            WorkerQueueItemCreateRequest(
+                task_name="telegram_youtube_autoflow",
+                task_type=WorkerTaskType.YOUTUBE_AUTOFLOW,
+                payload=request_payload.model_dump(mode="json"),
+                requested_by=requested_by,
+                metadata={
+                    **metadata,
+                    "source_url": source_url,
+                },
+            )
+        )
+    except Exception as exc:
+        reason = str(exc).strip() or "failed to enqueue youtube_autoflow"
+        _record_telegram_youtube_autoflow_status(
+            openclaw_service=openclaw_service,
+            session_id=session.session_id,
+            content="youtube autoflow enqueue failed",
+            metadata={
+                **metadata,
+                "status": "failed",
+                "reason": reason,
+                "source_url": source_url,
+            },
+        )
+        if notifier.enabled:
+            background_tasks.add_task(
+                notifier.send_message,
+                chat_id=chat_id,
+                text=_build_telegram_youtube_autoflow_message(
+                    status="failed",
+                    reason=reason,
+                    source_url=source_url,
+                ),
+            )
+        return TelegramWebhookAck(
+            accepted=False,
+            update_id=_safe_int(update.get("update_id")),
+            chat_id=chat_id,
+            session_id=session.session_id,
+            reason=reason,
+            metadata={
+                **metadata,
+                "status": "failed",
+                "source_url": source_url,
+            },
+        )
+
+    _record_telegram_youtube_autoflow_status(
+        openclaw_service=openclaw_service,
+        session_id=session.session_id,
+        content=f"youtube autoflow queued: {queued_run.run_id}",
+        metadata={
+            **metadata,
+            "status": "accepted",
+            "run_id": queued_run.run_id,
+            "task_type": queued_run.task_type.value,
+            "source_url": source_url,
+        },
+    )
+    if notifier.enabled:
+        background_tasks.add_task(
+            notifier.send_message,
+            chat_id=chat_id,
+            text=_build_telegram_youtube_autoflow_message(
+                status="accepted",
+                run_id=queued_run.run_id,
+                source_url=source_url,
+            ),
+        )
+    return TelegramWebhookAck(
+        accepted=True,
+        update_id=_safe_int(update.get("update_id")),
+        chat_id=chat_id,
+        session_id=session.session_id,
+        metadata={
+            **metadata,
+            "status": "accepted",
+            "run_id": queued_run.run_id,
+            "task_type": queued_run.task_type.value,
+            "source_url": source_url,
+        },
+    )
+
+
+def _record_telegram_youtube_autoflow_status(
+    *,
+    openclaw_service: OpenClawCompatService,
+    session_id: str,
+    content: str,
+    metadata: dict[str, Any],
+) -> None:
+    openclaw_service.append_event(
+        session_id=session_id,
+        request=OpenClawSessionEventAppendRequest(
+            role="status",
+            content=content,
+            metadata=metadata,
+        ),
+    )
+    openclaw_service.update_metadata(
+        session_id=session_id,
+        metadata_updates={
+            "latest_telegram_youtube_autoflow_status": metadata.get("status"),
+            "latest_telegram_youtube_autoflow_reason": metadata.get("reason"),
+            "latest_telegram_youtube_autoflow_run_id": metadata.get("run_id"),
+            "latest_telegram_youtube_autoflow_task_type": metadata.get("task_type"),
+            "latest_telegram_youtube_autoflow_source_url": metadata.get("source_url"),
+        },
+    )
+
+
+def _build_telegram_youtube_autoflow_message(
+    *,
+    status: str,
+    reason: str | None = None,
+    run_id: str | None = None,
+    source_url: str | None = None,
+) -> str:
+    lines = [
+        "[YouTube Autoflow]",
+        f"status: {status}",
+    ]
+    if run_id:
+        lines.append(f"run: {run_id}")
+    if source_url:
+        lines.append(f"url: {source_url}")
+    if reason:
+        lines.extend(["", reason])
+    return _truncate_telegram_text("\n".join(lines).strip())
 
 
 def _append_user_event(
