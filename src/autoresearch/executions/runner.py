@@ -6,31 +6,27 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
+import sys
 import time
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 from autoresearch.agent_protocol.models import (
+    DriverMetrics,
     DriverResult,
     JobSpec,
     RunSummary,
     ValidationCheck,
     ValidationReport,
 )
-from autoresearch.agent_protocol.decision import (
-    attempt_succeeded,
-    derive_terminal_status,
-)
+from autoresearch.agent_protocol.decision import attempt_succeeded, derive_terminal_status
 from autoresearch.agent_protocol.policy import EffectivePolicy, build_effective_policy
 from autoresearch.agent_protocol.registry import AgentRegistry
 from autoresearch.core.services.git_promotion_gate import GitPromotionGateService
 from autoresearch.core.services.writer_lease import WriterLeaseService
-from autoresearch.shared.models import (
-    GitPromotionMode,
-    PromotionActorRole,
-    PromotionIntent,
-)
+from autoresearch.shared.models import GitPromotionMode, PromotionActorRole, PromotionIntent
 
 _RUNTIME_DENY_PREFIXES = (
     "logs/",
@@ -38,6 +34,40 @@ _RUNTIME_DENY_PREFIXES = (
     "memory/",
     ".git/",
 )
+
+_AI_LAB_ENV_OVERRIDE_KEYS = (
+    "ENV_FILE",
+    "OPENHANDS_ENV_FILE",
+    "COMPOSE_DIR",
+    "COMPOSE_FILE",
+    "WORKSPACE_DIR",
+    "LOG_DIR",
+    "CACHE_DIR",
+    "LAB_USER",
+    "AUTO_OPEN_DOCKER",
+    "AUTO_START_COLIMA",
+    "AI_LAB_IMAGE_TAG",
+    "AI_LAB_FORCE_DOCKER_RUN",
+    "AI_LAB_HOST_MOUNT_ROOT",
+    "OPENHANDS_HOME_DIR",
+    "DOCKER_HOST_SOCKET_PATH",
+    "DOCKER_HOST_IN_CONTAINER",
+    "DOCKER_HOST_MOUNT_DIR",
+    "AI_LAB_COLIMA_HELPER",
+)
+
+
+def _is_benign_runtime_artifact(path: str) -> bool:
+    normalized = path.replace("\\", "/").strip("/")
+    if not normalized:
+        return False
+    if normalized.startswith(".pytest_cache/") or "/.pytest_cache/" in f"/{normalized}":
+        return True
+    if "/__pycache__/" in f"/{normalized}":
+        return True
+    if normalized.startswith("apps/") and normalized.endswith("/README.md"):
+        return True
+    return False
 
 
 class AgentExecutionRunner:
@@ -59,6 +89,21 @@ class AgentExecutionRunner:
             writer_lease=WriterLeaseService(),
         )
 
+    def _uses_openhands_ai_lab_runtime(self, manifest_entrypoint: str) -> bool:
+        if Path(manifest_entrypoint).name != "openhands_adapter.sh":
+            return False
+        runtime = str(os.environ.get("OPENHANDS_RUNTIME") or "ai-lab").strip().lower()
+        return runtime == "ai-lab"
+
+    def _build_openhands_ai_lab_env(self) -> dict[str, str]:
+        env = dict(os.environ)
+        for key in _AI_LAB_ENV_OVERRIDE_KEYS:
+            env.pop(key, None)
+        env_file = str(self._repo_root / "ai_lab.env")
+        env["ENV_FILE"] = env_file
+        env["OPENHANDS_ENV_FILE"] = env_file
+        return env
+
     def run_job(self, job: JobSpec) -> RunSummary:
         manifest = self._registry.load(job.agent_id)
         effective_policy = build_effective_policy(manifest.policy_defaults, job.policy)
@@ -75,12 +120,11 @@ class AgentExecutionRunner:
         patch_path = artifacts_dir / "promotion.patch"
 
         if run_dir.exists():
-            shutil.rmtree(run_dir)
+            self._rmtree_force(run_dir)
         artifacts_dir.mkdir(parents=True, exist_ok=True)
 
         job_path.write_text(
-            json.dumps(job.model_dump(mode="json"), ensure_ascii=False, indent=2),
-            encoding="utf-8",
+            json.dumps(job.model_dump(mode="json"), ensure_ascii=False, indent=2), encoding="utf-8"
         )
         policy_payload = {
             "hard": effective_policy.hard.model_dump(mode="json"),
@@ -99,6 +143,8 @@ class AgentExecutionRunner:
         pending_attempts = 1
         attempt = 0
         forced_final_status: str | None = None
+        cleanup_success = False
+        final_summary: RunSummary | None = None
 
         last_result = self._contract_error_result(
             run_id=job.run_id,
@@ -108,176 +154,303 @@ class AgentExecutionRunner:
         )
         last_validation = ValidationReport(run_id=job.run_id, passed=False, checks=[])
 
-        while True:
-            if pending_attempts <= 0:
-                if fallback_index >= len(job.fallback):
-                    break
-                step = job.fallback[fallback_index]
-                fallback_index += 1
+        try:
+            while True:
+                if pending_attempts <= 0:
+                    if fallback_index >= len(job.fallback):
+                        break
+                    step = job.fallback[fallback_index]
+                    fallback_index += 1
 
-                if step.action == "retry":
-                    pending_attempts = step.max_attempts
-                    continue
-                if step.action == "fallback_agent":
-                    if step.agent_id:
-                        current_agent = step.agent_id
-                    pending_attempts = step.max_attempts
-                    continue
-                if step.action == "human_review":
-                    forced_final_status = "human_review"
-                    break
-                if step.action == "reject":
-                    forced_final_status = "blocked"
-                    break
+                    if step.action == "retry":
+                        skip_retry_reason = self._retry_skip_reason(last_result)
+                        if skip_retry_reason is not None:
+                            self._append_event(
+                                events_path,
+                                {
+                                    "type": "fallback_skipped",
+                                    "attempt": attempt,
+                                    "agent_id": current_agent,
+                                    "action": "retry",
+                                    "reason": skip_retry_reason,
+                                },
+                            )
+                            continue
+                        pending_attempts = step.max_attempts
+                        continue
+                    if step.action == "fallback_agent":
+                        if job.mode == "runtime_only" or manifest.execution_semantics == "runtime":
+                            self._append_event(
+                                events_path,
+                                {
+                                    "type": "fallback_blocked",
+                                    "attempt": attempt,
+                                    "agent_id": current_agent,
+                                    "action": "fallback_agent",
+                                    "reason": "runtime_runs_disallow_fallback_agent",
+                                    "target_agent_id": step.agent_id,
+                                },
+                            )
+                            continue
+                        if step.agent_id:
+                            current_agent = step.agent_id
+                        pending_attempts = step.max_attempts
+                        continue
+                    if step.action == "human_review":
+                        forced_final_status = "human_review"
+                        break
+                    if step.action == "reject":
+                        forced_final_status = "blocked"
+                        break
 
-            attempt += 1
-            pending_attempts -= 1
+                attempt += 1
+                pending_attempts -= 1
 
-            self._snapshot_baseline_to_workspace(baseline_dir, workspace_dir)
-            self._append_event(
-                events_path,
-                {
-                    "type": "attempt_started",
-                    "attempt": attempt,
-                    "agent_id": current_agent,
-                },
-            )
-
-            active_manifest = self._registry.load(current_agent)
-            driver_result = self._invoke_adapter(
-                manifest_entrypoint=active_manifest.entrypoint,
-                run_dir=run_dir,
-                workspace_dir=workspace_dir,
-                artifacts_dir=artifacts_dir,
-                job_path=job_path,
-                result_path=result_path,
-                events_path=events_path,
-                baseline_dir=baseline_dir,
-                run_id=job.run_id,
-                agent_id=current_agent,
-                attempt=attempt,
-                timeout_sec=effective_policy.merged.timeout_sec,
-            )
-            result_path.write_text(
-                json.dumps(
-                    driver_result.model_dump(mode="json"),
-                    ensure_ascii=False,
-                    indent=2,
-                ),
-                encoding="utf-8",
-            )
-
-            changed_paths = self._collect_changed_paths(baseline_dir, workspace_dir)
-            patch_text, patch_filtered_paths, builtin_checks = self._build_filtered_patch(
-                baseline_dir=baseline_dir,
-                workspace_dir=workspace_dir,
-                changed_paths=changed_paths,
-                driver_result=driver_result,
-                policy=effective_policy,
-            )
-            patch_path.write_text(patch_text, encoding="utf-8")
-
-            validation = self._run_validators(
-                run_id=job.run_id,
-                workspace_dir=workspace_dir,
-                patch_path=patch_path,
-                builtin_checks=builtin_checks,
-                validator_specs=job.validators,
-                timeout_sec=effective_policy.merged.timeout_sec,
-            )
-
-            if not driver_result.changed_paths:
-                driver_result = driver_result.model_copy(
-                    update={"changed_paths": patch_filtered_paths}
+                active_manifest = self._registry.load(current_agent)
+                preflight_error = self._preflight_agent_environment(
+                    agent_id=current_agent,
+                    manifest_entrypoint=active_manifest.entrypoint,
                 )
+                if preflight_error is not None:
+                    driver_result = self._contract_error_result(
+                        run_id=job.run_id,
+                        agent_id=current_agent,
+                        attempt=attempt,
+                        message=preflight_error,
+                        recommended_action="fallback",
+                    )
+                    last_result = driver_result
+                    last_validation = ValidationReport(run_id=job.run_id, passed=False, checks=[])
+                    self._append_event(
+                        events_path,
+                        {
+                            "type": "attempt_blocked",
+                            "attempt": attempt,
+                            "agent_id": current_agent,
+                            "reason": "environment_preflight_failed",
+                            "detail": preflight_error,
+                        },
+                    )
+                    self._append_event(
+                        events_path,
+                        {
+                            "type": "attempt_completed",
+                            "attempt": attempt,
+                            "agent_id": current_agent,
+                            "driver_status": driver_result.status,
+                            "validation_passed": False,
+                        },
+                    )
+                    continue
 
-            if self._has_policy_violation(validation):
-                driver_result = driver_result.model_copy(
-                    update={
-                        "status": "policy_blocked",
-                        "recommended_action": "reject",
-                        "error": "execution produced out-of-scope or forbidden changes",
-                    }
-                )
-
-            last_result = driver_result
-            last_validation = validation
-
-            self._append_event(
-                events_path,
-                {
-                    "type": "attempt_completed",
-                    "attempt": attempt,
-                    "agent_id": current_agent,
-                    "driver_status": driver_result.status,
-                    "validation_passed": validation.passed,
-                },
-            )
-
-            if attempt_succeeded(driver_result=driver_result, validation=validation):
-                promotion_preflight, promotion = self._finalize_promotion(
+                attempt_job = self._job_for_attempt(
                     job=job,
                     agent_id=current_agent,
-                    patch_path=patch_path,
-                    changed_files=patch_filtered_paths,
-                    validation=validation,
-                    policy=effective_policy,
-                    artifacts_dir=artifacts_dir,
+                    attempt=attempt,
+                    last_result=last_result,
+                    last_validation=last_validation,
                 )
-                final_status = (
-                    "promoted"
-                    if promotion.mode is GitPromotionMode.DRAFT_PR
-                    else "ready_for_promotion"
-                )
-                if not promotion.success:
-                    final_status = "blocked"
-                summary = RunSummary(
-                    run_id=job.run_id,
-                    final_status=final_status,
-                    driver_result=driver_result,
-                    validation=validation,
-                    promotion_patch_uri=str(patch_path),
-                    promotion_preflight=promotion_preflight,
-                    promotion=promotion,
-                )
-                summary_path.write_text(
-                    json.dumps(
-                        summary.model_dump(mode="json"),
-                        ensure_ascii=False,
-                        indent=2,
-                    ),
+                job_path.write_text(
+                    json.dumps(attempt_job.model_dump(mode="json"), ensure_ascii=False, indent=2),
                     encoding="utf-8",
                 )
-                self._cleanup_workspace(
+
+                self._snapshot_baseline_to_workspace(baseline_dir, workspace_dir)
+                self._prepare_shadow_workspace(workspace_dir, effective_policy)
+                self._append_event(
+                    events_path,
+                    {
+                        "type": "attempt_started",
+                        "attempt": attempt,
+                        "agent_id": current_agent,
+                    },
+                )
+
+                driver_result = self._invoke_adapter(
+                    manifest_entrypoint=active_manifest.entrypoint,
+                    run_dir=run_dir,
                     workspace_dir=workspace_dir,
-                    success=True,
+                    artifacts_dir=artifacts_dir,
+                    job_path=job_path,
+                    result_path=result_path,
+                    events_path=events_path,
+                    baseline_dir=baseline_dir,
+                    run_id=job.run_id,
+                    agent_id=current_agent,
+                    attempt=attempt,
+                    timeout_sec=effective_policy.merged.timeout_sec,
                     policy=effective_policy,
                 )
-                return summary
+                result_path.write_text(
+                    json.dumps(driver_result.model_dump(mode="json"), ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
 
-            if driver_result.status == "policy_blocked":
-                break
+                changed_paths = self._collect_changed_paths(baseline_dir, workspace_dir)
+                if active_manifest.execution_semantics == "runtime":
+                    if patch_path.exists():
+                        patch_path.unlink()
+                    patch_text, reported_changed_paths, builtin_checks = self._build_runtime_checks(
+                        changed_paths=changed_paths,
+                        driver_result=driver_result,
+                    )
+                else:
+                    patch_text, reported_changed_paths, builtin_checks = self._build_filtered_patch(
+                        baseline_dir=baseline_dir,
+                        workspace_dir=workspace_dir,
+                        changed_paths=changed_paths,
+                        driver_result=driver_result,
+                        policy=effective_policy,
+                    )
+                    patch_path.write_text(patch_text, encoding="utf-8")
 
-        final_status = forced_final_status or derive_terminal_status(last_result, last_validation)
-        summary = RunSummary(
-            run_id=job.run_id,
-            final_status=final_status,
-            driver_result=last_result,
-            validation=last_validation,
-            promotion_patch_uri=str(patch_path) if patch_path.exists() else None,
-            promotion_preflight=None,
-            promotion=None,
-        )
+                validation = self._run_validators(
+                    run_id=job.run_id,
+                    workspace_dir=workspace_dir,
+                    patch_path=patch_path,
+                    builtin_checks=builtin_checks,
+                    validator_specs=job.validators,
+                    timeout_sec=effective_policy.merged.timeout_sec,
+                )
+
+                if not driver_result.changed_paths:
+                    driver_result = driver_result.model_copy(
+                        update={"changed_paths": reported_changed_paths}
+                    )
+                if self._has_policy_violation(validation):
+                    driver_result = driver_result.model_copy(
+                        update={
+                            "status": "policy_blocked",
+                            "recommended_action": "reject",
+                            "error": "execution produced out-of-scope or forbidden changes",
+                        }
+                    )
+
+                last_result = driver_result
+                last_validation = validation
+
+                self._append_event(
+                    events_path,
+                    {
+                        "type": "attempt_completed",
+                        "attempt": attempt,
+                        "agent_id": current_agent,
+                        "driver_status": driver_result.status,
+                        "validation_passed": validation.passed,
+                    },
+                )
+
+                if attempt_succeeded(driver_result=driver_result, validation=validation):
+                    if active_manifest.execution_semantics == "runtime":
+                        final_summary = RunSummary(
+                            run_id=job.run_id,
+                            final_status="completed",
+                            driver_result=driver_result,
+                            validation=validation,
+                            promotion_patch_uri=None,
+                            promotion_preflight=None,
+                            promotion=None,
+                        )
+                        cleanup_success = True
+                        break
+                    promotion_preflight, promotion = self._finalize_promotion(
+                        job=job,
+                        agent_id=current_agent,
+                        patch_path=patch_path,
+                        changed_files=reported_changed_paths,
+                        validation=validation,
+                        policy=effective_policy,
+                        artifacts_dir=artifacts_dir,
+                    )
+                    final_status = (
+                        "promoted"
+                        if promotion.mode is GitPromotionMode.DRAFT_PR
+                        else "ready_for_promotion"
+                    )
+                    if not promotion.success:
+                        final_status = "blocked"
+                    final_summary = RunSummary(
+                        run_id=job.run_id,
+                        final_status=final_status,
+                        driver_result=driver_result,
+                        validation=validation,
+                        promotion_patch_uri=str(patch_path),
+                        promotion_preflight=promotion_preflight,
+                        promotion=promotion,
+                    )
+                    cleanup_success = True
+                    break
+
+                if driver_result.status == "policy_blocked":
+                    break
+
+            if final_summary is None:
+                final_status = forced_final_status or derive_terminal_status(
+                    last_result, last_validation
+                )
+                final_summary = RunSummary(
+                    run_id=job.run_id,
+                    final_status=final_status,
+                    driver_result=last_result,
+                    validation=last_validation,
+                    promotion_patch_uri=str(patch_path) if patch_path.exists() else None,
+                    promotion_preflight=None,
+                    promotion=None,
+                )
+        except Exception as exc:
+            error_message = f"runner crashed: {exc.__class__.__name__}: {exc}"
+            last_result = self._contract_error_result(
+                run_id=job.run_id,
+                agent_id=current_agent,
+                attempt=attempt or 1,
+                message=error_message,
+            )
+            self._append_event(
+                events_path,
+                {
+                    "type": "runner_exception",
+                    "attempt": attempt,
+                    "agent_id": current_agent,
+                    "detail": error_message,
+                },
+            )
+            final_summary = RunSummary(
+                run_id=job.run_id,
+                final_status="failed",
+                driver_result=last_result,
+                validation=last_validation,
+                promotion_patch_uri=str(patch_path) if patch_path.exists() else None,
+                promotion_preflight=None,
+                promotion=None,
+            )
+        finally:
+            if final_summary is None:
+                final_summary = RunSummary(
+                    run_id=job.run_id,
+                    final_status=forced_final_status
+                    or derive_terminal_status(last_result, last_validation),
+                    driver_result=last_result,
+                    validation=last_validation,
+                    promotion_patch_uri=str(patch_path) if patch_path.exists() else None,
+                    promotion_preflight=None,
+                    promotion=None,
+                )
+            self._write_summary(summary_path=summary_path, summary=final_summary)
+            self._cleanup_workspace(
+                workspace_dir=workspace_dir,
+                success=cleanup_success,
+                policy=effective_policy,
+            )
+
+        return final_summary
+
+    @staticmethod
+    def _write_summary(*, summary_path: Path, summary: RunSummary) -> None:
+        summary_path.parent.mkdir(parents=True, exist_ok=True)
         summary_path.write_text(
             json.dumps(summary.model_dump(mode="json"), ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
-        self._cleanup_workspace(
-            workspace_dir=workspace_dir,
-            success=False,
-            policy=effective_policy,
-        )
-        return summary
 
     @staticmethod
     def _has_policy_violation(validation: ValidationReport) -> bool:
@@ -285,6 +458,7 @@ class AgentExecutionRunner:
             "builtin.allowed_paths",
             "builtin.forbidden_paths",
             "builtin.no_runtime_artifacts",
+            "builtin.runtime_no_repo_writes",
         }
         return any(check.id in blocked_checks and not check.passed for check in validation.checks)
 
@@ -299,21 +473,155 @@ class AgentExecutionRunner:
             "dashboard/.next",
             ".masfactory_runtime",
         )
-        shutil.copytree(
-            self._repo_root,
-            baseline_dir,
-            dirs_exist_ok=True,
-            ignore=ignore,
-        )
+        shutil.copytree(self._repo_root, baseline_dir, dirs_exist_ok=True, ignore=ignore)
 
-    def _snapshot_baseline_to_workspace(
-        self,
-        baseline_dir: Path,
-        workspace_dir: Path,
-    ) -> None:
+    def _snapshot_baseline_to_workspace(self, baseline_dir: Path, workspace_dir: Path) -> None:
         if workspace_dir.exists():
-            shutil.rmtree(workspace_dir)
+            self._rmtree_force(workspace_dir)
         shutil.copytree(baseline_dir, workspace_dir, dirs_exist_ok=True)
+
+    def _prepare_shadow_workspace(self, workspace_dir: Path, policy: EffectivePolicy) -> None:
+        if not workspace_dir.exists():
+            return
+
+        self._apply_mode_tree(workspace_dir, file_mode=0o444, dir_mode=0o555)
+
+        writable_paths: set[Path] = set()
+        for pattern in policy.merged.allowed_paths:
+            writable_paths.update(self._resolve_writable_targets(workspace_dir, pattern))
+
+        for target in sorted(writable_paths, key=lambda item: (len(item.parts), str(item))):
+            self._make_target_writable(workspace_dir, target)
+
+        locked_paths: set[Path] = set()
+        for pattern in policy.merged.forbidden_paths:
+            locked_paths.update(self._resolve_matching_paths(workspace_dir, pattern))
+
+        for target in sorted(locked_paths, key=lambda item: len(item.parts), reverse=True):
+            self._make_target_read_only(target)
+
+    def _resolve_writable_targets(self, workspace_dir: Path, pattern: str) -> set[Path]:
+        normalized = pattern.replace("\\", "/").strip("/")
+        if not normalized:
+            return set()
+
+        targets = self._resolve_matching_paths(workspace_dir, normalized)
+        if targets:
+            return targets
+
+        prefix = self._glob_prefix(normalized)
+        if prefix:
+            candidate = workspace_dir / prefix
+            if candidate.exists():
+                return {candidate}
+            return {candidate}
+
+        candidate = workspace_dir / normalized
+        if candidate.exists():
+            return {candidate}
+        return {candidate}
+
+    def _resolve_matching_paths(self, workspace_dir: Path, pattern: str) -> set[Path]:
+        normalized = pattern.replace("\\", "/").strip("/")
+        if not normalized:
+            return set()
+
+        matched: set[Path] = set()
+        for path in [workspace_dir, *workspace_dir.rglob("*")]:
+            rel = path.relative_to(workspace_dir).as_posix() if path != workspace_dir else "."
+            if rel == ".":
+                continue
+            if self._matches_any(rel, [normalized]):
+                matched.add(path)
+        return matched
+
+    @staticmethod
+    def _nearest_existing_ancestor(workspace_dir: Path, candidate: Path) -> Path:
+        probe = candidate
+        while probe != workspace_dir and not probe.exists():
+            probe = probe.parent
+        if probe.exists():
+            return probe
+        return workspace_dir
+
+    def _make_target_writable(self, workspace_dir: Path, target: Path) -> None:
+        for ancestor in reversed(target.parents):
+            if ancestor == workspace_dir.parent or ancestor == target:
+                continue
+            if workspace_dir not in ancestor.parents and ancestor != workspace_dir:
+                continue
+            if ancestor.exists():
+                self._chmod_path(ancestor, 0o777)
+
+        if target.is_dir():
+            self._apply_mode_tree(target, file_mode=0o666, dir_mode=0o777)
+            return
+
+        if target.exists():
+            self._chmod_path(target, 0o666)
+            if target.parent.exists():
+                self._chmod_path(target.parent, 0o777)
+            return
+
+        self._ensure_writable_path_chain(workspace_dir=workspace_dir, target=target)
+        if not target.suffix:
+            try:
+                target.mkdir(parents=True, exist_ok=True)
+            except OSError:
+                pass
+            if target.exists() and target.is_dir():
+                self._apply_mode_tree(target, file_mode=0o666, dir_mode=0o777)
+                return
+
+        if target.parent.exists():
+            self._chmod_path(target.parent, 0o777)
+
+    def _ensure_writable_path_chain(self, *, workspace_dir: Path, target: Path) -> None:
+        self._chmod_path(workspace_dir, 0o777)
+        try:
+            relative_target = target.relative_to(workspace_dir)
+        except ValueError:
+            return
+
+        chain_parts = relative_target.parts if not target.suffix else relative_target.parts[:-1]
+        current = workspace_dir
+        for part in chain_parts:
+            current = current / part
+            if not current.exists():
+                try:
+                    current.mkdir(exist_ok=True)
+                except OSError:
+                    return
+            self._chmod_path(current, 0o777)
+
+    def _make_target_read_only(self, target: Path) -> None:
+        if target.is_dir():
+            self._apply_mode_tree(target, file_mode=0o444, dir_mode=0o555)
+            return
+        if target.exists():
+            self._chmod_path(target, 0o444)
+            if target.parent.exists():
+                self._chmod_path(target.parent, 0o555)
+
+    def _apply_mode_tree(self, root: Path, *, file_mode: int, dir_mode: int) -> None:
+        if not root.exists():
+            return
+        if root.is_dir():
+            self._chmod_path(root, dir_mode)
+            for path in root.rglob("*"):
+                if path.is_dir():
+                    self._chmod_path(path, dir_mode)
+                else:
+                    self._chmod_path(path, file_mode)
+            return
+        self._chmod_path(root, file_mode)
+
+    @staticmethod
+    def _chmod_path(path: Path, mode: int) -> None:
+        try:
+            path.chmod(mode)
+        except OSError:
+            return
 
     def _invoke_adapter(
         self,
@@ -330,6 +638,7 @@ class AgentExecutionRunner:
         agent_id: str,
         attempt: int,
         timeout_sec: int,
+        policy: EffectivePolicy,
     ) -> DriverResult:
         if result_path.exists():
             result_path.unlink()
@@ -343,7 +652,10 @@ class AgentExecutionRunner:
                 message=f"adapter entrypoint not found: {entrypoint}",
             )
 
-        env = dict(os.environ)
+        if self._uses_openhands_ai_lab_runtime(manifest_entrypoint):
+            env = self._build_openhands_ai_lab_env()
+        else:
+            env = dict(os.environ)
         env.update(
             {
                 "AEP_RUN_DIR": str(run_dir),
@@ -361,33 +673,193 @@ class AgentExecutionRunner:
         stderr_log = artifacts_dir / "stderr.log"
 
         started = time.perf_counter()
-        try:
-            completed = subprocess.run(
+        completed: subprocess.CompletedProcess[str] | None = None
+        probe_signature: tuple[tuple[str, int, int], ...] | None = None
+        last_probed_signature: tuple[tuple[str, int, int], ...] | None = None
+        stable_polls = 0
+        stall_timeout_sec = self._stall_progress_timeout_sec(timeout_sec)
+        last_scoped_progress_signature = self._scoped_progress_signature(
+            baseline_dir=baseline_dir,
+            workspace_dir=workspace_dir,
+            allowed_paths=policy.merged.allowed_paths,
+        )
+        last_state_progress_signature = self._runtime_heartbeat_signature(
+            workspace_dir=workspace_dir
+        )
+        last_progress_at = started
+        first_progress_ms: int | None = None
+        first_scoped_write_ms: int | None = None
+        first_state_heartbeat_ms: int | None = None
+        process_group_id: int | None = None
+
+        with (
+            stdout_log.open("a", encoding="utf-8") as stdout_handle,
+            stderr_log.open("a", encoding="utf-8") as stderr_handle,
+        ):
+            stdout_handle.write(f"\n=== attempt {attempt} ({agent_id}) ===\n")
+            stderr_handle.write(f"\n=== attempt {attempt} ({agent_id}) ===\n")
+            stdout_handle.flush()
+            stderr_handle.flush()
+
+            process = subprocess.Popen(
                 [str(entrypoint)],
                 cwd=self._repo_root,
                 env=env,
-                capture_output=True,
+                stdout=stdout_handle,
+                stderr=stderr_handle,
                 text=True,
-                timeout=timeout_sec,
+                start_new_session=True,
             )
-            duration_ms = int((time.perf_counter() - started) * 1000)
-        except subprocess.TimeoutExpired:
-            return DriverResult(
+            if hasattr(os, "getpgid"):
+                try:
+                    process_group_id = os.getpgid(process.pid)
+                except OSError:
+                    process_group_id = None
+
+            while True:
+                returncode = process.poll()
+                now = time.perf_counter()
+                duration_ms = int((now - started) * 1000)
+                if returncode is not None:
+                    completed = subprocess.CompletedProcess(
+                        args=[str(entrypoint)],
+                        returncode=returncode,
+                        stdout="",
+                        stderr="",
+                    )
+                    break
+
+                if duration_ms >= timeout_sec * 1000:
+                    self._terminate_process(process, process_group_id=process_group_id)
+                    return DriverResult(
+                        run_id=run_id,
+                        agent_id=agent_id,
+                        attempt=attempt,
+                        status="timed_out",
+                        summary=f"adapter timed out after {timeout_sec}s",
+                        metrics=DriverMetrics(
+                            duration_ms=duration_ms,
+                            first_progress_ms=first_progress_ms,
+                            first_scoped_write_ms=first_scoped_write_ms,
+                            first_state_heartbeat_ms=first_state_heartbeat_ms,
+                        ),
+                        recommended_action="fallback",
+                        error=f"timeout after {timeout_sec}s",
+                    )
+
+                current_scoped_progress_signature = self._scoped_progress_signature(
+                    baseline_dir=baseline_dir,
+                    workspace_dir=workspace_dir,
+                    allowed_paths=policy.merged.allowed_paths,
+                )
+                current_state_progress_signature = self._runtime_heartbeat_signature(
+                    workspace_dir=workspace_dir,
+                )
+                scoped_progress_changed = (
+                    current_scoped_progress_signature != last_scoped_progress_signature
+                )
+                state_progress_changed = (
+                    current_state_progress_signature != last_state_progress_signature
+                )
+                if scoped_progress_changed or state_progress_changed:
+                    if (
+                        scoped_progress_changed
+                        and first_scoped_write_ms is None
+                        and current_scoped_progress_signature
+                    ):
+                        first_scoped_write_ms = duration_ms
+                    if (
+                        state_progress_changed
+                        and first_state_heartbeat_ms is None
+                        and current_state_progress_signature
+                    ):
+                        first_state_heartbeat_ms = duration_ms
+                    if first_progress_ms is None:
+                        first_candidates = [
+                            value
+                            for value in (
+                                first_scoped_write_ms,
+                                first_state_heartbeat_ms,
+                            )
+                            if value is not None
+                        ]
+                        if first_candidates:
+                            first_progress_ms = min(first_candidates)
+                    last_scoped_progress_signature = current_scoped_progress_signature
+                    last_state_progress_signature = current_state_progress_signature
+                    last_progress_at = now
+                elif (now - last_progress_at) >= stall_timeout_sec:
+                    self._terminate_process(process, process_group_id=process_group_id)
+                    stall_error = f"no workspace progress for {stall_timeout_sec}s"
+                    return DriverResult(
+                        run_id=run_id,
+                        agent_id=agent_id,
+                        attempt=attempt,
+                        status="stalled_no_progress",
+                        summary=f"adapter stalled after {stall_timeout_sec}s without workspace progress",
+                        metrics=DriverMetrics(
+                            duration_ms=duration_ms,
+                            first_progress_ms=first_progress_ms,
+                            first_scoped_write_ms=first_scoped_write_ms,
+                            first_state_heartbeat_ms=first_state_heartbeat_ms,
+                        ),
+                        recommended_action="fallback",
+                        error=stall_error,
+                    )
+
+                current_signature, current_paths = self._changed_python_signature(
+                    baseline_dir=baseline_dir,
+                    workspace_dir=workspace_dir,
+                    allowed_paths=policy.merged.allowed_paths,
+                )
+                if current_signature and current_signature == probe_signature:
+                    stable_polls += 1
+                elif current_signature:
+                    probe_signature = current_signature
+                    stable_polls = 1
+                else:
+                    probe_signature = None
+                    stable_polls = 0
+
+                if (
+                    current_signature
+                    and stable_polls >= 2
+                    and current_signature != last_probed_signature
+                ):
+                    probe_failure = self._run_fast_fail_probe(
+                        workspace_dir=workspace_dir,
+                        changed_python_paths=current_paths,
+                    )
+                    last_probed_signature = current_signature
+                    if probe_failure is not None:
+                        self._terminate_process(process, process_group_id=process_group_id)
+                        return DriverResult(
+                            run_id=run_id,
+                            agent_id=agent_id,
+                            attempt=attempt,
+                            status="failed",
+                            summary="adapter aborted by fast-fail probe",
+                            changed_paths=self._collect_changed_paths(baseline_dir, workspace_dir),
+                            metrics=DriverMetrics(
+                                duration_ms=duration_ms,
+                                first_progress_ms=first_progress_ms,
+                                first_scoped_write_ms=first_scoped_write_ms,
+                                first_state_heartbeat_ms=first_state_heartbeat_ms,
+                            ),
+                            recommended_action="fallback",
+                            error=probe_failure,
+                        )
+
+                time.sleep(2)
+
+        duration_ms = int((time.perf_counter() - started) * 1000)
+        if completed is None:
+            return self._contract_error_result(
                 run_id=run_id,
                 agent_id=agent_id,
                 attempt=attempt,
-                status="timed_out",
-                summary=f"adapter timed out after {timeout_sec}s",
-                recommended_action="fallback",
-                error=f"timeout after {timeout_sec}s",
+                message="adapter process exited without completion record",
             )
-
-        with stdout_log.open("a", encoding="utf-8") as handle:
-            handle.write(f"\n=== attempt {attempt} ({agent_id}) ===\n")
-            handle.write(completed.stdout or "")
-        with stderr_log.open("a", encoding="utf-8") as handle:
-            handle.write(f"\n=== attempt {attempt} ({agent_id}) ===\n")
-            handle.write(completed.stderr or "")
 
         if not result_path.exists():
             return self._contract_error_result(
@@ -408,15 +880,31 @@ class AgentExecutionRunner:
                 message=f"invalid driver_result.json: {exc}",
             )
 
-        merged_metrics = result.metrics.model_copy(update={"duration_ms": duration_ms})
+        merged_metrics = result.metrics.model_copy(
+            update={
+                "duration_ms": duration_ms,
+                "first_progress_ms": (
+                    result.metrics.first_progress_ms
+                    if result.metrics.first_progress_ms is not None
+                    else first_progress_ms
+                ),
+                "first_scoped_write_ms": (
+                    result.metrics.first_scoped_write_ms
+                    if result.metrics.first_scoped_write_ms is not None
+                    else first_scoped_write_ms
+                ),
+                "first_state_heartbeat_ms": (
+                    result.metrics.first_state_heartbeat_ms
+                    if result.metrics.first_state_heartbeat_ms is not None
+                    else first_state_heartbeat_ms
+                ),
+            }
+        )
         result = result.model_copy(
             update={"metrics": merged_metrics, "attempt": attempt, "agent_id": agent_id}
         )
 
-        if completed.returncode == 10 and result.status not in {
-            "policy_blocked",
-            "contract_error",
-        }:
+        if completed.returncode == 10 and result.status not in {"policy_blocked", "contract_error"}:
             result = result.model_copy(update={"status": "policy_blocked"})
         if completed.returncode == 30 and result.status == "succeeded":
             result = result.model_copy(update={"status": "timed_out"})
@@ -425,11 +913,7 @@ class AgentExecutionRunner:
 
         return result
 
-    def _collect_changed_paths(
-        self,
-        baseline_dir: Path,
-        workspace_dir: Path,
-    ) -> list[str]:
+    def _collect_changed_paths(self, baseline_dir: Path, workspace_dir: Path) -> list[str]:
         base_files = self._collect_files(baseline_dir)
         workspace_files = self._collect_files(workspace_dir)
         all_paths = sorted(set(base_files) | set(workspace_files))
@@ -464,16 +948,19 @@ class AgentExecutionRunner:
             )
         )
 
+        relevant_changed = [path for path in changed_paths if not _is_benign_runtime_artifact(path)]
         forbidden_changed = [
-            path for path in changed_paths if self._matches_any(path, policy.merged.forbidden_paths)
+            path
+            for path in relevant_changed
+            if self._matches_any(path, policy.merged.forbidden_paths)
         ]
         runtime_changed = [
-            path for path in changed_paths if path.startswith(_RUNTIME_DENY_PREFIXES)
+            path for path in relevant_changed if path.startswith(_RUNTIME_DENY_PREFIXES)
         ]
 
         allowed_changed = [
             path
-            for path in changed_paths
+            for path in relevant_changed
             if self._matches_any(path, policy.merged.allowed_paths)
             and not self._matches_any(path, policy.merged.forbidden_paths)
             and not path.startswith(_RUNTIME_DENY_PREFIXES)
@@ -485,7 +972,7 @@ class AgentExecutionRunner:
                 passed=len(
                     [
                         p
-                        for p in changed_paths
+                        for p in relevant_changed
                         if p not in allowed_changed
                         and p not in forbidden_changed
                         and p not in runtime_changed
@@ -512,10 +999,8 @@ class AgentExecutionRunner:
         checks.append(
             ValidationCheck(
                 id="builtin.max_changed_files",
-                passed=len(changed_paths) <= policy.merged.max_changed_files,
-                detail=(
-                    f"changed={len(changed_paths)} " f"limit={policy.merged.max_changed_files}"
-                ),
+                passed=len(relevant_changed) <= policy.merged.max_changed_files,
+                detail=f"changed={len(relevant_changed)} limit={policy.merged.max_changed_files}",
             )
         )
 
@@ -549,9 +1034,7 @@ class AgentExecutionRunner:
             ValidationCheck(
                 id="builtin.max_patch_lines",
                 passed=patch_line_count <= policy.merged.max_patch_lines,
-                detail=(
-                    f"patch_lines={patch_line_count} " f"limit={policy.merged.max_patch_lines}"
-                ),
+                detail=f"patch_lines={patch_line_count} limit={policy.merged.max_patch_lines}",
             )
         )
 
@@ -570,6 +1053,305 @@ class AgentExecutionRunner:
             )
         )
         return patch_text, allowed_changed, checks
+
+    def _build_runtime_checks(
+        self,
+        *,
+        changed_paths: list[str],
+        driver_result: DriverResult,
+    ) -> tuple[str, list[str], list[ValidationCheck]]:
+        driver_succeeded = driver_result.status in {"succeeded", "partial"}
+        checks = [
+            ValidationCheck(
+                id="builtin.driver_success",
+                passed=driver_succeeded,
+                detail=driver_result.status,
+            ),
+            ValidationCheck(
+                id="builtin.runtime_no_repo_writes",
+                passed=not changed_paths,
+                detail="ok" if not changed_paths else "; ".join(sorted(changed_paths)),
+            ),
+        ]
+        return "", list(changed_paths), checks
+
+    def _meaningful_progress_signature(
+        self,
+        *,
+        baseline_dir: Path,
+        workspace_dir: Path,
+        allowed_paths: list[str],
+    ) -> tuple[tuple[str, int, int], ...]:
+        return self._scoped_progress_signature(
+            baseline_dir=baseline_dir,
+            workspace_dir=workspace_dir,
+            allowed_paths=allowed_paths,
+        ) + self._state_heartbeat_signature(workspace_dir=workspace_dir)
+
+    def _scoped_progress_signature(
+        self,
+        *,
+        baseline_dir: Path,
+        workspace_dir: Path,
+        allowed_paths: list[str],
+    ) -> tuple[tuple[str, int, int], ...]:
+        items: list[tuple[str, int, int]] = []
+        changed_paths = self._collect_changed_paths(baseline_dir, workspace_dir)
+        for rel in sorted(changed_paths):
+            if not self._matches_any(rel, allowed_paths):
+                continue
+            path = workspace_dir / rel
+            if not path.exists():
+                items.append((f"delete:{rel}", 0, 0))
+                continue
+            stat = path.stat()
+            items.append((f"change:{rel}", stat.st_mtime_ns, stat.st_size))
+        return tuple(items)
+
+    def _state_heartbeat_signature(
+        self,
+        *,
+        workspace_dir: Path,
+    ) -> tuple[tuple[str, int, int], ...]:
+        items: list[tuple[str, int, int]] = []
+        state_root = workspace_dir / ".openhands-state"
+        if state_root.exists():
+            for path in sorted(
+                candidate for candidate in state_root.rglob("*") if candidate.is_file()
+            ):
+                stat = path.stat()
+                items.append(
+                    (
+                        f"state:{path.relative_to(workspace_dir).as_posix()}",
+                        stat.st_mtime_ns,
+                        stat.st_size,
+                    )
+                )
+        return tuple(items)
+
+    def _runtime_heartbeat_signature(
+        self,
+        *,
+        workspace_dir: Path,
+    ) -> tuple[tuple[str, int, int], ...]:
+        return self._state_heartbeat_signature(workspace_dir=workspace_dir)
+
+    def _changed_python_signature(
+        self,
+        *,
+        baseline_dir: Path,
+        workspace_dir: Path,
+        allowed_paths: list[str],
+    ) -> tuple[tuple[tuple[str, int, int], ...] | None, list[str]]:
+        changed_paths = self._collect_changed_paths(baseline_dir, workspace_dir)
+        python_paths = [
+            path
+            for path in changed_paths
+            if path.endswith(".py")
+            and path.startswith(("src/", "tests/"))
+            and self._matches_any(path, allowed_paths)
+        ]
+        if not python_paths:
+            return None, []
+
+        signature_items: list[tuple[str, int, int]] = []
+        for rel in sorted(python_paths):
+            path = workspace_dir / rel
+            if not path.exists():
+                continue
+            stat = path.stat()
+            signature_items.append((rel, stat.st_mtime_ns, stat.st_size))
+        if not signature_items:
+            return None, []
+        return tuple(signature_items), [item[0] for item in signature_items]
+
+    def _run_fast_fail_probe(
+        self,
+        *,
+        workspace_dir: Path,
+        changed_python_paths: list[str],
+    ) -> str | None:
+        if not changed_python_paths:
+            return None
+
+        compile_probe = subprocess.run(
+            [sys.executable, "-m", "py_compile", *changed_python_paths],
+            cwd=workspace_dir,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        compile_detail = (compile_probe.stderr or compile_probe.stdout or "").strip()
+        if compile_probe.returncode != 0 and "SyntaxError" in compile_detail:
+            return compile_detail[:2000]
+
+        importable_modules: list[str] = []
+        for rel in changed_python_paths:
+            if not rel.startswith("src/"):
+                continue
+            module_parts = list(Path(rel).with_suffix("").parts[1:])
+            if module_parts and module_parts[-1] == "__init__":
+                module_parts = module_parts[:-1]
+            if module_parts:
+                importable_modules.append(".".join(module_parts))
+
+        if not importable_modules:
+            return None
+
+        import_probe = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import importlib, sys; "
+                    "mods = sys.argv[1:]; "
+                    "[(importlib.import_module(name), None) for name in mods]"
+                ),
+                *importable_modules,
+            ],
+            cwd=workspace_dir,
+            env={
+                **os.environ,
+                "PYTHONPATH": str(workspace_dir / "src"),
+                "PYTHONDONTWRITEBYTECODE": "1",
+            },
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        import_detail = (import_probe.stderr or import_probe.stdout or "").strip()
+        if import_probe.returncode != 0 and any(
+            token in import_detail
+            for token in ("ModuleNotFoundError", "ImportError", "SyntaxError")
+        ):
+            return import_detail[:2000]
+        return None
+
+    @staticmethod
+    def _stall_progress_timeout_sec(timeout_sec: int) -> int:
+        return min(timeout_sec, min(180, max(60, max(1, timeout_sec // 4))))
+
+    def _preflight_agent_environment(
+        self, *, agent_id: str, manifest_entrypoint: str
+    ) -> str | None:
+        if agent_id != "openhands":
+            return None
+        if Path(manifest_entrypoint).name != "openhands_adapter.sh":
+            return None
+        if str(os.environ.get("OPENHANDS_DRY_RUN") or "0").strip() == "1":
+            return None
+
+        if not self._uses_openhands_ai_lab_runtime(manifest_entrypoint):
+            return None
+        preflight_env = self._build_openhands_ai_lab_env()
+
+        override_command = str(os.environ.get("OPENHANDS_PREFLIGHT_CMD") or "").strip()
+        if override_command:
+            completed = subprocess.run(
+                override_command,
+                cwd=self._repo_root,
+                env=preflight_env,
+                shell=True,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        else:
+            script = self._repo_root / "scripts" / "launch_ai_lab.sh"
+            if not script.exists():
+                return f"EnvironmentCheckFailed: launch_ai_lab.sh not found at {script}"
+            completed = subprocess.run(
+                ["bash", str(script), "status"],
+                cwd=self._repo_root,
+                env=preflight_env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        if completed.returncode == 0:
+            return None
+
+        detail = (completed.stderr or completed.stdout or "").strip()
+        if not detail:
+            detail = f"preflight exited with code {completed.returncode}"
+        collapsed = re.sub(r"\s+", " ", detail)[:400]
+        return f"EnvironmentCheckFailed: {collapsed}"
+
+    def _job_for_attempt(
+        self,
+        *,
+        job: JobSpec,
+        agent_id: str,
+        attempt: int,
+        last_result: DriverResult,
+        last_validation: ValidationReport,
+    ) -> JobSpec:
+        if attempt <= 1 or agent_id != job.agent_id:
+            return job
+
+        feedback = self._build_retry_feedback(
+            last_result=last_result, last_validation=last_validation
+        )
+        if feedback is None:
+            return job
+
+        metadata = dict(job.metadata)
+        metadata["retry_feedback"] = feedback
+        metadata["retry_attempt"] = attempt
+        metadata["retry_source_status"] = last_result.status
+        return job.model_copy(
+            update={
+                "task": (
+                    f"{job.task.rstrip()}\n\n"
+                    "Retry feedback from the previous attempt. Fix these exact failures before making any new changes:\n"
+                    f"{feedback}\n"
+                ),
+                "metadata": metadata,
+            }
+        )
+
+    @staticmethod
+    def _build_retry_feedback(
+        *,
+        last_result: DriverResult,
+        last_validation: ValidationReport,
+    ) -> str | None:
+        if last_validation.passed:
+            return None
+
+        failed_checks = [
+            check for check in last_validation.checks if not check.passed and check.detail.strip()
+        ]
+        error_text = str(last_result.error or "").strip()
+        if not failed_checks and not error_text:
+            return None
+
+        parts = [
+            f"Previous driver status: {last_result.status}",
+            f"Previous driver summary: {last_result.summary}",
+        ]
+        if last_result.changed_paths:
+            parts.append("Previous changed paths:")
+            parts.extend(f"- {path}" for path in last_result.changed_paths)
+        if failed_checks:
+            parts.append("Raw validator failures:")
+            for check in failed_checks:
+                parts.append(f"[{check.id}]")
+                parts.append(check.detail.strip())
+        if error_text:
+            parts.append("Driver error:")
+            parts.append(error_text)
+        return "\n".join(parts)
+
+    @staticmethod
+    def _retry_skip_reason(result: DriverResult) -> str | None:
+        if result.status == "stalled_no_progress":
+            return "stalled_no_progress"
+        error_text = str(result.error or result.summary or "").strip()
+        if result.status == "contract_error" and error_text.startswith("EnvironmentCheckFailed:"):
+            return "environment_preflight_failed"
+        return None
 
     def _run_validators(
         self,
@@ -653,6 +1435,7 @@ class AgentExecutionRunner:
         agent_id: str,
         attempt: int,
         message: str,
+        recommended_action: str = "reject",
     ) -> DriverResult:
         return DriverResult(
             run_id=run_id,
@@ -660,7 +1443,7 @@ class AgentExecutionRunner:
             attempt=attempt,
             status="contract_error",
             summary=message,
-            recommended_action="reject",
+            recommended_action=recommended_action,
             error=message,
         )
 
@@ -732,6 +1515,15 @@ class AgentExecutionRunner:
         return False
 
     @staticmethod
+    def _glob_prefix(value: str) -> str:
+        prefix: list[str] = []
+        for char in value:
+            if char in "*?[":
+                break
+            prefix.append(char)
+        return "".join(prefix).rstrip("/")
+
+    @staticmethod
     def _collect_files(root: Path) -> list[str]:
         files: list[str] = []
         if not root.exists():
@@ -783,6 +1575,74 @@ class AgentExecutionRunner:
         with events_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
+    @staticmethod
+    def _terminate_process(
+        process: subprocess.Popen[str],
+        *,
+        process_group_id: int | None = None,
+    ) -> None:
+        if process.poll() is not None:
+            return
+
+        def _send(sig: signal.Signals) -> None:
+            delivered = False
+            if process_group_id is not None and hasattr(os, "killpg"):
+                try:
+                    os.killpg(process_group_id, sig)
+                    delivered = True
+                except (OSError, ProcessLookupError):
+                    delivered = False
+
+            if delivered:
+                return
+
+            if sig == signal.SIGTERM:
+                process.terminate()
+            else:
+                process.kill()
+
+        try:
+            _send(signal.SIGTERM)
+        except (OSError, ProcessLookupError):
+            return
+
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            try:
+                _send(signal.SIGKILL)
+            except (OSError, ProcessLookupError):
+                return
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                try:
+                    process.kill()
+                except OSError:
+                    return
+                try:
+                    process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    return
+
+    @staticmethod
+    def _rmtree_force(path: Path) -> None:
+        if not path.exists():
+            return
+
+        def onexc(func, failed_path, excinfo) -> None:
+            _ = excinfo
+            try:
+                os.chmod(failed_path, 0o777)
+            except OSError:
+                pass
+            try:
+                func(failed_path)
+            except OSError:
+                pass
+
+        shutil.rmtree(path, onexc=onexc)
+
     def _git_ref(self, args: list[str], *, default: str) -> str:
         completed = subprocess.run(
             ["git", *args],
@@ -801,14 +1661,9 @@ class AgentExecutionRunner:
         return normalized or "autoprom/run"
 
     @staticmethod
-    def _cleanup_workspace(
-        *,
-        workspace_dir: Path,
-        success: bool,
-        policy: EffectivePolicy,
-    ) -> None:
+    def _cleanup_workspace(*, workspace_dir: Path, success: bool, policy: EffectivePolicy) -> None:
         if success and policy.merged.cleanup_on_success:
-            shutil.rmtree(workspace_dir, ignore_errors=True)
+            AgentExecutionRunner._rmtree_force(workspace_dir)
             return
         if not success and not policy.merged.retain_workspace_on_failure:
-            shutil.rmtree(workspace_dir, ignore_errors=True)
+            AgentExecutionRunner._rmtree_force(workspace_dir)
