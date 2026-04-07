@@ -15,7 +15,6 @@ from autoresearch.api.settings import (
 )
 from autoresearch.agents.opensource_searcher import GitHubSearcher
 from autoresearch.agents.manager_agent import ManagerAgentService
-from autoresearch.core.repositories import SQLiteYouTubeRepository
 from autoresearch.core.adapters import (
     AppleCalendarAdapter,
     CapabilityProviderRegistry,
@@ -48,7 +47,6 @@ from autoresearch.core.services.self_integration import SelfIntegrationService
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
 from autoresearch.core.services.upstream_watcher import UpstreamWatcherService
 from autoresearch.core.services.variants import VariantService
-from autoresearch.core.services.youtube_agent import YouTubeAgentService
 from autoresearch.shared.models import (
     ClaudeAgentRunRead,
     AdminAgentConfigRead,
@@ -68,11 +66,6 @@ from autoresearch.shared.models import (
     PanelAuditLogRead,
     ReportRead,
     VariantRead,
-    YouTubeDigestRead,
-    YouTubeRunRead,
-    YouTubeSubscriptionRead,
-    YouTubeTranscriptRead,
-    YouTubeVideoRead,
 )
 from autoresearch.shared.autoresearch_planner_contract import AutoResearchPlanRead
 from autoresearch.shared.manager_agent_contract import ManagerDispatchRead
@@ -158,7 +151,10 @@ def get_execution_service() -> ExecutionService:
 
 
 @lru_cache(maxsize=1)
-def get_youtube_agent_service() -> YouTubeAgentService:
+def get_youtube_agent_service():
+    from autoresearch.core.repositories import SQLiteYouTubeRepository
+    from autoresearch.core.services.youtube_agent import YouTubeAgentService
+
     return YouTubeAgentService(
         repository=SQLiteYouTubeRepository(db_path=_api_db_path()),
         repo_root=_repo_root(),
