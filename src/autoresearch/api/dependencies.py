@@ -52,6 +52,7 @@ from autoresearch.core.services.upstream_watcher import UpstreamWatcherService
 from autoresearch.core.services.variants import VariantService
 from autoresearch.core.services.worker_scheduler import WorkerSchedulerService
 from autoresearch.core.services.worker_registry import WorkerRegistryService
+from autoresearch.core.services.excel_audit import ExcelAuditService
 from autoresearch.core.services.youtube_agent import YouTubeAgentService
 from autoresearch.shared.models import (
     ClaudeAgentRunRead,
@@ -83,6 +84,7 @@ from autoresearch.shared.models import (
     YouTubeVideoRead,
 )
 from autoresearch.shared.autoresearch_planner_contract import AutoResearchPlanRead
+from autoresearch.shared.excel_audit_contract import ExcelAuditRead
 from autoresearch.shared.manager_agent_contract import ManagerDispatchRead
 from autoresearch.shared.store import SQLiteModelRepository
 from autoresearch.train.services.experiments import ExperimentService
@@ -511,6 +513,18 @@ def get_admin_auth_service() -> AdminAuthService:
     )
 
 
+@lru_cache(maxsize=1)
+def get_excel_audit_service() -> ExcelAuditService:
+    return ExcelAuditService(
+        repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="excel_audits",
+            model_cls=ExcelAuditRead,
+        ),
+        repo_root=_repo_root(),
+    )
+
+
 def clear_dependency_caches() -> None:
     get_evaluation_service.cache_clear()
     get_report_service.cache_clear()
@@ -541,3 +555,4 @@ def clear_dependency_caches() -> None:
     get_admin_config_service.cache_clear()
     get_admin_secret_cipher.cache_clear()
     get_admin_auth_service.cache_clear()
+    get_excel_audit_service.cache_clear()
