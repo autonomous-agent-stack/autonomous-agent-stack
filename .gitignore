@@ -67,3 +67,5 @@ htmlcov/
 # Memory
 memory/daily-logs/*.md
 !memory/daily-logs/.gitkeep
+gstack/
+.autoresearch/p4_runs/
