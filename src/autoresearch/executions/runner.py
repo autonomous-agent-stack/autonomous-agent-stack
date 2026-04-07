@@ -385,7 +385,9 @@ class AgentExecutionRunner:
                     break
 
             if final_summary is None:
-                final_status = forced_final_status or derive_terminal_status(last_result, last_validation)
+                final_status = forced_final_status or derive_terminal_status(
+                    last_result, last_validation
+                )
                 final_summary = RunSummary(
                     run_id=job.run_id,
                     final_status=final_status,
@@ -425,7 +427,8 @@ class AgentExecutionRunner:
             if final_summary is None:
                 final_summary = RunSummary(
                     run_id=job.run_id,
-                    final_status=forced_final_status or derive_terminal_status(last_result, last_validation),
+                    final_status=forced_final_status
+                    or derive_terminal_status(last_result, last_validation),
                     driver_result=last_result,
                     validation=last_validation,
                     promotion_patch_uri=str(patch_path) if patch_path.exists() else None,
@@ -680,16 +683,19 @@ class AgentExecutionRunner:
             workspace_dir=workspace_dir,
             allowed_paths=policy.merged.allowed_paths,
         )
-        last_state_progress_signature = self._runtime_heartbeat_signature(workspace_dir=workspace_dir)
+        last_state_progress_signature = self._runtime_heartbeat_signature(
+            workspace_dir=workspace_dir
+        )
         last_progress_at = started
         first_progress_ms: int | None = None
         first_scoped_write_ms: int | None = None
         first_state_heartbeat_ms: int | None = None
         process_group_id: int | None = None
 
-        with stdout_log.open("a", encoding="utf-8") as stdout_handle, stderr_log.open(
-            "a", encoding="utf-8"
-        ) as stderr_handle:
+        with (
+            stdout_log.open("a", encoding="utf-8") as stdout_handle,
+            stderr_log.open("a", encoding="utf-8") as stderr_handle,
+        ):
             stdout_handle.write(f"\n=== attempt {attempt} ({agent_id}) ===\n")
             stderr_handle.write(f"\n=== attempt {attempt} ({agent_id}) ===\n")
             stdout_handle.flush()
@@ -944,7 +950,9 @@ class AgentExecutionRunner:
 
         relevant_changed = [path for path in changed_paths if not _is_benign_runtime_artifact(path)]
         forbidden_changed = [
-            path for path in relevant_changed if self._matches_any(path, policy.merged.forbidden_paths)
+            path
+            for path in relevant_changed
+            if self._matches_any(path, policy.merged.forbidden_paths)
         ]
         runtime_changed = [
             path for path in relevant_changed if path.startswith(_RUNTIME_DENY_PREFIXES)
@@ -1108,7 +1116,9 @@ class AgentExecutionRunner:
         items: list[tuple[str, int, int]] = []
         state_root = workspace_dir / ".openhands-state"
         if state_root.exists():
-            for path in sorted(candidate for candidate in state_root.rglob("*") if candidate.is_file()):
+            for path in sorted(
+                candidate for candidate in state_root.rglob("*") if candidate.is_file()
+            ):
                 stat = path.stat()
                 items.append(
                     (
@@ -1211,7 +1221,8 @@ class AgentExecutionRunner:
         )
         import_detail = (import_probe.stderr or import_probe.stdout or "").strip()
         if import_probe.returncode != 0 and any(
-            token in import_detail for token in ("ModuleNotFoundError", "ImportError", "SyntaxError")
+            token in import_detail
+            for token in ("ModuleNotFoundError", "ImportError", "SyntaxError")
         ):
             return import_detail[:2000]
         return None
@@ -1220,7 +1231,9 @@ class AgentExecutionRunner:
     def _stall_progress_timeout_sec(timeout_sec: int) -> int:
         return min(timeout_sec, min(180, max(60, max(1, timeout_sec // 4))))
 
-    def _preflight_agent_environment(self, *, agent_id: str, manifest_entrypoint: str) -> str | None:
+    def _preflight_agent_environment(
+        self, *, agent_id: str, manifest_entrypoint: str
+    ) -> str | None:
         if agent_id != "openhands":
             return None
         if Path(manifest_entrypoint).name != "openhands_adapter.sh":
@@ -1277,7 +1290,9 @@ class AgentExecutionRunner:
         if attempt <= 1 or agent_id != job.agent_id:
             return job
 
-        feedback = self._build_retry_feedback(last_result=last_result, last_validation=last_validation)
+        feedback = self._build_retry_feedback(
+            last_result=last_result, last_validation=last_validation
+        )
         if feedback is None:
             return job
 
@@ -1305,7 +1320,9 @@ class AgentExecutionRunner:
         if last_validation.passed:
             return None
 
-        failed_checks = [check for check in last_validation.checks if not check.passed and check.detail.strip()]
+        failed_checks = [
+            check for check in last_validation.checks if not check.passed and check.detail.strip()
+        ]
         error_text = str(last_result.error or "").strip()
         if not failed_checks and not error_text:
             return None
@@ -1465,7 +1482,9 @@ class AgentExecutionRunner:
                 "branch_name": self._sanitize_branch_name(
                     str(job.metadata.get("branch_name") or f"autoprom/{job.run_id}")
                 ),
-                "commit_message": str(job.metadata.get("commit_message") or f"Promotion for {job.run_id}"),
+                "commit_message": str(
+                    job.metadata.get("commit_message") or f"Promotion for {job.run_id}"
+                ),
                 "pr_title": str(job.metadata.get("pr_title") or f"Promotion for {job.run_id}"),
                 "pr_body": str(job.metadata.get("pr_body") or "Automated promotion draft PR."),
                 "validator_commands": [

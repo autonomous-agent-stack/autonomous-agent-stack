@@ -6,8 +6,9 @@ from pydantic import Field
 
 from autoresearch.shared.models import PromotionPreflight, PromotionResult, StrictModel
 
-
-ExecutionMode = Literal["plan_only", "patch_only", "apply_in_workspace", "review_only", "runtime_only"]
+ExecutionMode = Literal[
+    "plan_only", "patch_only", "apply_in_workspace", "review_only", "runtime_only"
+]
 AgentExecutionSemantics = Literal["patch", "runtime"]
 RunFinalStatus = Literal[
     "ready_for_promotion",
@@ -34,7 +35,9 @@ class ExecutionPolicy(StrictModel):
 
     tool_allowlist: list[str] = Field(default_factory=lambda: ["read", "write", "bash"])
 
-    allowed_paths: list[str] = Field(default_factory=lambda: ["src/**", "tests/**", "docs/**", "apps/**"])
+    allowed_paths: list[str] = Field(
+        default_factory=lambda: ["src/**", "tests/**", "docs/**", "apps/**"]
+    )
     forbidden_paths: list[str] = Field(
         default_factory=lambda: [
             ".git/**",
