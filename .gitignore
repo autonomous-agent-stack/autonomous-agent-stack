@@ -52,6 +52,8 @@ artifacts/
 .env.linux
 ai_lab.env
 .masfactory_runtime/
+runs/
+.gh-profiles/
 
 # Logs
 *.log

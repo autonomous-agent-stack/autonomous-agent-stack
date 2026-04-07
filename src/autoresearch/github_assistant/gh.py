@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -20,28 +21,40 @@ _AUTH_LOGIN_RE = re.compile(
 
 
 class GhCliGateway:
-    def __init__(self, *, repo_root: Path, gh_binary: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        repo_root: Path,
+        gh_binary: str | None = None,
+        env: dict[str, str] | None = None,
+        github_host: str = "github.com",
+    ) -> None:
         self._repo_root = repo_root
         self._gh_binary = gh_binary or shutil.which("gh") or "gh"
+        self._env = dict(env or {})
+        self._github_host = github_host.strip() or "github.com"
 
     def is_installed(self) -> bool:
         return shutil.which(self._gh_binary) is not None if self._gh_binary != "gh" else shutil.which("gh") is not None
 
     def auth_status(self) -> bool:
-        completed = self._run(["auth", "status"], check=False)
+        completed = self._run(self._auth_args("status"), check=False)
         return completed.returncode == 0
 
     def auth_probe(self) -> tuple[bool, str]:
-        completed = self._run(["auth", "status"], check=False)
+        completed = self._run(self._auth_args("status"), check=False)
         detail = (completed.stderr or completed.stdout or "").strip() or "gh auth status failed"
         return completed.returncode == 0, detail
 
     def current_login(self) -> str | None:
-        completed = self._run(["auth", "status"], check=False)
+        completed = self._run(self._auth_args("status"), check=False)
         matched = _AUTH_LOGIN_RE.search((completed.stdout or "") + "\n" + (completed.stderr or ""))
         if not matched:
             return None
         return matched.group("login")
+
+    def build_auth_command(self, command: str) -> list[str]:
+        return [self._gh_binary, *self._auth_args(command)]
 
     def repo_accessible(self, repo: str) -> bool:
         completed = self._run(
@@ -239,7 +252,7 @@ class GhCliGateway:
         if completed.returncode == 0:
             return
         fallback = subprocess.run(
-            ["git", "clone", f"https://github.com/{repo}.git", str(destination)],
+            ["git", "clone", f"https://{self._github_host}/{repo}.git", str(destination)],
             cwd=self._repo_root,
             capture_output=True,
             text=True,
@@ -275,8 +288,15 @@ class GhCliGateway:
             capture_output=True,
             text=True,
             check=False,
+            env={**os.environ, **self._env},
         )
         if check and completed.returncode != 0:
             detail = (completed.stderr or completed.stdout or "gh command failed").strip()
             raise RuntimeError(detail)
         return completed
+
+    def _auth_args(self, command: str) -> list[str]:
+        args = ["auth", command]
+        if self._github_host:
+            args.extend(["--hostname", self._github_host])
+        return args

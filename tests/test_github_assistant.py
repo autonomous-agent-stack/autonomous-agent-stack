@@ -6,8 +6,14 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
-from autoresearch.github_assistant.config import load_assistant_config
-from autoresearch.github_assistant.models import GitHubIssue, GitHubIssueComment, PreparedWorkspace
+from autoresearch.github_assistant.config import load_assistant_config, list_resolved_profiles, resolve_profile
+from autoresearch.github_assistant.gh import GhCliGateway
+from autoresearch.github_assistant.models import (
+    GitHubAssistantYouTubePublishRequest,
+    GitHubIssue,
+    GitHubIssueComment,
+    PreparedWorkspace,
+)
 from autoresearch.github_assistant.service import GitHubAssistantService
 from autoresearch.shared.models import GitRemoteProbe
 
@@ -264,6 +270,36 @@ def _write_template_root(
     )
 
 
+def _write_profile_root(
+    root: Path,
+    profile_id: str,
+    *,
+    repos: list[dict[str, object]],
+    assistant_overrides: dict[str, object] | None = None,
+) -> Path:
+    profile_root = root / "profiles" / profile_id
+    _write_template_root(profile_root, repos=repos, assistant_overrides=assistant_overrides)
+    return profile_root
+
+
+def _write_profiles_catalog(
+    root: Path,
+    *,
+    profiles: list[dict[str, object]],
+    default_profile: str = "default",
+) -> None:
+    (root / "profiles.yaml").write_text(
+        json.dumps(
+            {
+                "default_profile": default_profile,
+                "profiles": profiles,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
 def _issue(
     *,
     repo: str,
@@ -287,7 +323,13 @@ def _issue(
     )
 
 
-def _repo_config(*, repo: str = "acme/demo", test_command: str = "pytest -q", allowed_paths: list[str] | None = None) -> dict[str, object]:
+def _repo_config(
+    *,
+    repo: str = "acme/demo",
+    test_command: str = "pytest -q",
+    allowed_paths: list[str] | None = None,
+    youtube_ingest: dict[str, object] | None = None,
+) -> dict[str, object]:
     return {
         "repo": repo,
         "default_branch": "main",
@@ -304,6 +346,7 @@ def _repo_config(*, repo: str = "acme/demo", test_command: str = "pytest -q", al
             "info_needed": ["status:needs-info"],
             "auto_execute": ["assistant:auto-execute"],
         },
+        "youtube_ingest": youtube_ingest or {"enabled": False},
     }
 
 
@@ -382,6 +425,109 @@ def test_load_assistant_config_applies_environment_overrides(tmp_path: Path, mon
     assert config.workspace_root == str(tmp_path / "env-workspace")
     assert config.executor.adapter == "custom"
     assert config.executor.command == ["python3", "-m", "demo.executor"]
+
+
+def test_profile_resolution_defaults_to_root_compat_mode(tmp_path: Path) -> None:
+    _write_template_root(tmp_path, repos=[_repo_config()])
+
+    profiles = list_resolved_profiles(tmp_path)
+    profile = resolve_profile(tmp_path)
+
+    assert len(profiles) == 1
+    assert profile.id == "default"
+    assert profile.root == tmp_path
+    assert profile.explicit is False
+    assert profile.is_default is True
+
+
+def test_doctor_report_and_run_summary_are_profile_aware(tmp_path: Path) -> None:
+    _write_template_root(
+        tmp_path,
+        repos=[_repo_config(repo="acme/root")],
+        assistant_overrides={"bot_account": "root-bot"},
+    )
+    _write_profile_root(
+        tmp_path,
+        "ops",
+        repos=[_repo_config(repo="acme/ops")],
+        assistant_overrides={"bot_account": "ops-bot"},
+    )
+    _write_profiles_catalog(
+        tmp_path,
+        profiles=[
+            {
+                "id": "default",
+                "display_name": "Default",
+                "root": ".",
+                "github_host": "github.com",
+                "gh_config_dir": ".gh-profiles/default",
+            },
+            {
+                "id": "ops",
+                "display_name": "Ops",
+                "root": "profiles/ops",
+                "github_host": "github.com",
+                "gh_config_dir": ".gh-profiles/ops",
+            },
+        ],
+    )
+    gateway = FakeGitHubGateway(
+        accessible_repos={"acme/ops"},
+        issues={
+            ("acme/ops", 42): _issue(
+                repo="acme/ops",
+                number=42,
+                title="Fix production toggle",
+                body="Steps to repro:\n1. Toggle setting\nExpected: enabled\nActual: disabled",
+                labels=["bug"],
+            )
+        },
+    )
+    service = GitHubAssistantService(
+        repo_root=tmp_path,
+        profile=resolve_profile(tmp_path, "ops"),
+        github=gateway,
+        executor_runner=lambda **_: None,
+        now_factory=lambda: datetime(2026, 4, 7, 1, 2, 3, tzinfo=timezone.utc),
+    )
+
+    report = service.doctor_report()
+    run_dir, _ = service.triage("acme/ops", 42)
+    summary = _read_summary(run_dir)
+
+    assert report.profile_id == "ops"
+    assert report.profile_display_name == "Ops"
+    assert report.expected_bot_account == "ops-bot"
+    assert report.managed_repo_count == 1
+    assert str(run_dir.relative_to(tmp_path)).startswith("runs/ops/")
+    assert summary["profile_id"] == "ops"
+    assert summary["profile_display_name"] == "Ops"
+    assert summary["repo"] == "acme/ops"
+
+
+def test_github_gateway_auth_probe_uses_profile_env(tmp_path: Path, monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run(command, *, cwd, capture_output, text, check, env):
+        captured["command"] = command
+        captured["cwd"] = cwd
+        captured["env"] = env
+        return subprocess.CompletedProcess(command, 0, stdout="Logged in to github.com account ops-bot", stderr="")
+
+    monkeypatch.setattr("autoresearch.github_assistant.gh.subprocess.run", fake_run)
+    gateway = GhCliGateway(
+        repo_root=tmp_path,
+        env={"GH_CONFIG_DIR": str(tmp_path / ".gh-profiles" / "ops")},
+        github_host="github.com",
+        gh_binary="gh",
+    )
+
+    ok, detail = gateway.auth_probe()
+
+    assert ok is True
+    assert "ops-bot" in detail
+    assert captured["env"]["GH_CONFIG_DIR"] == str(tmp_path / ".gh-profiles" / "ops")
+    assert captured["command"] == ["gh", "auth", "status", "--hostname", "github.com"]
 
 
 def test_triage_classifies_bug_issue(tmp_path: Path) -> None:
@@ -503,6 +649,144 @@ def test_execute_creates_patch_and_draft_pr(tmp_path: Path) -> None:
     assert "https://github.com/acme/demo/issues/21" in pr_payload["body"]
     assert gateway.issue_comments
     assert gateway.pr_comments
+
+
+def test_publish_youtube_routes_and_opens_draft_pr(tmp_path: Path) -> None:
+    source_repo = tmp_path / "source-repo"
+    source_repo.mkdir()
+    _init_demo_repo(source_repo)
+    _write_template_root(
+        tmp_path,
+        repos=[
+            _repo_config(
+                repo="acme/demo",
+                allowed_paths=["src/**", "tests/**", "docs/youtube-ingest/**"],
+                youtube_ingest={
+                    "enabled": True,
+                    "output_dir": "docs/youtube-ingest",
+                    "keywords": ["agents"],
+                },
+            ),
+            _repo_config(
+                repo="acme/other",
+                allowed_paths=["src/**", "tests/**", "docs/youtube-ingest/**"],
+                youtube_ingest={"enabled": True, "output_dir": "docs/youtube-ingest", "keywords": ["other"]},
+            ),
+        ],
+    )
+    gateway = FakeGitHubGateway(accessible_repos={"acme/demo", "acme/other"})
+    workspace_manager = FakeWorkspaceManager(source_repo, tmp_path / "sandboxes")
+    provider = FakeGitPromotionProvider()
+    service = GitHubAssistantService(
+        repo_root=tmp_path,
+        github=gateway,
+        workspace_manager=workspace_manager,
+        promotion_provider=provider,
+        now_factory=lambda: datetime(2026, 4, 7, 3, 4, 5, tzinfo=timezone.utc),
+    )
+
+    run_dir, publish = service.publish_youtube(
+        GitHubAssistantYouTubePublishRequest(
+            video_id="vid-001",
+            source_url="https://www.youtube.com/watch?v=vid-001",
+            title="AI agents on desktop",
+            channel_id="channel-001",
+            channel_title="Demo Channel",
+            description="A walkthrough of desktop AI agents.",
+            published_at=datetime(2026, 4, 6, 12, 0, tzinfo=timezone.utc),
+            digest_id="ytdigest_001",
+            digest_content="## Summary\n\n- This video explains desktop AI agents.",
+            transcript_id="yttranscript_001",
+            transcript_language="en",
+            transcript_content="First subtitle line.\nSecond subtitle line.",
+        )
+    )
+    summary = _read_summary(run_dir)
+    published = (run_dir / "publish.md").read_text(encoding="utf-8")
+
+    assert publish.repo == "acme/demo"
+    assert publish.output_path.startswith("docs/youtube-ingest/")
+    assert publish.pr_url == "https://github.com/acme/demo/pull/7"
+    assert summary["status"] == "draft_pr_opened"
+    assert summary["pr_url"] == "https://github.com/acme/demo/pull/7"
+    assert (run_dir / "patch.diff").exists()
+    assert "## Transcript" in published
+    assert "First subtitle line." in published
+    assert provider.branch_calls[0][0].startswith("assistant/youtube/")
+    assert provider.pr_calls[0][2].startswith("Ingest YouTube digest:")
+
+
+def test_publish_youtube_rejects_when_no_explicit_route_matches(tmp_path: Path) -> None:
+    source_repo = tmp_path / "source-repo"
+    source_repo.mkdir()
+    _init_demo_repo(source_repo)
+    _write_template_root(
+        tmp_path,
+        repos=[
+            _repo_config(repo="acme/demo", youtube_ingest={"enabled": True, "output_dir": "docs/youtube-ingest"}),
+        ],
+    )
+    service = GitHubAssistantService(
+        repo_root=tmp_path,
+        github=FakeGitHubGateway(accessible_repos={"acme/demo"}),
+        workspace_manager=FakeWorkspaceManager(source_repo, tmp_path / "sandboxes"),
+        promotion_provider=FakeGitPromotionProvider(),
+    )
+
+    try:
+        service.publish_youtube(
+            GitHubAssistantYouTubePublishRequest(
+                video_id="vid-ambiguous",
+                source_url="https://www.youtube.com/watch?v=vid-ambiguous",
+                title="Generic video",
+                digest_id="ytdigest_ambiguous",
+                digest_content="Generic digest content.",
+            )
+        )
+    except ValueError as exc:
+        assert "no youtube_ingest route matched any managed repo" in str(exc)
+    else:
+        raise AssertionError("expected missing route failure")
+
+
+def test_publish_youtube_rejects_ambiguous_explicit_routes(tmp_path: Path) -> None:
+    source_repo = tmp_path / "source-repo"
+    source_repo.mkdir()
+    _init_demo_repo(source_repo)
+    _write_template_root(
+        tmp_path,
+        repos=[
+            _repo_config(
+                repo="acme/demo",
+                youtube_ingest={"enabled": True, "output_dir": "docs/youtube-ingest", "keywords": ["agents"]},
+            ),
+            _repo_config(
+                repo="acme/other",
+                youtube_ingest={"enabled": True, "output_dir": "docs/youtube-ingest", "keywords": ["agents"]},
+            ),
+        ],
+    )
+    service = GitHubAssistantService(
+        repo_root=tmp_path,
+        github=FakeGitHubGateway(accessible_repos={"acme/demo", "acme/other"}),
+        workspace_manager=FakeWorkspaceManager(source_repo, tmp_path / "sandboxes"),
+        promotion_provider=FakeGitPromotionProvider(),
+    )
+
+    try:
+        service.publish_youtube(
+            GitHubAssistantYouTubePublishRequest(
+                video_id="vid-ambiguous",
+                source_url="https://www.youtube.com/watch?v=vid-ambiguous",
+                title="AI agents roundup",
+                digest_id="ytdigest_ambiguous",
+                digest_content="A digest about agents.",
+            )
+        )
+    except ValueError as exc:
+        assert "ambiguous youtube_ingest route" in str(exc)
+    else:
+        raise AssertionError("expected ambiguous route failure")
 
 
 def test_execute_keeps_audit_when_validator_fails(tmp_path: Path) -> None:

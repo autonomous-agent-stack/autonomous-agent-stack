@@ -40,6 +40,24 @@ class AssistantConfig(StrictModel):
     schedule: AssistantScheduleConfig = Field(default_factory=AssistantScheduleConfig)
 
 
+class YouTubeIngestRouteConfig(StrictModel):
+    enabled: bool = False
+    output_dir: str = "docs/youtube-ingest"
+    filename_template: str = "{published_date}-{video_id}-{slug}.md"
+    channel_ids: list[str] = Field(default_factory=list)
+    channel_titles: list[str] = Field(default_factory=list)
+    keywords: list[str] = Field(default_factory=list)
+
+    @field_validator("channel_ids", "channel_titles", "keywords", mode="before")
+    @classmethod
+    def _normalize_route_string_list(cls, value: Any) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            return [value.strip()] if value.strip() else []
+        return [str(item).strip() for item in value if str(item).strip()]
+
+
 class ManagedRepoConfig(StrictModel):
     repo: str = Field(..., min_length=3)
     default_branch: str = Field(default="main", min_length=1)
@@ -50,6 +68,7 @@ class ManagedRepoConfig(StrictModel):
     lint_command: str = ""
     reviewers: list[str] = Field(default_factory=list)
     labels_map: dict[str, list[str]] = Field(default_factory=dict)
+    youtube_ingest: YouTubeIngestRouteConfig = Field(default_factory=YouTubeIngestRouteConfig)
 
     @field_validator("allowed_paths", "reviewers", mode="before")
     @classmethod
@@ -80,6 +99,40 @@ class ManagedRepoConfig(StrictModel):
 
 class RepoCatalog(StrictModel):
     repos: list[ManagedRepoConfig] = Field(default_factory=list)
+
+
+class GitHubAssistantProfileConfig(StrictModel):
+    id: str = Field(..., min_length=1)
+    display_name: str | None = None
+    root: str = "."
+    github_host: str = "github.com"
+    gh_config_dir: str | None = None
+
+    @field_validator("id", "root", "github_host", mode="before")
+    @classmethod
+    def _normalize_required_profile_text(cls, value: Any) -> str:
+        return str(value or "").strip()
+
+    @field_validator("display_name", "gh_config_dir", mode="before")
+    @classmethod
+    def _normalize_optional_profile_text(cls, value: Any) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
+
+class GitHubAssistantProfilesConfig(StrictModel):
+    default_profile: str | None = None
+    profiles: list[GitHubAssistantProfileConfig] = Field(default_factory=list)
+
+    @field_validator("default_profile", mode="before")
+    @classmethod
+    def _normalize_default_profile(cls, value: Any) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
 
 
 class AssistantPolicy(StrictModel):
@@ -232,6 +285,8 @@ class DoctorCheck(StrictModel):
 
 class RunSummary(StrictModel):
     run_id: str
+    profile_id: str = "default"
+    profile_display_name: str | None = None
     repo: str
     issue_number: int | None = None
     issue_url: str | None = None
@@ -253,6 +308,8 @@ class PreparedWorkspace(StrictModel):
 
 
 class ScheduleSummary(StrictModel):
+    profile_id: str = "default"
+    profile_display_name: str | None = None
     scheduled_trigger_enabled: bool
     issue_label: str
     repos_scanned: int = 0
@@ -262,6 +319,10 @@ class ScheduleSummary(StrictModel):
 
 class GitHubAssistantDoctorRead(StrictModel):
     ok: bool
+    profile_id: str = "default"
+    profile_display_name: str | None = None
+    github_host: str = "github.com"
+    managed_repo_count: int = 0
     expected_bot_account: str | None = None
     active_login: str | None = None
     checks: list[DoctorCheck] = Field(default_factory=list)
@@ -269,6 +330,10 @@ class GitHubAssistantDoctorRead(StrictModel):
 
 class GitHubAssistantHealthRead(StrictModel):
     status: Literal["ok", "degraded"] = "ok"
+    profile_id: str = "default"
+    profile_display_name: str | None = None
+    github_host: str = "github.com"
+    managed_repo_count: int = 0
     doctor_ok: bool
     gh_auth_ok: bool
     expected_bot_account: str | None = None
@@ -286,6 +351,24 @@ class GitHubAssistantPullRequestRequest(StrictModel):
     pr_number: int = Field(..., ge=1)
 
 
+class GitHubAssistantYouTubePublishRequest(StrictModel):
+    video_id: str = Field(..., min_length=1)
+    source_url: str = Field(..., min_length=1)
+    title: str | None = None
+    channel_id: str | None = None
+    channel_title: str | None = None
+    description: str | None = None
+    published_at: datetime | None = None
+    digest_id: str = Field(..., min_length=1)
+    digest_content: str = Field(..., min_length=1)
+    transcript_id: str | None = None
+    transcript_language: str | None = None
+    transcript_content: str | None = None
+    repo_hint: str | None = None
+    requested_by: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class GitHubAssistantReleasePlanRequest(StrictModel):
     repo: str = Field(..., min_length=3)
     version: str | None = None
@@ -293,6 +376,8 @@ class GitHubAssistantReleasePlanRequest(StrictModel):
 
 
 class GitHubAssistantRunRead(StrictModel):
+    profile_id: str = "default"
+    profile_display_name: str | None = None
     run_dir: str
     artifacts: list[str] = Field(default_factory=list)
     summary: RunSummary
@@ -302,21 +387,44 @@ class GitHubAssistantTriageRunRead(GitHubAssistantRunRead):
     triage: TriageResult
 
 
-class GitHubAssistantExecutionRunRead(StrictModel):
-    run_dir: str
-    artifacts: list[str] = Field(default_factory=list)
-    summary: RunSummary
+class GitHubAssistantExecutionRunRead(GitHubAssistantRunRead):
+    pass
 
 
-class GitHubAssistantPullRequestReviewRunRead(StrictModel):
-    run_dir: str
-    artifacts: list[str] = Field(default_factory=list)
-    summary: RunSummary
+class GitHubAssistantYouTubePublishResult(StrictModel):
+    repo: str
+    output_path: str
+    route_reason: str
+    pr_url: str | None = None
+    branch_name: str | None = None
+
+
+class GitHubAssistantYouTubePublishRunRead(GitHubAssistantRunRead):
+    publish: GitHubAssistantYouTubePublishResult
+
+
+class GitHubAssistantPullRequestReviewRunRead(GitHubAssistantRunRead):
     review: PullRequestReviewResult
 
 
-class GitHubAssistantReleasePlanRunRead(StrictModel):
-    run_dir: str
-    artifacts: list[str] = Field(default_factory=list)
-    summary: RunSummary
+class GitHubAssistantReleasePlanRunRead(GitHubAssistantRunRead):
     release_plan: ReleasePlanResult
+
+
+class GitHubAssistantProfileStatusRead(StrictModel):
+    profile_id: str
+    profile_display_name: str | None = None
+    default_profile: bool = False
+    github_host: str = "github.com"
+    managed_repo_count: int = 0
+    status: Literal["ok", "degraded"] = "ok"
+    doctor_ok: bool
+    gh_auth_ok: bool
+    expected_bot_account: str | None = None
+    active_login: str | None = None
+    checks: list[DoctorCheck] = Field(default_factory=list)
+
+
+class GitHubAssistantProfilesRead(StrictModel):
+    default_profile: str | None = None
+    profiles: list[GitHubAssistantProfileStatusRead] = Field(default_factory=list)

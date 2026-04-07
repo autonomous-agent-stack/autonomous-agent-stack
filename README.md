@@ -222,6 +222,7 @@ claude -p "请先阅读 CLAUDE.md 和相关 docs，再完成这份 task brief：
 
 - `assistant.yaml`
 - `repos.yaml`
+- `profiles.yaml`（可选，多 profile 时启用）
 - `prompts/`
 - `policies/default-policy.yaml`
 - `./assistant`
@@ -230,6 +231,7 @@ claude -p "请先阅读 CLAUDE.md 和相关 docs，再完成这份 task brief：
 
 - `GET /api/v1/github-assistant/health`
 - `GET /api/v1/github-assistant/doctor`
+- `GET /api/v1/github-assistant/profiles`
 - `POST /api/v1/github-assistant/triage`
 - `POST /api/v1/github-assistant/execute`
 - `POST /api/v1/github-assistant/review-pr`
@@ -242,6 +244,9 @@ claude -p "请先阅读 CLAUDE.md 和相关 docs，再完成这份 task brief：
 
 ```bash
 ./assistant doctor
+./assistant profile list
+./assistant profile init work --display-name "Work"
+./assistant auth status --profile work
 ./assistant triage owner/repo 123
 ./assistant execute owner/repo 123
 ./assistant review-pr owner/repo 456

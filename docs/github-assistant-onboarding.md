@@ -1,6 +1,9 @@
 # GitHub Assistant Managed Repo Onboarding
 
-每个新仓库接入时，只做一件事：把仓库元数据补进 `repos.yaml`。
+每个新仓库接入时，只做一件事：把仓库元数据补进当前 profile 的 `repos.yaml`。
+
+- root-only 模式：改仓库根目录的 `repos.yaml`
+- multi-profile 模式：改 `profiles/<profile_id>/repos.yaml`
 
 接入完成后，既可以继续用 `./assistant ...`，也可以直接从主 API 的 `/api/v1/github-assistant/*` 入口调用同一套能力。
 

@@ -23,7 +23,7 @@ from autoresearch.core.adapters import (
     MCPContextProviderAdapter,
     OpenClawSkillProviderAdapter,
 )
-from autoresearch.github_assistant.service import GitHubAssistantService
+from autoresearch.github_assistant.service import GitHubAssistantService, GitHubAssistantServiceRegistry
 from autoresearch.core.repositories import SQLiteEvaluationRepository
 from autoresearch.core.services.admin_auth import AdminAuthService
 from autoresearch.core.services.admin_config import AdminConfigService
@@ -48,6 +48,8 @@ from autoresearch.core.services.self_integration import SelfIntegrationService
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
 from autoresearch.core.services.upstream_watcher import UpstreamWatcherService
 from autoresearch.core.services.variants import VariantService
+from autoresearch.core.services.worker_scheduler import WorkerSchedulerService
+from autoresearch.core.services.worker_registry import WorkerRegistryService
 from autoresearch.core.services.youtube_agent import YouTubeAgentService
 from autoresearch.shared.models import (
     ClaudeAgentRunRead,
@@ -68,6 +70,9 @@ from autoresearch.shared.models import (
     PanelAuditLogRead,
     ReportRead,
     VariantRead,
+    WorkerLeaseRead,
+    WorkerQueueItemRead,
+    WorkerRegistrationRead,
     YouTubeDigestRead,
     YouTubeRunRead,
     YouTubeSubscriptionRead,
@@ -196,8 +201,40 @@ def get_github_issue_service() -> GitHubIssueService:
 
 
 @lru_cache(maxsize=1)
-def get_github_assistant_service() -> GitHubAssistantService:
-    return GitHubAssistantService(repo_root=_repo_root())
+def get_github_assistant_service_registry() -> GitHubAssistantServiceRegistry:
+    return GitHubAssistantServiceRegistry(repo_root=_repo_root())
+
+
+def get_github_assistant_service(profile: str | None = None) -> GitHubAssistantService:
+    return get_github_assistant_service_registry().get(profile)
+
+
+@lru_cache(maxsize=1)
+def get_worker_registry_service() -> WorkerRegistryService:
+    return WorkerRegistryService(
+        repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="worker_registrations",
+            model_cls=WorkerRegistrationRead,
+        )
+    )
+
+
+@lru_cache(maxsize=1)
+def get_worker_scheduler_service() -> WorkerSchedulerService:
+    return WorkerSchedulerService(
+        worker_registry=get_worker_registry_service(),
+        queue_repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="worker_run_queue",
+            model_cls=WorkerQueueItemRead,
+        ),
+        lease_repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="worker_leases",
+            model_cls=WorkerLeaseRead,
+        ),
+    )
 
 
 @lru_cache(maxsize=1)
@@ -451,6 +488,8 @@ def clear_dependency_caches() -> None:
     get_youtube_agent_service.cache_clear()
     get_manager_agent_service.cache_clear()
     get_github_issue_service.cache_clear()
+    get_worker_registry_service.cache_clear()
+    get_worker_scheduler_service.cache_clear()
     get_openclaw_compat_service.cache_clear()
     get_openclaw_memory_service.cache_clear()
     get_capability_provider_registry.cache_clear()
