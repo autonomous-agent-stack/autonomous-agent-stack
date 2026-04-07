@@ -178,6 +178,7 @@ PORT=8010 make start
 
 详见：[OpenHands Controlled Backend Integration](./docs/openhands-cli-integration.md)
 协议文档：[Agent Execution Protocol (AEP v0)](./docs/agent-execution-protocol.md)
+如果你正在评估“重型 Claude Code 工作台”和 OpenHands 的分层关系，以及 Claude Code CLI 处理 Excel / 销售统计 / 提成发放这类强规则业务的落地方式，可参考 [Claude Code CLI 业务落地案例：销售统计表与提成发放表](./docs/claude-code-excel-business-case.md)。
 
 ## 关键入口
 
