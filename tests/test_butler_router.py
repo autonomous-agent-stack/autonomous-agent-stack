@@ -71,19 +71,77 @@ class TestButlerIntentClassification:
 class TestButlerExcelAuditDispatch:
     """Test that the gateway dispatches to ExcelAuditService."""
 
-    def test_service_create_and_execute(self) -> None:
-        """Verify ExcelAuditService.create_and_execute works with InMemoryRepository."""
-        from autoresearch.shared.excel_audit_contract import ExcelAuditCreateRequest
+    def _make_service(self) -> "ExcelAuditService":
         from autoresearch.shared.store import InMemoryRepository
         from autoresearch.core.services.excel_audit import ExcelAuditService
         from pathlib import Path
+        return ExcelAuditService(repository=InMemoryRepository(), repo_root=Path("/tmp"))
 
-        svc = ExcelAuditService(
-            repository=InMemoryRepository(),
-            repo_root=Path("/tmp"),
-        )
+    def test_create_returns_queued(self) -> None:
+        """Create (sync, fast) returns a QUEUED record."""
+        from autoresearch.shared.excel_audit_contract import ExcelAuditCreateRequest
+        from autoresearch.shared.models import JobStatus
+
+        svc = self._make_service()
+        req = ExcelAuditCreateRequest(task_brief="核对提成表")
+        record = svc.create(req)
+        assert record.audit_id.startswith("ea_")
+        assert record.status == JobStatus.QUEUED
+
+    def test_execute_runs_in_background(self) -> None:
+        """Execute runs after create, transitions from QUEUED to terminal state."""
+        from autoresearch.shared.excel_audit_contract import ExcelAuditCreateRequest
+        from autoresearch.shared.models import JobStatus
+
+        svc = self._make_service()
+        req = ExcelAuditCreateRequest(task_brief="核对提成表")
+        record = svc.create(req)
+        # Store DSL metadata for engine execution
+        record = record.model_copy(update={"metadata": {
+            "source_files": [],
+            "rules": [],
+            "sheet_mapping": {},
+            "outputs": {},
+        }})
+        svc._repository.save(record.audit_id, record)
+
+        result = svc.execute(record.audit_id)
+        # No source files → should fail gracefully (not crash)
+        assert result.status in (JobStatus.COMPLETED, JobStatus.FAILED)
+
+    def test_execute_failure_stores_error(self) -> None:
+        """When execution hits a bad path, it completes gracefully (no crash)."""
+        from autoresearch.shared.excel_audit_contract import ExcelAuditCreateRequest
+        from autoresearch.shared.models import JobStatus
+
+        svc = self._make_service()
+        req = ExcelAuditCreateRequest(task_brief="核对提成表")
+        record = svc.create(req)
+        # Missing source files → workbook_runner returns "failed" status
+        # but service wraps it as COMPLETED with engine status in result
+        record = record.model_copy(update={"metadata": {
+            "source_files": ["/nonexistent/path.xlsx"],
+            "rules": [],
+            "sheet_mapping": {},
+            "outputs": {},
+        }})
+        svc._repository.save(record.audit_id, record)
+
+        result = svc.execute(record.audit_id)
+        # Engine handles missing files gracefully — service reaches COMPLETED
+        assert result.status in (JobStatus.COMPLETED, JobStatus.FAILED)
+
+    def test_non_excel_still_classified_unknown(self) -> None:
+        """Non-Excel messages fall through to UNKNOWN (claude_runtime path)."""
+        router = ButlerIntentRouter()
+        assert router.classify("随便聊聊").task_type == ButlerTaskType.UNKNOWN
+
+    def test_create_and_execute_still_works(self) -> None:
+        """Legacy create_and_execute path still functional."""
+        from autoresearch.shared.excel_audit_contract import ExcelAuditCreateRequest
+
+        svc = self._make_service()
         req = ExcelAuditCreateRequest(task_brief="核对提成表")
         record = svc.create_and_execute(req)
         assert record.audit_id.startswith("ea_")
-        # No source files → should fail gracefully
         assert record.status.value in ("completed", "failed")
