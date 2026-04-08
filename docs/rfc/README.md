@@ -11,6 +11,7 @@
 | [distributed-execution.md](./distributed-execution.md) | 📝 Draft | Linux 控制面 + Mac 执行节点的分布式执行架构 |
 | [three-machine-architecture.md](./three-machine-architecture.md) | 📝 Draft | Linux + Mac mini + MacBook 异构执行池设计 |
 | [federation-protocol.md](./federation-protocol.md) | 📝 Draft | 分层互信联邦协议：L0-L3 信任层级与能力共享 |
+| [federation-market-model.md](./federation-market-model.md) | 📝 Draft | 双层协作：联邦（外交）+ 市场（贸易），资源定价与结算机制 |
 
 ## RFC 流程
 
@@ -131,7 +132,8 @@ docs/rfc/
 1. 先读项目 [ARCHITECTURE.md](../../ARCHITECTURE.md) 了解当前架构
 2. 再读 [distributed-execution.md](./distributed-execution.md) 理解分布式基础
 3. 然后读 [three-machine-architecture.md](./three-machine-architecture.md) 了解多机扩展
-4. 最后读 [federation-protocol.md](./federation-protocol.md) 了解联邦愿景
+4. 再读 [federation-protocol.md](./federation-protocol.md) 了解联邦愿景
+5. 最后读 [federation-market-model.md](./federation-market-model.md) 了解市场机制
 
 **实现者推荐阅读顺序**：
 
