@@ -53,6 +53,7 @@ from autoresearch.core.services.variants import VariantService
 from autoresearch.core.services.worker_scheduler import WorkerSchedulerService
 from autoresearch.core.services.worker_registry import WorkerRegistryService
 from autoresearch.core.services.youtube_agent import YouTubeAgentService
+from autoresearch.core.services.butler_router import ButlerIntentRouter
 from autoresearch.core.services.excel_audit import ExcelAuditService
 from autoresearch.shared.models import (
     ClaudeAgentRunRead,
@@ -514,36 +515,37 @@ def get_admin_auth_service() -> AdminAuthService:
 
 
 def clear_dependency_caches() -> None:
-    get_evaluation_service.cache_clear()
-    get_report_service.cache_clear()
-    get_variant_service.cache_clear()
-    get_optimization_service.cache_clear()
-    get_experiment_service.cache_clear()
-    get_execution_service.cache_clear()
-    get_youtube_agent_service.cache_clear()
-    get_manager_agent_service.cache_clear()
-    get_github_issue_service.cache_clear()
-    get_worker_registry_service.cache_clear()
-    get_worker_scheduler_service.cache_clear()
-    get_openclaw_compat_service.cache_clear()
-    get_openclaw_memory_service.cache_clear()
-    get_capability_provider_registry.cache_clear()
-    get_managed_skill_registry_service.cache_clear()
-    get_openclaw_skill_service.cache_clear()
-    get_claude_agent_service.cache_clear()
-    get_claude_session_record_service.cache_clear()
-    get_claude_runtime_service.cache_clear()
-    get_mirofish_prediction_service.cache_clear()
-    get_self_integration_service.cache_clear()
-    get_panel_access_service.cache_clear()
-    get_panel_audit_service.cache_clear()
-    get_agent_audit_trail_service.cache_clear()
-    get_telegram_notifier_service.cache_clear()
-    get_upstream_watcher_service.cache_clear()
-    get_admin_config_service.cache_clear()
-    get_admin_secret_cipher.cache_clear()
-    get_admin_auth_service.cache_clear()
-    get_excel_audit_service.cache_clear()
+    _safe_cache_clear(get_evaluation_service)
+    _safe_cache_clear(get_report_service)
+    _safe_cache_clear(get_variant_service)
+    _safe_cache_clear(get_optimization_service)
+    _safe_cache_clear(get_experiment_service)
+    _safe_cache_clear(get_execution_service)
+    _safe_cache_clear(get_youtube_agent_service)
+    _safe_cache_clear(get_manager_agent_service)
+    _safe_cache_clear(get_github_issue_service)
+    _safe_cache_clear(get_worker_registry_service)
+    _safe_cache_clear(get_worker_scheduler_service)
+    _safe_cache_clear(get_openclaw_compat_service)
+    _safe_cache_clear(get_openclaw_memory_service)
+    _safe_cache_clear(get_capability_provider_registry)
+    _safe_cache_clear(get_managed_skill_registry_service)
+    _safe_cache_clear(get_openclaw_skill_service)
+    _safe_cache_clear(get_claude_agent_service)
+    _safe_cache_clear(get_claude_session_record_service)
+    _safe_cache_clear(get_claude_runtime_service)
+    _safe_cache_clear(get_mirofish_prediction_service)
+    _safe_cache_clear(get_self_integration_service)
+    _safe_cache_clear(get_panel_access_service)
+    _safe_cache_clear(get_panel_audit_service)
+    _safe_cache_clear(get_agent_audit_trail_service)
+    _safe_cache_clear(get_telegram_notifier_service)
+    _safe_cache_clear(get_upstream_watcher_service)
+    _safe_cache_clear(get_admin_config_service)
+    _safe_cache_clear(get_admin_secret_cipher)
+    _safe_cache_clear(get_admin_auth_service)
+    _safe_cache_clear(get_excel_audit_service)
+    _safe_cache_clear(get_butler_router)
 
 
 @lru_cache(maxsize=1)
@@ -556,3 +558,13 @@ def get_excel_audit_service() -> ExcelAuditService:
         ),
         repo_root=_repo_root(),
     )
+
+
+def _safe_cache_clear(func: object) -> None:
+    if callable(func) and hasattr(func, "cache_clear"):
+        func.cache_clear()
+
+
+@lru_cache(maxsize=1)
+def get_butler_router() -> ButlerIntentRouter:
+    return ButlerIntentRouter()

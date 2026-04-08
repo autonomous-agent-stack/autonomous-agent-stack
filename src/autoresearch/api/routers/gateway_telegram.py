@@ -367,6 +367,24 @@ def _handle_telegram_webhook(
             rejection_reason=youtube_rejection_reason,
         )
 
+    # --- Butler intent router: check if message should go to a specialist agent ---
+    from autoresearch.core.services.butler_router import ButlerTaskType
+    from autoresearch.api.dependencies import get_butler_router, get_excel_audit_service
+
+    butler = get_butler_router()
+    butler_result = butler.classify(text)
+    if butler_result.task_type == ButlerTaskType.EXCEL_AUDIT:
+        return _handle_butler_excel_audit(
+            chat_id=chat_id,
+            update=update,
+            extracted=extracted,
+            text=text,
+            background_tasks=background_tasks,
+            notifier=notifier,
+            session_identity=session_identity,
+            butler_classification=butler_result,
+        )
+
     session = _find_or_create_telegram_session(
         openclaw_service=openclaw_service,
         chat_id=chat_id,
@@ -660,6 +678,122 @@ def _classify_telegram_youtube_ingress(text: str) -> tuple[str, str | None, str 
     if has_youtube_hint:
         return ("reject", None, "消息里必须只包含 1 条合法的 YouTube URL。")
     return ("skip", None, None)
+
+def _handle_butler_excel_audit(
+    *,
+    chat_id: str,
+    update: dict[str, Any],
+    extracted: dict[str, Any],
+    text: str,
+    background_tasks: BackgroundTasks,
+    notifier: TelegramNotifierService,
+    session_identity: _TelegramSessionIdentity,
+    butler_classification: Any,
+) -> TelegramWebhookAck:
+    """Route detected Excel audit intent to ExcelAuditService (async)."""
+    from autoresearch.shared.excel_audit_contract import ExcelAuditCreateRequest
+    from autoresearch.api.dependencies import get_excel_audit_service
+
+    attachments = butler_classification.extracted_params.get("attachments", [])
+
+    service = get_excel_audit_service()
+    req = ExcelAuditCreateRequest(
+        task_brief=text,
+        source_files=attachments,
+    )
+
+    # Step 1: Create job record (fast, sync) — returns QUEUED status
+    record = service.create(req)
+
+    # Store DSL params for async execution
+    record = record.model_copy(update={
+        "metadata": {
+            "source_files": attachments,
+            "rules": [r.model_dump() for r in req.rules],
+            "sheet_mapping": req.sheet_mapping.model_dump(),
+            "outputs": req.options,
+        },
+    })
+    service._repository.save(record.audit_id, record)
+
+    # Step 2: Send immediate acceptance notice
+    if notifier.enabled:
+        thread_id = _safe_int(extracted.get("message_thread_id"))
+        background_tasks.add_task(
+            notifier.send_message,
+            chat_id=chat_id,
+            text=f"📊 Excel 核对已受理，任务号: {record.audit_id}，正在后台执行...",
+            message_thread_id=thread_id,
+        )
+
+    # Step 3: Schedule actual execution in background
+    background_tasks.add_task(
+        _execute_excel_audit_background,
+        audit_id=record.audit_id,
+        chat_id=chat_id,
+        thread_id=_safe_int(extracted.get("message_thread_id")),
+        notifier=notifier,
+    )
+
+    return TelegramWebhookAck(
+        accepted=True,
+        update_id=_safe_int(update.get("update_id")),
+        chat_id=chat_id,
+        reason="butler routed to excel_audit (async)",
+        metadata={
+            "butler_task_type": "excel_audit",
+            "butler_confidence": butler_classification.confidence,
+            "audit_id": record.audit_id,
+        },
+    )
+
+
+def _execute_excel_audit_background(
+    *,
+    audit_id: str,
+    chat_id: str,
+    thread_id: int | None,
+    notifier: TelegramNotifierService,
+) -> None:
+    """Background task: run Excel audit and notify result."""
+    import logging
+    logger = logging.getLogger(__name__)
+
+    try:
+        from autoresearch.api.dependencies import get_excel_audit_service
+        service = get_excel_audit_service()
+        result = service.execute(audit_id)
+
+        summary_lines = [
+            "📊 Excel 核对完成",
+            f"任务号: {result.audit_id}",
+            f"状态: {result.status.value}",
+            f"检查行数: {result.result.rows_checked}",
+            f"差异行数: {result.result.rows_mismatched}",
+            f"差异金额: {result.result.mismatch_amount_total:.2f}",
+        ]
+        if result.artifacts:
+            summary_lines.append("")
+            summary_lines.append("报告文件:")
+            for a in result.artifacts:
+                summary_lines.append(f"  - {a}")
+        if result.error:
+            summary_lines.append(f"错误: {result.error}")
+
+        reply_text = "\n".join(summary_lines)
+    except Exception as exc:
+        logger.exception("Excel audit background execution failed for %s", audit_id)
+        reply_text = f"Excel 核对失败 ({audit_id}): {exc}"
+
+    if notifier.enabled:
+        try:
+            notifier.send_message(
+                chat_id=chat_id,
+                text=reply_text,
+                message_thread_id=thread_id,
+            )
+        except Exception:
+            logger.exception("Failed to send Excel audit result notification")
 
 
 def _handle_telegram_youtube_autoflow(

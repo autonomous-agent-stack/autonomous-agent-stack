@@ -1,53 +1,74 @@
 version: "1"
+
 agent:
   id: "butler_orchestrator"
   name: "Butler Orchestrator"
-  description: "Central orchestrator for Telegram, YouTube, dry-run tasks routing"
-  role: "orchestrator"
+  description: "统一接收用户请求，识别任务类型，补齐参数，路由到下游专职 agent"
+  role: "router"
 
 routing:
   task_types:
-    - "butler.orchestrate"
-  keywords:
-    - "orchestrate"
-    - "路由"
-    - "分发"
     - "butler"
+    - "route_task"
+  accepts:
+    - "excel_audit"
+    - "github_admin"
+    - "content_kb"
+  keywords:
+    - "管家"
+    - "帮我处理"
+    - "路由"
+    - "分配任务"
+
 execution:
-  default_driver: "claude_code"
-  fallback_drivers: []
+  default_driver: "codex"
+  fallback_drivers:
+    - "claude_code"
   workspace_mode: "isolated"
-  allow_code_change: true
-  require_patch_gate: true
+  allow_code_change: false
+  require_patch_gate: false
 
 inputs:
-  required: []
+  required:
+    - "user_request"
+  optional:
+    - "attachments"
+    - "context"
+    - "preferred_agent"
+
 outputs:
-  schema: {}
+  schema:
+    type: "object"
+    required:
+      - "detected_task_type"
+      - "target_agent"
+      - "status"
   artifacts: []
+
 permissions:
   filesystem:
     read:
-      - "data/"
-      - "artifacts/"
+      - "agents/"
       - "configs/"
+      - "docs/"
     write:
-      - "artifacts/"
-      - "logs/"
-      - "memory/**"
+      - "artifacts/butler/"
   network: "deny"
   git:
     commit: false
     push: false
+
 gates:
   validators: []
   approvals:
     human_required_for: []
+
+downstream_agents:
+  - "excel_audit"
+  - "github_admin"
+  - "content_kb"
+
 prompts:
-  intake: "agents/butler_orchestrator/prompts/intake.md"
-runtime:
-  deterministic_execution_required: false
-  llm_must_not_do_final_math: false
-  report_formats:
-    - "markdown"
-    - "json"
+  classify: "agents/butler_orchestrator/prompts/classify.md"
+  ask_missing_args: "agents/butler_orchestrator/prompts/ask_missing_args.md"
+  summarize_result: "agents/butler_orchestrator/prompts/summarize_result.md"
