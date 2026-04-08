@@ -65,7 +65,7 @@ class TestRealManifests:
         manifest = load_manifest(manifest_path)
 
         assert manifest.id == "content_kb"
-        assert manifest.name == "Content KB Agent"
+        assert manifest.name == "Content Knowledge Base Agent"
         assert manifest.role == "specialist"
         assert "content_kb.classify_topic" in manifest.task_types
         assert "content_kb.build_index" in manifest.task_types

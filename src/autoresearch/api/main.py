@@ -148,6 +148,7 @@ def create_app() -> FastAPI:
         ("autoresearch.api.routers.experiments", "router", "experiments"),
         ("autoresearch.api.routers.streaming", "router", "streaming"),
         ("autoresearch.api.routers.knowledge_graph", "router", "knowledge graph"),
+        ("autoresearch.api.routers.content_kb", "router", "content kb"),
     ]
     for module_path, attribute, message in required_routers:
         _include_router(app, module_path=module_path, attribute=attribute, required=True, message=message)

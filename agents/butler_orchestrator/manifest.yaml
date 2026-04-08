@@ -4,7 +4,7 @@ agent:
   id: "butler_orchestrator"
   name: "Butler Orchestrator"
   description: "统一接收用户请求，识别任务类型，补齐参数，路由到下游专职 agent"
-  role: "router"
+  role: "orchestrator"
 
 routing:
   task_types:

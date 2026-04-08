@@ -9,6 +9,10 @@ agent:
 routing:
   task_types:
     - "content_kb"
+    - "content_kb.classify_topic"
+    - "content_kb.choose_repo"
+    - "content_kb.ingest"
+    - "content_kb.build_index"
     - "subtitle_ingest"
     - "knowledge_index"
   keywords:
