@@ -55,6 +55,8 @@ class MacWorkerExecutor:
             return self._execute_youtube_autoflow(run)
         if run.task_type == WorkerTaskType.CLAUDE_RUNTIME:
             return self._execute_claude_runtime(run)
+        if run.task_type == WorkerTaskType.EXCEL_AUDIT:
+            return self._execute_excel_audit(run)
         raise ValueError(f"Unsupported task type: {run.task_type}")
 
     def _execute_noop(self, payload: dict[str, Any]) -> MacWorkerExecutionResult:
@@ -186,6 +188,59 @@ class MacWorkerExecutor:
             error=outcome.reason if outcome.status == JobStatus.FAILED else None,
             result=outcome.model_dump(mode="json"),
             metrics={"success": int(outcome.success)},
+        )
+
+    def _execute_excel_audit(self, run: WorkerQueueItemRead) -> MacWorkerExecutionResult:
+        """Delegate to the deterministic excel_audit engine."""
+        try:
+            from excel_audit.contracts import ExcelAuditRule, RuleDsl, SheetMapping
+            from excel_audit.workbook_runner import run_audit
+        except ImportError:
+            return MacWorkerExecutionResult(
+                message="excel_audit not available",
+                status=JobStatus.FAILED,
+                error="excel_audit module not installed",
+            )
+
+        payload = run.payload
+        source_files = payload.get("source_files", [])
+        rules_raw = payload.get("rules", [])
+        mapping_raw = payload.get("sheet_mapping", {})
+
+        rules = [
+            ExcelAuditRule(
+                id=r.get("id", f"r{i}"),
+                name=r.get("name", f"rule_{i}"),
+                when=r.get("when", ""),
+                formula=r.get("formula", ""),
+            )
+            for i, r in enumerate(rules_raw)
+        ]
+
+        mapping = SheetMapping(
+            source=mapping_raw.get("source", ""),
+            target=mapping_raw.get("target", ""),
+            key_column=mapping_raw.get("key_column", ""),
+        )
+
+        dsl = RuleDsl(
+            inputs={"source_files": source_files},
+            sheet_mapping=mapping,
+            rules=rules,
+            outputs=payload.get("outputs", {}),
+        )
+
+        report = run_audit(dsl, job_id=run.run_id)
+        return MacWorkerExecutionResult(
+            message=f"excel_audit {report.status}",
+            status=JobStatus.COMPLETED if report.status == "completed" else JobStatus.FAILED,
+            result={
+                "rows_checked": report.result.rows_checked,
+                "rows_mismatched": report.result.rows_mismatched,
+                "mismatch_amount_total": report.result.mismatch_amount_total,
+                "artifacts": report.artifacts,
+            },
+            metrics={"findings": len(report.result.findings)},
         )
 
     def _get_youtube_bridge(self) -> StandbyYouTubeBridgeService:

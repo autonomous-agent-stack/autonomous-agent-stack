@@ -850,7 +850,8 @@ class AgentExecutionRunner:
                             error=probe_failure,
                         )
 
-                time.sleep(2)
+                poll_interval_sec = max(0.1, min(2.0, stall_timeout_sec / 4))
+                time.sleep(poll_interval_sec)
 
         duration_ms = int((time.perf_counter() - started) * 1000)
         if completed is None:
@@ -1630,8 +1631,7 @@ class AgentExecutionRunner:
         if not path.exists():
             return
 
-        def onexc(func, failed_path, excinfo) -> None:
-            _ = excinfo
+        def _handle_remove_error(func, failed_path, _excinfo) -> None:
             try:
                 os.chmod(failed_path, 0o777)
             except OSError:
@@ -1641,7 +1641,10 @@ class AgentExecutionRunner:
             except OSError:
                 pass
 
-        shutil.rmtree(path, onexc=onexc)
+        try:
+            shutil.rmtree(path, onexc=_handle_remove_error)
+        except TypeError:
+            shutil.rmtree(path, onerror=_handle_remove_error)
 
     def _git_ref(self, args: list[str], *, default: str) -> str:
         completed = subprocess.run(
