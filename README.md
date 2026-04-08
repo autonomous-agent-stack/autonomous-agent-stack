@@ -1,400 +1,255 @@
 # Autonomous Agent Stack
 
-一个面向多智能体编排、工作流触发、自集成验证和零信任加固的工程化仓库。
+> 一个面向多智能体编排、受控执行与零信任加固的工程化平台。
 
-## 运行时要求
+[![CI](https://github.com/srxly888-creator/autonomous-agent-stack/workflows/CI/badge.svg)](https://github.com/srxly888-creator/autonomous-agent-stack/actions/workflows/ci.yml)
+[![Quality Gates](https://github.com/srxly888-creator/autonomous-agent-stack/workflows/Quality%20Gates/badge.svg)](https://github.com/srxly888-creator/autonomous-agent-stack/actions/workflows/quality-gates.yml)
 
-- Python 基线：`3.11+`
-- 本仓库当前在 CI 中验证：`3.11`、`3.12`
-- 如果本机默认 `python3` 低于 3.11，请先安装 3.11+ 再执行 `make setup`
+## 为什么选择 AAS
 
-## 为什么现在更容易上手
+大多数 AI Agent 项目让智能体直接操作代码库——**这很危险**。
 
-参考 ClawX 的使用体验，这个仓库把新手最常见的三个问题做了统一入口。
+AAS 采用不同的架构哲学：
 
-| 常见痛点 | 现在的做法 |
-| --- | --- |
-| 启动命令太多，不知道先跑哪个 | `make setup -> make doctor -> make start` |
-| 报错信息分散，定位慢 | `scripts/doctor.py` 统一体检并给出下一步建议 |
-| 文档和实际入口不一致 | README、Makefile、启动脚本使用同一套命令 |
+| 传统 Agent 项目 | AAS |
+|----------------|-----|
+| Agent 直接 `git push` | Agent 只产出 patch，由 promotion gate 决策 |
+| Agent 拥有仓库写权限 | 受控执行 + 验证 + 审批后才能合并 |
+| 单点执行，难以扩展 | Control Plane / Worker 分离，支持多机编排 |
+| 状态散落各处 | SQLite 权威控制面 + 独立 artifact 存储 |
+| 安全边界模糊 | Zero-trust invariants：patch-only、deny-wins、single-writer |
 
-## 3 分钟上手
+## 核心架构
+
+```mermaid
+flowchart LR
+    A[Planner<br/>扫描仓库，生成任务] --> B[Worker Contract<br/>JobSpec + Policy]
+    B --> C[Isolated Execution<br/>隔离沙盒执行]
+    C --> D[Validation Gate<br/>测试 + 策略检查]
+    D --> E[Promotion Gate<br/>审批 + clean base + artifact 检查]
+    E --> F{决策}
+    F -->|通过| G[Draft PR / Patch Artifact]
+    F -->|拒绝| H[记录审计日志]
+
+    style A fill:#e1f5ff
+    style C fill:#fff3e0
+    style E fill:#f3e5f5
+```
+
+### 关键设计原则
+
+1. **Brain 与 Hand 分离**：规划与执行独立，promotion gate 拥有最终决策权
+2. **Patch-Only 默认**：Worker 只能编辑文件，禁止 `git commit`/`push` 等操作
+3. **Deny-Wins 策略合并**：限制条件取更严格者，防止权限逃逸
+4. **Single Writer Lease**：可变状态操作必须有全局唯一写锁
+5. **Runtime Artifact 隔离**：`logs/`、`.masfactory_runtime/` 等永不进入 source patch
+
+## 5 分钟快速上手
+
+### 环境要求
+
+- Python 3.11+
+- Docker 或 Colima（用于 ai-lab 沙盒，可选）
+
+### 启动步骤
 
 ```bash
-cd /Volumes/PS1008/Github/autonomous-agent-stack
-# 确保这里用的是 Python 3.11+
+# 克隆仓库
+git clone https://github.com/srxly888-creator/autonomous-agent-stack.git
+cd autonomous-agent-stack
+
+# 一键安装依赖
 make setup
+
+# 健康检查
 make doctor
-make doctor-linux
+
+# 启动服务
 make start
 ```
 
 启动后可访问：
+- API 文档：http://127.0.0.1:8001/docs
+- Admin 面板：http://127.0.0.1:8001/panel
+- 健康检查：http://127.0.0.1:8001/health
 
-- `http://127.0.0.1:8001/health`
-- `http://127.0.0.1:8001/docs`
-- `http://127.0.0.1:8001/panel`
-
-如果你要启用 Telegram 提醒和 Mini App 审批，至少补齐这 4 个环境变量：
+### 验证安装
 
 ```bash
-AUTORESEARCH_TELEGRAM_BOT_TOKEN=...
-AUTORESEARCH_TELEGRAM_ALLOWED_UIDS=你的TelegramUID
-AUTORESEARCH_PANEL_JWT_SECRET=随机长串
-AUTORESEARCH_PANEL_BASE_URL=https://你的面板域名/api/v1/panel/view
+# 运行测试套件
+make test-quick
+
+# 代码质量检查
+make hygiene-check
 ```
 
-如果还希望通知卡片直接带 `Mini App` 按钮，再补：
+## 你可以用 AAS 做什么
 
-```bash
-AUTORESEARCH_TELEGRAM_MINI_APP_URL=https://你的面板域名/api/v1/panel/view
+### 1. GitHub 仓库自动化
+
+```python
+# 通过 API 触发仓库分析任务
+POST /api/v1/github-assistant/triage
+{
+  "repo": "owner/repo",
+  "issue_number": 123
+}
+
+# 让 AI 审查 PR
+POST /api/v1/github-assistant/review-pr
+{
+  "repo": "owner/repo",
+  "pr_number": 456
+}
 ```
 
-如果你要把上游 OpenClaw 巡检挂成 Planner 的可选低噪音任务，再补这 3 个变量：
+### 2. 远程 Worker 编排
 
 ```bash
-AUTORESEARCH_UPSTREAM_WATCH_URL=https://github.com/openclaw/openclaw.git
-AUTORESEARCH_UPSTREAM_WATCH_WORKSPACE_ROOT=/Volumes/AI_LAB/ai_lab/workspace
-AUTORESEARCH_UPSTREAM_WATCH_MAX_COMMITS=5
-```
-
-当前代码会优先使用 `AUTORESEARCH_TELEGRAM_BOT_TOKEN`；旧变量 `TELEGRAM_BOT_TOKEN` 还能兼容，但已经是 deprecated。
-
-## Linux 远端节点
-
-如果你准备把 Linux 当“执行面”来跑真实 OpenHands，最稳的第一步不是照搬 Mac/Colima，而是直接走 `host` runtime。
-
-最小路径：
-
-```bash
-python3.11 -m venv .venv
-source .venv/bin/activate
-make setup
+# Linux 远端节点作为 OpenHands 执行面
 OPENHANDS_RUNTIME=host make doctor-linux
 OPENHANDS_RUNTIME=host make start
 ```
 
-更完整的落地清单、环境变量建议和远端使用姿势见：
-
-- [Linux Remote Worker Guide](./docs/linux-remote-worker.md)
-- [cc-switch Usage Guide](./docs/cc-switch-usage.md)
-- [OpenHands Controlled Backend Integration](./docs/openhands-cli-integration.md)
-
-## 常用命令
+### 3. 自定义 Agent 技能
 
 ```bash
-make help
-make setup
-make doctor
-make doctor-linux
-make start
+# 扫描并加载本地技能
+make agent-run AEP_AGENT=custom AEP_TASK="your task"
+
+# 托管技能生命周期
+POST /api/v1/skills/register
+POST /api/v1/skills/promote
+```
+
+### 4. Telegram 集成
+
+```bash
+# 配置环境变量
+export AUTORESEARCH_TELEGRAM_BOT_TOKEN="your_token"
+export AUTORESEARCH_TELEGRAM_ALLOWED_UIDS="your_uid"
+
+# 通过 Telegram 触发任务
+# 在 Telegram 中发送 /review 或 /analyze
+```
+
+## 文档导航
+
+| 文档 | 适合谁 | 内容 |
+|------|--------|------|
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | 所有人 | 权威架构总图，zero-trust invariants |
+| [docs/QUICK_START.md](./docs/QUICK_START.md) | 新用户 | 详细启动指南 |
+| [docs/linux-remote-worker.md](./docs/linux-remote-worker.md) | 运维 | Linux 远端节点部署 |
+| [docs/agent-execution-protocol.md](./docs/agent-execution-protocol.md) | 开发者 | AEP 协议规范 |
+| [docs/github-assistant-quickstart.md](./docs/github-assistant-quickstart.md) | GitHub 用户 | GitHub 助理使用指南 |
+
+## 贡献指南
+
+我们欢迎各种形式的贡献！
+
+### 快速贡献途径
+
+1. **报告 Bug**：在 Issues 中提交详细描述
+2. **提议新功能**：打开 RFC Issue 讨论设计
+3. **提交 PR**：
+   - Fork 仓库
+   - 创建特性分支
+   - 确保通过 CI 和 Quality Gates
+   - 提交 PR 并描述变更
+
+### 开发者工作流
+
+```bash
+# 1. 创建特性分支
+git checkout -b feature/your-feature
+
+# 2. 开发并测试
 make test-quick
-make ai-lab
-make ai-lab-check
-make ai-lab-setup
-make masfactory-flight
-make masfactory-flight GOAL="探测当前 M1 的 CPU 核心数"
-make masfactory-flight GOAL="探测当前 M1 的 CPU 核心数" WATCH=1
-make openhands-dry-run
-make openhands OH_TASK="Please scan /opt/workspace/src/autoresearch/core and fix TODOs with tests."
-make openhands-controlled-dry-run
-make openhands-controlled OH_TASK="Create src/demo_math.py with add(a,b), then run validation."
-make openhands-demo OH_BACKEND=mock OH_TASK="Create src/demo_math.py with add(a,b)."
-make agent-run AEP_AGENT=openhands AEP_TASK="Create src/demo_math.py with add(a,b)."
-make hygiene-check
 make review-gates-local
+
+# 3. 提交变更
+git commit -m "feat: add your feature"
+
+# 4. 推送并创建 PR
+git push origin feature/your-feature
 ```
 
-`make hygiene-check` 会把结果写到 `logs/audit/prompt_hygiene/report.txt` 和 `logs/audit/prompt_hygiene/report.json`。
+### 代码规范
 
-`make openhands` 会调用 `scripts/openhands_start.sh`（CLI 直连模式），默认注入 `DIFF_ONLY=1` 与 `MAX_FILES_PER_STEP=3` 的执行约束；当前真实边界请以 [ARCHITECTURE.md](./ARCHITECTURE.md) 为总图，以 [memory/SOP/MASFactory_Strict_Execution_v1.md](./memory/SOP/MASFactory_Strict_Execution_v1.md) 为执行清单。
+- Python: 遵循 PEP 8，使用 `mypy` 类型检查
+- 安全: 通过 `bandit` 和 `semgrep` 扫描
+- 测试: 新功能需要测试覆盖，保持 80%+ 覆盖率
 
-当前 launcher 会优先读取根目录 `ai_lab.env`。`host` 模式下会优先寻找 `./.masfactory_runtime/tools/openhands-cli-py312/bin/openhands` 这类独立工具 venv，并自动在本地 OpenHands home 下生成 `agent_settings.json`；`ai-lab` 模式则默认调用容器内的 `openhands`。默认模板会走 `--exp --headless`，因为本地验证的 `OpenHands CLI 1.5.0` 在这条路径上能自动收尾退出，更适合作为 pipeline worker：
+## 架构演进路线
 
-```bash
-RUNTIME=process \
-SANDBOX_VOLUMES=/你的workspace:/workspace:rw \
-openhands --exp --headless -t "你的任务"
-```
+AAS 正在向分布式编排平台演进：
 
-实际执行时 launcher 会先 `cd` 到目标 worktree，再启动 CLI，所以 OpenHands 的 workspace 会对准当前任务目录。如果你要切回旧的“把 prompt 当位置参数”模式，可显式设置 `OPENHANDS_HEADLESS=0`；如果你明确想关闭 `--exp`，可设置 `OPENHANDS_EXPERIMENTAL=0`。`OPENHANDS_JSON=1` 仅适用于明确支持该 flag 的 CLI 版本；当前本地验证的 `OpenHands CLI 1.5.0` 默认不带它。如果要走真实 `ai-lab` 容器链，除了容器内 `openhands` 本身可用，还需要当前 shell 对配置的 Docker/Colima socket 有访问权限。`sandbox/ai-lab/Dockerfile` 也默认锁到同一个 `OpenHands CLI 1.5.0`，避免容器冷启动时漂移到未验证的新版本。
+### Phase 1: 当前稳定版本 ✅
+- 单机 control plane + isolated execution
+- SQLite 权威状态 + artifact 分离
+- GitHub Assistant、Telegram 集成
+- OpenHands / Claude Code CLI 适配器
 
-`launch_ai_lab.sh` 也会显式识别 `DOCKER_HOST=unix://...` 这类 Colima socket。如果当前配置指向了一个当前用户不可访问的 Colima socket，它会先尝试安全回退：有外置盘 Colima store 时走 repo 自带的 `scripts/colima-external.sh`，否则直接回退到当前用户自己的 `~/.colima/<profile>/docker.sock`，而不是直接放宽宿主机 socket 权限。当前用户回退分支还会显式把 `/Volumes/AI_LAB` 挂进 Colima；如果你不想碰现有默认 profile，可直接用独立 profile，例如 `COLIMA_PROFILE=ai-lab bash ./scripts/launch_ai_lab.sh status`。
+### Phase 2: 分布式执行（进行中）
+**RFC**: [docs/rfc/distributed-execution.md](./docs/rfc/distributed-execution.md)
+- Linux 控制面 + Mac 执行节点
+- 心跳 + 租约 + durable queue
+- 离线恢复与 outbox/inbox 模式
 
-`make openhands-controlled` 会走最窄闭环：创建隔离 workspace、执行 OpenHands 子任务、运行校验、输出 promotion patch 与审计摘要（不直接污染主仓库）。
+### Phase 3: 多机异构池
+**RFC**: [docs/rfc/three-machine-architecture.md](./docs/rfc/three-machine-architecture.md)
+- Linux（OpenHands）+ Mac mini（主力）+ MacBook（身份绑定）
+- Capability/pool 路由，而非机器硬编码
+- 智能任务调度与故障转移
 
-`make agent-run` 走 AEP v0 统一执行内核：`JobSpec -> driver adapter -> patch gate -> decision`，OpenHands/Codex/本地脚本都可作为 driver 接入。
+### Phase 4: Federation 网络
+**RFC**: [docs/rfc/federation-protocol.md](./docs/rfc/federation-protocol.md)
+- 分层信任联邦（开放 → 互信 → 战略）
+- 算力/worker/agent 分级共享
+- 可撤销建交与审计边界
 
-`make review-gates-local` 会在本地运行 reviewer 核心模块的 `mypy + bandit + semgrep`，与 CI 的 `Quality Gates` 流程保持一致。
+## 常见问题
 
-## 本地 CLI 切换工具的边界
+<details>
+<summary>Q: AAS 和其他 Agent 项目有什么区别？</summary>
 
-像 `cc-switch` 这类工具，适合放在本地开发工作台，用来切换 `Codex`、`OpenClaw`、`Claude Code` 等 CLI 进行人工调试和 prompt 试验。
+A: 核心区别在于 **安全架构**。AAS 把"思考"（planner）、"执行"（worker）和"决策"（promotion gate）三层分离，智能体不能直接修改代码库，必须经过验证和审批。这模仿了成熟的 CI/CD 流程，而不是让 AI 直接 `git push`。
+</details>
 
-但它不应该替代本仓库的执行主链。这里真正负责受控执行的是 `make agent-run`、`make openhands-controlled`、AEP runner、validator 和 promotion gate。
+<details>
+<summary>Q: 支持哪些 AI 后端？</summary>
 
-如果你想把 `cc-switch` 接进日常工作流，推荐只做旁路工作台，不要改写 `drivers/openhands_adapter.sh` 或 `scripts/openhands_start.sh` 的主逻辑。详细边界见 [cc-switch Usage Guide](./docs/cc-switch-usage.md)。
+A: 当前支持：
+- OpenHands（主力，受控执行模式）
+- Claude Code CLI（仓库级任务）
+- Codex / 自定义脚本（通过 AEP 适配器）
+</details>
 
-## PR 审查与门禁
+<details>
+<summary>Q: 如何在生产环境部署？</summary>
 
-- OpenHands 首轮审查（comment-only）：`.github/workflows/pr-review-by-openhands.yml`
-  - 触发方式：默认 `review-this` label；可选通过 `OPENHANDS_REVIEWER_HANDLE` 启用 reviewer 触发
-  - 安全策略：`pull_request` 事件、仅内部分支 PR（跳过 forks）、最小权限、action/extension 固定 SHA
-  - 合并策略：按需触发模式下不设为 required status check（仅作为 advisory reviewer）
-- 质量门禁：`.github/workflows/quality-gates.yml`
-  - 检查项：`mypy + bandit + semgrep`（工具版本固定在 `requirements-review.lock`）
-  - 包含 `merge_group` 触发，兼容 merge queue
-- 仓库 required checks 建议：`CI / lint-test-audit` + `Quality Gates / reviewer-gates`
-- 试运行与反馈闭环：见 [PR Review Hardening](./docs/pr-review-hardening.md) 里的 `Trial Rubric` 与 `Feedback Loop`
+A: 参考 [docs/linux-remote-worker.md](./docs/linux-remote-worker.md) 进行远端节点部署。核心思路是：控制面在稳定主机，执行节点可以是任意有 GPU/特殊权限的机器。
+</details>
 
-完整落地说明见：[PR Review Hardening](./docs/pr-review-hardening.md)
+## 许可证
 
-如果端口冲突：
+MIT License - 详见 [LICENSE](./LICENSE)
 
-```bash
-PORT=8010 make start
-```
+## 致谢
 
-## 你可以拿它做什么
+本项目深受以下开源项目启发：
 
-- 从 Telegram 触发仓库审查任务
-- 生成带语言分布的审查报告
-- 为外部仓库生成 prototype，并在 secure-fetch 后推进 promotion
-- 扫描并执行本地技能
-- 运行零信任加固脚本和相关验证脚本
+- [MASFactory](https://github.com/BUPT-GAMMA/MASFactory) - 多智能体编排框架
+- [deer-flow](https://github.com/nxs9bg24js-tech/deer-flow) - 并发编排与沙盒隔离
+- [OpenClaw](https://github.com/openclaw/openclaw) - 多渠道接入与技能系统
+- [AutoResearch](https://github.com/karpathy/autoresearch) - Karpathy 循环
 
-## OpenHands 接入边界（重要）
+## 联系方式
 
-- “更容易上手”指 AAS 的统一启动和排错流程：`make setup -> make doctor -> make start`。
-- OpenHands 文档里的“切换简单”指其内部 SDK/workspace 抽象下的切换，不等同于跨平台融合。
-- 本仓库采用分层接法：AAS 负责任务路由、状态、校验与 promotion；OpenHands 只负责隔离 workspace 内的代码执行。
-
-最窄链路：
-
-1. AAS 下发 task（受控输入契约）
-2. OpenHands 在隔离 workspace 执行
-3. AAS 执行 validation gate
-4. AAS 产出 promotion patch 并决定 promote/reject
-
-详见：[OpenHands Controlled Backend Integration](./docs/openhands-cli-integration.md)
-协议文档：[Agent Execution Protocol (AEP v0)](./docs/agent-execution-protocol.md)
-如果你正在评估“重型 Claude Code 工作台”和 OpenHands 的分层关系，以及 Claude Code CLI 处理 Excel / 销售统计 / 提成发放这类强规则业务的落地方式，可参考 [Claude Code CLI 业务落地案例：销售统计表与提成发放表](./docs/claude-code-excel-business-case.md)。
-
-## Claude Code CLI 接入方式
-
-`autonomous-agent-stack` 不是把 Claude Code CLI 嵌进 Python 进程里，而是把它当成一个可调用的仓库执行器。
-
-最常见的调用模式是：
-
-1. 外环先收件、分类、选仓库
-2. 在目标仓库目录里写 task brief
-3. `cd` 到目标仓库
-4. 直接调用 `claude -p`
-5. 让 Claude Code CLI 读取该仓库的 `CLAUDE.md` 和 docs 后执行修改
-
-最小命令范式：
-
-```bash
-cd /path/to/target-repo
-claude -p "请先阅读 CLAUDE.md 和相关 docs，再完成这份 task brief：...。最后只输出 files changed / verification / manual follow-up。"
-```
-
-更完整的写法见 [Task Brief / 桥接文档指南](./docs/task-brief-guide.md)。
-
-如果你要把 Claude Code CLI 用在强规则业务开发上，例如“销售统计表 / 提成发放表 / 各种 Excel 处理与统计”，可直接参考 [Claude Code CLI 业务落地案例：销售统计表与提成发放表](./docs/claude-code-excel-business-case.md)。
-
-如果你把 `autonomous-agent-stack` 当作长期在线外环，这种接法的重点不是“调用某个内部 API”，而是“把执行边界收在仓库目录和 task brief 上”。
-
-## 关键入口
-
-- [API 主入口](./src/autoresearch/api/main.py)
-- [工作流引擎](./src/workflow/workflow_engine.py)
-- [Telegram Gateway（主线）](./src/autoresearch/api/routers/gateway_telegram.py)
-- [Telegram Webhook（legacy compatibility only）](./src/gateway/telegram_webhook.py)
-- [自集成服务](./src/autoresearch/core/services/self_integration.py)
-- [自集成路由](./src/autoresearch/api/routers/integrations.py)
-- [技能注册表](./src/opensage/skill_registry.py)
-- [MASFactory 骨架](./src/masfactory/graph.py)
-- [MASFactory 首航示例](./examples/masfactory_first_flight.py)
-
-## GitHub 专业助理模板
-
-仓库根目录现在带了一套本地优先的 GitHub 助理模板骨架：
-
-- `assistant.yaml`
-- `repos.yaml`
-- `profiles.yaml`（可选，多 profile 时启用）
-- `prompts/`
-- `policies/default-policy.yaml`
-- `./assistant`
-
-该能力现在已经挂进主应用主路径：
-
-- `GET /api/v1/github-assistant/health`
-- `GET /api/v1/github-assistant/doctor`
-- `GET /api/v1/github-assistant/profiles`
-- `POST /api/v1/github-assistant/triage`
-- `POST /api/v1/github-assistant/execute`
-- `POST /api/v1/github-assistant/review-pr`
-- `POST /api/v1/github-assistant/release-plan`
-- `POST /api/v1/github-assistant/schedule/run`
-
-也就是说它不再只是本地脚本模板，启动 API 后可以直接从 Swagger 或其他控制面调用。
-
-常用命令：
-
-```bash
-./assistant doctor
-./assistant profile list
-./assistant profile init work --display-name "Work"
-./assistant auth status --profile work
-./assistant triage owner/repo 123
-./assistant execute owner/repo 123
-./assistant review-pr owner/repo 456
-./assistant release-plan owner/repo --version v1.2.3
-./assistant schedule run
-```
-
-当前模板默认已用本机检测到的 GitHub 上下文预填：
-
-- Bot 账号：`nxs9bg24js-tech`
-- 当前受管仓库样例：`srxly888-creator/autonomous-agent-stack`
-
-executor 适配层已内建 4 种模式：
-
-- `shell`
-- `codex`
-- `openhands`
-- `custom`
-
-其中 `assistant.yaml` 当前默认用 `codex` 适配器。
-
-运行时支持用环境变量覆盖关键配置：
-
-- `GH_ASSISTANT_GITHUB_LOGIN`
-- `GH_ASSISTANT_WORKSPACE_ROOT`
-- `GH_ASSISTANT_EXECUTOR_ADAPTER`
-- `GH_ASSISTANT_EXECUTOR_BINARY`
-- `GH_ASSISTANT_EXECUTOR`
-
-运维建议：
-
-- 先看 `GET /api/v1/github-assistant/health` 是否为 `ok`
-- 再看 `GET /api/v1/github-assistant/doctor` 的逐项检查结果
-- 如果本机 `gh auth` 失效，health 会降级，真实 GitHub 操作接口会明确返回 `503`，不会伪装成功
-
-相关文档：
-
-- [Quickstart](./docs/github-assistant-quickstart.md)
-- [Migration Guide](./docs/github-assistant-migration.md)
-- [Repo Onboarding](./docs/github-assistant-onboarding.md)
-- [Safety Rules](./docs/github-assistant-safety.md)
-
-## 快速排错
-
-1. 先跑 `make doctor`，看是否有 `FAIL`
-2. Linux 远端执行节点先跑 `OPENHANDS_RUNTIME=host make doctor-linux`
-3. 如果提示 Python 版本过低，先切到 Python 3.11+，再执行 `make setup`
-4. 如果是端口问题，执行 `PORT=8010 make start`
-5. 如果是导入问题，确认通过 `make start` 启动（脚本会自动设置 `PYTHONPATH=src`）
-
-## 🎯 灵感来源（Inspirations）
-
-本项目深受以下 6 个优秀开源库的启发：
-
-### 1. **MASFactory** - 多智能体编排框架
-**GitHub**: https://github.com/BUPT-GAMMA/MASFactory  
-**Stars**: 125+  
-**启发点**:
-- ✅ 4 节点图结构（Planner/Generator/Executor/Evaluator）
-- ✅ M1 本地执行沙盒
-- ✅ MCP 网关集成
-- ✅ 可视化监控看板
+- GitHub Issues: 技术讨论和 Bug 报告
+- Discussions: 架构设计和 RFC 讨论
+- Email: srxly888@gmail.com
 
 ---
 
-### 2. **deer-flow** - 并发编排与沙盒隔离
-**GitHub**: https://github.com/nxs9bg24js-tech/deer-flow  
-**Stars**: 45,000+  
-**启发点**:
-- ✅ 多智能体并发编排（Lead Agent + Sub-agents）
-- ✅ 沙盒隔离执行（三级防御：L1/L2/L3）
-- ✅ 持久化长程记忆
-- ✅ Markdown Skills
-
----
-
-### 3. **OpenSage** - 自演化智能体
-**论文**: arXiv:2602.16891  
-**官网**: https://www.opensage-agent.ai/  
-**启发点**:
-- ✅ 自编程智能体（Level 3 - AI 自动创建）
-- ✅ Self-generating Agent Topology（自生成拓扑）
-- ✅ Dynamic Tool and Skill Synthesis（动态工具合成）
-- ✅ Hierarchical, Graph-based Memory（分层图记忆）
-
----
-
-### 4. **OpenClaw** - 多渠道接入与技能系统
-**GitHub**: https://github.com/openclaw/openclaw  
-**Stars**: 1,000+  
-**启发点**:
-- ✅ 多渠道接入（Telegram、Discord、Signal）
-- ✅ 技能系统（SKILL.md）
-- ✅ 会话管理
-- ✅ 记忆系统（MEMORY.md）
-
----
-
-### 5. **OpenSpace** - SOP 演化引擎
-**GitHub**: https://github.com/HKUDS/OpenSpace  
-**版本**: v0.1.0  
-**启发点**:
-- ✅ 自演化技能引擎（越用越聪明）
-- ✅ Markdown SOP 演化（安全、可读、可积累）
-- ✅ AUTO-LEARN 机制（自动学习新技能）
-- ✅ 网络效应（集体智慧共享）
-
----
-
-### 6. **AutoResearch** - Karpathy 循环
-**GitHub**: https://github.com/karpathy/autoresearch  
-**Stars**: 48,800+  
-**作者**: Andrej Karpathy（前 Tesla AI 总监）  
-**启发点**:
-- ✅ **自主实验循环**（Autonomous Experiment Loop）
-  ```
-  propose → train → evaluate → commit/revert → repeat
-  ```
-- ✅ 并行探索策略（多分支并行）
-- ✅ 结果导向（保留改进，回滚失败）
-- ✅ 无限迭代（自主优化）
-
----
-
-### 整合价值
-
-| 开源库 | 核心价值 | 应用到本项目 |
-|--------|---------|-------------|
-| **MASFactory** | 多智能体编排 | 4 节点图结构 + MCP 网关 |
-| **deer-flow** | 并发编排 + 沙盒 | Lead Agent + Docker 沙盒 |
-| **OpenSage** | 自演化机制 | OpenSage 模块 + 动态工具合成 |
-| **OpenClaw** | 渠道接入 | Telegram Webhook + 技能系统 |
-| **OpenSpace** | SOP 演化引擎 | Markdown 技能库 + AUTO-LEARN |
-| **AutoResearch** | Karpathy 循环 | Propose-Train-Evaluate-Repeat |
-
----
-
-**价值主张**: "构建无需人类干预、通过多渠道自我优化的超级智能体网络"
-
----
-
-## 深入文档
-
-- [快速启动文档](./docs/QUICK_START.md)
-- [架构总图](./ARCHITECTURE.md)
-- [Admin View 字段填写教程](./docs/admin-view-field-guide.md)
-- [状态与发布说明](./STATUS_AND_RELEASE_NOTES.md)
-- [工作流引擎验证报告](./docs/WORKFLOW_ENGINE_VERIFICATION_REPORT.md)
-- [自集成协议](./docs/p4-self-integration-protocol.md)
-- [零信任实施方案](./docs/zero-trust-implementation-plan-v2.md)
+**让我们一起构建更安全、更可靠的 AI Agent 基础设施！** 🚀
