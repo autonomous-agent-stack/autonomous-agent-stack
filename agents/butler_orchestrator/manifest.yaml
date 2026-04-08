@@ -1,0 +1,53 @@
+version: "1"
+agent:
+  id: "butler_orchestrator"
+  name: "Butler Orchestrator"
+  description: "Central orchestrator for Telegram, YouTube, dry-run tasks routing"
+  role: "orchestrator"
+
+routing:
+  task_types:
+    - "butler.orchestrate"
+  keywords:
+    - "orchestrate"
+    - "路由"
+    - "分发"
+    - "butler"
+execution:
+  default_driver: "claude_code"
+  fallback_drivers: []
+  workspace_mode: "isolated"
+  allow_code_change: true
+  require_patch_gate: true
+
+inputs:
+  required: []
+outputs:
+  schema: {}
+  artifacts: []
+permissions:
+  filesystem:
+    read:
+      - "data/"
+      - "artifacts/"
+      - "configs/"
+    write:
+      - "artifacts/"
+      - "logs/"
+      - "memory/**"
+  network: "deny"
+  git:
+    commit: false
+    push: false
+gates:
+  validators: []
+  approvals:
+    human_required_for: []
+prompts:
+  intake: "agents/butler_orchestrator/prompts/intake.md"
+runtime:
+  deterministic_execution_required: false
+  llm_must_not_do_final_math: false
+  report_formats:
+    - "markdown"
+    - "json"
