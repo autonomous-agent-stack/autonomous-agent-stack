@@ -123,6 +123,7 @@ def create_app() -> FastAPI:
 
     required_routers = [
         ("autoresearch.api.routers.evaluations", "router", "evaluations"),
+        ("autoresearch.api.routers.excel_audit", "router", "excel audit"),
         ("autoresearch.api.routers.generators", "router", "generators"),
         ("autoresearch.api.routers.executors", "router", "executors"),
         ("autoresearch.api.routers.autoresearch_plans", "router", "autoresearch plans"),

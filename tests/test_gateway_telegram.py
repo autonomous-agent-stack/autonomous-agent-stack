@@ -8,6 +8,7 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from fastapi.testclient import TestClient
 
+from autoresearch.api import dependencies as api_dependencies
 from autoresearch.api.dependencies import (
     get_admin_config_service,
     get_approval_store_service,
@@ -146,6 +147,73 @@ class _StubTelegramNotifier:
 
     def notify_manual_action(self, *, chat_id: str, entry: object, run_status: str) -> bool:
         return True
+
+
+class _StubExcelAuditService:
+    def __init__(self, *, mode: str = "success") -> None:
+        from autoresearch.shared.store import InMemoryRepository
+
+        self._repository = InMemoryRepository()
+        self._mode = mode
+        self._counter = 0
+        self.created_requests: list[object] = []
+        self.executed_audit_ids: list[str] = []
+
+    def create(self, request):
+        from autoresearch.shared.excel_audit_contract import ExcelAuditRead
+        from autoresearch.shared.models import JobStatus, utc_now
+
+        self._counter += 1
+        audit_id = f"ea_test_{self._counter:03d}"
+        now = utc_now()
+        record = ExcelAuditRead(
+            audit_id=audit_id,
+            task_brief=request.task_brief,
+            status=JobStatus.QUEUED,
+            created_at=now,
+            updated_at=now,
+        )
+        self.created_requests.append(request)
+        return self._repository.save(audit_id, record)
+
+    def execute(self, audit_id: str):
+        from autoresearch.shared.excel_audit_contract import ExcelAuditResultRead
+        from autoresearch.shared.models import JobStatus, utc_now
+
+        self.executed_audit_ids.append(audit_id)
+        if self._mode == "raise":
+            raise RuntimeError("simulated execute failure")
+
+        record = self._repository.get(audit_id)
+        assert record is not None
+
+        if self._mode == "failed":
+            updated = record.model_copy(
+                update={
+                    "status": JobStatus.FAILED,
+                    "error": "simulated audit failure",
+                    "updated_at": utc_now(),
+                }
+            )
+        else:
+            updated = record.model_copy(
+                update={
+                    "status": JobStatus.COMPLETED,
+                    "result": ExcelAuditResultRead(
+                        rows_checked=12,
+                        rows_mismatched=2,
+                        mismatch_amount_total=88.5,
+                        findings_count=2,
+                    ),
+                    "artifacts": ["/tmp/report.md", "/tmp/report.json"],
+                    "updated_at": utc_now(),
+                }
+            )
+
+        return self._repository.save(audit_id, updated)
+
+    def create_and_execute(self, request):
+        raise AssertionError("gateway should not use synchronous create_and_execute")
 
 
 class _StubGitHubIssueService:
@@ -744,6 +812,120 @@ def test_telegram_non_youtube_url_continues_to_existing_agent_path(
     # Default chat now routes to worker queue
     assert payload.get("metadata", {}).get("routed_to") == "worker_queue"
     assert payload["metadata"].get("source") != "telegram_youtube_autoflow"
+
+
+def test_telegram_butler_excel_audit_is_accepted_and_reports_background_success(
+    telegram_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    notifier = _StubTelegramNotifier()
+    excel_service = _StubExcelAuditService(mode="success")
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+    monkeypatch.setattr(api_dependencies, "get_excel_audit_service", lambda: excel_service)
+
+    try:
+        response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 1320,
+                "message": {
+                    "message_id": 93,
+                    "text": "帮我核对 sales.xlsx 和 commission.xlsx 的提成差异",
+                    "chat": {"id": 9715, "type": "private"},
+                    "from": {"id": 9715, "username": "excel-user"},
+                },
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["accepted"] is True
+        assert payload["reason"] == "butler routed to excel_audit (async)"
+        assert payload["metadata"]["audit_id"] == "ea_test_001"
+        assert payload["metadata"]["butler_task_type"] == "excel_audit"
+        assert excel_service.created_requests
+        assert excel_service.created_requests[0].source_files == ["sales.xlsx", "commission.xlsx"]
+        assert excel_service.executed_audit_ids == ["ea_test_001"]
+
+        assert len(notifier.messages) == 2
+        assert "Excel 核对已受理" in notifier.messages[0]["text"]
+        assert "ea_test_001" in notifier.messages[0]["text"]
+        assert "Excel 核对完成" in notifier.messages[1]["text"]
+        assert "任务号: ea_test_001" in notifier.messages[1]["text"]
+        assert "/tmp/report.md" in notifier.messages[1]["text"]
+        assert "/tmp/report.json" in notifier.messages[1]["text"]
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+
+
+def test_telegram_butler_excel_audit_reports_background_failure(
+    telegram_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    notifier = _StubTelegramNotifier()
+    excel_service = _StubExcelAuditService(mode="raise")
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+    monkeypatch.setattr(api_dependencies, "get_excel_audit_service", lambda: excel_service)
+
+    try:
+        response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 1321,
+                "message": {
+                    "message_id": 94,
+                    "text": "请核对 report.xlsx",
+                    "chat": {"id": 9716, "type": "private"},
+                    "from": {"id": 9716, "username": "excel-user"},
+                },
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["accepted"] is True
+        assert payload["metadata"]["audit_id"] == "ea_test_001"
+        assert excel_service.executed_audit_ids == ["ea_test_001"]
+
+        assert len(notifier.messages) == 2
+        assert "Excel 核对已受理" in notifier.messages[0]["text"]
+        assert "Excel 核对失败 (ea_test_001): simulated execute failure" == notifier.messages[1]["text"]
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+
+
+def test_telegram_non_excel_request_keeps_original_route_and_skips_excel_dispatch(
+    telegram_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    excel_service = _StubExcelAuditService(mode="success")
+    monkeypatch.setattr(api_dependencies, "get_excel_audit_service", lambda: excel_service)
+    monkeypatch.setenv(
+        "AUTORESEARCH_TELEGRAM_CLAUDE_COMMAND_OVERRIDE",
+        f"{sys.executable} -c \"print('non-excel-ok')\"",
+    )
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_APPEND_PROMPT", "false")
+
+    response = telegram_client.post(
+        "/api/v1/gateway/telegram/webhook",
+        json={
+            "update_id": 1322,
+            "message": {
+                "message_id": 95,
+                "text": "普通聊天，不是表格任务",
+                "chat": {"id": 9717, "type": "private"},
+                "from": {"id": 9717, "username": "chat-user"},
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["accepted"] is True
+    assert payload.get("metadata", {}).get("routed_to") == "worker_queue"
+    assert "audit_id" not in payload.get("metadata", {})
+    assert excel_service.created_requests == []
+    assert excel_service.executed_audit_ids == []
 
 
 def test_telegram_short_affirmation_rewrites_followup_from_previous_assistant_question(
