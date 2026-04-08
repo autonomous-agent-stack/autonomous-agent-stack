@@ -178,7 +178,7 @@ PORT=8010 make start
 
 详见：[OpenHands Controlled Backend Integration](./docs/openhands-cli-integration.md)
 协议文档：[Agent Execution Protocol (AEP v0)](./docs/agent-execution-protocol.md)
-如果你正在评估“重型 Claude Code 工作台”和 OpenHands 的分层关系，以及 Claude Code CLI 处理 Excel / 销售统计 / 提成发放这类强规则业务的落地方式，可参考 [Claude Code CLI 业务落地案例：销售统计表与提成发放表](./docs/claude-code-excel-business-case.md)。
+如果你正在评估“重型 Claude Code 工作台”和 OpenHands 的分层关系，以及 Claude Code CLI 处理 Excel / 销售统计 / 提成发放这类强规则业务的落地方式，可参考 [Claude Code CLI 业务落地案例：销售统计表与提成发放表](./docs/claude-code-excel-business-case.md) 和 [AAS + 管家 Bot + Claude Code CLI + ECC 落地 Excel 自动化最佳实践深研报告](./docs/aas-claude-ecc-excel-best-practice-report.md)。
 
 ## Claude Code CLI 接入方式
 
@@ -201,7 +201,7 @@ claude -p "请先阅读 CLAUDE.md 和相关 docs，再完成这份 task brief：
 
 更完整的写法见 [Task Brief / 桥接文档指南](./docs/task-brief-guide.md)。
 
-如果你要把 Claude Code CLI 用在强规则业务开发上，例如“销售统计表 / 提成发放表 / 各种 Excel 处理与统计”，可直接参考 [Claude Code CLI 业务落地案例：销售统计表与提成发放表](./docs/claude-code-excel-business-case.md)。
+如果你要把 Claude Code CLI 用在强规则业务开发上，例如“销售统计表 / 提成发放表 / 各种 Excel 处理与统计”，可直接参考 [Claude Code CLI 业务落地案例：销售统计表与提成发放表](./docs/claude-code-excel-business-case.md)；如果你还需要把它和 AAS 管家 Bot、审计链、ECC 的使用边界一起收口，可继续看 [AAS + 管家 Bot + Claude Code CLI + ECC 落地 Excel 自动化最佳实践深研报告](./docs/aas-claude-ecc-excel-best-practice-report.md)。
 
 如果你把 `autonomous-agent-stack` 当作长期在线外环，这种接法的重点不是“调用某个内部 API”，而是“把执行边界收在仓库目录和 task brief 上”。
 
