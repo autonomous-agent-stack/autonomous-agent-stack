@@ -1,0 +1,75 @@
+version: "1"
+
+agent:
+  id: "github_admin"
+  name: "GitHub Admin Agent"
+  description: "负责 GitHub 仓库盘点、迁移规划、协作者管理（dry-run only）"
+  role: "specialist"
+
+routing:
+  task_types:
+    - "github_admin.inventory"
+    - "github_admin.transfer_plan"
+  keywords:
+    - "GitHub盘点"
+    - "仓库迁移"
+    - "仓库规划"
+    - "协作者"
+    - "邀请"
+
+execution:
+  default_driver: "claude_code"
+  fallback_drivers:
+    - "codex"
+  workspace_mode: "isolated"
+  allow_code_change: false
+  require_patch_gate: true
+
+inputs:
+  required:
+    - "owners"
+  optional:
+    - "visibility"
+    - "include_archived"
+    - "target_owner"
+
+outputs:
+  schema:
+    type: "object"
+    required:
+      - "run_id"
+      - "status"
+      - "repositories"
+      - "decisions"
+  artifacts:
+    - "inventory.json"
+    - "transfer_plan.md"
+
+permissions:
+  filesystem:
+    read:
+      - "configs/github_profiles/"
+    write:
+      - "artifacts/github_admin/"
+  network: "allow"
+  git:
+    commit: false
+    push: false
+
+gates:
+  validators:
+    - "dry-run-only"
+  approvals:
+    human_required_for:
+      - "execute_transfer"
+
+runtime:
+  deterministic_execution_required: true
+  llm_must_not_do_final_math: true
+  report_formats:
+    - "markdown"
+    - "json"
+
+prompts:
+  intake: "agents/github_admin/prompts/repo_inventory.md"
+  transfer_plan: "agents/github_admin/prompts/transfer_plan.md"
