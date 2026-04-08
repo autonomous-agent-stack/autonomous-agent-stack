@@ -1428,6 +1428,8 @@ class WorkerTaskType(str, Enum):
     YOUTUBE_AUTOFLOW = "youtube_autoflow"
     CLAUDE_RUNTIME = "claude_runtime"
     EXCEL_AUDIT = "excel_audit"
+    CONTENT_KB_CLASSIFY = "content_kb_classify"
+    CONTENT_KB_INGEST = "content_kb_ingest"
 
 
 class WorkerRunProgressRead(StrictModel):

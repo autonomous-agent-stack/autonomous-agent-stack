@@ -57,6 +57,10 @@ class MacWorkerExecutor:
             return self._execute_claude_runtime(run)
         if run.task_type == WorkerTaskType.EXCEL_AUDIT:
             return self._execute_excel_audit(run)
+        if run.task_type == WorkerTaskType.CONTENT_KB_CLASSIFY:
+            return self._execute_content_kb_classify(run)
+        if run.task_type == WorkerTaskType.CONTENT_KB_INGEST:
+            return self._execute_content_kb_ingest(run)
         raise ValueError(f"Unsupported task type: {run.task_type}")
 
     def _execute_noop(self, payload: dict[str, Any]) -> MacWorkerExecutionResult:
@@ -241,6 +245,129 @@ class MacWorkerExecutor:
                 "artifacts": report.artifacts,
             },
             metrics={"findings": len(report.result.findings)},
+        )
+
+    def _execute_content_kb_classify(self, run: WorkerQueueItemRead) -> MacWorkerExecutionResult:
+        """Delegate to content_kb topic classifier."""
+        from content_kb.topic_classifier import classify_by_keywords
+
+        text = run.payload.get("text", "")
+        if not text:
+            return MacWorkerExecutionResult(
+                message="content_kb_classify skipped: no text provided",
+                status=JobStatus.FAILED,
+                error="payload.text is required",
+            )
+        result = classify_by_keywords(text)
+        return MacWorkerExecutionResult(
+            message=f"content_kb_classify: {result.primary_topic}",
+            result={
+                "primary_topic": result.primary_topic,
+                "confidence": result.confidence,
+                "alternatives": [
+                    {"topic": a.topic, "confidence": a.confidence}
+                    for a in result.alternatives
+                ],
+            },
+        )
+
+    def _execute_content_kb_ingest(self, run: WorkerQueueItemRead) -> MacWorkerExecutionResult:
+        """Full ingest pipeline: subtitle read → normalize → classify → index build.
+
+        Optionally signals a draft PR should be opened via result metadata.
+        The actual PR creation is a downstream concern (github_assistant or DAG).
+        """
+        from content_kb.contracts import SpeakerIndex, TimelineIndex, TopicIndex
+        from content_kb.index_builder import build_speaker_index, build_timeline_index, build_topic_index
+        from content_kb.repo_selector import resolve_repo_selection
+        from content_kb.subtitle_ingest import ingest_subtitle
+        from content_kb.topic_classifier import classify_by_keywords
+
+        payload = run.payload
+        file_path = payload.get("subtitle_text_path", "")
+        if not file_path:
+            return MacWorkerExecutionResult(
+                message="content_kb_ingest skipped: no subtitle_text_path",
+                status=JobStatus.FAILED,
+                error="payload.subtitle_text_path is required",
+            )
+
+        path = Path(file_path)
+        if not path.exists():
+            return MacWorkerExecutionResult(
+                message=f"content_kb_ingest skipped: file not found: {file_path}",
+                status=JobStatus.FAILED,
+                error=f"file not found: {file_path}",
+            )
+
+        title = payload.get("title", "") or path.stem
+        topic = payload.get("topic", "")
+        source_url = payload.get("source_url", "")
+        owner = payload.get("owner", "knowledge-base")
+        default_repo = payload.get("default_repo", "knowledge-base")
+        open_draft_pr = payload.get("open_draft_pr", False)
+
+        # 1. Classify if topic not provided
+        if not topic:
+            text = path.read_text(encoding="utf-8")
+            classification = classify_by_keywords(text)
+            topic = classification.primary_topic
+
+        # 2. Ingest subtitle
+        ingest_result = ingest_subtitle(
+            file_path=path,
+            title=title,
+            topic=topic,
+            source_url=source_url,
+        )
+
+        # 3. Resolve repo/directory
+        repo_selection = resolve_repo_selection(owner, default_repo, topic, title)
+
+        # 4. Build indexes from the ingested entry
+        entry = {
+            "topic": topic,
+            "title": title,
+            "slug": repo_selection.recommended_directory.split("/")[-1],
+            "speaker": payload.get("speakers", []),
+            "created_at": payload.get("created_at", ""),
+        }
+        topic_idx = build_topic_index(None, [entry])
+        speaker_idx = build_speaker_index(None, [entry])
+        timeline_idx = build_timeline_index(None, [entry])
+
+        # 5. Assemble result
+        result_data = {
+            "job_id": ingest_result.job_id,
+            "topic": topic,
+            "repo": repo_selection.recommended_repo,
+            "directory": repo_selection.recommended_directory,
+            "files_written": ingest_result.files_written,
+            "indexes": {
+                "topic": topic_idx.model_dump(),
+                "speaker": speaker_idx.model_dump(),
+                "timeline": timeline_idx.model_dump(),
+            },
+        }
+
+        # 6. PR callback hook — signal intent for downstream orchestration
+        if open_draft_pr:
+            result_data["draft_pr_requested"] = True
+            result_data["draft_pr_hint"] = {
+                "repo": repo_selection.recommended_repo,
+                "branch_prefix": "content-kb/ingest",
+                "title_prefix": f"docs(content-kb): ingest {title[:60]}",
+                "source_path": str(path),
+            }
+
+        return MacWorkerExecutionResult(
+            message=f"content_kb_ingest: {topic} → {repo_selection.recommended_repo}",
+            result=result_data,
+            metrics={
+                "files_written": len(ingest_result.files_written),
+                "indexes_built": 3,
+                "draft_pr_requested": int(open_draft_pr),
+            },
         )
 
     def _get_youtube_bridge(self) -> StandbyYouTubeBridgeService:

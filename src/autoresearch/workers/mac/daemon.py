@@ -33,11 +33,13 @@ class MacWorkerDaemon:
         client: MacWorkerClient,
         executor: MacWorkerExecutor,
         sleep: Callable[[float], None] = time.sleep,
+        content_kb_promotion_bridge=None,
     ) -> None:
         self._config = config
         self._client = client
         self._executor = executor
         self._sleep = sleep
+        self._content_kb_bridge = content_kb_promotion_bridge
         self._registered = False
         self._last_heartbeat_at = None
         self._last_claim_at = None
@@ -49,7 +51,8 @@ class MacWorkerDaemon:
         client = MacWorkerApiClient(config)
         claude_runtime = _build_claude_runtime(config)
         executor = MacWorkerExecutor(config, claude_runtime=claude_runtime)
-        return cls(config=config, client=client, executor=executor)
+        bridge = _build_content_kb_bridge(config)
+        return cls(config=config, client=client, executor=executor, content_kb_promotion_bridge=bridge)
 
     def run_once(self, *, now=None) -> bool:
         current = now or utc_now()
@@ -140,6 +143,7 @@ class MacWorkerDaemon:
 
         self._report_outcome(run=run, outcome=outcome)
         self._notify_telegram_result(run=run, outcome=outcome)
+        self._maybe_promote_content_kb(run=run, outcome=outcome)
         self._current_run_id = None
 
     def _report_outcome(self, *, run: WorkerQueueItemRead, outcome: MacWorkerExecutionResult) -> None:
@@ -198,6 +202,27 @@ class MacWorkerDaemon:
                 logger.info("Telegram notification sent for run %s (status=%d)", run.run_id, resp.status)
         except Exception:
             logger.warning("Failed to send Telegram notification for run %s", run.run_id, exc_info=True)
+
+    def _maybe_promote_content_kb(
+        self, *, run: WorkerQueueItemRead, outcome: MacWorkerExecutionResult,
+    ) -> None:
+        """After content_kb_ingest, trigger draft PR if requested."""
+        if run.task_type.value != "content_kb_ingest":
+            return
+        if self._content_kb_bridge is None:
+            return
+        promotion = self._content_kb_bridge.maybe_promote(
+            task_type=run.task_type.value,
+            result=outcome.result,
+        )
+        if promotion.pr_requested:
+            logger.info(
+                "content_kb promotion bridge: pr_requested=%s pr_attempted=%s pr_url=%s failure=%s",
+                promotion.pr_requested,
+                promotion.pr_attempted,
+                promotion.pr_url,
+                promotion.failure_reason,
+            )
 
     def _should_heartbeat(self, current) -> bool:
         if self._last_heartbeat_at is None:
@@ -259,6 +284,23 @@ def _build_claude_runtime(config: MacWorkerConfig) -> ClaudeRuntimeService | Non
         )
     except Exception:
         logger.warning("Failed to build ClaudeRuntimeService, claude_runtime disabled", exc_info=True)
+        return None
+
+
+def _build_content_kb_bridge(config: MacWorkerConfig):
+    """Build ContentKBPromotionBridge if environment supports it."""
+    try:
+        from autoresearch.core.services.content_kb_promotion_bridge import (
+            build_content_kb_promotion_bridge,
+        )
+
+        repos_root = config.housekeeping_root / "repos"
+        return build_content_kb_promotion_bridge(
+            repos_root=repos_root,
+            base_branch="main",
+        )
+    except Exception:
+        logger.warning("Failed to build content_kb promotion bridge, disabled", exc_info=True)
         return None
 
 
