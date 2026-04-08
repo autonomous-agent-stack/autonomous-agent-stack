@@ -1,101 +1,106 @@
 # Autonomous Agent Stack
 
-> 一个面向多智能体编排、受控执行与零信任加固的工程化平台。
+**Build trustworthy agent infrastructure across machines, identities, and organizations.**
 
 [![CI](https://github.com/srxly888-creator/autonomous-agent-stack/workflows/CI/badge.svg)](https://github.com/srxly888-creator/autonomous-agent-stack/actions/workflows/ci.yml)
 [![Quality Gates](https://github.com/srxly888-creator/autonomous-agent-stack/workflows/Quality%20Gates/badge.svg)](https://github.com/srxly888-creator/autonomous-agent-stack/actions/workflows/quality-gates.yml)
+[![RFC](https://img.shields.io/badge/RFC-4%20Draft-orange)](docs/rfc/)
 
-## 为什么选择 AAS
+[**简体中文**](README.zh-CN.md) | English
 
-大多数 AI Agent 项目让智能体直接操作代码库——**这很危险**。
+---
 
-AAS 采用不同的架构哲学：
+## Why AAS?
 
-| 传统 Agent 项目 | AAS |
-|----------------|-----|
-| Agent 直接 `git push` | Agent 只产出 patch，由 promotion gate 决策 |
-| Agent 拥有仓库写权限 | 受控执行 + 验证 + 审批后才能合并 |
-| 单点执行，难以扩展 | Control Plane / Worker 分离，支持多机编排 |
-| 状态散落各处 | SQLite 权威控制面 + 独立 artifact 存储 |
-| 安全边界模糊 | Zero-trust invariants：patch-only、deny-wins、single-writer |
+Most AI agent projects give agents direct access to codebases. **This is dangerous.**
 
-## 核心架构
+AAS takes a different approach:
+
+| Traditional Agents | AAS |
+|-------------------|-----|
+| Agent can `git push` directly | Agent only produces patches |
+| Agent owns repository write access | Controlled execution + validation + approval |
+| Single-point execution, hard to scale | Control plane / worker separation |
+| State scattered everywhere | SQLite authoritative control plane |
+| Security boundaries fuzzy | Zero-trust invariants: patch-only, deny-wins, single-writer |
+
+## Core Architecture
 
 ```mermaid
 flowchart LR
-    A[Planner<br/>扫描仓库，生成任务] --> B[Worker Contract<br/>JobSpec + Policy]
-    B --> C[Isolated Execution<br/>隔离沙盒执行]
-    C --> D[Validation Gate<br/>测试 + 策略检查]
-    D --> E[Promotion Gate<br/>审批 + clean base + artifact 检查]
-    E --> F{决策}
-    F -->|通过| G[Draft PR / Patch Artifact]
-    F -->|拒绝| H[记录审计日志]
+    A[Planner<br/>Scan repo, generate tasks] --> B[Worker Contract<br/>JobSpec + Policy]
+    B --> C[Isolated Execution<br/>Sandboxed execution]
+    C --> D[Validation Gate<br/>Tests + policy checks]
+    D --> E[Promotion Gate<br/>Approval + clean base + artifact check]
+    E --> F{Decision}
+    F -->|Pass| G[Draft PR / Patch Artifact]
+    F -->|Reject| H[Audit log]
 
     style A fill:#e1f5ff
     style C fill:#fff3e0
     style E fill:#f3e5f5
 ```
 
-### 关键设计原则
+### Key Design Principles
 
-1. **Brain 与 Hand 分离**：规划与执行独立，promotion gate 拥有最终决策权
-2. **Patch-Only 默认**：Worker 只能编辑文件，禁止 `git commit`/`push` 等操作
-3. **Deny-Wins 策略合并**：限制条件取更严格者，防止权限逃逸
-4. **Single Writer Lease**：可变状态操作必须有全局唯一写锁
-5. **Runtime Artifact 隔离**：`logs/`、`.masfactory_runtime/` 等永不进入 source patch
+1. **Brain and Hand Separation**: Planning and execution are independent; promotion gate has final authority
+2. **Patch-Only Default**: Workers can only edit files, never `git commit`/`push`
+3. **Deny-Wins Policy Merging**: Stricter constraints always win, preventing permission escalation
+4. **Single Writer Lease**: Mutable state operations require a global lock
+5. **Runtime Artifact Isolation**: `logs/`, `.masfactory_runtime/` never enter source patches
 
-## 5 分钟快速上手
+## Quick Start
 
-### 环境要求
+### Requirements
 
 - Python 3.11+
-- Docker 或 Colima（用于 ai-lab 沙盒，可选）
+- Docker or Colima (for ai-lab sandbox, optional)
 
-### 启动步骤
+### Installation
 
 ```bash
-# 克隆仓库
+# Clone the repository
 git clone https://github.com/srxly888-creator/autonomous-agent-stack.git
 cd autonomous-agent-stack
 
-# 一键安装依赖
+# Install dependencies
 make setup
 
-# 健康检查
+# Health check
 make doctor
 
-# 启动服务
+# Start services
 make start
 ```
 
-启动后可访问：
-- API 文档：http://127.0.0.1:8001/docs
-- Admin 面板：http://127.0.0.1:8001/panel
-- 健康检查：http://127.0.0.1:8001/health
+Visit:
+- API Docs: http://127.0.0.1:8001/docs
+- Admin Panel: http://127.0.0.1:8001/panel
+- Health Check: http://127.0.0.1:8001/health
 
-### 验证安装
+### Verify Installation
 
 ```bash
-# 运行测试套件
+# Run test suite
 make test-quick
 
-# 代码质量检查
+# Code quality checks
 make hygiene-check
 ```
 
-## 你可以用 AAS 做什么
+## What You Can Do With AAS
 
-### 1. GitHub 仓库自动化
+### 1. GitHub Repository Automation
 
 ```python
-# 通过 API 触发仓库分析任务
+# Trigger repository analysis via API
 POST /api/v1/github-assistant/triage
 {
   "repo": "owner/repo",
   "issue_number": 123
 }
 
-# 让 AI 审查 PR
+# Let AI review PRs
 POST /api/v1/github-assistant/review-pr
 {
   "repo": "owner/repo",
@@ -103,153 +108,156 @@ POST /api/v1/github-assistant/review-pr
 }
 ```
 
-### 2. 远程 Worker 编排
+### 2. Remote Worker Orchestration
 
 ```bash
-# Linux 远端节点作为 OpenHands 执行面
+# Linux remote node as OpenHands execution surface
 OPENHANDS_RUNTIME=host make doctor-linux
 OPENHANDS_RUNTIME=host make start
 ```
 
-### 3. 自定义 Agent 技能
+### 3. Custom Agent Skills
 
 ```bash
-# 扫描并加载本地技能
+# Scan and load local skills
 make agent-run AEP_AGENT=custom AEP_TASK="your task"
 
-# 托管技能生命周期
+# Manage skill lifecycle
 POST /api/v1/skills/register
 POST /api/v1/skills/promote
 ```
 
-### 4. Telegram 集成
+### 4. Telegram Integration
 
 ```bash
-# 配置环境变量
+# Configure environment variables
 export AUTORESEARCH_TELEGRAM_BOT_TOKEN="your_token"
 export AUTORESEARCH_TELEGRAM_ALLOWED_UIDS="your_uid"
 
-# 通过 Telegram 触发任务
-# 在 Telegram 中发送 /review 或 /analyze
+# Trigger tasks via Telegram
+# Send /review or /analyze in Telegram
 ```
 
-## 文档导航
+## Documentation
 
-| 文档 | 适合谁 | 内容 |
-|------|--------|------|
-| [ARCHITECTURE.md](./ARCHITECTURE.md) | 所有人 | 权威架构总图，zero-trust invariants |
-| [docs/QUICK_START.md](./docs/QUICK_START.md) | 新用户 | 详细启动指南 |
-| [docs/linux-remote-worker.md](./docs/linux-remote-worker.md) | 运维 | Linux 远端节点部署 |
-| [docs/agent-execution-protocol.md](./docs/agent-execution-protocol.md) | 开发者 | AEP 协议规范 |
-| [docs/github-assistant-quickstart.md](./docs/github-assistant-quickstart.md) | GitHub 用户 | GitHub 助理使用指南 |
+| Document | For | Content |
+|----------|-----|---------|
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | Everyone | Canonical architecture, zero-trust invariants |
+| [WHY_AAS.md](./WHY_AAS.md) | Everyone | Why AAS exists and where we're going |
+| [docs/QUICK_START.md](./docs/QUICK_START.md) | New Users | Detailed setup guide |
+| [docs/linux-remote-worker.md](./docs/linux-remote-worker.md) | Ops | Linux remote node deployment |
+| [docs/agent-execution-protocol.md](./docs/agent-execution-protocol.md) | Developers | AEP protocol specification |
+| [docs/github-assistant-quickstart.md](./docs/github-assistant-quickstart.md) | GitHub Users | GitHub assistant usage guide |
 
-## 贡献指南
+## Roadmap
 
-我们欢迎各种形式的贡献！
+AAS is evolving into a distributed orchestration platform:
 
-### 快速贡献途径
+### Phase 1: Stable Release ✅
+- Single-machine control plane + isolated execution
+- SQLite authoritative state + artifact separation
+- GitHub Assistant, Telegram integration
+- OpenHands / Claude Code CLI adapters
 
-1. **报告 Bug**：在 Issues 中提交详细描述
-2. **提议新功能**：打开 RFC Issue 讨论设计
-3. **提交 PR**：
-   - Fork 仓库
-   - 创建特性分支
-   - 确保通过 CI 和 Quality Gates
-   - 提交 PR 并描述变更
+### Phase 2: Distributed Execution (In Progress)
+**RFC**: [docs/rfc/distributed-execution.md](./docs/rfc/distributed-execution.md)
+- Linux control plane + Mac execution nodes
+- Heartbeat + lease + durable queue
+- Offline recovery with outbox/inbox pattern
 
-### 开发者工作流
+### Phase 3: Multi-Machine Pools
+**RFC**: [docs/rfc/three-machine-architecture.md](./docs/rfc/three-machine-architecture.md)
+- Linux (OpenHands) + Mac mini (primary) + MacBook (identity-bound)
+- Capability/pool routing instead of machine-hardcoded
+- Intelligent task scheduling and failover
+
+### Phase 4: Federation Network
+**RFC**: [docs/rfc/federation-protocol.md](./docs/rfc/federation-protocol.md)
+- Layered trust federation (open → trusted → strategic)
+- Graduated resource sharing (compute / workers / agents)
+- Revocable federation with audit boundaries
+
+## Contributing
+
+We welcome all forms of contributions!
+
+### Quick Ways to Contribute
+
+1. **Report Bugs**: Submit detailed descriptions in Issues
+2. **Propose Features**: Open RFC Issues to discuss design
+3. **Submit PRs**:
+   - Fork the repository
+   - Create a feature branch
+   - Ensure CI and Quality Gates pass
+   - Submit PR with description
+
+### Developer Workflow
 
 ```bash
-# 1. 创建特性分支
+# 1. Create feature branch
 git checkout -b feature/your-feature
 
-# 2. 开发并测试
+# 2. Develop and test
 make test-quick
 make review-gates-local
 
-# 3. 提交变更
+# 3. Commit changes
 git commit -m "feat: add your feature"
 
-# 4. 推送并创建 PR
+# 4. Push and create PR
 git push origin feature/your-feature
 ```
 
-### 代码规范
+### Code Standards
 
-- Python: 遵循 PEP 8，使用 `mypy` 类型检查
-- 安全: 通过 `bandit` 和 `semgrep` 扫描
-- 测试: 新功能需要测试覆盖，保持 80%+ 覆盖率
+- **Python**: Follow PEP 8, use `mypy` for type checking
+- **Security**: Pass `bandit` and `semgrep` scans
+- **Tests**: New features require test coverage, maintain 80%+ coverage
 
-## 架构演进路线
+See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
-AAS 正在向分布式编排平台演进：
-
-### Phase 1: 当前稳定版本 ✅
-- 单机 control plane + isolated execution
-- SQLite 权威状态 + artifact 分离
-- GitHub Assistant、Telegram 集成
-- OpenHands / Claude Code CLI 适配器
-
-### Phase 2: 分布式执行（进行中）
-**RFC**: [docs/rfc/distributed-execution.md](./docs/rfc/distributed-execution.md)
-- Linux 控制面 + Mac 执行节点
-- 心跳 + 租约 + durable queue
-- 离线恢复与 outbox/inbox 模式
-
-### Phase 3: 多机异构池
-**RFC**: [docs/rfc/three-machine-architecture.md](./docs/rfc/three-machine-architecture.md)
-- Linux（OpenHands）+ Mac mini（主力）+ MacBook（身份绑定）
-- Capability/pool 路由，而非机器硬编码
-- 智能任务调度与故障转移
-
-### Phase 4: Federation 网络
-**RFC**: [docs/rfc/federation-protocol.md](./docs/rfc/federation-protocol.md)
-- 分层信任联邦（开放 → 互信 → 战略）
-- 算力/worker/agent 分级共享
-- 可撤销建交与审计边界
-
-## 常见问题
+## FAQ
 
 <details>
-<summary>Q: AAS 和其他 Agent 项目有什么区别？</summary>
+<summary><b>Q: How is AAS different from other agent projects?</b></summary>
 
-A: 核心区别在于 **安全架构**。AAS 把"思考"（planner）、"执行"（worker）和"决策"（promotion gate）三层分离，智能体不能直接修改代码库，必须经过验证和审批。这模仿了成熟的 CI/CD 流程，而不是让 AI 直接 `git push`。
+A: The core difference is **security architecture**. AAS separates "thinking" (planner), "execution" (worker), and "decision" (promotion gate). Agents cannot directly modify codebases—they must go through validation and approval. This mimics mature CI/CD processes instead of letting AI `git push` directly.
 </details>
 
 <details>
-<summary>Q: 支持哪些 AI 后端？</summary>
+<summary><b>Q: Which AI backends are supported?</b></summary>
 
-A: 当前支持：
-- OpenHands（主力，受控执行模式）
-- Claude Code CLI（仓库级任务）
-- Codex / 自定义脚本（通过 AEP 适配器）
+A: Currently supported:
+- **OpenHands** (primary, controlled execution mode)
+- **Claude Code CLI** (repository-level tasks)
+- **Codex** / custom scripts (via AEP adapters)
 </details>
 
 <details>
-<summary>Q: 如何在生产环境部署？</summary>
+<summary><b>Q: How to deploy in production?</b></summary>
 
-A: 参考 [docs/linux-remote-worker.md](./docs/linux-remote-worker.md) 进行远端节点部署。核心思路是：控制面在稳定主机，执行节点可以是任意有 GPU/特殊权限的机器。
+A: See [docs/linux-remote-worker.md](docs/linux-remote-worker.md) for remote node deployment. The core idea: control plane on stable host, execution nodes can be any machine with GPU/special permissions.
 </details>
 
-## 许可证
+## License
 
-MIT License - 详见 [LICENSE](./LICENSE)
+MIT License - see [LICENSE](./LICENSE)
 
-## 致谢
+## Acknowledgments
 
-本项目深受以下开源项目启发：
+Inspired by excellent open-source projects:
 
-- [MASFactory](https://github.com/BUPT-GAMMA/MASFactory) - 多智能体编排框架
-- [deer-flow](https://github.com/nxs9bg24js-tech/deer-flow) - 并发编排与沙盒隔离
-- [OpenClaw](https://github.com/openclaw/openclaw) - 多渠道接入与技能系统
-- [AutoResearch](https://github.com/karpathy/autoresearch) - Karpathy 循环
+- [MASFactory](https://github.com/BUPT-GAMMA/MASFactory) - Multi-agent orchestration framework
+- [deer-flow](https://github.com/nxs9bg24js-tech/deer-flow) - Concurrent orchestration and sandbox isolation
+- [OpenClaw](https://github.com/openclaw/openclaw) - Multi-channel access and skill system
+- [AutoResearch](https://github.com/karpathy/autoresearch) - Karpathy loop
 
-## 联系方式
+## Contact
 
-- GitHub Issues: 技术讨论和 Bug 报告
-- Discussions: 架构设计和 RFC 讨论
-- Email: srxly888@gmail.com
+- **GitHub Issues**: Technical discussions and bug reports
+- **Discussions**: Architecture design and RFC discussions
+- **Email**: srxly888@gmail.com
 
 ---
 
-**让我们一起构建更安全、更可靠的 AI Agent 基础设施！** 🚀
+**Join us in building safer, more reliable AI agent infrastructure!** 🚀
