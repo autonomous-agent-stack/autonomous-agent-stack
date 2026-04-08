@@ -53,6 +53,7 @@ from autoresearch.core.services.variants import VariantService
 from autoresearch.core.services.worker_scheduler import WorkerSchedulerService
 from autoresearch.core.services.worker_registry import WorkerRegistryService
 from autoresearch.core.services.youtube_agent import YouTubeAgentService
+from autoresearch.core.services.github_admin import GitHubAdminService
 from autoresearch.shared.models import (
     ClaudeAgentRunRead,
     ClaudeRuntimeSessionRecordRead,
@@ -84,6 +85,7 @@ from autoresearch.shared.models import (
 )
 from autoresearch.shared.autoresearch_planner_contract import AutoResearchPlanRead
 from autoresearch.shared.manager_agent_contract import ManagerDispatchRead
+from github_admin.contracts import GitHubAdminRunRead
 from autoresearch.shared.store import SQLiteModelRepository
 from autoresearch.train.services.experiments import ExperimentService
 from autoresearch.train.services.optimizations import OptimizationService
@@ -541,3 +543,16 @@ def clear_dependency_caches() -> None:
     get_admin_config_service.cache_clear()
     get_admin_secret_cipher.cache_clear()
     get_admin_auth_service.cache_clear()
+    get_github_admin_service.cache_clear()
+
+
+@lru_cache(maxsize=1)
+def get_github_admin_service() -> GitHubAdminService:
+    return GitHubAdminService(
+        repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="github_admin_runs",
+            model_cls=GitHubAdminRunRead,
+        ),
+        repo_root=_repo_root(),
+    )

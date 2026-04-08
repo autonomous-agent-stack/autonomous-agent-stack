@@ -36,7 +36,9 @@ def test_mainline_webhook_happy_path_with_secret_header(
     assert response.status_code == 200
     payload = response.json()
     assert payload["accepted"] is True
-    assert payload["agent_run_id"] is not None
+    assert payload["agent_run_id"] is None
+    assert payload["metadata"]["routed_to"] == "worker_queue"
+    assert payload["metadata"]["run_id"] is not None
 
 
 def test_mainline_webhook_rejects_missing_secret_before_replay_guard(
