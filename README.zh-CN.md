@@ -148,6 +148,7 @@ export AUTORESEARCH_TELEGRAM_ALLOWED_UIDS="your_uid"
 | [docs/linux-remote-worker.md](./docs/linux-remote-worker.md) | 运维 | Linux 远端节点部署 |
 | [docs/agent-execution-protocol.md](./docs/agent-execution-protocol.md) | 开发者 | AEP 协议规范 |
 | [docs/github-assistant-quickstart.md](./docs/github-assistant-quickstart.md) | GitHub 用户 | GitHub 助理使用指南 |
+| [docs/rfc/README.zh-CN.md](./docs/rfc/README.zh-CN.md) | 架构爱好者 | RFC 索引与流程说明 |
 
 ## 发展路线
 
