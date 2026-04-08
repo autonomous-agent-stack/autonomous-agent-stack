@@ -1,0 +1,72 @@
+version: "1"
+
+agent:
+  id: "content_kb"
+  name: "Content KB Agent"
+  description: "Content knowledge base specialist"
+  role: "specialist"
+
+routing:
+  task_types:
+    - "content_kb.classify_topic"
+    - "content_kb.build_index"
+  keywords:
+    - "内容分类"
+    - "索引构建"
+    - "内容知识库"
+    - "内容索引"
+
+execution:
+  default_driver: "claude_code"
+  fallback_drivers: []
+  workspace_mode: "isolated"
+  allow_code_change: true
+  require_patch_gate: true
+
+inputs:
+  required:
+    - "task_brief"
+  optional:
+    - "attachments"
+    - "business_case"
+
+outputs:
+  schema:
+    type: "object"
+    required:
+      - "status"
+      - "summary"
+  artifacts:
+    - "index.md"
+    - "readme.md"
+
+permissions:
+  filesystem:
+    read:
+      - "src/content_kb/"
+      - "tests/content_kb/"
+      - "configs/content_kb_profiles/"
+    write:
+      - "artifacts/content_kb/"
+      - "logs/"
+  network: "deny"
+  git:
+    commit: false
+    push: false
+
+gates:
+  validators:
+    - "pytest -q tests/content_kb"
+  approvals:
+    human_required_for:
+      - "push_to_remote"
+
+prompts:
+  intake: "agents/content_kb/prompts/intake.md"
+
+runtime:
+  deterministic_execution_required: false
+  llm_must_not_do_final_math: false
+  report_formats:
+    - "markdown"
+    - "json"
