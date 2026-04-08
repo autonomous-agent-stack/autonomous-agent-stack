@@ -30,7 +30,7 @@ PROMOTE_BRANCH_PREFIX ?= codex/auto-upgrade
 PROMOTE_PUSH ?= 0
 PROMOTE_OPEN_DRAFT_PR ?= 0
 
-.PHONY: help setup doctor doctor-linux start test-quick clean
+.PHONY: help setup doctor doctor-linux start test-core test-quick clean
 .PHONY: ai-lab ai-lab-setup ai-lab-check ai-lab-up ai-lab-down ai-lab-status ai-lab-shell ai-lab-run masfactory-flight hygiene-check openhands openhands-dry-run openhands-controlled openhands-controlled-dry-run openhands-demo agent-run promote-run
 .PHONY: review-gates-local assistant-doctor assistant-triage assistant-execute assistant-review-pr assistant-release-plan assistant-schedule
 .PHONY: telegram-butler-start telegram-butler-status telegram-butler-stop
@@ -42,6 +42,7 @@ help:
 	@echo "  make doctor      Run environment checks"
 	@echo "  make doctor-linux Run Linux remote-worker checks"
 	@echo "  make start       Run doctor then start local API"
+	@echo "  make test-core   Run README/API/worker/YouTube core-path tests"
 	@echo "  make ai-lab      One-key launch AI lab shell"
 	@echo "  make ai-lab-setup Initialize AI lab user and quota volume"
 	@echo "  make ai-lab-check Run guardrail checks only"
@@ -106,6 +107,23 @@ start:
 		exit 1; \
 	fi
 	PORT=$(PORT) HOST=$(HOST) bash scripts/dev-start.sh
+
+test-core:
+	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \
+		echo "Missing $(VENV_PYTHON). Run 'make setup' first."; \
+		exit 1; \
+	fi
+	PYTHONPATH=src $(VENV_PYTHON) -m pytest \
+		tests/test_readme_contract.py \
+		tests/test_api_surface_contract.py \
+		tests/test_worker_registry.py \
+		tests/test_worker_scheduler.py \
+		tests/test_worker_run_reporting.py \
+		tests/test_mac_worker_daemon.py \
+		tests/test_standby_youtube_bridge.py \
+		tests/test_standby_youtube_autoflow.py \
+		tests/test_gateway_telegram_guards.py \
+		-q
 
 test-quick:
 	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \

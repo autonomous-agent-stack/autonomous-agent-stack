@@ -21,7 +21,7 @@
 ## 3 分钟上手
 
 ```bash
-cd /Volumes/PS1008/Github/autonomous-agent-stack
+cd /path/to/autonomous-agent-stack
 # 确保这里用的是 Python 3.11+
 make setup
 make doctor
@@ -60,6 +60,24 @@ AUTORESEARCH_UPSTREAM_WATCH_MAX_COMMITS=5
 
 当前代码会优先使用 `AUTORESEARCH_TELEGRAM_BOT_TOKEN`；旧变量 `TELEGRAM_BOT_TOKEN` 还能兼容，但已经是 deprecated。
 
+## 当前主链路（2026-04）
+
+如果你是第一次进这个仓库，优先按下面这条主链去读代码，不要再从旧报告或历史分支倒推：
+
+- FastAPI 控制面入口：`src/autoresearch/api/main.py`
+- Telegram 薄入口：`src/autoresearch/api/routers/gateway_telegram.py`
+- worker 注册 / claim / report：`src/autoresearch/api/routers/workers.py`
+- worker run enqueue：`src/autoresearch/api/routers/worker_runs.py`
+- Telegram webhook ACK：`POST /api/v1/gateway/telegram/webhook`
+- YouTube autoflow enqueue：`POST /api/v1/worker-runs/youtube-autoflow`
+- queue / lease 调度：`src/autoresearch/core/services/worker_scheduler.py`
+- Mac standby daemon：`src/autoresearch/workers/mac/daemon.py`
+- standby 到 YouTube 的手动桥：`src/autoresearch/core/services/standby_youtube_bridge.py`
+- YouTube -> GitHub 自动流：`src/autoresearch/core/services/standby_youtube_autoflow.py`
+- GitHub 发布执行面：`src/autoresearch/github_assistant/service.py`
+
+如果你只是想先验证这条主链没坏，先跑 `make test-core`，再去改核心逻辑。
+
 ## Linux 远端节点
 
 如果你准备把 Linux 当“执行面”来跑真实 OpenHands，最稳的第一步不是照搬 Mac/Colima，而是直接走 `host` runtime。
@@ -88,6 +106,7 @@ make setup
 make doctor
 make doctor-linux
 make start
+make test-core
 make test-quick
 make ai-lab
 make ai-lab-check
@@ -106,6 +125,8 @@ make review-gates-local
 ```
 
 `make hygiene-check` 会把结果写到 `logs/audit/prompt_hygiene/report.txt` 和 `logs/audit/prompt_hygiene/report.json`。
+
+`make test-core` 会跑 README 契约、FastAPI 主 surface、worker queue / lease、Mac standby daemon、YouTube bridge / autoflow 这些核心链路测试，适合作为入场第一步和依赖升级后的回归基线。
 
 `make openhands` 会调用 `scripts/openhands_start.sh`（CLI 直连模式），默认注入 `DIFF_ONLY=1` 与 `MAX_FILES_PER_STEP=3` 的执行约束；当前真实边界请以 [ARCHITECTURE.md](./ARCHITECTURE.md) 为总图，以 [memory/SOP/MASFactory_Strict_Execution_v1.md](./memory/SOP/MASFactory_Strict_Execution_v1.md) 为执行清单。
 
@@ -126,6 +147,13 @@ openhands --exp --headless -t "你的任务"
 `make agent-run` 走 AEP v0 统一执行内核：`JobSpec -> driver adapter -> patch gate -> decision`，OpenHands/Codex/本地脚本都可作为 driver 接入。
 
 `make review-gates-local` 会在本地运行 reviewer 核心模块的 `mypy + bandit + semgrep`，与 CI 的 `Quality Gates` 流程保持一致。
+
+## 依赖稳定性基线
+
+- `make setup` 默认优先安装 `requirements.lock`；只有 lock 缺失时才会回退到 `requirements.txt`
+- `requirements.txt` 是人工维护的宽松依赖声明，`requirements.lock` 才是当前可复现安装基线
+- reviewer 工具链单独固定在 `requirements-review.lock`
+- 需要升级依赖时，先改 `requirements.txt`，再执行 `pip-compile --output-file=requirements.lock requirements.txt`，最后至少回归 `make test-core`
 
 ## 本地 CLI 切换工具的边界
 
@@ -205,15 +233,20 @@ claude -p "请先阅读 CLAUDE.md 和相关 docs，再完成这份 task brief：
 
 如果你把 `autonomous-agent-stack` 当作长期在线外环，这种接法的重点不是“调用某个内部 API”，而是“把执行边界收在仓库目录和 task brief 上”。
 
-## 关键入口
+## 当前关键入口
 
 - [API 主入口](./src/autoresearch/api/main.py)
-- [工作流引擎](./src/workflow/workflow_engine.py)
-- [Telegram Gateway（主线）](./src/autoresearch/api/routers/gateway_telegram.py)
+- [Telegram Gateway（薄入口）](./src/autoresearch/api/routers/gateway_telegram.py)
+- [Worker 注册 / claim / report 路由](./src/autoresearch/api/routers/workers.py)
+- [Worker run enqueue 路由](./src/autoresearch/api/routers/worker_runs.py)
+- [Worker 调度与 lease](./src/autoresearch/core/services/worker_scheduler.py)
+- [Mac standby daemon](./src/autoresearch/workers/mac/daemon.py)
+- [YouTube 手动 bridge](./src/autoresearch/core/services/standby_youtube_bridge.py)
+- [YouTube -> GitHub autoflow](./src/autoresearch/core/services/standby_youtube_autoflow.py)
+- [GitHub 助理发布服务](./src/autoresearch/github_assistant/service.py)
+- [受控技能注册](./src/autoresearch/core/services/managed_skill_registry.py)
+- [工作流引擎（legacy workflow path）](./src/workflow/workflow_engine.py)
 - [Telegram Webhook（legacy compatibility only）](./src/gateway/telegram_webhook.py)
-- [自集成服务](./src/autoresearch/core/services/self_integration.py)
-- [自集成路由](./src/autoresearch/api/routers/integrations.py)
-- [技能注册表](./src/opensage/skill_registry.py)
 - [MASFactory 骨架](./src/masfactory/graph.py)
 - [MASFactory 首航示例](./examples/masfactory_first_flight.py)
 
