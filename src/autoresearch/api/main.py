@@ -134,6 +134,7 @@ def create_app() -> FastAPI:
         ("autoresearch.api.routers.panel", "router", "panel api"),
         ("autoresearch.api.routers.capabilities", "router", "capabilities"),
         ("autoresearch.api.routers.github_assistant", "router", "github assistant"),
+        ("autoresearch.api.routers.github_admin", "router", "github admin"),
         ("autoresearch.api.routers.approvals", "router", "approvals"),
         ("autoresearch.api.routers.gateway_telegram", "router", "telegram gateway"),
         ("autoresearch.api.routers.integrations", "router", "integrations"),
