@@ -1,264 +1,136 @@
 # Autonomous Agent Stack
 
-**跨机器、跨身份、跨组织，构建可信的自治智能体协作底座。**
+**面向自治智能体的受控基础设施栈。**
+
+在不把仓库控制权交给 Agent 的前提下，让 OpenHands、Codex 和自定义执行器运行在零信任安全、补丁式执行、可审计执行流和显式晋升门之下。
 
 [![CI](https://github.com/srxly888-creator/autonomous-agent-stack/workflows/CI/badge.svg)](https://github.com/srxly888-creator/autonomous-agent-stack/actions/workflows/ci.yml)
 [![Quality Gates](https://github.com/srxly888-creator/autonomous-agent-stack/workflows/Quality%20Gates/badge.svg)](https://github.com/srxly888-creator/autonomous-agent-stack/actions/workflows/quality-gates.yml)
 [![RFC](https://img.shields.io/badge/RFC-4%20篇-orange)](docs/rfc/)
 
-English | [**简体中文**](README.zh-CN.md)
+[English](README.md) | **简体中文**
 
 ---
 
-## 为什么选择 AAS？
+## 它是什么
 
-大多数 AI Agent 项目让智能体直接操作代码库——**这很危险**。
+Autonomous Agent Stack（AAS）是一套面向自治执行的控制面。它把规划、隔离执行、验证和晋升拆开，避免任何单一执行器同时拥有“发现任务、修改代码、自我审批、直接发布”的完整权力链。
 
-AAS 采用不同的架构哲学：
+这个仓库不是常见的“AI agent 能直接改仓库”的演示项目，而是给想要接入 OpenHands、Codex 或自定义 Agent、同时又不愿放弃治理边界的团队准备的基础设施。在 AAS 里，这些工具是受控执行面，不是系统主脑。
 
-| 传统 Agent 项目 | AAS |
-|----------------|-----|
-| Agent 可直接 `git push` | Agent 只产出 patch |
-| Agent 拥有仓库写权限 | 受控执行 + 验证 + 审批 |
-| 单点执行，难以扩展 | Control Plane / Worker 分离 |
-| 状态散落各处 | SQLite 权威控制面 |
-| 安全边界模糊 | 零信任原则：patch-only、deny-wins、single-writer |
+当前主线聚焦于单仓库控制面、隔离执行和晋升检查；分布式执行与联邦能力放在 RFC 里持续演进。
 
-## 核心架构
+## 为什么它不一样
 
-```mermaid
-flowchart LR
-    A[Planner<br/>扫描仓库，生成任务] --> B[Worker Contract<br/>JobSpec + Policy]
-    B --> C[Isolated Execution<br/>隔离沙盒执行]
-    C --> D[Validation Gate<br/>测试 + 策略检查]
-    D --> E[Promotion Gate<br/>审批 + clean base + artifact 检查]
-    E --> F{决策}
-    F -->|通过| G[Draft PR / Patch Artifact]
-    F -->|拒绝| H[审计日志]
+| 常见 Agent 项目 | AAS |
+|---|---|
+| Agent 直接持有仓库写权限 | 执行器只生成有边界的补丁候选 |
+| 规划、执行、合并权集中在一个运行时 | 规划器、执行器、晋升门彼此分离 |
+| 验证流程可选，或者靠人工兜底 | 策略检查、测试和晋升规则属于主路径 |
+| 外部工具天然变成控制面 | OpenHands、Codex、自定义 Agent 都接在受控控制面之下 |
+| 运行时产物容易混进源码变更 | 运行时产物与源码晋升严格隔离 |
+| 信任边界靠约定 | 零信任约束明确且可审计 |
 
-    style A fill:#e1f5ff
-    style C fill:#fff3e0
-    style E fill:#f3e5f5
+## 核心模型
+
+```text
+规划器 -> 隔离执行器 -> 验证门 -> 晋升门 -> 补丁产物 / 草稿合并请求
 ```
 
-### 关键设计原则
+核心约束：
 
-1. **脑手分离**：规划与执行独立，promotion gate 拥有最终决策权
-2. **Patch-Only 默认**：Worker 只能编辑文件，禁止 `git commit`/`push` 等操作
-3. **Deny-Wins 策略合并**：限制条件取更严格者，防止权限逃逸
-4. **Single Writer Lease**：可变状态操作必须有全局唯一写锁
-5. **Runtime Artifact 隔离**：`logs/`、`.masfactory_runtime/` 等永不进入 source patch
+- 默认补丁式执行
+- 更严格规则优先
+- 可变状态采用单写者晋升
+- 运行时产物不进入源码晋升
+- 升级为草稿合并请求之前必须满足干净基线
 
-## 快速上手
+更深入的实现细节放在 [ARCHITECTURE.md](ARCHITECTURE.md)，架构演进与边界讨论放在 [docs/rfc/README.zh-CN.md](docs/rfc/README.zh-CN.md)。
 
-### 环境要求
+## 快速开始
+
+环境要求：
 
 - Python 3.11+
-- Docker 或 Colima（用于 ai-lab 沙盒，可选）
-
-### 安装步骤
+- `make`
+- Docker 或 Colima，用于 `ai-lab` 和依赖沙箱的流程；仅本地启动基础服务时不是必需项
 
 ```bash
-# 克隆仓库
 git clone https://github.com/srxly888-creator/autonomous-agent-stack.git
 cd autonomous-agent-stack
 
-# 安装依赖
 make setup
-
-# 健康检查
 make doctor
-
-# 启动服务
 make start
 ```
 
 启动后可访问：
-- API 文档：http://127.0.0.1:8001/docs
-- 管理面板：http://127.0.0.1:8001/panel
-- 健康检查：http://127.0.0.1:8001/health
 
-### 验证安装
+- API 文档：`http://127.0.0.1:8001/docs`
+- 管理面板：`http://127.0.0.1:8001/panel`
+- 健康检查：`http://127.0.0.1:8001/health`
+
+本地验证：
 
 ```bash
-# 运行测试套件
 make test-quick
-
-# 代码质量检查
 make hygiene-check
 ```
 
-## 你可以用 AAS 做什么
+如果你需要更完整的安装与排障说明，请看 [docs/QUICK_START.md](docs/QUICK_START.md)。如果要继续到远端或多机执行，先读 [docs/linux-remote-worker.md](docs/linux-remote-worker.md)。
 
-### 1. GitHub 仓库自动化
+## 受控集成方式
 
-```python
-# 通过 API 触发仓库分析任务
-POST /api/v1/github-assistant/triage
-{
-  "repo": "owner/repo",
-  "issue_number": 123
-}
+AAS 的目标不是替代各种执行运行时，而是在不放弃治理能力的前提下接入它们：
 
-# 让 AI 审查 PR
-POST /api/v1/github-assistant/review-pr
-{
-  "repo": "owner/repo",
-  "pr_number": 456
-}
-```
+- 把 OpenHands 作为受补丁式合约和晋升门约束的执行器
+- 通过 controlled execution 与 AEP 风格任务契约接入 Codex 和自定义适配器
+- 用远端执行器承接机器特定能力、身份凭据或隔离执行面
+- 把 GitHub 触发、聊天入口等统一收口回同一条控制面主路径
 
-### 2. 远程 Worker 编排
-
-```bash
-# Linux 远端节点作为 OpenHands 执行面
-OPENHANDS_RUNTIME=host make doctor-linux
-OPENHANDS_RUNTIME=host make start
-```
-
-### 3. 自定义 Agent 技能
-
-```bash
-# 扫描并加载本地技能
-make agent-run AEP_AGENT=custom AEP_TASK="your task"
-
-# 托管技能生命周期
-POST /api/v1/skills/register
-POST /api/v1/skills/promote
-```
-
-### 4. Telegram 集成
-
-```bash
-# 配置环境变量
-export AUTORESEARCH_TELEGRAM_BOT_TOKEN="your_token"
-export AUTORESEARCH_TELEGRAM_ALLOWED_UIDS="your_uid"
-
-# 通过 Telegram 触发任务
-# 在 Telegram 中发送 /review 或 /analyze
-```
+相关文档见 [docs/openhands-cli-integration.md](docs/openhands-cli-integration.md)、[docs/agent-execution-protocol.md](docs/agent-execution-protocol.md) 和 [docs/linux-remote-worker.md](docs/linux-remote-worker.md)。
 
 ## 文档导航
 
-| 文档 | 适合谁 | 内容 |
-|------|--------|------|
-| [ARCHITECTURE.md](./ARCHITECTURE.md) | 所有人 | 权威架构总图，zero-trust invariants |
-| [WHY_AAS.zh-CN.md](./WHY_AAS.zh-CN.md) | 所有人 | 为什么需要 AAS 以及发展方向 |
-| [docs/QUICK_START.md](./docs/QUICK_START.md) | 新用户 | 详细启动指南 |
-| [docs/linux-remote-worker.md](./docs/linux-remote-worker.md) | 运维 | Linux 远端节点部署 |
-| [docs/agent-execution-protocol.md](./docs/agent-execution-protocol.md) | 开发者 | AEP 协议规范 |
-| [docs/github-assistant-quickstart.md](./docs/github-assistant-quickstart.md) | GitHub 用户 | GitHub 助理使用指南 |
-| [docs/rfc/README.zh-CN.md](./docs/rfc/README.zh-CN.md) | 架构爱好者 | RFC 索引与流程说明 |
+先读这些：
 
-## 发展路线
+- [WHY_AAS.zh-CN.md](WHY_AAS.zh-CN.md)：项目动机与方向
+- [docs/QUICK_START.md](docs/QUICK_START.md)：详细启动与排障
+- [CONTRIBUTING.md](CONTRIBUTING.md)：贡献流程与协作约定
 
-AAS 正在向分布式编排平台演进：
+想深入理解：
 
-### Phase 1: 稳定版本 ✅
-- 单机 control plane + 隔离执行
-- SQLite 权威状态 + artifact 分离
-- GitHub Assistant、Telegram 集成
-- OpenHands / Claude Code CLI 适配器
+- [ARCHITECTURE.md](ARCHITECTURE.md)：当前权威架构说明
+- [docs/agent-execution-protocol.md](docs/agent-execution-protocol.md)：执行契约与策略模型
+- [docs/api-reference.md](docs/api-reference.md)：API 参考
 
-### Phase 2: 分布式执行（进行中）
-**RFC**: [docs/rfc/distributed-execution.md](./docs/rfc/distributed-execution.md)
-- Linux 控制面 + Mac 执行节点
-- 心跳 + 租约 + durable queue
-- 离线恢复与 outbox/inbox 模式
+想看集成与演进：
 
-### Phase 3: 多机异构池
-**RFC**: [docs/rfc/three-machine-architecture.md](./docs/rfc/three-machine-architecture.md)
-- Linux（OpenHands）+ Mac mini（主力）+ MacBook（身份绑定）
-- Capability/pool 路由，而非机器硬编码
-- 智能任务调度与故障转移
+- [docs/openhands-cli-integration.md](docs/openhands-cli-integration.md)：把 OpenHands 接成受控 worker
+- [docs/github-assistant-quickstart.md](docs/github-assistant-quickstart.md)：GitHub 助手用法
+- [docs/rfc/README.zh-CN.md](docs/rfc/README.zh-CN.md)：RFC 索引与流程
 
-### Phase 4: 联邦网络
-**RFC**: [docs/rfc/federation-protocol.md](./docs/rfc/federation-protocol.md)
-- 分层信任联邦（开放 → 互信 → 战略）
-- 算力/worker/agent 分级共享
-- 可撤销建交与审计边界
+## 路线图
 
-## 贡献指南
+- 当前：继续加固单仓库控制面、隔离执行链路与晋升检查。
+- 下一步：引入持久队列、租约、心跳和身份绑定执行器，推进分布式执行。见 [docs/rfc/distributed-execution.md](docs/rfc/distributed-execution.md)。
+- 后续：把 Linux 与 Mac 执行面扩展为异构执行池。见 [docs/rfc/three-machine-architecture.md](docs/rfc/three-machine-architecture.md)。
+- 长期：在可治理前提下推进 AAS 实例之间的分层互信联邦。见 [docs/rfc/federation-protocol.md](docs/rfc/federation-protocol.md)。
 
-我们欢迎各种形式的贡献！
+## 贡献入口
 
-### 快速贡献途径
+如果你准备参与贡献，建议先读 [CONTRIBUTING.md](CONTRIBUTING.md) 和 [ARCHITECTURE.md](ARCHITECTURE.md)。文档修正和聚焦的 bug fix 很适合作为第一步；涉及系统边界、执行模型或治理策略的改动，建议先走 [docs/rfc/](docs/rfc/)。
 
-1. **报告 Bug**：在 Issues 中提交详细描述
-2. **提议新功能**：打开 RFC Issue 讨论设计
-3. **提交 PR**：
-   - Fork 仓库
-   - 创建特性分支
-   - 确保通过 CI 和 Quality Gates
-   - 提交 PR 并描述变更
-
-### 开发者工作流
+本地常用检查流程：
 
 ```bash
-# 1. 创建特性分支
-git checkout -b feature/your-feature
-
-# 2. 开发并测试
 make test-quick
+make hygiene-check
 make review-gates-local
-
-# 3. 提交变更
-git commit -m "feat: add your feature"
-
-# 4. 推送并创建 PR
-git push origin feature/your-feature
 ```
 
-### 代码规范
-
-- **Python**：遵循 PEP 8，使用 `mypy` 类型检查
-- **安全**：通过 `bandit` 和 `semgrep` 扫描
-- **测试**：新功能需要测试覆盖，保持 80%+ 覆盖率
-
-详见 [CONTRIBUTING.zh-CN.md](CONTRIBUTING.zh-CN.md)。
-
-## 常见问题
-
-<details>
-<summary><b>Q：AAS 和其他 Agent 项目有什么区别？</b></summary>
-
-A：核心区别在于 **安全架构**。AAS 把"思考"（planner）、"执行"（worker）和"决策"（promotion gate）三层分离，智能体不能直接修改代码库，必须经过验证和审批。这模仿了成熟的 CI/CD 流程，而不是让 AI 直接 `git push`。
-</details>
-
-<details>
-<summary><b>Q：支持哪些 AI 后端？</b></summary>
-
-A：当前支持：
-- **OpenHands**（主力，受控执行模式）
-- **Claude Code CLI**（仓库级任务）
-- **Codex** / 自定义脚本（通过 AEP 适配器）
-</details>
-
-<details>
-<summary><b>Q：如何在生产环境部署？</b></summary>
-
-A：参考 [docs/linux-remote-worker.md](docs/linux-remote-worker.md) 进行远端节点部署。核心思路是：控制面在稳定主机，执行节点可以是任意有 GPU/特殊权限的机器。
-</details>
+如果你还不确定设计方向是否合适，先开 issue 或讨论帖再实现。
 
 ## 许可证
 
-MIT License - 详见 [LICENSE](./LICENSE)
-
-## 致谢
-
-本项目深受以下开源项目启发：
-
-- [MASFactory](https://github.com/BUPT-GAMMA/MASFactory) - 多智能体编排框架
-- [deer-flow](https://github.com/nxs9bg24js-tech/deer-flow) - 并发编排与沙盒隔离
-- [OpenClaw](https://github.com/openclaw/openclaw) - 多渠道接入与技能系统
-- [AutoResearch](https://github.com/karpathy/autoresearch) - Karpathy 循环
-
-## 联系方式
-
-- **GitHub Issues**：技术讨论和 Bug 报告
-- **Discussions**：架构设计和 RFC 讨论
-- **Email**：srxly888@gmail.com
-
----
-
-**让我们一起构建更安全、更可靠的 AI Agent 基础设施！** 🚀
+[MIT](LICENSE)
