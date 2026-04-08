@@ -2,71 +2,73 @@ version: "1"
 
 agent:
   id: "content_kb"
-  name: "Content KB Agent"
-  description: "Content knowledge base specialist"
+  name: "Content Knowledge Base Agent"
+  description: "负责字幕入库、主题分类、知识库索引维护和 README 更新"
   role: "specialist"
 
 routing:
   task_types:
-    - "content_kb.classify_topic"
-    - "content_kb.build_index"
+    - "content_kb"
+    - "subtitle_ingest"
+    - "knowledge_index"
   keywords:
-    - "内容分类"
-    - "索引构建"
-    - "内容知识库"
-    - "内容索引"
+    - "字幕"
+    - "入库"
+    - "知识库"
+    - "分类"
+    - "索引"
 
 execution:
-  default_driver: "claude_code"
-  fallback_drivers: []
+  default_driver: "opencode"
+  fallback_drivers:
+    - "codex"
+    - "claude_code"
   workspace_mode: "isolated"
-  allow_code_change: true
+  allow_code_change: false
   require_patch_gate: true
 
 inputs:
   required:
-    - "task_brief"
+    - "content_source"
   optional:
-    - "attachments"
-    - "business_case"
+    - "owner_profile"
+    - "target_repo"
+    - "topic"
+    - "language"
+    - "options"
 
 outputs:
   schema:
     type: "object"
     required:
       - "status"
-      - "summary"
+      - "artifacts"
   artifacts:
-    - "index.md"
-    - "readme.md"
+    - "metadata.json"
+    - "summary.md"
+    - "normalized_subtitle.txt"
 
 permissions:
   filesystem:
     read:
-      - "src/content_kb/"
-      - "tests/content_kb/"
-      - "configs/content_kb_profiles/"
+      - "data/inbox/"
+      - "configs/"
     write:
       - "artifacts/content_kb/"
-      - "logs/"
   network: "deny"
   git:
     commit: false
     push: false
 
 gates:
-  validators:
-    - "pytest -q tests/content_kb"
+  validators: []
   approvals:
     human_required_for:
-      - "push_to_remote"
+      - "create_new_repo"
+      - "open_pr"
 
 prompts:
-  intake: "agents/content_kb/prompts/intake.md"
-
-runtime:
-  deterministic_execution_required: false
-  llm_must_not_do_final_math: false
-  report_formats:
-    - "markdown"
-    - "json"
+  classify_topic: "agents/content_kb/prompts/classify_topic.md"
+  choose_repo: "agents/content_kb/prompts/choose_repo.md"
+  ingest: "agents/content_kb/prompts/ingest_subtitles.md"
+  build_index: "agents/content_kb/prompts/build_index.md"
