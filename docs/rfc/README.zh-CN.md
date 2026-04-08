@@ -131,7 +131,7 @@ docs/rfc/
 
 **新加入者推荐阅读顺序**：
 
-1. 先读项目 [ARCHITECTURE.md](../../ARCHITECTURE.md) 了解当前架构
+1. 先读项目 [ARCHITECTURE.zh-CN.md](../../ARCHITECTURE.zh-CN.md) 了解当前架构
 2. 再读 [distributed-execution.md](./distributed-execution.md) 理解分布式基础
 3. 然后读 [three-machine-architecture.md](./three-machine-architecture.md) 了解多机扩展
 4. 再读 [federation-protocol.md](./federation-protocol.md) 了解联邦愿景

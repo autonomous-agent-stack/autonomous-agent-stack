@@ -333,8 +333,8 @@ Week 7-8: 零停机更新
 
 ## 🔗 相关资源
 
-- **主文档**: [README.md](../README.md)
-- **架构文档**: [architecture.md](architecture.md)
+- **主文档**: [README.zh-CN.md](../README.zh-CN.md)
+- **架构文档**: [ARCHITECTURE.zh-CN.md](../ARCHITECTURE.zh-CN.md)
 - **集成指南**: [integration-guide.md](integration-guide.md)
 - **API 参考**: [api-reference.md](api-reference.md)
 

@@ -84,7 +84,7 @@ AAS 与其他 Agent 项目的关键区别：
 
 | 文件 | 说明 |
 |------|------|
-| [ARCHITECTURE.md](ARCHITECTURE.md) | 权威架构文档 |
+| [ARCHITECTURE.zh-CN.md](ARCHITECTURE.zh-CN.md) | 中文架构导读 |
 | [memory/SOP/MASFactory_Strict_Execution_v1.md](memory/SOP/MASFactory_Strict_Execution_v1.md) | 执行清单 |
 | [docs/rfc/](docs/rfc/) | 架构演进 RFC |
 
@@ -97,7 +97,7 @@ Phase 3 📋: 多机异构池（Linux + Mac mini + MacBook）
 Phase 4 📋: Federation 网络（分层互信联邦）
 ```
 
-详见：[docs/rfc/README.md](docs/rfc/README.md)
+详见：[docs/rfc/README.zh-CN.md](docs/rfc/README.zh-CN.md)
 
 ---
 
@@ -629,8 +629,8 @@ def test_forbidden_paths_are_respected():
 
 | 文档 | 说明 |
 |------|------|
-| [ARCHITECTURE.md](ARCHITECTURE.md) | 权威架构文档 |
-| [README.md](README.md) | 快速上手 |
+| [ARCHITECTURE.zh-CN.md](ARCHITECTURE.zh-CN.md) | 中文架构导读 |
+| [README.zh-CN.md](README.zh-CN.md) | 快速上手 |
 | [docs/QUICK_START.md](docs/QUICK_START.md) | 详细启动指南 |
 | [docs/linux-remote-worker.md](docs/linux-remote-worker.md) | Linux 远端节点部署 |
 | [docs/rfc/](docs/rfc/) | 架构演进 RFC |

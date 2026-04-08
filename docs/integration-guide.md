@@ -443,8 +443,8 @@ results = await asyncio.gather(*[
 
 ## 🔗 相关资源
 
-- **主文档**: [README.md](../README.md)
-- **架构文档**: [architecture.md](architecture.md)
+- **主文档**: [README.zh-CN.md](../README.zh-CN.md)
+- **架构文档**: [ARCHITECTURE.zh-CN.md](../ARCHITECTURE.zh-CN.md)
 - **API 参考**: [api-reference.md](api-reference.md)
 - **路线图**: [roadmap.md](roadmap.md)
 
