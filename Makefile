@@ -213,6 +213,8 @@ review-gates-local:
 	MYPY_BIN="mypy"; \
 	BANDIT_BIN="bandit"; \
 	SEMGREP_BIN="semgrep"; \
+	SEMGREP_HOME_DIR="$(CURDIR)/.semgrep-home"; \
+	SEMGREP_CERT_FILE=""; \
 	if [[ -x "$(REVIEW_VENV)/bin/mypy" ]]; then MYPY_BIN="$(REVIEW_VENV)/bin/mypy"; \
 	elif [[ -x "$(VENV)/bin/mypy" ]]; then MYPY_BIN="$(VENV)/bin/mypy"; fi; \
 	if [[ -x "$(REVIEW_VENV)/bin/bandit" ]]; then BANDIT_BIN="$(REVIEW_VENV)/bin/bandit"; \
@@ -222,9 +224,13 @@ review-gates-local:
 	if ! command -v "$$MYPY_BIN" >/dev/null 2>&1; then echo "Missing mypy. Run 'make review-setup'."; exit 1; fi; \
 	if ! command -v "$$BANDIT_BIN" >/dev/null 2>&1; then echo "Missing bandit. Run 'make review-setup'."; exit 1; fi; \
 	if ! command -v "$$SEMGREP_BIN" >/dev/null 2>&1; then echo "Missing semgrep. Run 'make review-setup'."; exit 1; fi; \
+	if [[ -x "$(REVIEW_VENV_PYTHON)" ]]; then \
+		SEMGREP_CERT_FILE="$$("$(REVIEW_VENV_PYTHON)" -c 'import certifi; print(certifi.where())')"; \
+	fi; \
+	mkdir -p "$$SEMGREP_HOME_DIR"; \
 	$$MYPY_BIN --config-file mypy.ini src/gatekeeper/static_analyzer.py src/gatekeeper/business_enforcer.py src/gatekeeper/llm_reviewer.py src/gatekeeper/board_summarizer.py; \
 	$$BANDIT_BIN -q src/gatekeeper/static_analyzer.py src/gatekeeper/business_enforcer.py src/gatekeeper/llm_reviewer.py src/gatekeeper/board_summarizer.py; \
-	$$SEMGREP_BIN --error --config=p/python src/gatekeeper/static_analyzer.py src/gatekeeper/business_enforcer.py src/gatekeeper/llm_reviewer.py src/gatekeeper/board_summarizer.py
+	HOME="$$SEMGREP_HOME_DIR" SSL_CERT_FILE="$$SEMGREP_CERT_FILE" $$SEMGREP_BIN --error --config=p/python src/gatekeeper/static_analyzer.py src/gatekeeper/business_enforcer.py src/gatekeeper/llm_reviewer.py src/gatekeeper/board_summarizer.py
 
 openhands:
 	OPENHANDS_TASK='$(OH_TASK)' OPENHANDS_DRY_RUN='$(OH_DRY_RUN)' bash ./scripts/openhands_start.sh
