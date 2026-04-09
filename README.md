@@ -26,6 +26,8 @@ AAS is evolving toward a more Agent OS-like control layer, but today it should f
 
 Over time, agent distribution may look increasingly app-like, with installable and removable agent packages, tools, or skills. But that is the distribution layer. AAS is concerned with the system layer beneath it: session, capability, policy, and promotion.
 
+In federated settings, agents are not just app-like packages. They also behave like dispatched workers: scoped, leased, auditable, and recallable across trust boundaries. Capabilities may look like apps, agents behave more like workers, and AAS exists as the control plane that governs both.
+
 ## Why This Matters
 
 As agents take on work that spans many context windows, the hard problem is no longer just "can the model code?"
