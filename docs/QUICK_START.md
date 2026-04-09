@@ -9,6 +9,15 @@ make doctor
 make start
 ```
 
+Windows 原生最小支持范围：
+
+- `make setup`
+- `make doctor`
+- `make start`
+
+当前这条主链已经改成跨平台 Python 入口，不再要求 Bash。
+但仓库中其他 target 仍有不少 Bash / macOS / Linux 假设，不应默认视为 Windows 已支持。
+
 ## 每条命令的作用
 
 - `make setup`：创建 `.venv`、安装依赖，并在需要时从模板生成 `.env`
@@ -84,6 +93,17 @@ python3 -m venv .venv
 PYTHONPATH=src .venv/bin/python -m uvicorn autoresearch.api.main:app --host 127.0.0.1 --port 8001 --reload
 ```
 
+Windows PowerShell 等价命令：
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -r requirements.lock
+.\.venv\Scripts\python.exe scripts\doctor.py --port 8001
+$env:PYTHONPATH = "src"
+.\.venv\Scripts\python.exe -m uvicorn autoresearch.api.main:app --host 127.0.0.1 --port 8001 --reload
+```
+
 ## 故障排查
 
 - 如果 doctor 在依赖项上显示 `FAIL`，请重新执行 `make setup`。
@@ -95,3 +115,29 @@ PYTHONPATH=src .venv/bin/python -m uvicorn autoresearch.api.main:app --host 127.
 ## Admin UI 帮助
 
 - 字段逐项填写指南：`docs/admin-view-field-guide.md`
+
+## 单机版 AAS + 定时任务
+
+如果你要在单机版 AAS 上开启“定时 enqueue worker run”，请看：
+
+- `docs/runbooks/worker-schedules.md`
+
+推荐顺序：
+
+1. 先跑通 `make setup -> make doctor -> make start`
+2. 先手动 enqueue / 手动 trigger 目标任务
+3. 再创建 schedule
+4. 最后才打开后台 daemon：
+
+```bash
+export AUTORESEARCH_ENABLE_WORKER_SCHEDULE_DAEMON=1
+export AUTORESEARCH_WORKER_SCHEDULE_POLL_SECONDS=30
+AUTORESEARCH_MODE=minimal make start
+```
+
+说明：
+
+- schedule 只负责按时间 enqueue
+- 真正执行仍走现有 worker claim/execute/report 链路
+- 当前支持 `once` 和 `interval` 两种单机 schedule
+- 时间触发引擎基于 APScheduler

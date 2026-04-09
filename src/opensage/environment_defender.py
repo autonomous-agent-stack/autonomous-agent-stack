@@ -21,9 +21,35 @@ logger = logging.getLogger(__name__)
 class EnvironmentDefender:
     """环境防御器"""
     
-    def __init__(self, project_root: str = "/Volumes/PS1008/Github/autonomous-agent-stack"):
-        self.project_root = Path(project_root)
-        self.external_disk = Path("/Volumes/PS1008")
+    def __init__(self, project_root: str = None, external_disk: str = None):
+        # 自动检测实际挂载路径
+        if external_disk:
+            self.external_disk = Path(external_disk)
+        else:
+            # 尝试检测 PS1008 或 AI_LAB
+            if Path("/Volumes/PS1008").exists():
+                self.external_disk = Path("/Volumes/PS1008")
+            elif Path("/Volumes/AI_LAB").exists():
+                self.external_disk = Path("/Volumes/AI_LAB")
+            else:
+                raise RuntimeError("无法找到外部磁盘挂载点")
+        
+        # 自动检测项目根目录
+        if project_root:
+            self.project_root = Path(project_root)
+        else:
+            # 尝试常见路径
+            possible_paths = [
+                "/Volumes/PS1008/Github/autonomous-agent-stack",
+                "/Volumes/AI_LAB/Github/autonomous-agent-stack",
+            ]
+            for path in possible_paths:
+                if Path(path).exists():
+                    self.project_root = Path(path)
+                    break
+            else:
+                raise RuntimeError("无法找到项目根目录")
+        
         self.db_path = self.project_root / "src" / "memory" / "evolution_history.sqlite"
         
     def clean_apple_doubles(self, dry_run: bool = False) -> Dict[str, Any]:
