@@ -6,6 +6,7 @@ pydantic-settings>=2.2.1
 # API & Server
 fastapi>=0.115.0
 uvicorn>=0.32.0
+APScheduler>=3.11.2,<4.0.0
 
 # Sandbox
 docker>=7.0.0
