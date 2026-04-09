@@ -78,3 +78,19 @@ Current code shape does not match that description:
 
 3. Keep validation scoped
 - continue using `127.0.0.1:8001/health`, `/docs`, and `/panel` as the only mainline acceptance surface
+
+## First Read-Only Wiring Status
+
+The first read-only wiring step is complete at the dashboard-local layer only:
+
+- `dashboard/app/api/status/route.ts`
+- `dashboard/app/api/agents/route.ts`
+- `dashboard/app/api/tests/route.ts`
+- `dashboard/app/api/parity/route.ts`
+- `dashboard/app/api/commits/route.ts`
+
+Current behavior after that step:
+
+- `status` and `agents` proxy/map existing control-plane read-only data
+- `tests`, `parity`, and `commits` return intentionally empty prototype structures instead of `404`
+- dashboard pages can render without treating the dashboard as a formal monitoring surface

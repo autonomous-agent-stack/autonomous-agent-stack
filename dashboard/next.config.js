@@ -1,12 +1,11 @@
 /** @type {import('next').NextConfig} */
+const isStaticExport = process.env.DASHBOARD_STATIC_EXPORT === '1'
+
 const nextConfig = {
   reactStrictMode: true,
-  output: 'export',
+  ...(isStaticExport ? { output: 'export' } : {}),
   images: {
     unoptimized: true,
-  },
-  experimental: {
-    optimizeCss: true,
   },
 }
 
