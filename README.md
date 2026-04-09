@@ -22,6 +22,8 @@ AAS is not a generic AI agent demo. It is built for teams that want to integrate
 
 Today, AAS is focused on a high-value vertical: governed repository changes. Long term, the same control-plane model is intended to support broader agent work across heterogeneous runtimes, tools, and environments.
 
+AAS is evolving toward a more Agent OS-like control layer, but today it should first be understood as a governed control plane for long-running agents.
+
 ## Why This Matters
 
 As agents take on work that spans many context windows, the hard problem is no longer just "can the model code?"
