@@ -2,130 +2,131 @@
 
 ## The Problem
 
-As AI agents become more capable, a fundamental tension emerges:
+As AI agents become more capable, the core question is no longer just "how do we sandbox them?"
 
-**How do we harness agent productivity while maintaining control over codebases?**
+It is:
 
-### Current Approaches Are Broken
+**When model capabilities keep changing, what should stay stable in the system, and what should remain replaceable?**
 
-1. **Direct Access Models**
-   - Agents get full git push access
-   - No validation between agent output and main branch
-   - Security vulnerabilities slip through
+### What Breaks in Most Agent Stacks
 
-2. **Manual Review Bottlenecks**
-   - Every agent change requires human review
-   - Scalability issues as agent usage grows
-   - Inconsistent review standards
+1. **Model limitations become permanent architecture**
+   - A temporary planning weakness turns into a fixed DAG
+   - A prompt workaround becomes a framework primitive
+   - The stack fossilizes around today's harness tricks
 
-3. **Fragile Sandboxing**
-   - Containers are escaped or misconfigured
-   - Runtime artifacts leak into source code
-   - No clear boundary between agent and system
+2. **History is confused with context**
+   - The session is treated as a chat transcript
+   - Summaries become the only memory
+   - Recovery depends on rebuilding prompts instead of querying facts
 
-## Our Solution
+3. **Execution surfaces quietly become the trusted core**
+   - A worker runtime accumulates planning, execution, approval, and publish authority
+   - Tools and sandboxes leak into the system boundary
+   - Security depends on assuming the model "probably won't think of that"
 
-AAS introduces a **governed execution model** with three key properties:
+## Our Answer
 
-### 1. Separation of Concerns
+AAS is built around three abstractions that should outlive any specific harness version:
 
-```
-Planner (what to do) → Worker (do it in isolation) → Validator (check it) → Promoter (decide)
-```
+### 1. Session as Durable Fact History
 
-No single component has both the ability to execute code and approve its integration.
+- Session is not a mirror of the context window
+- Session should be append-only execution history
+- Summaries, prompt bundles, patches, and PRs are derived views, not the source of truth
+- Recovery and handoff should start from facts, not from brittle prompt reconstruction
 
-### 2. Zero-Trust Invariants
+### 2. Policy as Replaceable Orchestration
 
-- **Patch-Only**: Agents can only propose changes, never commit directly
-- **Deny-Wins**: If any policy says "no", the answer is "no"
-- **Single-Writer**: Only one promotion operation can happen at a time
-- **Artifact Isolation**: Runtime state never becomes source code
+- Planning, context assembly, retries, checkpoints, evaluation, and promotion should be policy seams
+- The system should not hard-code today's best harness forever
+- As models improve, AAS should swap policies more often than it rewrites the whole platform
 
-### 3. Durable Control Plane
+### 3. Capabilities as Isolated Hands
 
-- SQLite as authoritative state store
-- All operations auditable and replayable
-- Clear separation of control plane and execution artifacts
+- Sandboxes, remote workers, MCP servers, browsers, and git proxies are execution hands
+- The control plane stays above them
+- The brain should route over typed capabilities, not over one privileged runtime
 
-## Why Now?
+## Zero-Trust Still Matters
 
-The timing is right for three reasons:
+Session-first does not mean soft boundaries.
 
-1. **Agent Capabilities Are Maturing**
-   - LLMs can now do meaningful code modification
-   - But they still make mistakes and need guardrails
+The existing safety invariants remain core:
 
-2. **Distributed Systems Patterns Are Well Understood**
-   - We can borrow from CI/CD, distributed transactions, and durable execution
-   - Patterns like lease, heartbeat, and outbox are proven
+- **Patch-Only**: agents propose bounded changes instead of owning the repo
+- **Deny-Wins**: tighter policy always wins
+- **Single-Writer**: promotion of mutable state never races
+- **Artifact Isolation**: runtime state does not silently become source code
+- **Promotion Gate**: execution and approval stay separated
 
-3. **The Community Is Ready**
-   - Security-conscious developers are wary of unconstrained agents
-   - Teams need agent productivity but won't compromise on safety
+The point is not to trust the model more.
+The point is to trust stable interfaces more than model-specific tricks.
 
-## What AAS Enables Today
+## Why This Matters Now
 
-### For Individuals
+Three things are changing at once:
 
-- **Personal GitHub Assistant**: Triage your repos, analyze issues, draft PRs
-- **Safe Experimentation**: Try agent ideas in isolated workspaces
-- **Local Control**: Keep authentication on your machines, execution elsewhere
+1. **Models are getting better**
+   - More work can be delegated to the model
+   - More old harness assumptions will go stale
 
-### For Teams
+2. **Durable execution patterns are proven**
+   - Leases, heartbeats, append-only logs, replay, and promotion gates are well-understood systems ideas
+   - Agent infrastructure can borrow from distributed systems instead of inventing everything from scratch
 
-- **Controlled Agent Workflows**: Agents propose, humans approve
-- **Audit Trail**: Every agent action is logged and attributable
-- **Gradual Autonomy**: Start with patch-only, loosen constraints as trust builds
+3. **Teams want governance, not just demos**
+   - They want agent productivity without giving away repository authority
+   - They want local credentials, audit trails, approvals, and recovery
+   - They want control planes that are vendor-neutral
 
-### For Organizations
+## What AAS Is Building
 
-- **Federated Execution**: Share compute and capabilities across teams/orgs
-- **Policy Enforcement**: Organizational standards apply to all agent work
-- **Compliance Ready**: Audit logs and approval gates satisfy security reviews
+### Today
 
-## Where We're Going
+AAS is a bounded control plane for autonomous repository changes:
 
-### Phase 2: Distributed Execution (In Progress)
+- planner selects a bounded task
+- worker edits in isolation
+- validators check policy and execution output
+- promotion gate decides whether the result may become a patch artifact or Draft PR
 
-Linux control plane coordinates workers across machines:
-- Mac workers handle GitHub-authenticated tasks
-- GPU workers run heavy inference
-- Edge workers operate with local capabilities during outages
+### Next
 
-### Phase 3: Multi-Machine Pools
+AAS is moving toward a governed runtime substrate for long-running agents:
 
-- Capability-based routing instead of machine-hardcoded logic
-- Automatic failover and load balancing
-- Support for heterogeneous execution environments
+- session-first state instead of prompt-first memory
+- policy-first orchestration instead of fixed harness doctrine
+- capability-first routing instead of adapter sprawl
 
-### Phase 4: Federation Network
+### Later
 
-- Layered trust model (L0-L3)
-- Graduated resource sharing
-- Market mechanisms for resource exchange
-- Sovereign nodes with revocable federation
+That opens the door to:
 
-## The Bigger Vision
+- distributed execution across heterogeneous workers
+- many brains / many hands coordination
+- federation between governed AAS instances
+- durable agent operations beyond repo patching
 
-We believe agent infrastructure should be:
+## What AAS Is Not Trying To Be
 
-- **Safe by default**: Zero-trust, not trusted-by-default
-- **Composable**: Mix and match workers, capabilities, and policies
-- **Auditable**: Every decision traceable to its source
-- **Federated**: Work across organizational boundaries
-- **Economically Sustainable**: Resource exchange with clear terms
+- not an unconstrained self-editing super-agent
+- not a clone of any single model vendor runtime
+- not a framework that hard-codes today's prompt hacks as tomorrow's architecture
 
-## Join Us
+## The Bet
 
-If you believe AI agents should be powerful **and** governable, AAS is your community.
+We believe the most durable layer in agent infrastructure is not "the smartest harness."
 
-- **Contributors**: We need help with distributed execution, federation protocols, and market mechanisms
-- **Users**: Try it out and tell us what works and what doesn't
-- **Architects**: Join our RFC discussions and shape the future
+It is:
 
-Let's build the infrastructure for trustworthy autonomous agents.
+- durable session state
+- replaceable orchestration policy
+- isolated capabilities
+- governed promotion
+
+That is the layer AAS wants to own.
 
 ---
 
-*[Read the full documentation](README.md) | [Join the discussion](https://github.com/srxly888-creator/autonomous-agent-stack/discussions)*
+*[Read the full documentation](README.md) | [Read the current roadmap](docs/roadmap.md) | [Join the discussion](https://github.com/srxly888-creator/autonomous-agent-stack/discussions)*

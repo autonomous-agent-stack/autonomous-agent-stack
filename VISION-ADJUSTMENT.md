@@ -1,250 +1,140 @@
 # Autonomous Agent Stack - 愿景调整
 
-> **调整时间**: 2026-03-31 13:37
-> **调整原因**: 基于 ARCHITECTURE.md 和 AEP v0 的现实定位
+> **调整时间**: 2026-04-09
+> **调整原因**: 在 2026-03-31 那次“从超级体叙事收敛到 control plane”之后，继续根据当前架构现实与最新 runtime 基础设施判断做第二次收敛。
 
 ---
 
-## 🎯 新愿景
+## 新愿景
 
 ### 从
 
-**旧愿景**: 无需人类干预的自我进化超级智能体网络
+**一个受控的 agent execution control plane，统一调度代码 agent、Linux worker、Mac worker、Windows RPA worker**
 
 ### 到
 
-**新愿景**: 一个受控的 agent execution control plane，统一调度代码 agent、Linux worker、Mac worker、Windows RPA worker
+**一个受治理、以 session 为中心的 long-running agent control plane。**
+
+repo patch / Draft PR 仍然是当前最重要的落地场景，但它不再是唯一的愿景定义；它是验证这套控制面抽象是否成立的第一垂直场景。
 
 ---
 
-## 💡 为什么调整？
+## 为什么还要再调一次
 
-### 现实定位（基于 ARCHITECTURE.md）
+上一次调整解决的是：
 
-截至 2026-03-31，autonomous-agent-stack 的"稳定主干"是一个：
+- 不再追“无需人类干预的自我进化超级智能体网络”
+- 承认仓库当前现实是 bounded control plane，而不是神话中的自主超级体
 
-- ✅ **有边界的 control plane**
-- ✅ **隔离执行环境**（isolated workspace）
-- ✅ **验证与 promotion gate**
-- ✅ **受控自治**（不是自由生长）
+这一次调整解决的是另一个更长期的问题：
 
-### 核心特征
+**当模型能力持续变化时，系统里什么应该被做成稳定接口，什么应该被留给未来反复重写？**
 
-- ❌ **不是**: 自我进化超级体
-- ✅ **而是**: 受控自动化平台
-- ❌ **不是**: 自主编织
-- ✅ **而是**: 可治理的执行控制平面
+我们的答案是：
 
-### 当前成熟能力
-
-- ✅ JobSpec
-- ✅ driver adapter
-- ✅ isolated workspace
-- ✅ validation gate
-- ✅ promotion gate
-- ✅ Draft PR / patch artifact 输出
-
-**结论**: 这些能力解决的是"怎么安全地让 agent 干活"，不是"怎么让 agent 自己变聪明并长期自治"。
+- session 应该稳定
+- policy 边界应该稳定
+- capability / hand 抽象应该稳定
+- 具体 harness 实现不应该被神化成最终形态
 
 ---
 
-## 🚀 可行 Roadmap（6 个 Phase）
+## 这次愿景调整后的核心判断
 
-### Phase 0: 停止追"自我进化"
+### 1. Session 比 prompt 更高阶
 
-**目标**: 调整项目叙事
+- 会话不是消息列表
+- 会话不是上下文窗口的镜像
+- 会话应该被建模为 append-only execution fact log
+- 摘要、prompt bundle、PR、patch 都只是会话的派生投影
 
-**从**:
-```
-无需人类干预的自我进化超级智能体网络
-```
+如果历史只能活在 prompt 里，系统就没有真正的可恢复性。
 
-**到**:
-```
-一个受控的 agent execution control plane，
-统一调度代码 agent、Linux worker、Mac worker、Windows RPA worker
-```
+### 2. Harness 是策略层，不是宪法
 
-**原因**: 产品生死线。ARCHITECTURE.md 明确要信 current stable spine，不是旧的 aspirational stack diagrams。
+- 当前 planner -> worker -> validation -> promotion 流程是现实主线
+- 但任务分解、上下文组装、重试、checkpoint、评估策略都应该可替换
+- 随着模型能力变强，应优先替换 policy，而不是重写系统骨架
 
----
+### 3. Sandbox / Tool / Worker 都应该被看作 hand
 
-### Phase 1: 把 AEP 变成"统一 worker 协议"
+- 执行环境不应成为系统本体
+- 本地 sandbox、remote worker、MCP server、browser、git proxy 都是 capability hands
+- brain 应只感知“我有哪些手可用”，而不是把具体基础设施写死进主流程
 
-**目标**: 让 AEP 不只驱动 OpenHands/Codex/本地脚本，也能驱动异构执行节点。
+### 4. 安全不能押在模型能力不足上
 
-**新增 3 类 driver**:
-- `mac_worker`
-- `linux_worker`
-- `win_yingdao_worker`
-
-**统一输入**:
-- task spec
-- policy
-- timeout
-- artifact path
-- result schema
-
-**统一输出**:
-- stdout/stderr
-- 截图/录屏/产物
-- 结构化 result
-- heartbeat/events
-- success/failure 分类
-
-**适配**: 沿用 AEP 现有的 run folder 约定和 driver_result.json 合同。
+- 凭证、审批、写权限、promotion authority 必须留在控制面边界内
+- 不假设“模型应该不会想到某条攻击路径”
+- patch-only、deny-wins、single-writer、promotion gate 仍然是底座
 
 ---
 
-### Phase 2: 把"patch gate"推广成"task gate"
+## 这意味着 AAS 的价值重心要怎么变
 
-**目标**: 泛化验证和 promotion 机制。
+不是去做：
 
-**任务类型**:
-- 代码任务: 输出 promotion patch / Draft PR
-- Linux 任务: 输出日志、文件、服务状态
-- Mac 任务: 输出浏览器截图、表格、报告
-- Windows+影刀: 输出流程执行记录、截图、Excel、系统回执
+- 更会写 prompt 的 Agent
+- 某家模型 runtime 的开源复刻
+- 追求表面上“更强自治”的概念项目
 
-**统一判断**:
-- 是否超预算
-- 是否越权
-- 是否产物完整
-- 是否命中 forbidden paths / forbidden tools
-- 是否需要 human_review
+而是去做：
 
-**结果**: 从"代码 agent"变成"智能底座"。
+- vendor-neutral control plane
+- durable session spine
+- policy-first orchestration
+- capability-based execution substrate
+- governed promotion and audit trail
 
----
+一句话说：
 
-### Phase 3: 做真正的远程 worker
-
-**基础**: ARCHITECTURE.md 已有 offline remote hardening layer:
-- RemoteTaskSpec
-- RemoteRunRecord
-- RemoteRunSummary
-- 模拟 remote adapter
-- failure taxonomy
-- day/night runtime config
-
-**实施方案**:
-- 每台机器跑轻量 agent daemon
-- 定时 heartbeat
-- 轮询或长连领取任务
-- 回传 events / summary / artifacts
-- 支持取消、超时、中断恢复
-
-**顺序**: Linux → Mac → Windows+影刀
-**原因**: Windows 桌面自动化不确定性最大。
+**从“自动改代码系统”升级为“可恢复、可治理、可晋升的 Agent runtime 外层”。**
 
 ---
 
-### Phase 4: 引入"人类在环"的审批点
+## 最近最该做的三刀
 
-**目标**: 保留少量审批点（提速，不是保守）。
+### 第一刀：先把 harness 做薄
 
-**3 个审批点**:
-1. 高风险任务首次执行
-2. 影响外部系统写入的任务
-3. agent 提议修改自己的配置/策略/driver 时
+这是最近最该立刻开始的工作。
 
-**实施**: 扩展现有的 human_review 终态/分支到异构任务。
+理由：
 
----
+- 工程代价相对低
+- 能马上降低“把今天最佳实践写死”的技术债
+- 能为后续 session 化让路
 
-### Phase 5: 有限自优化
+### 第二刀：把 session 提升为一级抽象
 
-**注意**: 不是"自我进化"，而是有限自优化。
+这是最值钱，但也最伤筋动骨的一刀。
 
-**允许自动优化**:
-- ✅ prompt 模板
-- ✅ tool routing
-- ✅ timeout / retry 参数
-- ✅ worker 选择策略
-- ✅ 失败恢复策略
-- ✅ 某些技能的 manifest
+目标不是再多存一点日志，而是把系统的 source of truth 从“散落的 run 记录”升级为“统一的事实流”。
 
-**禁止自动优化**:
-- ❌ promotion gate 规则
-- ❌ forbidden paths
-- ❌ 权限模型
-- ❌ 金融/外部系统写权限
-- ❌ 主控制平面的核心代码
+### 第三刀：把 hands 抽象统一
 
-**原则**: 可以让它优化手脚，但别让它改宪法。
+这一步要建立 capability metadata，统一管理不同执行环境的信任、成本、恢复性与审批边界。
 
 ---
 
-### Phase 6: 连续自治
+## 近期不做什么
 
-**前提**: 前 5 个 Phase 都稳定。
-
-**能力**:
-- 周期性目标
-- 自动分解任务树
-- 成本预算器
-- 多 worker 协同
-- 失败后自主重规划
-
-**定位**: 勉强配叫"半自治系统"。离"超级智能体"有距离，但能创造真实产值。
+- 不追“完全自治”叙事
+- 不把 repo patch 主路径让位给抽象层重写工程
+- 不为了概念完整度一次性铺开 multi-agent / multi-task 平台
+- 不把 AAS 做成 Anthropic 影子产品
 
 ---
 
-## 📊 成败标准
+## 最终判断
 
-### 别用"会不会自我进化"判断
+这个项目的方向不是错了，而是该继续向上收敛。
 
-### 用这 5 个指标判断:
+它已经不是一个“prompt loop 外面包一层壳”的普通 Agent 项目；它已经有了零信任控制面、隔离执行、验证门、晋升门这些真正有长期价值的骨架。
 
-1. **可追踪性**
-   - 一个任务从下达到完成，是否可追踪
+接下来要做的，不是更激进地追求自治，而是更克制地投资稳定抽象：
 
-2. **可恢复性**
-   - 一个任务失败后，是否可恢复
+- session-first
+- policy-first
+- capability-first
 
-3. **协同稳定性**
-   - 多个 worker 并行时，是否不打架
-
-4. **可审计性**
-   - 涉及外部系统时，是否可审计
-
-5. **硬边界**
-   - 修改系统自身时，是否有硬边界
-
-**如果这 5 个过了，项目就不是玩具了。**
-
----
-
-## 🎯 总结
-
-### 这仓库不适合
-- ❌ 直接冲"超级智能体神话"
-
-### 这仓库非常适合
-- ✅ 改造成"AI 调度中枢"
-
-### 它已具备
-- ✅ bounded control plane
-- ✅ isolated execution
-- ✅ validation gate
-- ✅ promotion gate
-- ✅ AEP driver model
-- ✅ offline remote hardening 的雏形
-
-### 这些是做"多机、多执行器、可治理自治系统"的硬骨架。
-
----
-
-## 💡 建议
-
-**不是"放弃愿景"，而是:**
-
-- **前 6 天**: 做控制平面
-- **中 6 天**: 做异构 worker
-- **后 6 天**: 做有限自优化
-
----
-
-**调整者**: srxly888-creator
-**时间**: 2026-03-31 13:37
-**标签**: #愿景调整 #roadmap #控制平面
+只要这三件事做对，AAS 的长期位置就不是“另一个 agent runtime”，而是更外层、也更稳定的 Agent control plane / runtime substrate。

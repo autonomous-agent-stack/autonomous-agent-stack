@@ -2,130 +2,131 @@
 
 ## 核心问题
 
-随着 AI 智能体能力越来越强，一个根本性的矛盾浮现出来：
+随着 AI Agent 能力持续增强，真正的问题已经不只是“怎么给它加个沙箱”。
 
-**如何在利用智能体提升效率的同时，保持对代码库的控制权？**
+更根本的问题是：
 
-### 现有方案的局限
+**当模型能力持续变化时，系统里什么应该保持稳定，什么应该被设计成可替换？**
 
-1. **直接访问模式**
-   - 智能体拥有完整的 git push 权限
-   - 智能体输出与主分支之间没有验证环节
-   - 安全漏洞容易混入
+### 大多数 Agent Stack 的问题
 
-2. **人工审核瓶颈**
-   - 每个智能体变更都需要人工审查
-   - 随着使用增长，扩展性成为问题
-   - 审查标准不一致
+1. **把模型的暂时短板固化成永久架构**
+   - 一次阶段性的规划不足，最后变成固定 DAG
+   - 一次 prompt workaround，最后变成框架原语
+   - 整个系统围着今天的 harness 技巧长死
 
-3. **脆弱的沙箱隔离**
-   - 容器被绕过或配置错误
-   - 运行时产物泄漏到源代码中
-   - 智能体与系统之间缺乏明确边界
+2. **把历史和上下文混为一谈**
+   - 把 session 当聊天记录
+   - 把 summary 当唯一记忆
+   - 恢复依赖重新拼 prompt，而不是查询事实
 
-## 我们的解决方案
+3. **让执行运行时悄悄变成 trusted core**
+   - 一个 worker runtime 同时拿走规划、执行、审批、发布权
+   - 工具和沙箱边界不断外溢
+   - 安全建立在“模型大概想不到这里吧”的侥幸上
 
-AAS 引入了一套**受控执行模型**，具有三个核心特性：
+## AAS 的回答
 
-### 1. 职责分离
+AAS 围绕三类应该比具体 harness 更稳定的抽象来设计：
 
-```
-Planner（做什么）→ Worker（隔离执行）→ Validator（检查）→ Promoter（决策）
-```
+### 1. Session 是 durable fact history
 
-没有任何组件同时拥有执行代码和批准集成的权力。
+- Session 不是 context window 的镜像
+- Session 应该是 append-only execution history
+- summary、prompt bundle、patch、PR 都只是派生视图，不是 source of truth
+- 恢复和 handoff 应该首先基于事实，而不是脆弱的 prompt 重建
 
-### 2. 零信任原则
+### 2. Policy 是可替换的编排层
 
-- **Patch-Only**：智能体只能提议变更，永远不能直接提交
-- **Deny-Wins**：任何策略说"不"，结果就是"不"
-- **Single-Writer**：同时只能有一个 promotion 操作
-- **Artifact Isolation**：运行时状态永不成为源代码
+- 规划、上下文组装、重试、checkpoint、评估、晋升都应该成为 policy 边界
+- 系统不应该把今天最好用的 harness 永久写死
+- 随着模型变强，AAS 应该更多替换 policy，而不是重写整个平台
 
-### 3. 持久化控制面
+### 3. Capability 是隔离的 hands
 
-- SQLite 作为权威状态存储
-- 所有操作可审计和回放
-- 控制面与执行产物清晰分离
+- sandbox、remote worker、MCP server、browser、git proxy 都是 execution hands
+- 控制面应该始终压在它们上层
+- brain 应该面向 typed capabilities 路由，而不是依赖某个特权 runtime
 
-## 为什么是现在？
+## 零信任仍然是底座
 
-时机成熟的三个原因：
+session-first 不等于边界变软。
 
-1. **智能体能力趋于成熟**
-   - LLM 已经可以进行有意义的代码修改
-   - 但仍然会犯错，需要护栏
+现有安全不变量仍然是核心：
 
-2. **分布式系统模式已充分理解**
-   - 可以借鉴 CI/CD、分布式事务、持久化执行
-   - 租约、心跳、outbox 等模式已验证有效
+- **Patch-Only**：Agent 只提议有边界的改动，不直接拥有仓库
+- **Deny-Wins**：更严格的策略永远生效
+- **Single-Writer**：可变状态的晋升不能并发乱写
+- **Artifact Isolation**：运行时状态不会悄悄进入源码
+- **Promotion Gate**：执行权和批准权始终分离
 
-3. **社区已经准备好**
-   - 安全意识强的开发者对不受限的智能体保持警惕
-   - 团队需要智能体的效率，但不愿牺牲安全
+关键不是“更信任模型”。
+关键是：**更信任稳定接口，而不是模型相关的技巧。**
 
-## AAS 今天能做什么
+## 为什么是现在
 
-### 对个人
+现在正好有三件事同时成立：
 
-- **个人 GitHub 助手**：分类你的仓库、分析 issues、起草 PR
-- **安全实验**：在隔离工作空间尝试智能体想法
-- **本地控制**：认证保存在你的机器上，执行在别处
+1. **模型越来越强**
+   - 越来越多的工作可以交给模型
+   - 也意味着越来越多旧 harness 假设会很快过时
 
-### 对团队
+2. **durable execution 的系统模式已经成熟**
+   - lease、heartbeat、append-only log、replay、promotion gate 都不是新问题
+   - Agent 基础设施可以借鉴分布式系统，而不是全靠拍脑袋
 
-- **受控的智能体工作流**：智能体提议，人类批准
-- **审计追踪**：每个智能体操作都被记录和归因
-- **渐进式自治**：从 patch-only 开始，随信任建立放宽约束
+3. **团队真正需要的是治理，不只是 demo**
+   - 他们想要 Agent 带来的效率
+   - 但不愿直接交出仓库写权限、凭证和审批边界
+   - 他们需要 vendor-neutral 的控制面
 
-### 对组织
+## AAS 正在建设什么
 
-- **联邦执行**：跨团队/组织共享算力和能力
-- **策略执行**：组织标准适用于所有智能体工作
-- **合规就绪**：审计日志和审批门满足安全审查
+### 今天
 
-## 我们要去向何方
+AAS 还是一个面向 autonomous repository changes 的 bounded control plane：
 
-### Phase 2：分布式执行（进行中）
+- planner 选择有边界的任务
+- worker 在隔离环境里改动
+- validator 检查策略和执行结果
+- promotion gate 决定结果是否能升级为 patch artifact 或 Draft PR
 
-Linux 控制面协调跨机器的 worker：
-- Mac worker 处理需要 GitHub 认证的任务
-- GPU worker 运行重型推理
-- Edge worker 在离线时用本地能力运行
+### 下一步
 
-### Phase 3：多机执行池
+AAS 正在往 long-running agents 的 governed runtime substrate 演进：
 
-- 基于能力的路由而非机器硬编码
-- 自动故障转移和负载均衡
-- 支持异构执行环境
+- 从 prompt-first memory 转向 session-first state
+- 从固定 harness doctrine 转向 policy-first orchestration
+- 从 adapter 拼盘转向 capability-first routing
 
-### Phase 4：联邦网络
+### 更远处
 
-- 分层信任模型（L0-L3）
-- 分级资源共享
-- 资源交换的市场机制
-- 主权节点与可撤销联邦
+这会打开这些能力：
 
-## 更大的愿景
+- 跨异构 worker 的 distributed execution
+- many brains / many hands 协同
+- governed AAS instances 之间的 federation
+- 超出 repo patch 场景的 durable agent operations
 
-我们相信智能体基础设施应该是：
+## AAS 不打算成为什么
 
-- **默认安全**：零信任，而非默认信任
-- **可组合**：自由组合 worker、能力和策略
-- **可审计**：每个决策都可追溯源头
-- **联邦化**：跨越组织边界协作
-- **经济可持续**：资源交换条款清晰
+- 不是不受约束的自我编辑超级体
+- 不是某一家模型厂商 runtime 的复刻品
+- 不是把今天 prompt 技巧硬编码成明天系统骨架的框架
 
-## 加入我们
+## 最终下注
 
-如果你相信 AI 智能体应该强大**且**可治理，AAS 是你的社区。
+我们相信 Agent 基础设施里最耐久的层，不是“当前最聪明的 harness”。
 
-- **贡献者**：我们需要分布式执行、联邦协议和市场机制的帮助
-- **用户**：试用并告诉我们什么有效、什么无效
-- **架构师**：加入我们的 RFC 讨论，塑造未来
+而是：
 
-让我们一起构建可信自治智能体的基础设施。
+- durable session state
+- replaceable orchestration policy
+- isolated capabilities
+- governed promotion
+
+AAS 想站的位置，就是这一层。
 
 ---
 
-*[阅读完整文档](README.zh-CN.md) | [加入讨论](https://github.com/srxly888-creator/autonomous-agent-stack/discussions)*
+*[阅读完整文档](README.zh-CN.md) | [阅读当前路线图](docs/roadmap.md) | [加入讨论](https://github.com/srxly888-creator/autonomous-agent-stack/discussions)*
