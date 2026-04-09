@@ -24,6 +24,8 @@ Today, AAS is focused on a high-value vertical: governed repository changes. Lon
 
 AAS is evolving toward a more Agent OS-like control layer, but today it should first be understood as a governed control plane for long-running agents.
 
+Over time, agent distribution may look increasingly app-like, with installable and removable agent packages, tools, or skills. But that is the distribution layer. AAS is concerned with the system layer beneath it: session, capability, policy, and promotion.
+
 ## Why This Matters
 
 As agents take on work that spans many context windows, the hard problem is no longer just "can the model code?"
