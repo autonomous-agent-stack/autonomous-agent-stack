@@ -4,6 +4,9 @@ PYTHON ?= python3
 VENV ?= .venv
 VENV_PYTHON := $(VENV)/bin/python
 VENV_PIP := $(VENV)/bin/pip
+REVIEW_VENV ?= .venv-review
+REVIEW_VENV_PYTHON := $(REVIEW_VENV)/bin/python
+REVIEW_VENV_PIP := $(REVIEW_VENV)/bin/pip
 HOST ?= 127.0.0.1
 PORT ?= 8001
 GOAL ?= 检查 M1 原生算力与工作区可写性
@@ -30,9 +33,9 @@ PROMOTE_BRANCH_PREFIX ?= codex/auto-upgrade
 PROMOTE_PUSH ?= 0
 PROMOTE_OPEN_DRAFT_PR ?= 0
 
-.PHONY: help setup doctor doctor-linux start test-quick clean
+.PHONY: help setup doctor doctor-linux start test-quick smoke-local validate-req4 clean
 .PHONY: ai-lab ai-lab-setup ai-lab-check ai-lab-up ai-lab-down ai-lab-status ai-lab-shell ai-lab-run masfactory-flight hygiene-check openhands openhands-dry-run openhands-controlled openhands-controlled-dry-run openhands-demo agent-run promote-run
-.PHONY: review-gates-local assistant-doctor assistant-triage assistant-execute assistant-review-pr assistant-release-plan assistant-schedule
+.PHONY: review-setup review-gates-local assistant-doctor assistant-triage assistant-execute assistant-review-pr assistant-release-plan assistant-schedule
 .PHONY: telegram-butler-start telegram-butler-status telegram-butler-stop
 
 help:
@@ -67,8 +70,11 @@ help:
 	@echo "  make telegram-butler-status Show API daemon + Telegram poller status"
 	@echo "  make telegram-butler-stop Stop API daemon + Telegram poller"
 	@echo "  make hygiene-check FAIL_ON_FINDINGS=1 Run prompt hygiene audit for src/"
+	@echo "  make review-setup Create .venv-review with mypy/bandit/semgrep"
 	@echo "  make review-gates-local Run mypy/bandit/semgrep on reviewer core modules"
 	@echo "  make test-quick  Run quick smoke tests"
+	@echo "  make smoke-local Run stable single-machine baseline smoke test"
+	@echo "  make validate-req4 Validate requirement #4 scaffold readiness"
 	@echo "  make clean       Remove Python cache folders"
 	@echo ""
 	@echo "Optional vars: HOST=127.0.0.1 PORT=8001"
@@ -84,6 +90,20 @@ setup:
 	@if [[ ! -f .env && -f .env.template ]]; then \
 		cp .env.template .env; \
 		echo "Created .env from .env.template"; \
+	fi
+
+review-setup:
+	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \
+		echo "Missing $(VENV_PYTHON). Run 'make setup' first."; \
+		exit 1; \
+	fi
+	$(VENV_PYTHON) -m venv $(REVIEW_VENV)
+	$(REVIEW_VENV_PIP) install --upgrade pip
+	@if [[ -f requirements-review.lock ]]; then \
+		$(REVIEW_VENV_PIP) install -r requirements-review.lock; \
+	else \
+		echo "Missing requirements-review.lock."; \
+		exit 1; \
 	fi
 
 doctor:
@@ -119,6 +139,18 @@ test-quick:
 	fi
 	PYTHONPATH=src $(VENV_PYTHON) tests/test_workflow_quick.py
 	PYTHONPATH=src $(VENV_PYTHON) scripts/test_registry_simple.py
+
+smoke-local:
+	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \
+		echo "Missing $(VENV_PYTHON). Run 'make setup' first."; \
+		exit 1; \
+	fi
+	@echo "Running stable single-machine baseline smoke test..."
+	AUTORESEARCH_MODE=minimal PYTHONPATH=src $(VENV_PYTHON) -m pytest tests/test_stable_local_smoke.py -v
+
+validate-req4:
+	@echo "Validating requirement #4 scaffold readiness..."
+	bash ./scripts/validate_stable_baseline.sh
 
 clean:
 	find . -name "__pycache__" -type d -prune -exec rm -rf {} +
@@ -181,9 +213,15 @@ review-gates-local:
 	MYPY_BIN="mypy"; \
 	BANDIT_BIN="bandit"; \
 	SEMGREP_BIN="semgrep"; \
-	if [[ -x "$(VENV)/bin/mypy" ]]; then MYPY_BIN="$(VENV)/bin/mypy"; fi; \
-	if [[ -x "$(VENV)/bin/bandit" ]]; then BANDIT_BIN="$(VENV)/bin/bandit"; fi; \
-	if [[ -x "$(VENV)/bin/semgrep" ]]; then SEMGREP_BIN="$(VENV)/bin/semgrep"; fi; \
+	if [[ -x "$(REVIEW_VENV)/bin/mypy" ]]; then MYPY_BIN="$(REVIEW_VENV)/bin/mypy"; \
+	elif [[ -x "$(VENV)/bin/mypy" ]]; then MYPY_BIN="$(VENV)/bin/mypy"; fi; \
+	if [[ -x "$(REVIEW_VENV)/bin/bandit" ]]; then BANDIT_BIN="$(REVIEW_VENV)/bin/bandit"; \
+	elif [[ -x "$(VENV)/bin/bandit" ]]; then BANDIT_BIN="$(VENV)/bin/bandit"; fi; \
+	if [[ -x "$(REVIEW_VENV)/bin/semgrep" ]]; then SEMGREP_BIN="$(REVIEW_VENV)/bin/semgrep"; \
+	elif [[ -x "$(VENV)/bin/semgrep" ]]; then SEMGREP_BIN="$(VENV)/bin/semgrep"; fi; \
+	if ! command -v "$$MYPY_BIN" >/dev/null 2>&1; then echo "Missing mypy. Run 'make review-setup'."; exit 1; fi; \
+	if ! command -v "$$BANDIT_BIN" >/dev/null 2>&1; then echo "Missing bandit. Run 'make review-setup'."; exit 1; fi; \
+	if ! command -v "$$SEMGREP_BIN" >/dev/null 2>&1; then echo "Missing semgrep. Run 'make review-setup'."; exit 1; fi; \
 	$$MYPY_BIN --config-file mypy.ini src/gatekeeper/static_analyzer.py src/gatekeeper/business_enforcer.py src/gatekeeper/llm_reviewer.py src/gatekeeper/board_summarizer.py; \
 	$$BANDIT_BIN -q src/gatekeeper/static_analyzer.py src/gatekeeper/business_enforcer.py src/gatekeeper/llm_reviewer.py src/gatekeeper/board_summarizer.py; \
 	$$SEMGREP_BIN --error --config=p/python src/gatekeeper/static_analyzer.py src/gatekeeper/business_enforcer.py src/gatekeeper/llm_reviewer.py src/gatekeeper/board_summarizer.py
