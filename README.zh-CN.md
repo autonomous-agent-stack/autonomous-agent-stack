@@ -26,6 +26,8 @@ AAS 正在向一种更像 Agent OS 的控制层演进，但当前首先是一个
 
 随着生态发展，agent 的分发形态确实可能越来越像 app，可以被安装、卸载、启用和禁用。但那更接近分发层；AAS 更关心的是它下面的系统层：session、capability、policy 和 promotion。
 
+到了联邦场景里，agent 又不只是 app-like package。它们也更像可被外派的工人：有边界、有租约、可审计、可召回，并且要跨信任边界执行。capability 更像应用，agent 更像执行者，而 AAS 是同时治理这两者的 control plane。
+
 ## 为什么这很重要
 
 当 Agent 开始承担跨多个 context windows 的工作时，难题已经不只是“模型会不会写代码”。

@@ -113,6 +113,20 @@ class _BaseApiSettings(BaseSettings):
 
 
 class RuntimeSettings(_BaseApiSettings):
+    """Runtime settings for the AAS API.
+
+    The `mode` field controls startup behavior:
+    - `minimal`: Stable single-machine mode (default). Only core features enabled.
+    - `full`: All features enabled, including experimental ones.
+
+    In minimal mode, Telegram, WebAuthn, and cluster features are disabled by default
+    unless explicitly enabled via environment variables.
+    """
+    mode: str = Field(
+        default="minimal",
+        validation_alias="AUTORESEARCH_MODE",
+        description="Application mode: 'minimal' (stable) or 'full' (experimental)",
+    )
     environment: str = Field(
         default="development",
         validation_alias=AliasChoices("AUTORESEARCH_ENV", "AUTORESEARCH_ENVIRONMENT", "ENVIRONMENT"),
@@ -124,10 +138,10 @@ class RuntimeSettings(_BaseApiSettings):
     enable_cluster: bool = Field(default=False, validation_alias="AUTORESEARCH_ENABLE_CLUSTER")
     enable_admin: bool = Field(default=True, validation_alias="AUTORESEARCH_ENABLE_ADMIN")
     enable_legacy_telegram_webhook: bool = Field(
-        default=True,
+        default=False,
         validation_alias="AUTORESEARCH_ENABLE_LEGACY_TELEGRAM_WEBHOOK",
     )
-    enable_webauthn: bool = Field(default=True, validation_alias="AUTORESEARCH_ENABLE_WEBAUTHN")
+    enable_webauthn: bool = Field(default=False, validation_alias="AUTORESEARCH_ENABLE_WEBAUTHN")
     panel_static_dir: Path = Field(default=_DEFAULT_PANEL_STATIC_DIR)
 
     @field_validator("api_db_path", mode="before")
@@ -145,6 +159,19 @@ class RuntimeSettings(_BaseApiSettings):
     @property
     def is_production(self) -> bool:
         return self.environment.strip().lower() in {"prod", "production"}
+
+    @property
+    def is_minimal_mode(self) -> bool:
+        """True if running in stable minimal mode (default)."""
+        return self.mode.strip().lower() == "minimal"
+
+    @field_validator("mode", mode="before")
+    @classmethod
+    def _normalize_mode(cls, value: Any) -> str:
+        raw = str(value).strip().lower() if value is not None else "minimal"
+        if raw not in {"minimal", "full"}:
+            return "minimal"
+        return raw
 
 
 class TelegramSettings(_BaseApiSettings):

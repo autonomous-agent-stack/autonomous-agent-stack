@@ -26,6 +26,8 @@ AAS is evolving toward a more Agent OS-like control layer, but today it should f
 
 Over time, agent distribution may look increasingly app-like, with installable and removable agent packages, tools, or skills. But that is the distribution layer. AAS is concerned with the system layer beneath it: session, capability, policy, and promotion.
 
+In federated settings, agents are not just app-like packages. They also behave like dispatched workers: scoped, leased, auditable, and recallable across trust boundaries. Capabilities may look like apps, agents behave more like workers, and AAS exists as the control plane that governs both.
+
 ## Why This Matters
 
 As agents take on work that spans many context windows, the hard problem is no longer just "can the model code?"
@@ -126,10 +128,109 @@ Validate the local setup:
 
 ```bash
 make test-quick
+make smoke-local
 make hygiene-check
 ```
 
 For detailed setup and troubleshooting, read [docs/QUICK_START.md](docs/QUICK_START.md). For remote or multi-machine execution, start with [docs/linux-remote-worker.md](docs/linux-remote-worker.md).
+
+## Stable Single-Machine Mode
+
+**v0.1.0-stable** establishes a verified baseline for running AAS on a single machine without external dependencies.
+
+The default mode is **minimal** (stable), which:
+- Starts reliably with core features only
+- Makes optional routers non-blocking
+- Disables experimental features by default
+- Suitable for local development and testing
+
+```bash
+# Default: minimal mode (stable)
+AUTORESEARCH_MODE=minimal make start
+
+# Full mode: all features (experimental)
+AUTORESEARCH_MODE=full make start
+```
+
+### What Works in Stable Mode
+
+| Feature | Status |
+|---------|--------|
+| FastAPI application | ✅ Starts at `http://127.0.0.1:8001` |
+| SQLite control plane | ✅ `artifacts/api/*.sqlite3` |
+| AEP runner (mock) | ✅ End-to-end execution |
+| Runtime artifact exclusion | ✅ Patch hygiene enforced |
+| Health/docs endpoints | ✅ All respond correctly |
+
+### What's Explicitly Out of Scope
+
+- Distributed execution (requires queue infrastructure)
+- Telegram integration (requires bot token)
+- WebAuthn (requires additional setup)
+- Cluster mode (distributed coordination only)
+
+See [STATUS_AND_RELEASE_NOTES.md](STATUS_AND_RELEASE_NOTES.md) for complete details.
+
+## Requirement #4 Ready Baseline
+
+**Branch**: `feat/single-machine-aas-ready-for-req4`
+**Status**: ✅ Engineering Scaffold Complete - **NOT Production Complete**
+
+This branch provides a **complete engineering scaffold** for requirement #4 (Excel commission processing). All preparation is done - business logic implementation can start immediately when required assets arrive.
+
+⚠️ **This is a "stable single-machine requirement-4 ready baseline"** - engineering scaffold is complete and verified, but business logic implementation is blocked awaiting business assets.
+
+### What's Ready
+
+| Component | File | Status |
+|-----------|------|--------|
+| Commission Engine | `src/autoresearch/core/services/commission_engine.py` | ✅ Deterministic interface |
+| Excel Jobs Repository | `src/autoresearch/core/repositories/excel_jobs.py` | ✅ SQLite-backed |
+| Excel Ops Service | `src/autoresearch/core/services/excel_ops.py` | ✅ Orchestration layer |
+| Excel Ops Router | `src/autoresearch/api/routers/excel_ops.py` | ✅ REST API |
+| Models & Contracts | `src/autoresearch/shared/excel_ops_models.py` | ✅ Schemas defined |
+| Contract Tests | `tests/test_excel_ops_service.py` | ✅ Verify blocking |
+| Validation Script | `scripts/validate_stable_baseline.sh` | ✅ `make validate-req4` |
+
+### Awaiting Business Assets
+
+| Asset | Purpose | Location |
+|-------|---------|----------|
+| Excel contracts | File schemas, column mappings | `tests/fixtures/requirement4_contracts/` |
+| Ambiguity checklist | 7 categories of edge case decisions | `tests/fixtures/requirement4_contracts/` |
+| Sample Excel files | Real input data for testing | `tests/fixtures/requirement4_samples/` |
+| Golden outputs | Expected calculation results | `tests/fixtures/requirement4_golden/` |
+
+### Validate Scaffold
+
+```bash
+# Validate requirement #4 readiness
+make validate-req4
+
+# Run contract tests
+pytest tests/test_excel_ops_service.py -v
+
+# Check readiness status
+cat docs/requirement4/IMPLEMENTATION_READY_CHECKLIST.md
+```
+
+### Safety Guarantees
+
+- **No Silent Calculations**: Blocks without valid contracts
+- **Deterministic Only**: No LLM reasoning in production path
+- **Audit Trail**: Job state tracked in SQLite
+- **Runtime Artifact Exclusion**: Patches exclude `.masfactory_runtime/`, `logs/`, `memory/`
+
+**See**: [docs/requirement4/](docs/requirement4/) for complete preparation details.
+
+**For implementation**:
+- English: [docs/requirement4/CLAUDE_CODE_BEST_PRACTICES.md](docs/requirement4/CLAUDE_CODE_BEST_PRACTICES.md)
+- 中文: [docs/requirement4/CLAUDE_CODE_BEST_PRACTICES_ZH.md](docs/requirement4/CLAUDE_CODE_BEST_PRACTICES_ZH.md)
+- **资产到达后的行动指南**: [docs/requirement4/ACTION_PLAN_WHEN_ASSETS_ARRIVE_ZH.md](docs/requirement4/ACTION_PLAN_WHEN_ASSETS_ARRIVE_ZH.md) ⭐ **推荐** - 包含 4 个必需资产的详细说明和示例
+
+---
+
+## Controlled Integrations
 
 ## Controlled Integrations
 
