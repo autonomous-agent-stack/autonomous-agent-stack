@@ -74,6 +74,35 @@ make test-quick
 PORT=8010 make start
 ```
 
+## Windows 入口
+
+Windows 用户可以直接使用以下入口：
+
+```bat
+setup.cmd
+doctor.cmd
+start.cmd
+```
+
+也可以使用 PowerShell 版本：
+
+```powershell
+.\setup.ps1
+.\doctor.ps1
+.\start.ps1
+```
+
+如果你更习惯 `make`，也可以用：
+
+```powershell
+make setup-win
+make doctor-win
+make start-win
+make smoke-win
+```
+
+这条路径只覆盖 Windows 的最小主链，不代表所有辅助 target 都已 Windows 同等支持。
+
 ## 手动模式（不使用 Makefile）
 
 ```bash
