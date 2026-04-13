@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
 import subprocess
 import sys
@@ -138,7 +137,9 @@ def test_failed_test_command_stays_failed_after_max_iterations(tmp_path: Path) -
     assert result.workspace_retained is False
 
 
-def test_openhands_cli_env_strips_git_credentials(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_openhands_cli_env_strips_git_credentials(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
     _create_min_repo(repo_root)

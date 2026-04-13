@@ -99,7 +99,6 @@ class AgentExecutionRunner:
             message="no attempt executed",
         )
         last_validation = ValidationReport(run_id=job.run_id, passed=False, checks=[])
-        last_patch_filtered_paths: list[str] = []
 
         while True:
             if pending_attempts <= 0:
@@ -179,8 +178,6 @@ class AgentExecutionRunner:
                 driver_result = driver_result.model_copy(
                     update={"changed_paths": patch_filtered_paths}
                 )
-            last_patch_filtered_paths = patch_filtered_paths
-
             if self._has_policy_violation(validation):
                 driver_result = driver_result.model_copy(
                     update={
@@ -214,7 +211,11 @@ class AgentExecutionRunner:
                     policy=effective_policy,
                     artifacts_dir=artifacts_dir,
                 )
-                final_status = "promoted" if promotion.mode is GitPromotionMode.DRAFT_PR else "ready_for_promotion"
+                final_status = (
+                    "promoted"
+                    if promotion.mode is GitPromotionMode.DRAFT_PR
+                    else "ready_for_promotion"
+                )
                 if not promotion.success:
                     final_status = "blocked"
                 summary = RunSummary(
@@ -661,7 +662,9 @@ class AgentExecutionRunner:
                 "branch_name": self._sanitize_branch_name(
                     str(job.metadata.get("branch_name") or f"autoprom/{job.run_id}")
                 ),
-                "commit_message": str(job.metadata.get("commit_message") or f"Promotion for {job.run_id}"),
+                "commit_message": str(
+                    job.metadata.get("commit_message") or f"Promotion for {job.run_id}"
+                ),
                 "pr_title": str(job.metadata.get("pr_title") or f"Promotion for {job.run_id}"),
                 "pr_body": str(job.metadata.get("pr_body") or "Automated promotion draft PR."),
                 "validator_commands": [
