@@ -280,8 +280,7 @@ class MacWorkerExecutor:
         from content_kb.contracts import SpeakerIndex, TimelineIndex, TopicIndex
         from content_kb.index_builder import build_speaker_index, build_timeline_index, build_topic_index
         from content_kb.repo_selector import resolve_repo_selection
-        from content_kb.subtitle_ingest import ingest_subtitle
-        from content_kb.topic_classifier import classify_by_keywords
+        from content_kb.subtitle_ingest import infer_topic_from_subtitle, ingest_subtitle
 
         payload = run.payload
         file_path = payload.get("subtitle_text_path", "")
@@ -309,9 +308,7 @@ class MacWorkerExecutor:
 
         # 1. Classify if topic not provided
         if not topic:
-            text = path.read_text(encoding="utf-8")
-            classification = classify_by_keywords(text)
-            topic = classification.primary_topic
+            topic = infer_topic_from_subtitle(path)
 
         # 2. Ingest subtitle
         ingest_result = ingest_subtitle(

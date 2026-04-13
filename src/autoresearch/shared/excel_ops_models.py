@@ -89,7 +89,7 @@ class ExcelFileMetadata(StrictModel):
     sheet_name: str | None = None
     size_bytes: int | None = None
     sha256_hash: str | None = None
-    uploaded_at: datetime = utc_now()
+    uploaded_at: datetime = Field(default_factory=utc_now)
 
 
 class ExcelJobCreateRequest(StrictModel):
@@ -190,7 +190,7 @@ class ExcelValidationResult(StrictModel):
     errors: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     findings: list[dict[str, Any]] = Field(default_factory=list)
-    validated_at: datetime = utc_now()
+    validated_at: datetime = Field(default_factory=utc_now)
 
 
 class CommissionCalculationRequest(StrictModel):

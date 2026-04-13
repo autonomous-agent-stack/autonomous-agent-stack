@@ -18,6 +18,8 @@ annotated-types==0.7.0
     # via pydantic
 anthropic==0.89.0
     # via masfactory
+apscheduler==3.11.2
+    # via -r requirements.txt
 anyio==4.13.0
     # via
     #   anthropic
@@ -46,7 +48,7 @@ click==8.1.8
     #   litellm
     #   typer
     #   uvicorn
-cryptography==46.0.6
+cryptography==46.0.7
     # via
     #   -r requirements.txt
     #   google-auth
@@ -305,6 +307,8 @@ typing-inspection==0.4.2
     #   mcp
     #   pydantic
     #   pydantic-settings
+tzlocal==5.3.1
+    # via apscheduler
 uritemplate==4.2.0
     # via google-api-python-client
 urllib3==2.6.3

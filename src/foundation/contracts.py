@@ -6,7 +6,7 @@ that unify excel_audit, github_admin, and content_kb under a common execution fr
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Literal
 
@@ -20,7 +20,7 @@ class StrictModel(BaseModel):
 
 def utc_now() -> datetime:
     """Return current UTC timestamp."""
-    return datetime.now(datetime.timezone.utc)
+    return datetime.now(timezone.utc)
 
 
 # ============================================================================

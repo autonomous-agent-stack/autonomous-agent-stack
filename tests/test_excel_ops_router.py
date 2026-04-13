@@ -31,14 +31,14 @@ def test_app() -> FastAPI:
 @pytest.fixture
 def client(test_app: FastAPI) -> TestClient:
     """Test client for API requests."""
-    # Mock the service dependency to return 501 Not Implemented
-    # This verifies the router is registered but service is not wired
+    # Override the service dependency to return 501 Not Implemented.
+    # This keeps the router contract test isolated from runtime wiring.
     from fastapi import HTTPException, status
 
     def mock_get_service():
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail="Excel ops service not yet wired. This is expected - service requires business assets first.",
+            detail="Excel ops service dependency override forced 501 for router contract testing.",
         )
 
     test_app.dependency_overrides[get_excel_ops_service] = mock_get_service
@@ -73,17 +73,16 @@ class TestExcelOpsRouterEndpoints:
     """Test excel_ops router HTTP endpoints."""
 
     def test_requirement4_status_endpoint(self, client: TestClient):
-        """GET /api/v1/excel-ops/status/requirement4 should return scaffold status."""
+        """GET /api/v1/excel-ops/status/requirement4 should honor the injected 501 override."""
         response = client.get("/api/v1/excel-ops/status/requirement4")
 
         assert response.status_code == 501, \
-            f"Expected 501 Not Implemented (service not wired), got {response.status_code}"
+            f"Expected 501 Not Implemented from dependency override, got {response.status_code}"
 
-        # When service is properly wired, should return 200 with Requirement4StatusResponse
-        # For now, 501 confirms router is registered but service is not ready
+        # The real app wiring is verified separately through service-backed tests and smoke checks.
 
     def test_create_job_endpoint_returns_501(self, client: TestClient):
-        """POST /api/v1/excel-ops/jobs should return 501 (service not wired)."""
+        """POST /api/v1/excel-ops/jobs should return the injected 501 override."""
         request = ExcelJobCreateRequest(
             task_name="Test job",
             input_files=[],
@@ -98,7 +97,7 @@ class TestExcelOpsRouterEndpoints:
             f"Expected 501 Not Implemented, got {response.status_code}"
 
     def test_get_job_endpoint_returns_501(self, client: TestClient):
-        """GET /api/v1/excel-ops/jobs/{id} should return 501."""
+        """GET /api/v1/excel-ops/jobs/{id} should return the injected 501 override."""
         response = client.get("/api/v1/excel-ops/jobs/test-job-id")
 
         assert response.status_code == 501, \
@@ -106,7 +105,7 @@ class TestExcelOpsRouterEndpoints:
 
 
 class TestExcelOpsRouterContractVerification:
-    """Verify router HTTP contract without needing wired service."""
+    """Verify router HTTP contract without depending on runtime wiring."""
 
     def test_post_jobs_accepts_valid_payload(self, test_app: FastAPI):
         """Router should accept valid job creation payload."""
@@ -218,6 +217,8 @@ class TestExcelOpsRouterBlockingBehavior:
 
         # Should show scaffold is complete
         assert status.scaffold_complete is True
+        assert status.router_registered is True
+        assert status.router_wired is True
 
         # Should have blocked states
         assert isinstance(status.blocked_states, dict)
