@@ -1,0 +1,21 @@
+{
+  "id": "session-closure",
+  "name": "会话收尾检查器",
+  "version": "1.0.0",
+  "description": "检查当前会话是否还有未完结事项，并输出可执行收尾清单",
+  "author": "Autonomous Agent Stack Team",
+  "category": "operations",
+  "tags": ["session", "closure", "checklist", "workflow"],
+  "dependencies": [],
+  "entry_point": "main.py",
+  "permissions": {
+    "network": false,
+    "file_system": false,
+    "subprocess": false
+  },
+  "config": {
+    "strict_default": true
+  },
+  "security_level": "safe",
+  "dangerous_calls": []
+}
