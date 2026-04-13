@@ -46,11 +46,11 @@ If none of the above apply:
 - run targeted validation
 - summarize assumptions and residual risk
 
-## Bilingual documentation (ZH-CN + EN) | 中英并列文档
+## Bilingual project descriptions (ZH-CN + EN) | 中英并列项目描述
 
-**中文：** 面向贡献者与用户的仓库文档在**新增或实质性修改**时采用中英并列：同一主题下**先简体中文、后对应英文**，语义一致；包括 `README*`、`docs/**`、根目录主要指南、CHANGELOG 面向读者的条目，以及 PR / Issue 中的说明性正文（非纯代码块）。不要只写一种语言再用「待翻译」占位。代码中的注释、类型名与公开 API 的 docstring 以**英文**为主并与现有文件风格一致；若某文件已固定为双语 docstring，则延续该文件惯例。若任务或审查者明确要求单语，以该要求为准。
+**中文：** 本仓库**一切对外可见的说明性文字**在新增或实质性修改时须**中英并列**：同一主题下**先简体中文、后对应英文**，语义一致、禁止单语加「待译」占位。范围包括但不限于：`README*`、`docs/**`、根目录指南、面向读者的 **CHANGELOG**、**GitHub Issue 与 Pull Request 的标题与正文**、Release/发行说明、用户可见错误与提示文案、（如适用）包说明字段。代码中的标识符、机器可读配置键、以及以代码为主的注释以**英文**为主并符合既有惯例；公开 API 的 docstring 若文件已采用双语则延续。仅在维护者/任务明确要求单语、逐字引用第三方原文、或仅修正错字与链接而不改语义时例外。
 
-**English:** For contributor- and user-facing repo documentation, **add or materially edit** content in **parallel Chinese and English**: for the same topic, **Simplified Chinese first, then matching English**, equivalent meaning. This applies to `README*`, `docs/**`, top-level guides, reader-facing CHANGELOG entries, and explanatory prose in PRs/Issues (not bare code fences). Do not ship one language plus a “TODO translate” stub. Code comments, type names, and public API docstrings stay **English-first** and match existing file style; if a file already uses bilingual docstrings, keep that pattern. If the task or reviewer explicitly requests a single language, follow that.
+**English:** All **human-facing descriptive text** in this repository must use **parallel Simplified Chinese and English** when **adding or materially editing**: for the same topic, **Simplified Chinese first, then English**, same meaning—no single-language “TODO translate” stubs. Scope includes but is not limited to: `README*`, `docs/**`, top-level guides, reader-facing **CHANGELOG** entries, **GitHub Issue and Pull Request titles and bodies**, release notes, user-visible errors and hints, and package summary fields where applicable. Identifiers, machine-oriented config keys, and code-centric comments stay **English-first** per conventions; keep bilingual docstrings only where the file already does. Exceptions: explicit single-language request from maintainers/task, verbatim third-party quotes, or typo/link-only fixes without semantic change.
 
 ## Codex Task Briefs
 
