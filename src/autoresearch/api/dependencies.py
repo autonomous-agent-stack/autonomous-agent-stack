@@ -51,12 +51,15 @@ from autoresearch.core.services.self_integration import SelfIntegrationService
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
 from autoresearch.core.services.upstream_watcher import UpstreamWatcherService
 from autoresearch.core.services.variants import VariantService
+from autoresearch.core.services.commission_engine import CommissionEngine
+from autoresearch.core.services.excel_ops import ExcelOpsService
 from autoresearch.core.services.worker_schedule_service import WorkerScheduleService
 from autoresearch.core.services.worker_scheduler import WorkerSchedulerService
 from autoresearch.core.services.worker_registry import WorkerRegistryService
 from autoresearch.core.services.youtube_agent import YouTubeAgentService
 from autoresearch.core.services.butler_router import ButlerIntentRouter
 from autoresearch.core.services.excel_audit import ExcelAuditService
+from autoresearch.core.repositories.excel_jobs import ExcelJobsRepository
 from autoresearch.shared.models import (
     ClaudeAgentRunRead,
     ClaudeRuntimeSessionRecordRead,
@@ -271,6 +274,19 @@ def get_worker_schedule_service() -> WorkerScheduleService:
             table_name="worker_schedules",
             model_cls=WorkerRunScheduleRead,
         ),
+    )
+
+
+@lru_cache(maxsize=1)
+def get_excel_ops_service() -> ExcelOpsService:
+    repo_root = _repo_root()
+    return ExcelOpsService(
+        repository=ExcelJobsRepository(db_path=_api_db_path()),
+        commission_engine=CommissionEngine(
+            contracts_dir=repo_root / "tests" / "fixtures" / "requirement4_contracts",
+            strict_mode=True,
+        ),
+        repo_root=repo_root,
     )
 
 
@@ -575,6 +591,7 @@ def clear_dependency_caches() -> None:
     _safe_cache_clear(get_admin_secret_cipher)
     _safe_cache_clear(get_admin_auth_service)
     _safe_cache_clear(get_excel_audit_service)
+    _safe_cache_clear(get_excel_ops_service)
     _safe_cache_clear(get_butler_router)
 
 

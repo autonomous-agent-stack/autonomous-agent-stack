@@ -46,6 +46,12 @@ If none of the above apply:
 - run targeted validation
 - summarize assumptions and residual risk
 
+## Bilingual documentation (ZH-CN + EN) | 中英并列文档
+
+**中文：** 面向贡献者与用户的仓库文档在**新增或实质性修改**时采用中英并列：同一主题下**先简体中文、后对应英文**，语义一致；包括 `README*`、`docs/**`、根目录主要指南、CHANGELOG 面向读者的条目，以及 PR / Issue 中的说明性正文（非纯代码块）。不要只写一种语言再用「待翻译」占位。代码中的注释、类型名与公开 API 的 docstring 以**英文**为主并与现有文件风格一致；若某文件已固定为双语 docstring，则延续该文件惯例。若任务或审查者明确要求单语，以该要求为准。
+
+**English:** For contributor- and user-facing repo documentation, **add or materially edit** content in **parallel Chinese and English**: for the same topic, **Simplified Chinese first, then matching English**, equivalent meaning. This applies to `README*`, `docs/**`, top-level guides, reader-facing CHANGELOG entries, and explanatory prose in PRs/Issues (not bare code fences). Do not ship one language plus a “TODO translate” stub. Code comments, type names, and public API docstrings stay **English-first** and match existing file style; if a file already uses bilingual docstrings, keep that pattern. If the task or reviewer explicitly requests a single language, follow that.
+
 ## Codex Task Briefs
 
 For non-trivial repo work, prefer prompts/specs that state all of the following up front:

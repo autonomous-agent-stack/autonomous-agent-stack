@@ -21,6 +21,18 @@ make start
 - Swagger 文档：`http://127.0.0.1:8001/docs`
 - Panel 面板：`http://127.0.0.1:8001/panel`
 
+## 平台边界
+
+当前稳定单机主链已经支持：
+
+- macOS / Linux / WSL2 的 `make setup` / `make doctor` / `make start`
+- 原生 Windows 的 `make setup` / `make doctor` / `make start`
+- 原生 Windows 的 `setup.cmd` / `doctor.cmd` / `start.cmd`
+
+这条最小 Windows 主链现在已经进入 CI 回归验证范围，目标就是让 `setup -> doctor -> start` 在 Windows 上保持持续可检验。
+
+但这仍然只代表**主链支持**，不代表仓库里所有 target 都已 Windows 同等支持。很多辅助 target 仍然有 Bash、macOS、Linux 假设。
+
 ## 运行模式
 
 AAS 支持两种运行模式：
@@ -74,6 +86,16 @@ make test-quick
 PORT=8010 make start
 ```
 
+## requirement-4 相关入口
+
+如果你的目标是 requirement-4 的 2 天压缩试运行，不要只看 Quick Start，还要同时看：
+
+- `docs/requirement4/ACTION_PLAN_WHEN_ASSETS_ARRIVE_ZH.md`
+- `docs/requirement4/BRANCH_A_B_IMPLEMENTATION_BEST_PRACTICES_ZH.md`
+- `docs/aas-claude-ecc-excel-best-practice-report.md`
+
+当前 requirement-4 的主验收路径仍然是 Telegram 手动触发试运行。单机 schedule 已经存在，但不建议把 schedule 作为第一验收路径。
+
 ## 手动模式（不使用 Makefile）
 
 ```bash
@@ -82,6 +104,14 @@ python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 .venv/bin/python scripts/doctor.py --port 8001
 PYTHONPATH=src .venv/bin/python -m uvicorn autoresearch.api.main:app --host 127.0.0.1 --port 8001 --reload
+```
+
+Windows CMD 入口：
+
+```bat
+setup.cmd
+doctor.cmd
+start.cmd
 ```
 
 ## 故障排查

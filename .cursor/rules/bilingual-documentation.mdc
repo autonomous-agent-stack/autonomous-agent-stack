@@ -1,0 +1,17 @@
+---
+description: Parallel Simplified Chinese + English for repo-facing docs in this project
+globs:
+  - "**/*.md"
+  - "README*"
+  - "docs/**"
+---
+
+# Bilingual documentation | 中英并列文档
+
+**中文：** 在本仓库中，凡落入上述 glob 的 Markdown，以及 README、用户/贡献者指南、CHANGELOG 读者向说明、PR/Issue 说明性正文，在**新增或实质性修改**时须**中英并列**：同一小节内**先简体中文，后对应英文**，内容对应、不得用单语加「稍后翻译」敷衍。代码块内示例若需面向读者解释，可在块外用中英并列说明。代码标识符与以代码为主的注释保持英文及既有文件惯例。
+
+**English:** In this repository, Markdown matched by the globs above, plus READMEs, user/contributor guides, reader-facing CHANGELOG notes, and explanatory PR/Issue prose must use **parallel Simplified Chinese and English** when **adding or materially editing**: within the same subsection, **Simplified Chinese first, then English**, aligned meaning—no single-language placeholder. For code fences, keep code as-is; explain to readers in bilingual prose outside the fence. Identifiers and code-centric comments stay English and follow existing conventions.
+
+**中文（例外）：** 用户或维护者明确要求仅一种语言、纯第三方引用、或仅改错别字/链接而不改变语义时，不强制补全另一种语言。
+
+**English (exceptions):** When the user or maintainers explicitly request one language only, for pure third-party quotes, or for typo/link fixes without semantic change, bilingual text is not required.
