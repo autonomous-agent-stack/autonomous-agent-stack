@@ -2,6 +2,16 @@
 
 适用页面：`/api/v1/admin/view`
 
+<a id="admin-field-guide-links"></a>
+## Quick Start 互链导航 | Quick Start cross-links
+
+**中文：** 先按 Quick Start 跑通主链，再回到本页逐项填写最稳。  
+**English:** Run the main chain in Quick Start first, then return here for per-field filling.
+
+- 启动三步（`setup -> doctor -> start`）：[`docs/QUICK_START.md#quick-start-three-commands`](docs/QUICK_START.md#quick-start-three-commands)
+- 常见故障排查：[`docs/QUICK_START.md#quick-start-troubleshooting`](docs/QUICK_START.md#quick-start-troubleshooting)
+- Quick Start 的 Admin UI 帮助入口：[`docs/QUICK_START.md#quick-start-admin-ui`](docs/QUICK_START.md#quick-start-admin-ui)
+
 ## 0. 先准备三个环境变量
 
 ```bash
