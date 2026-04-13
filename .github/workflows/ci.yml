@@ -42,11 +42,13 @@ jobs:
             src/autoresearch/agent_protocol \
             src/autoresearch/executions/runner.py \
             scripts/agent_run.py \
+            scripts/ci/check_pr_bilingual.py \
             tests/test_agent_protocol_models.py \
             tests/test_agent_policy_merge.py \
             tests/test_agent_runner_patch_filter.py \
             tests/test_agent_fallbacks.py \
-            tests/test_openhands_controlled_backend.py
+            tests/test_openhands_controlled_backend.py \
+            tests/test_check_pr_bilingual.py
 
       - name: Black
         run: |
@@ -54,11 +56,13 @@ jobs:
             src/autoresearch/agent_protocol \
             src/autoresearch/executions/runner.py \
             scripts/agent_run.py \
+            scripts/ci/check_pr_bilingual.py \
             tests/test_agent_protocol_models.py \
             tests/test_agent_policy_merge.py \
             tests/test_agent_runner_patch_filter.py \
             tests/test_agent_fallbacks.py \
-            tests/test_openhands_controlled_backend.py
+            tests/test_openhands_controlled_backend.py \
+            tests/test_check_pr_bilingual.py
 
       - name: Pytest
         env:
@@ -69,7 +73,8 @@ jobs:
             tests/test_agent_policy_merge.py \
             tests/test_agent_runner_patch_filter.py \
             tests/test_agent_fallbacks.py \
-            tests/test_openhands_controlled_backend.py
+            tests/test_openhands_controlled_backend.py \
+            tests/test_check_pr_bilingual.py
 
       - name: Pip Audit
         # Temporary exception: no patched Pygments release published yet.
