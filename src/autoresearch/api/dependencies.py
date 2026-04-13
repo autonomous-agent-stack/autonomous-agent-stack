@@ -51,6 +51,7 @@ from autoresearch.core.services.self_integration import SelfIntegrationService
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
 from autoresearch.core.services.upstream_watcher import UpstreamWatcherService
 from autoresearch.core.services.variants import VariantService
+from autoresearch.core.services.worker_schedule_service import WorkerScheduleService
 from autoresearch.core.services.worker_scheduler import WorkerSchedulerService
 from autoresearch.core.services.worker_registry import WorkerRegistryService
 from autoresearch.core.services.youtube_agent import YouTubeAgentService
@@ -79,6 +80,7 @@ from autoresearch.shared.models import (
     WorkerLeaseRead,
     WorkerQueueItemRead,
     WorkerRegistrationRead,
+    WorkerRunScheduleRead,
     YouTubeDigestRead,
     YouTubeRunRead,
     YouTubeSubscriptionRead,
@@ -256,6 +258,18 @@ def get_worker_scheduler_service() -> WorkerSchedulerService:
             db_path=_api_db_path(),
             table_name="worker_leases",
             model_cls=WorkerLeaseRead,
+        ),
+    )
+
+
+@lru_cache(maxsize=1)
+def get_worker_schedule_service() -> WorkerScheduleService:
+    return WorkerScheduleService(
+        worker_scheduler=get_worker_scheduler_service(),
+        repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="worker_schedules",
+            model_cls=WorkerRunScheduleRead,
         ),
     )
 
@@ -541,6 +555,7 @@ def clear_dependency_caches() -> None:
     _safe_cache_clear(get_github_issue_service)
     _safe_cache_clear(get_worker_registry_service)
     _safe_cache_clear(get_worker_scheduler_service)
+    _safe_cache_clear(get_worker_schedule_service)
     _safe_cache_clear(get_openclaw_compat_service)
     _safe_cache_clear(get_openclaw_memory_service)
     _safe_cache_clear(get_capability_provider_registry)
