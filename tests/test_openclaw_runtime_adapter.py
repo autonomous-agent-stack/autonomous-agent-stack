@@ -14,6 +14,7 @@ from autoresearch.agent_protocol.runtime_models import (
     RuntimeStreamRequest,
 )
 from autoresearch.core.services.claude_agents import ClaudeAgentService
+from autoresearch.core.services.hermes_runtime_adapter import HermesRuntimeAdapterService
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.openclaw_runtime_adapter import OpenClawRuntimeAdapterService
 from autoresearch.shared.models import ClaudeAgentRunRead, JobStatus, OpenClawSessionRead
@@ -41,6 +42,32 @@ def _build_runtime_adapter(tmp_path: Path) -> OpenClawRuntimeAdapterService:
         max_depth=3,
     )
     return OpenClawRuntimeAdapterService(
+        openclaw_service=openclaw_service,
+        claude_service=claude_service,
+    )
+
+
+def _build_hermes_runtime_adapter(tmp_path: Path) -> HermesRuntimeAdapterService:
+    db_path = tmp_path / "hermes-runtime.sqlite3"
+    openclaw_service = OpenClawCompatService(
+        repository=SQLiteModelRepository(
+            db_path=db_path,
+            table_name="openclaw_sessions_hermes_runtime_it",
+            model_cls=OpenClawSessionRead,
+        )
+    )
+    claude_service = ClaudeAgentService(
+        repository=SQLiteModelRepository(
+            db_path=db_path,
+            table_name="claude_agent_runs_hermes_runtime_it",
+            model_cls=ClaudeAgentRunRead,
+        ),
+        openclaw_service=openclaw_service,
+        repo_root=tmp_path,
+        max_agents=10,
+        max_depth=3,
+    )
+    return HermesRuntimeAdapterService(
         openclaw_service=openclaw_service,
         claude_service=claude_service,
     )
@@ -74,6 +101,17 @@ def test_runtime_registry_loads_openclaw_manifest() -> None:
     assert manifest.service.endswith(":OpenClawRuntimeAdapterService")
     assert manifest.capabilities == ["create_session", "run", "stream", "cancel", "status"]
     assert "policy.timeout_sec" in manifest.aep_bridge.jobspec_inputs
+
+
+def test_runtime_registry_loads_hermes_manifest() -> None:
+    registry = RuntimeAdapterRegistry(Path("configs/runtime_agents"))
+    manifest = registry.load("hermes")
+
+    assert manifest.id == "hermes"
+    assert manifest.kind == "runtime"
+    assert manifest.service.endswith(":HermesRuntimeAdapterService")
+    assert manifest.capabilities == ["create_session", "run", "stream", "cancel", "status"]
+    assert "metadata.hermes" in manifest.aep_bridge.jobspec_inputs
 
 
 def test_openclaw_runtime_adapter_runs_job_and_maps_aep_bridge(tmp_path: Path) -> None:
@@ -167,3 +205,47 @@ def test_openclaw_runtime_adapter_cancel_interrupts_run(tmp_path: Path) -> None:
     assert finalized_run.status == JobStatus.INTERRUPTED
     assert finalized_run.error == "stop-now"
     assert any("agent cancelled" in event.content for event in runtime_status.latest_events)
+
+
+def test_hermes_runtime_adapter_uses_unified_contract_with_hermes_namespace(tmp_path: Path) -> None:
+    adapter = _build_hermes_runtime_adapter(tmp_path)
+    work_dir = tmp_path / "hermes-workspace"
+    work_dir.mkdir(parents=True, exist_ok=True)
+    job = JobSpec(
+        run_id="aep-hermes-runtime-1",
+        agent_id="hermes",
+        role="executor",
+        mode="runtime_only",
+        task="Write hermes runtime marker.",
+        metadata={
+            "hermes": {
+                "task_name": "hermes-runtime-smoke",
+                "work_dir": str(work_dir),
+                "command_override": [
+                    sys.executable,
+                    "-c",
+                    (
+                        "from pathlib import Path; "
+                        "Path('notes').mkdir(exist_ok=True); "
+                        "Path('notes/hermes.txt').write_text('hermes\\n', encoding='utf-8'); "
+                        "print('hermes-ok')"
+                    ),
+                ],
+                "append_prompt": False,
+            }
+        },
+    )
+
+    session = adapter.create_session_from_job(job)
+    runtime_run = adapter.run_from_job(job, session_id=session.session_id)
+    runtime_status, finalized_run = _wait_runtime_terminal(adapter, runtime_run.run_id)
+
+    assert runtime_status is not None
+    assert finalized_run is not None
+    assert runtime_status.run is not None
+    assert runtime_status.run.runtime_id == "hermes"
+    assert finalized_run.status == JobStatus.COMPLETED
+    assert "hermes-ok" in finalized_run.summary
+    assert (work_dir / "notes" / "hermes.txt").read_text(encoding="utf-8") == "hermes\n"
+    assert any(artifact.name == "hermes_session_events" for artifact in runtime_status.run.output_artifacts)
+    assert any(artifact.name == "hermes_workspace" for artifact in runtime_status.run.output_artifacts)
