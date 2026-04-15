@@ -151,6 +151,30 @@ def test_content_kb_ingest_subtitle(content_kb_client: TestClient, tmp_path: Pat
     assert data["metadata"]["topic"] == "ai-status-and-outlook"
 
 
+def test_content_kb_ingest_subtitle_infers_topic_when_missing(content_kb_client: TestClient, tmp_path: Path) -> None:
+    """Test subtitle ingestion auto-classifies topic when the request omits it."""
+    srt_path = tmp_path / "ai_only.srt"
+    srt_path.write_text(
+        """1
+00:00:01,000 --> 00:00:03,000
+AI 和 GPT 模型的能力正在快速提升。
+""",
+        encoding="utf-8",
+    )
+
+    response = content_kb_client.post(
+        "/api/v1/content-kb/ingest",
+        json={
+            "subtitle_text_path": str(srt_path),
+            "title": "AI Outlook",
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "ingesting"
+    assert data["metadata"]["topic"] == "ai-status-and-outlook"
+
+
 def test_content_kb_ingest_missing_file_returns_error(content_kb_client: TestClient) -> None:
     """Test that missing subtitle file returns 404 error."""
     response = content_kb_client.post(

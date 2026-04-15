@@ -11,10 +11,14 @@
             "id": "8858f6f58fe86c1b",
             "type": "leaf",
             "state": {
-              "type": "empty",
-              "state": {},
+              "type": "markdown",
+              "state": {
+                "file": "docs/aas-claude-ecc-excel-best-practice-report.md",
+                "mode": "source",
+                "source": false
+              },
               "icon": "lucide-file",
-              "title": "新标签页"
+              "title": "aas-claude-ecc-excel-best-practice-report"
             }
           }
         ]
@@ -178,29 +182,41 @@
   },
   "active": "8858f6f58fe86c1b",
   "lastOpenFiles": [
+    "docs/decisions/distributed-control-plane-architecture-v1.md",
+    "README.en.md",
+    "tests/content_kb/test_topic_classifier.py",
+    "tests/content_kb/test_subtitle_ingest.py",
+    "tests/content_kb/__init__.py",
+    "src/content_kb/topic_classifier.py",
+    "src/content_kb/subtitle_ingest.py",
+    "src/content_kb/repo_selector.py",
+    "src/content_kb/readme_writer.py",
+    "src/content_kb/index_builder.py",
+    "src/content_kb/contracts.py",
+    "src/content_kb/__init__.py",
+    "agents/content_kb/prompts/ingest_subtitles.md",
+    "agents/content_kb/prompts/classify_topic.md",
+    "agents/content_kb/prompts/choose_repo.md",
+    "agents/content_kb/prompts/build_index.md",
+    "agents/content_kb/README.md",
+    "tests/github_admin/review_examples.md",
+    "docs/aas-claude-ecc-excel-best-practice-report.md",
+    "agents/excel_audit/prompts/excel_rule_translate.md",
+    "agents/excel_audit/prompts/excel_repair.md",
+    "agents/excel_audit/prompts/excel_intake.md",
+    "agents/butler_orchestrator/prompts/summarize_result.md",
+    "agents/butler_orchestrator/prompts/classify.md",
+    "agents/butler_orchestrator/prompts/ask_missing_args.md",
+    "agents/butler_orchestrator/README.md",
     "docs/runbooks/smoke-test-3cuts.md",
     "docs/decisions/deterministic-job-best-practice-v1.md",
-    "tests/__pycache__/test_claude_runtime_3cuts.cpython-313-pytest-9.0.2.pyc",
-    "src/autoresearch/core/services/__pycache__/claude_session_records.cpython-313.pyc",
-    "src/autoresearch/core/services/__pycache__/claude_runtime_service.cpython-313.pyc",
-    "tests/test_claude_runtime_3cuts.py",
-    "src/autoresearch/core/services/claude_runtime_service.py",
-    "src/autoresearch/core/services/claude_session_records.py",
-    "profiles/DD/repos.yaml",
-    "profiles/DD/assistant.yaml",
-    "profiles/DD/policies/default-policy.yaml",
     "profiles/DD/prompts/release-ops.md",
     "profiles/DD/prompts/pr-review.md",
     "profiles/DD/prompts/issue-triage.md",
     "profiles/DD/prompts/issue-execution-plan.md",
     "profiles/DD/prompts/draft-pr-summary.md",
-    "profiles/DD/prompts",
     "profiles/Lisa/prompts/release-ops.md",
     "profiles/Lisa/prompts/pr-review.md",
-    "profiles/Lisa/prompts/issue-triage.md",
-    "profiles/Lisa/prompts/issue-execution-plan.md",
-    "profiles/Lisa/prompts/draft-pr-summary.md",
-    "runs/20260407T091442854245Z/srxly888-creator/autonomous-agent-stack/youtube-kz5T7J-F53M/publish.md",
-    "docs/claude-code-excel-business-case.md"
+    "profiles/Lisa/prompts/issue-triage.md"
   ]
 }

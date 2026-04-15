@@ -2,6 +2,7 @@
 
 本指南面向首次使用者优化。如果你只做三件事，请先做这三步：
 
+<a id="quick-start-three-commands"></a>
 ```bash
 cd /Volumes/AI_LAB/Github/autonomous-agent-stack
 make setup
@@ -83,6 +84,16 @@ make test-quick
 PORT=8010 make start
 ```
 
+## requirement-4 相关入口
+
+如果你的目标是 requirement-4 的 2 天压缩试运行，不要只看 Quick Start，还要同时看：
+
+- `docs/requirement4/ACTION_PLAN_WHEN_ASSETS_ARRIVE_ZH.md`
+- `docs/requirement4/BRANCH_A_B_IMPLEMENTATION_BEST_PRACTICES_ZH.md`
+- `docs/aas-claude-ecc-excel-best-practice-report.md`
+
+当前 requirement-4 的主验收路径仍然是 Telegram 手动触发试运行。单机 schedule 已经存在，但不建议把 schedule 作为第一验收路径。
+
 ## 手动模式（不使用 Makefile）
 
 ```bash
@@ -106,6 +117,7 @@ $env:PYTHONPATH = "src"
 
 ## 故障排查
 
+<a id="quick-start-troubleshooting"></a>
 - 如果 doctor 在依赖项上显示 `FAIL`，请重新执行 `make setup`。
 - 如果 review 工具缺失，先执行 `make review-setup`，把 `mypy`/`bandit`/`semgrep` 安装到 `.venv-review`。
 - 如果 `pip check` 显示 `semgrep`、`mcp`、`jsonschema`、`protobuf` 冲突，优先保持主链路只使用 `make setup` 的 `.venv`，不要把 review 依赖混装进去。
@@ -114,6 +126,7 @@ $env:PYTHONPATH = "src"
 
 ## Admin UI 帮助
 
+<a id="quick-start-admin-ui"></a>
 - 字段逐项填写指南：`docs/admin-view-field-guide.md`
 
 ## 单机版 AAS + 定时任务

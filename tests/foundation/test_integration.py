@@ -18,6 +18,7 @@ import yaml
 from foundation.contracts import (
     JobSpec,
     JobContext,
+    utc_now,
 )
 from foundation.adapters import (
     excel_audit_to_spec,
@@ -37,6 +38,14 @@ from foundation.manifest_loader import (
 )
 from foundation.router import Router
 from foundation.gate import TaskGate
+
+
+def test_utc_now_returns_timezone_aware_utc_timestamp() -> None:
+    """utc_now should always return a timezone-aware UTC datetime."""
+    timestamp = utc_now()
+    assert timestamp.tzinfo is not None
+    assert timestamp.utcoffset() is not None
+    assert timestamp.utcoffset().total_seconds() == 0
 
 
 # ============================================================================

@@ -158,6 +158,7 @@ def create_app() -> FastAPI:
         ("autoresearch.api.routers.synthesis", "router", "synthesis"),
         ("autoresearch.api.routers.loops", "router", "loops"),
         ("autoresearch.api.routers.orchestration", "router", "orchestration"),
+        ("autoresearch.api.routers.runtime", "router", "runtime"),
         ("autoresearch.api.routers.openclaw", "router", "openclaw"),
         ("autoresearch.api.routers.github_assistant", "router", "github assistant"),
         ("autoresearch.api.routers.github_admin", "router", "github admin"),
