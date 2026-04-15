@@ -28,16 +28,17 @@ from autoresearch.core.repositories import SQLiteEvaluationRepository
 from autoresearch.core.services.admin_auth import AdminAuthService
 from autoresearch.core.services.admin_config import AdminConfigService
 from autoresearch.core.services.admin_secrets import AdminSecretCipher
+from autoresearch.core.services.agent_package_registry import AgentPackageRegistryService
 from autoresearch.core.services.agent_audit_trail import AgentAuditTrailService
 from autoresearch.core.services.approval_store import ApprovalStoreService
 from autoresearch.core.services.autoresearch_planner import AutoResearchPlannerService
 from autoresearch.core.services.claude_agents import ClaudeAgentService
-from autoresearch.core.services.claude_runtime_service import ClaudeRuntimeService
-from autoresearch.core.services.claude_session_records import ClaudeSessionRecordService
+from autoresearch.core.services.control_plane_service import ControlPlaneService
 from autoresearch.core.services.evaluations import EvaluationService
 from autoresearch.core.services.executions import ExecutionService
 from autoresearch.core.services.github_admin import GitHubAdminService
 from autoresearch.core.services.github_issue_service import GitHubIssueService
+from autoresearch.core.services.linux_supervisor import LinuxSupervisorService
 from autoresearch.core.services.mirofish_prediction import MiroFishPredictionService
 from autoresearch.core.services.managed_skill_registry import ManagedSkillRegistryService
 from autoresearch.core.services.hermes_runtime_adapter import HermesRuntimeAdapterService
@@ -50,18 +51,13 @@ from autoresearch.core.services.openclaw_skills import OpenClawSkillService
 from autoresearch.core.services.openviking_memory import OpenVikingMemoryService
 from autoresearch.core.services.panel_access import PanelAccessService
 from autoresearch.core.services.panel_audit import PanelAuditService
+from autoresearch.core.services.personal_housekeeper import PersonalHousekeeperService
 from autoresearch.core.services.reports import ReportService
 from autoresearch.core.services.self_integration import SelfIntegrationService
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
 from autoresearch.core.services.upstream_watcher import UpstreamWatcherService
 from autoresearch.core.services.variants import VariantService
-from autoresearch.core.services.worker_schedule_service import WorkerScheduleService
-from autoresearch.core.services.worker_scheduler import WorkerSchedulerService
 from autoresearch.core.services.worker_registry import WorkerRegistryService
-from autoresearch.core.services.youtube_agent import YouTubeAgentService
-from autoresearch.core.services.butler_router import ButlerIntentRouter
-from autoresearch.core.services.excel_audit import ExcelAuditService
-from autoresearch.core.repositories.excel_jobs import ExcelJobsRepository
 from autoresearch.shared.models import (
     ClaudeAgentRunRead,
     ClaudeRuntimeSessionRecordRead,
@@ -92,6 +88,7 @@ from autoresearch.shared.models import (
     YouTubeTranscriptRead,
     YouTubeVideoRead,
 )
+from autoresearch.shared.housekeeper_contract import ControlPlaneTaskRead, HousekeeperTaskRead
 from autoresearch.shared.autoresearch_planner_contract import AutoResearchPlanRead
 from autoresearch.shared.excel_audit_contract import ExcelAuditRead
 from autoresearch.shared.manager_agent_contract import ManagerDispatchRead
@@ -420,6 +417,55 @@ def get_openclaw_memory_service() -> OpenClawMemoryService:
 
 
 @lru_cache(maxsize=1)
+def get_agent_package_registry_service() -> AgentPackageRegistryService:
+    return AgentPackageRegistryService(repo_root=_repo_root())
+
+
+@lru_cache(maxsize=1)
+def get_linux_supervisor_service() -> LinuxSupervisorService:
+    return LinuxSupervisorService(repo_root=_repo_root())
+
+
+@lru_cache(maxsize=1)
+def get_worker_registry_service() -> WorkerRegistryService:
+    return WorkerRegistryService(
+        repo_root=_repo_root(),
+        linux_runtime_root=get_linux_supervisor_service().runtime_root,
+    )
+
+
+@lru_cache(maxsize=1)
+def get_control_plane_service() -> ControlPlaneService:
+    return ControlPlaneService(
+        repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="control_plane_tasks",
+            model_cls=ControlPlaneTaskRead,
+        ),
+        package_registry=get_agent_package_registry_service(),
+        worker_registry=get_worker_registry_service(),
+        approval_store=get_approval_store_service(),
+        manager_service=get_manager_agent_service(),
+        linux_supervisor_service=get_linux_supervisor_service(),
+    )
+
+
+@lru_cache(maxsize=1)
+def get_personal_housekeeper_service() -> PersonalHousekeeperService:
+    return PersonalHousekeeperService(
+        repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="housekeeper_tasks",
+            model_cls=HousekeeperTaskRead,
+        ),
+        openclaw_service=get_openclaw_compat_service(),
+        openclaw_memory_service=get_openclaw_memory_service(),
+        package_registry=get_agent_package_registry_service(),
+        control_plane_service=get_control_plane_service(),
+    )
+
+
+@lru_cache(maxsize=1)
 def get_approval_store_service() -> ApprovalStoreService:
     return ApprovalStoreService(
         repository=SQLiteModelRepository(
@@ -576,62 +622,32 @@ def get_admin_auth_service() -> AdminAuthService:
 
 
 def clear_dependency_caches() -> None:
-    _safe_cache_clear(get_evaluation_service)
-    _safe_cache_clear(get_report_service)
-    _safe_cache_clear(get_variant_service)
-    _safe_cache_clear(get_optimization_service)
-    _safe_cache_clear(get_experiment_service)
-    _safe_cache_clear(get_execution_service)
-    _safe_cache_clear(get_youtube_agent_service)
-    _safe_cache_clear(get_manager_agent_service)
-    _safe_cache_clear(get_github_admin_service)
-    _safe_cache_clear(get_github_issue_service)
-    _safe_cache_clear(get_worker_registry_service)
-    _safe_cache_clear(get_worker_scheduler_service)
-    _safe_cache_clear(get_worker_schedule_service)
-    _safe_cache_clear(get_openclaw_compat_service)
-    _safe_cache_clear(get_openclaw_memory_service)
-    _safe_cache_clear(get_capability_provider_registry)
-    _safe_cache_clear(get_managed_skill_registry_service)
-    _safe_cache_clear(get_openclaw_skill_service)
-    _safe_cache_clear(get_openclaw_runtime_adapter_service)
-    _safe_cache_clear(get_hermes_runtime_adapter_service)
-    _safe_cache_clear(get_runtime_adapter_registry_service)
-    _safe_cache_clear(get_claude_agent_service)
-    _safe_cache_clear(get_claude_session_record_service)
-    _safe_cache_clear(get_claude_runtime_service)
-    _safe_cache_clear(get_mirofish_prediction_service)
-    _safe_cache_clear(get_self_integration_service)
-    _safe_cache_clear(get_panel_access_service)
-    _safe_cache_clear(get_panel_audit_service)
-    _safe_cache_clear(get_agent_audit_trail_service)
-    _safe_cache_clear(get_telegram_notifier_service)
-    _safe_cache_clear(get_upstream_watcher_service)
-    _safe_cache_clear(get_admin_config_service)
-    _safe_cache_clear(get_admin_secret_cipher)
-    _safe_cache_clear(get_admin_auth_service)
-    _safe_cache_clear(get_excel_audit_service)
-    _safe_cache_clear(get_excel_ops_service)
-    _safe_cache_clear(get_butler_router)
-
-
-@lru_cache(maxsize=1)
-def get_excel_audit_service() -> ExcelAuditService:
-    return ExcelAuditService(
-        repository=SQLiteModelRepository(
-            db_path=_api_db_path(),
-            table_name="excel_audits",
-            model_cls=ExcelAuditRead,
-        ),
-        repo_root=_repo_root(),
-    )
-
-
-def _safe_cache_clear(func: object) -> None:
-    if callable(func) and hasattr(func, "cache_clear"):
-        func.cache_clear()
-
-
-@lru_cache(maxsize=1)
-def get_butler_router() -> ButlerIntentRouter:
-    return ButlerIntentRouter()
+    get_evaluation_service.cache_clear()
+    get_report_service.cache_clear()
+    get_variant_service.cache_clear()
+    get_optimization_service.cache_clear()
+    get_experiment_service.cache_clear()
+    get_execution_service.cache_clear()
+    get_manager_agent_service.cache_clear()
+    get_github_issue_service.cache_clear()
+    get_openclaw_compat_service.cache_clear()
+    get_openclaw_memory_service.cache_clear()
+    get_agent_package_registry_service.cache_clear()
+    get_linux_supervisor_service.cache_clear()
+    get_worker_registry_service.cache_clear()
+    get_control_plane_service.cache_clear()
+    get_personal_housekeeper_service.cache_clear()
+    get_capability_provider_registry.cache_clear()
+    get_managed_skill_registry_service.cache_clear()
+    get_openclaw_skill_service.cache_clear()
+    get_claude_agent_service.cache_clear()
+    get_mirofish_prediction_service.cache_clear()
+    get_self_integration_service.cache_clear()
+    get_panel_access_service.cache_clear()
+    get_panel_audit_service.cache_clear()
+    get_agent_audit_trail_service.cache_clear()
+    get_telegram_notifier_service.cache_clear()
+    get_upstream_watcher_service.cache_clear()
+    get_admin_config_service.cache_clear()
+    get_admin_secret_cipher.cache_clear()
+    get_admin_auth_service.cache_clear()

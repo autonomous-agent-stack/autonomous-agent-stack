@@ -12,7 +12,11 @@ from autoresearch.api.dependencies import get_claude_agent_service, get_openclaw
 from autoresearch.api.main import app
 from autoresearch.core.services.claude_agents import ClaudeAgentService
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
-from autoresearch.shared.models import ClaudeAgentCreateRequest, ClaudeAgentRunRead, OpenClawSessionRead
+from autoresearch.shared.models import (
+    ClaudeAgentCreateRequest,
+    ClaudeAgentRunRead,
+    OpenClawSessionRead,
+)
 from autoresearch.shared.store import SQLiteModelRepository
 
 
@@ -150,7 +154,11 @@ def test_openclaw_retry_and_tree_view(openclaw_client: TestClient) -> None:
             "session_id": session_id,
             "generation_depth": 1,
             "timeout_seconds": 10,
-            "command_override": [sys.executable, "-c", "import sys; print('first-fail'); sys.exit(2)"],
+            "command_override": [
+                sys.executable,
+                "-c",
+                "import sys; print('first-fail'); sys.exit(2)",
+            ],
             "append_prompt": False,
         },
     )
@@ -179,8 +187,7 @@ def test_openclaw_retry_and_tree_view(openclaw_client: TestClient) -> None:
     assert tree.status_code == 200
     tree_payload = tree.json()
     edge_pairs = {
-        (edge["parent_agent_run_id"], edge["child_agent_run_id"])
-        for edge in tree_payload["edges"]
+        (edge["parent_agent_run_id"], edge["child_agent_run_id"]) for edge in tree_payload["edges"]
     }
     assert (failed_run_id, retry_run_id) in edge_pairs
     assert "graph TD" in tree_payload["mermaid"]

@@ -6,7 +6,6 @@ from autoresearch.api.dependencies import get_report_service
 from autoresearch.core.services.reports import ReportService
 from autoresearch.shared.models import ReportCreateRequest, ReportRead
 
-
 router = APIRouter(prefix="/api/v1/synthesis", tags=["synthesis"])
 
 
@@ -36,5 +35,7 @@ def get_synthesis(
 ) -> ReportRead:
     synthesis = service.get(synthesis_id)
     if synthesis is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Synthesis task not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Synthesis task not found"
+        )
     return synthesis

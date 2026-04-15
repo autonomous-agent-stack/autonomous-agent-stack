@@ -3,6 +3,7 @@
   "name": "影刀表单录入 Agent",
   "description": "自动录入客户订单信息到 ERP 系统",
   "version": "0.1.0",
+  "execution_backend": "win_yingdao",
 
   "input_schema": {
     "$schema": "http://json-schema.org/draft-07/schema#",

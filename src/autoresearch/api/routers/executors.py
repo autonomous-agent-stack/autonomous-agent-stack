@@ -6,7 +6,6 @@ from autoresearch.api.dependencies import get_execution_service
 from autoresearch.core.services.executions import ExecutionService
 from autoresearch.shared.models import ExecutionCreateRequest, ExecutionRead
 
-
 router = APIRouter(prefix="/api/v1/executors", tags=["executors"])
 
 
@@ -39,5 +38,7 @@ def get_executor_task(
 ) -> ExecutionRead:
     execution = service.get(execution_id)
     if execution is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Execution task not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Execution task not found"
+        )
     return execution

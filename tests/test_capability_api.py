@@ -6,7 +6,11 @@ from fastapi.testclient import TestClient
 
 from autoresearch.api.dependencies import get_capability_provider_registry
 from autoresearch.api.main import app
-from autoresearch.core.adapters import CapabilityDomain, CapabilityProviderDescriptorRead, CapabilityProviderRegistry
+from autoresearch.core.adapters import (
+    CapabilityDomain,
+    CapabilityProviderDescriptorRead,
+    CapabilityProviderRegistry,
+)
 from autoresearch.core.adapters.contracts import (
     CalendarQuery,
     CalendarQueryResultRead,
@@ -58,12 +62,16 @@ class _StubSkillProvider(_StubCapabilityProvider):
         )
 
     def list_skills(self) -> SkillCatalogRead:
-        return SkillCatalogRead(provider_id="openclaw-skills", status="available", skills=[self._summary])
+        return SkillCatalogRead(
+            provider_id="openclaw-skills", status="available", skills=[self._summary]
+        )
 
     def get_skill(self, skill_name: str) -> OpenClawSkillDetailRead | None:
         if skill_name.strip().lower() not in {"daily brief", "daily_brief"}:
             return None
-        return OpenClawSkillDetailRead(**self._summary.model_dump(), content="# Daily Brief\nUse this skill.\n")
+        return OpenClawSkillDetailRead(
+            **self._summary.model_dump(), content="# Daily Brief\nUse this skill.\n"
+        )
 
 
 class _StubMCPProvider(_StubCapabilityProvider):
@@ -239,7 +247,9 @@ def test_get_provider_skill_returns_detail() -> None:
 
     try:
         with TestClient(app) as client:
-            response = client.get("/api/v1/capabilities/providers/openclaw-skills/skills/daily_brief")
+            response = client.get(
+                "/api/v1/capabilities/providers/openclaw-skills/skills/daily_brief"
+            )
     finally:
         app.dependency_overrides.clear()
 
@@ -348,7 +358,9 @@ def test_github_endpoint_rejects_non_github_provider() -> None:
 
     try:
         with TestClient(app) as client:
-            response = client.get("/api/v1/capabilities/providers/mcp-context/github/search?query=abc")
+            response = client.get(
+                "/api/v1/capabilities/providers/mcp-context/github/search?query=abc"
+            )
     finally:
         app.dependency_overrides.clear()
 

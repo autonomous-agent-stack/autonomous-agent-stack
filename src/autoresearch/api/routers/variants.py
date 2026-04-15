@@ -6,7 +6,6 @@ from autoresearch.api.dependencies import get_variant_service
 from autoresearch.core.services.variants import VariantService
 from autoresearch.shared.models import VariantCreateRequest, VariantRead
 
-
 router = APIRouter(prefix="/api/v1/variants", tags=["variants"])
 
 

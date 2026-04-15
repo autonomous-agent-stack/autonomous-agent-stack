@@ -24,7 +24,11 @@ from autoresearch.api.dependencies import (
     get_worker_registry_service,
     get_worker_scheduler_service,
 )
-from autoresearch.api.settings import load_panel_settings, load_runtime_settings, load_telegram_settings
+from autoresearch.api.settings import (
+    load_panel_settings,
+    load_runtime_settings,
+    load_telegram_settings,
+)
 from autoresearch.core.adapters import CapabilityDomain, CapabilityProviderRegistry, SkillProvider
 from autoresearch.core.runtime_identity import get_runtime_identity
 from autoresearch.core.services.admin_config import AdminConfigService
@@ -62,7 +66,6 @@ from autoresearch.shared.models import (
     JobStatus,
     OpenClawMemoryBundleRead,
     OpenClawMemoryRecordCreateRequest,
-    OpenClawMemoryRecordRead,
     OpenClawSessionCreateRequest,
     OpenClawSessionEventAppendRequest,
     OpenClawSessionRead,
@@ -74,7 +77,6 @@ from autoresearch.shared.models import (
     WorkerTaskType,
 )
 from autoresearch.shared.manager_agent_contract import ManagerDispatchRead, ManagerDispatchRequest
-
 
 router = APIRouter(prefix="/api/v1/gateway/telegram", tags=["gateway", "telegram"])
 compat_router = APIRouter(tags=["gateway", "telegram", "compat"])
@@ -486,7 +488,9 @@ def _validate_secret_token(raw_request: Request) -> None:
         return
     provided = raw_request.headers.get("x-telegram-bot-api-secret-token", "").strip()
     if provided != expected:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid telegram secret token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid telegram secret token"
+        )
 
 
 def _is_production_env() -> bool:
@@ -498,7 +502,7 @@ def _extract_telegram_message(update: dict[str, Any]) -> dict[str, Any] | None:
     if isinstance(message, dict):
         chat = message.get("chat", {})
         from_user = message.get("from", {})
-        
+
         # 提取图片信息
         photos = message.get("photo", [])
         image_urls = []
@@ -512,7 +516,7 @@ def _extract_telegram_message(update: dict[str, Any]) -> dict[str, Any] | None:
                     bot_token = load_telegram_settings().bot_token or ""
                     if bot_token:
                         image_urls.append(f"telegram://{file_id}")
-        
+
         return {
             "chat_id": _safe_str(chat.get("id")),
             "chat_type": _safe_str(chat.get("type")),
@@ -521,12 +525,15 @@ def _extract_telegram_message(update: dict[str, Any]) -> dict[str, Any] | None:
             "username": from_user.get("username"),
             "from_user_id": _safe_int(from_user.get("id")),
             "from_id": from_user.get("id"),
-            "reply_to_user_id": _safe_int(((message.get("reply_to_message") or {}).get("from") or {}).get("id")),
-            "reply_to_username": _safe_str(((message.get("reply_to_message") or {}).get("from") or {}).get("username")),
-            "reply_to_is_bot": bool(((message.get("reply_to_message") or {}).get("from") or {}).get("is_bot")),
-            "message_thread_id": message.get("message_thread_id"),
-            "is_topic_message": bool(message.get("is_topic_message", False)),
-            "reply_to_message_id": message.get("reply_to_message", {}).get("message_id") if isinstance(message.get("reply_to_message"), dict) else None,
+            "reply_to_user_id": _safe_int(
+                ((message.get("reply_to_message") or {}).get("from") or {}).get("id")
+            ),
+            "reply_to_username": _safe_str(
+                ((message.get("reply_to_message") or {}).get("from") or {}).get("username")
+            ),
+            "reply_to_is_bot": bool(
+                ((message.get("reply_to_message") or {}).get("from") or {}).get("is_bot")
+            ),
             "raw_type": "message",
             "images": image_urls,
         }
@@ -610,7 +617,11 @@ def _evaluate_telegram_routing_policy(
 
 
 def _effective_allowed_uids(telegram_settings) -> set[str]:
-    return set(telegram_settings.allowed_uids) | set(telegram_settings.owner_uids) | set(telegram_settings.partner_uids)
+    return (
+        set(telegram_settings.allowed_uids)
+        | set(telegram_settings.owner_uids)
+        | set(telegram_settings.partner_uids)
+    )
 
 
 def _message_addresses_bot(*, extracted: dict[str, Any], telegram_settings) -> bool:
@@ -1286,7 +1297,9 @@ def _handle_task_command(
                     "scope": session_identity.scope.value,
                 },
             )
-        manager_prompt = github_issue_service.build_manager_prompt(issue, operator_note=operator_note or None)
+        manager_prompt = github_issue_service.build_manager_prompt(
+            issue, operator_note=operator_note or None
+        )
         task_source = "issue"
         issue_reference = issue.reference.display
         issue_url = issue.url
@@ -1776,7 +1789,10 @@ def _handle_approve_command(
                 message_text = _build_approval_decision_message(approval)
                 message_source = "telegram_approve_decision"
                 approval_query = approval.approval_id
-                if decision == "approved" and approval.metadata.get("action_type") == "github_issue_comment":
+                if (
+                    decision == "approved"
+                    and approval.metadata.get("action_type") == "github_issue_comment"
+                ):
                     comment_output = _post_github_issue_comment_for_approval(
                         approval=approval,
                         approval_service=approval_service,
@@ -1789,7 +1805,9 @@ def _handle_approve_command(
                             message_text,
                             _build_github_issue_comment_posted_message(
                                 approval_id=approval.approval_id,
-                                issue_reference=str(approval.metadata.get("issue_reference") or "unknown"),
+                                issue_reference=str(
+                                    approval.metadata.get("issue_reference") or "unknown"
+                                ),
                                 output=comment_output or None,
                             ),
                         ]
@@ -2121,13 +2139,10 @@ def _build_manager_dispatch_result_message(
     elif dispatch.run_summary is not None and dispatch.run_summary.promotion_patch_uri:
         lines.append(f"patch: {dispatch.run_summary.promotion_patch_uri}")
 
-    error_text = (
-        dispatch.error
-        or (
-            dispatch.run_summary.driver_result.error
-            if dispatch.run_summary is not None and dispatch.run_summary.driver_result.error
-            else None
-        )
+    error_text = dispatch.error or (
+        dispatch.run_summary.driver_result.error
+        if dispatch.run_summary is not None and dispatch.run_summary.driver_result.error
+        else None
     )
     if error_text:
         lines.extend(["", "error:", error_text.strip()])
@@ -2154,13 +2169,10 @@ def _build_github_issue_comment_body(
     promotion = dispatch.run_summary.promotion if dispatch.run_summary is not None else None
     if promotion is not None and promotion.pr_url:
         lines.append(f"- Draft PR: {promotion.pr_url}")
-    error_text = (
-        dispatch.error
-        or (
-            dispatch.run_summary.driver_result.error
-            if dispatch.run_summary is not None and dispatch.run_summary.driver_result.error
-            else None
-        )
+    error_text = dispatch.error or (
+        dispatch.run_summary.driver_result.error
+        if dispatch.run_summary is not None and dispatch.run_summary.driver_result.error
+        else None
     )
     if error_text:
         lines.append(f"- Error: {error_text.strip()}")
@@ -2251,8 +2263,9 @@ def _handle_status_query(
         )
         runs = [run for run in agent_service.list() if run.session_id == session.session_id]
         runs.sort(key=lambda item: item.updated_at, reverse=True)
-    memory_bundle = memory_service.bundle_for_session(session.session_id) if session is not None else None
-    workers = worker_registry.list_workers()
+    memory_bundle = (
+        memory_service.bundle_for_session(session.session_id) if session is not None else None
+    )
 
     summary_lines = _build_status_summary_lines(
         chat_id=chat_id,
@@ -2566,7 +2579,11 @@ def _resolve_private_scope_preference(
             continue
         if chat_id and session.external_id != chat_id:
             continue
-        if actor_user_id and session.actor is not None and session.actor.user_id not in {None, actor_user_id}:
+        if (
+            actor_user_id
+            and session.actor is not None
+            and session.actor.user_id not in {None, actor_user_id}
+        ):
             continue
         preference = str(session.metadata.get("telegram_mode_preference") or "").strip().lower()
         if preference not in {AssistantScope.PERSONAL.value, AssistantScope.SHARED.value}:
@@ -2597,7 +2614,9 @@ def _find_existing_telegram_session(
     chat_id: str,
     session_identity: TelegramSessionIdentityRead,
 ) -> OpenClawSessionRead | None:
-    session = openclaw_service.find_session_by_key(channel="telegram", session_key=session_identity.session_key)
+    session = openclaw_service.find_session_by_key(
+        channel="telegram", session_key=session_identity.session_key
+    )
     if session is not None:
         return session
     legacy_session = openclaw_service.find_session(channel="telegram", external_id=chat_id)
@@ -2668,10 +2687,9 @@ def _build_status_summary_lines(
     workers: list[Any],
 ) -> list[str]:
     descriptors = capability_registry.list_descriptors()
-    skill_provider_count = len([item for item in descriptors if item.domain == CapabilityDomain.SKILL])
-    runtime_display = runtime_identity["runtime_display"]
-    runtime_host = runtime_identity["runtime_host"]
-    runtime_platform = runtime_identity["runtime_platform"]
+    skill_provider_count = len(
+        [item for item in descriptors if item.domain == CapabilityDomain.SKILL]
+    )
     if session is None:
         lines = [
             f"chat_id: {chat_id}",
