@@ -55,8 +55,6 @@ from autoresearch.core.services.self_integration import SelfIntegrationService
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
 from autoresearch.core.services.upstream_watcher import UpstreamWatcherService
 from autoresearch.core.services.variants import VariantService
-from autoresearch.core.services.commission_engine import CommissionEngine
-from autoresearch.core.services.excel_ops import ExcelOpsService
 from autoresearch.core.services.worker_schedule_service import WorkerScheduleService
 from autoresearch.core.services.worker_scheduler import WorkerSchedulerService
 from autoresearch.core.services.worker_registry import WorkerRegistryService
@@ -282,19 +280,6 @@ def get_worker_schedule_service() -> WorkerScheduleService:
             table_name="worker_schedules",
             model_cls=WorkerRunScheduleRead,
         ),
-    )
-
-
-@lru_cache(maxsize=1)
-def get_excel_ops_service() -> ExcelOpsService:
-    repo_root = _repo_root()
-    return ExcelOpsService(
-        repository=ExcelJobsRepository(db_path=_api_db_path()),
-        commission_engine=CommissionEngine(
-            contracts_dir=repo_root / "tests" / "fixtures" / "requirement4_contracts",
-            strict_mode=True,
-        ),
-        repo_root=repo_root,
     )
 
 
