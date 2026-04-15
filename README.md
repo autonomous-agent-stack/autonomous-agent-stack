@@ -134,6 +134,22 @@ make hygiene-check
 
 For detailed setup and troubleshooting, read [docs/QUICK_START.md](docs/QUICK_START.md). For remote or multi-machine execution, start with [docs/linux-remote-worker.md](docs/linux-remote-worker.md).
 
+## Windows Bootstrap
+
+Windows users now have both `.cmd` and PowerShell bootstrap entrypoints for the stable single-machine path:
+
+- `setup.cmd`
+- `doctor.cmd`
+- `start.cmd`
+- `setup.ps1`
+- `doctor.ps1`
+- `start.ps1`
+- `make setup-win`
+- `make doctor-win`
+- `make start-win`
+- `make smoke-win`
+
+This covers the native Windows bootstrap path for the local single-machine baseline, but it does **not** mean every auxiliary target has full Windows parity.
 Current local startup documentation now supports the native Windows main path for local single-machine bootstrap, and CI now validates the minimal Windows bootstrap chain (`setup.cmd -> doctor.cmd -> start`):
 
 - `make setup`
