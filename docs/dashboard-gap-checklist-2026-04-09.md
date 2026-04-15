@@ -92,5 +92,6 @@ The first read-only wiring step is complete at the dashboard-local layer only:
 Current behavior after that step:
 
 - `status` and `agents` proxy/map existing control-plane read-only data
-- `tests`, `parity`, and `commits` return intentionally empty prototype structures instead of `404`
+- `tests`, `parity`, and `commits` return dashboard-local empty prototype structures instead of `404`
 - dashboard pages can render without treating the dashboard as a formal monitoring surface
+- only `status` and `agents` require the `127.0.0.1:8001` baseline; the empty prototype routes do not gate on control-plane health

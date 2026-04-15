@@ -158,6 +158,28 @@ $env:PYTHONPATH = "src"
 <a id="quick-start-admin-ui"></a>
 - 字段逐项填写指南：`docs/admin-view-field-guide.md`
 
-## 单机版定时任务
+## 单机版 AAS + 定时任务
 
-单机版 AAS 支持基于 APScheduler 的定时任务能力，详见 `docs/runbooks/worker-schedules.md`（单独 PR，待合并）。
+如果你要在单机版 AAS 上开启“定时 enqueue worker run”，请看：
+
+- `docs/runbooks/worker-schedules.md`
+
+推荐顺序：
+
+1. 先跑通 `make setup -> make doctor -> make start`
+2. 先手动 enqueue / 手动 trigger 目标任务
+3. 再创建 schedule
+4. 最后才打开后台 daemon：
+
+```bash
+export AUTORESEARCH_ENABLE_WORKER_SCHEDULE_DAEMON=1
+export AUTORESEARCH_WORKER_SCHEDULE_POLL_SECONDS=30
+AUTORESEARCH_MODE=minimal make start
+```
+
+说明：
+
+- schedule 只负责按时间 enqueue
+- 真正执行仍走现有 worker claim/execute/report 链路
+- 当前支持 `once` 和 `interval` 两种单机 schedule
+- 时间触发引擎基于 APScheduler

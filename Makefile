@@ -13,11 +13,11 @@ VENV_PIP_NAME := pip
 endif
 
 VENV ?= .venv
-VENV_PYTHON := $(VENV)/bin/python
-VENV_PIP := $(VENV)/bin/pip
+VENV_PYTHON := $(VENV)/$(VENV_BIN_DIR)/$(VENV_PYTHON_NAME)
+VENV_PIP := $(VENV)/$(VENV_BIN_DIR)/$(VENV_PIP_NAME)
 REVIEW_VENV ?= .venv-review
-REVIEW_VENV_PYTHON := $(REVIEW_VENV)/bin/python
-REVIEW_VENV_PIP := $(REVIEW_VENV)/bin/pip
+REVIEW_VENV_PYTHON := $(REVIEW_VENV)/$(VENV_BIN_DIR)/$(VENV_PYTHON_NAME)
+REVIEW_VENV_PIP := $(REVIEW_VENV)/$(VENV_BIN_DIR)/$(VENV_PIP_NAME)
 HOST ?= 127.0.0.1
 PORT ?= 8001
 GOAL ?= 检查 M1 原生算力与工作区可写性
@@ -96,20 +96,6 @@ help:
 
 setup:
 	$(PYTHON) scripts/local_dev.py --venv $(VENV) setup --python $(PYTHON)
-
-review-setup:
-	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \
-		echo "Missing $(VENV_PYTHON). Run 'make setup' first."; \
-		exit 1; \
-	fi
-	$(VENV_PYTHON) -m venv $(REVIEW_VENV)
-	$(REVIEW_VENV_PIP) install --upgrade pip
-	@if [[ -f requirements-review.lock ]]; then \
-		$(REVIEW_VENV_PIP) install -r requirements-review.lock; \
-	else \
-		echo "Missing requirements-review.lock."; \
-		exit 1; \
-	fi
 
 review-setup:
 	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \

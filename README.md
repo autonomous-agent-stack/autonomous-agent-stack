@@ -134,6 +134,9 @@ make hygiene-check
 
 For detailed setup and troubleshooting, read [docs/QUICK_START.md](docs/QUICK_START.md). For remote or multi-machine execution, start with [docs/linux-remote-worker.md](docs/linux-remote-worker.md).
 
+Native Windows support is currently limited to the minimal local control-plane path:
+`make setup`, `make doctor`, and `make start`. Other targets still assume Bash and/or macOS/Linux tooling.
+
 ## Stable Single-Machine Mode
 
 **v0.1.0-stable** establishes a verified baseline for running AAS on a single machine without external dependencies.
@@ -159,6 +162,7 @@ AUTORESEARCH_MODE=full make start
 | FastAPI application | ✅ Starts at `http://127.0.0.1:8001` |
 | SQLite control plane | ✅ `artifacts/api/*.sqlite3` |
 | AEP runner (mock) | ✅ End-to-end execution |
+| Worker schedules | ✅ APScheduler-backed `once` / `interval` schedules via `/api/v1/worker-schedules` |
 | Runtime artifact exclusion | ✅ Patch hygiene enforced |
 | Health/docs endpoints | ✅ All respond correctly |
 
@@ -168,6 +172,7 @@ AUTORESEARCH_MODE=full make start
 - Telegram integration (requires bot token)
 - WebAuthn (requires additional setup)
 - Cluster mode (distributed coordination only)
+- Complex cron syntax and multi-node scheduling
 
 See [STATUS_AND_RELEASE_NOTES.md](STATUS_AND_RELEASE_NOTES.md) for complete details.
 
