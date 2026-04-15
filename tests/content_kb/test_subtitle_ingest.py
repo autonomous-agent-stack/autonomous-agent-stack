@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from content_kb.subtitle_ingest import ingest_subtitle, normalize_subtitle, read_subtitle
+from content_kb.subtitle_ingest import infer_topic_from_subtitle, ingest_subtitle, normalize_subtitle, read_subtitle
 from content_kb.contracts import IngestStatus
 
 
@@ -48,6 +48,14 @@ class TestSubtitleIngest:
         assert result.metadata["title"] == "Test Video"
         assert result.metadata["topic"] == "vibe-coding"
         assert result.job_id is not None
+
+    def test_infer_topic_from_subtitle(self, tmp_path: Path) -> None:
+        topic_file = tmp_path / "topic.srt"
+        topic_file.write_text(
+            "1\n00:00:01,000 --> 00:00:03,000\nAI 与 GPT 模型正在快速发展\n",
+            encoding="utf-8",
+        )
+        assert infer_topic_from_subtitle(topic_file) == "ai-status-and-outlook"
 
     def test_read_missing_file_raises(self, tmp_path: Path) -> None:
         with pytest.raises(FileNotFoundError):

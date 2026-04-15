@@ -34,7 +34,7 @@ from content_kb.index_builder import (
     build_topic_index,
 )
 from content_kb.repo_selector import select_repo
-from content_kb.subtitle_ingest import ingest_subtitle
+from content_kb.subtitle_ingest import infer_topic_from_subtitle, ingest_subtitle
 from content_kb.topic_classifier import classify_by_keywords
 
 logger = logging.getLogger(__name__)
@@ -225,7 +225,7 @@ def ingest_content(
     Args:
         subtitle_text_path: Path to the SRT subtitle file
         title: Content title
-        topic: Content topic
+        topic: Content topic. If omitted, the router infers it from subtitle text.
         source_url: Optional source URL
         job_id: Optional job identifier
 
@@ -241,12 +241,14 @@ def ingest_content(
         if not path.exists():
             raise _http_exception(f"Subtitle file not found: {subtitle_text_path}", status.HTTP_404_NOT_FOUND)
 
+        resolved_topic = topic.strip() if topic else infer_topic_from_subtitle(path)
+
         # Run ingestion
         result: IngestResult = ingest_subtitle(
             file_path=path,
             job_id=job_id or str(uuid.uuid4()),
             title=title,
-            topic=topic,
+            topic=resolved_topic,
             source_url=source_url,
         )
 

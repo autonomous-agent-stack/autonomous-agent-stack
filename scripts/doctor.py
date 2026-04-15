@@ -72,7 +72,8 @@ def _check_python() -> CheckResult:
 
 def _check_virtualenv(repo_root: Path) -> list[CheckResult]:
     results: list[CheckResult] = []
-    venv_python = repo_root / ".venv" / "bin" / "python"
+    candidates = _venv_python_candidates(repo_root / ".venv")
+    venv_python = next((candidate for candidate in candidates if candidate.exists()), candidates[0])
     if venv_python.exists():
         results.append(_ok("Virtualenv", f"Found {venv_python}"))
     else:
@@ -98,7 +99,7 @@ def _check_virtualenv(repo_root: Path) -> list[CheckResult]:
             _warn(
                 "Interpreter",
                 f"Using {executable}",
-                "Use `.venv/bin/python scripts/doctor.py` for consistent results.",
+                f"Use `{_venv_python_hint(repo_root / '.venv')} scripts/doctor.py` for consistent results.",
             )
         )
     return results
@@ -211,7 +212,8 @@ def _check_telegram_secret_policy(repo_root: Path) -> CheckResult:
 
 
 def _check_commands() -> CheckResult:
-    missing = [cmd for cmd in OPTIONAL_COMMANDS if shutil.which(cmd) is None]
+    commands = OPTIONAL_COMMANDS if os.name != "nt" else ("git", "curl")
+    missing = [cmd for cmd in commands if shutil.which(cmd) is None]
     if missing:
         return _warn(
             "System commands",
@@ -319,6 +321,20 @@ def _check_port(port: int) -> CheckResult:
             f"Use `PORT=<new_port> make start` if startup fails.",
         )
     return _ok("API port", f"{host}:{port} is available")
+
+
+def _venv_python_candidates(venv_dir: Path) -> tuple[Path, ...]:
+    return (
+        venv_dir / "bin" / "python",
+        venv_dir / "Scripts" / "python.exe",
+        venv_dir / "Scripts" / "python",
+    )
+
+
+def _venv_python_hint(venv_dir: Path) -> str:
+    if os.name == "nt":
+        return str(venv_dir / "Scripts" / "python.exe")
+    return str(venv_dir / "bin" / "python")
 
 
 def _run_checks(repo_root: Path, port: int, profile: str) -> list[CheckResult]:

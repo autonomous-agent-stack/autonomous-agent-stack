@@ -1,6 +1,17 @@
+ifeq ($(OS),Windows_NT)
+SHELL := cmd.exe
+PYTHON ?= python
+VENV_BIN_DIR := Scripts
+VENV_PYTHON_NAME := python.exe
+VENV_PIP_NAME := pip.exe
+else
 SHELL := /bin/bash
-
 PYTHON ?= python3
+VENV_BIN_DIR := bin
+VENV_PYTHON_NAME := python
+VENV_PIP_NAME := pip
+endif
+
 VENV ?= .venv
 VENV_PYTHON := $(VENV)/bin/python
 VENV_PIP := $(VENV)/bin/pip
@@ -80,16 +91,20 @@ help:
 	@echo "Optional vars: HOST=127.0.0.1 PORT=8001"
 
 setup:
-	$(PYTHON) -m venv $(VENV)
-	$(VENV_PIP) install --upgrade pip
-	@if [[ -f requirements.lock ]]; then \
-		$(VENV_PIP) install -r requirements.lock; \
-	else \
-		$(VENV_PIP) install -r requirements.txt; \
+	$(PYTHON) scripts/local_dev.py --venv $(VENV) setup --python $(PYTHON)
+
+review-setup:
+	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \
+		echo "Missing $(VENV_PYTHON). Run 'make setup' first."; \
+		exit 1; \
 	fi
-	@if [[ ! -f .env && -f .env.template ]]; then \
-		cp .env.template .env; \
-		echo "Created .env from .env.template"; \
+	$(VENV_PYTHON) -m venv $(REVIEW_VENV)
+	$(REVIEW_VENV_PIP) install --upgrade pip
+	@if [[ -f requirements-review.lock ]]; then \
+		$(REVIEW_VENV_PIP) install -r requirements-review.lock; \
+	else \
+		echo "Missing requirements-review.lock."; \
+		exit 1; \
 	fi
 
 review-setup:
@@ -107,25 +122,13 @@ review-setup:
 	fi
 
 doctor:
-	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \
-		echo "Missing $(VENV_PYTHON). Run 'make setup' first."; \
-		exit 1; \
-	fi
-	$(VENV_PYTHON) scripts/doctor.py --port $(PORT)
+	$(PYTHON) scripts/local_dev.py --venv $(VENV) doctor $(LOCAL_DEV_PORT_ARG)
 
 doctor-linux:
-	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \
-		echo "Missing $(VENV_PYTHON). Run 'make setup' first."; \
-		exit 1; \
-	fi
-	$(VENV_PYTHON) scripts/doctor.py --profile linux-remote --port $(PORT)
+	$(PYTHON) scripts/local_dev.py --venv $(VENV) doctor --profile linux-remote $(LOCAL_DEV_PORT_ARG)
 
 start:
-	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \
-		echo "Missing $(VENV_PYTHON). Run 'make setup' first."; \
-		exit 1; \
-	fi
-	PORT=$(PORT) HOST=$(HOST) bash scripts/dev-start.sh
+	$(PYTHON) scripts/local_dev.py --venv $(VENV) start $(LOCAL_DEV_HOST_ARG) $(LOCAL_DEV_PORT_ARG)
 
 test-quick:
 	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \
