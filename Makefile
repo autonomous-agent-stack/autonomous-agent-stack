@@ -56,6 +56,10 @@ help:
 	@echo "  make doctor      Run environment checks"
 	@echo "  make doctor-linux Run Linux remote-worker checks"
 	@echo "  make start       Run doctor then start local API"
+	@echo "  make setup-win   Run Windows PowerShell bootstrap"
+	@echo "  make doctor-win  Run Windows PowerShell doctor"
+	@echo "  make start-win   Run Windows PowerShell start"
+	@echo "  make smoke-win   Run Windows PowerShell smoke test"
 	@echo "  make ai-lab      One-key launch AI lab shell"
 	@echo "  make ai-lab-setup Initialize AI lab user and quota volume"
 	@echo "  make ai-lab-check Run guardrail checks only"
@@ -154,6 +158,18 @@ smoke-local:
 validate-req4:
 	@echo "Validating requirement #4 scaffold readiness..."
 	bash ./scripts/validate_stable_baseline.sh
+
+setup-win:
+	powershell -ExecutionPolicy Bypass -File .\setup.ps1
+
+doctor-win:
+	powershell -ExecutionPolicy Bypass -File .\doctor.ps1
+
+start-win:
+	powershell -ExecutionPolicy Bypass -File .\start.ps1
+
+smoke-win:
+	powershell -ExecutionPolicy Bypass -File .\scripts\windows_smoke.ps1
 
 clean:
 	find . -name "__pycache__" -type d -prune -exec rm -rf {} +
