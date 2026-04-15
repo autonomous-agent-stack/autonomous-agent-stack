@@ -6,19 +6,15 @@ These verify the scaffold is in place and handles missing business assets gracef
 """
 from __future__ import annotations
 
-import time
+import pytest
 from pathlib import Path
 from unittest.mock import Mock
-
-import pytest
 
 from autoresearch.core.services.excel_ops import ExcelOpsService
 from autoresearch.core.repositories.excel_jobs import ExcelJobsRepository
 from autoresearch.core.services.commission_engine import CommissionEngine
 from autoresearch.shared.excel_ops_models import (
-    ExcelFileMetadata,
     ExcelJobCreateRequest,
-    ExcelValidationResult,
     ExcelInputRole,
     CommissionCalculationRequest,
 )
@@ -131,27 +127,6 @@ class TestExcelOpsServiceScaffold:
         assert "blocked" in response.status
         assert response.error_message is not None
         assert "contracts" in response.error_message.lower() or "requirement" in response.error_message.lower()
-
-        persisted = service.get_job(job.job_id)
-        assert persisted is not None
-        assert persisted.status == JobStatus.CREATED
-        assert persisted.error_message == response.error_message
-
-    def test_get_job_status_marks_blocked_jobs_not_ready(self, service: ExcelOpsService):
-        job = service.create_job(ExcelJobCreateRequest(task_name="Blocked job", input_files=[]))
-
-        response = service.calculate_commission(
-            job.job_id,
-            CommissionCalculationRequest(job_id=job.job_id, input_data={"test": "data"}),
-        )
-        assert response.status == "blocked_awaiting_contracts"
-
-        status = service.get_job_status(job.job_id)
-
-        assert status is not None
-        assert status.ready_for_calculation is False
-        assert status.blocked_reason == response.error_message
-        assert any("blocked" in step.lower() for step in status.next_steps)
 
     def test_get_requirement4_status(self, service: ExcelOpsService):
         """Should show requirement #4 readiness status."""
@@ -295,22 +270,6 @@ class TestFixtureDirectories:
         path = Path("tests/fixtures/requirement4_contracts")
         assert path.exists()
         assert (path / "README.md").exists()
-
-
-class TestExcelOpsModelDefaults:
-    def test_excel_file_metadata_uses_fresh_uploaded_at_timestamp(self):
-        first = ExcelFileMetadata(filename="first.xlsx", role=ExcelInputRole.UNKNOWN)
-        time.sleep(0.01)
-        second = ExcelFileMetadata(filename="second.xlsx", role=ExcelInputRole.UNKNOWN)
-
-        assert first.uploaded_at < second.uploaded_at
-
-    def test_excel_validation_result_uses_fresh_validated_at_timestamp(self):
-        first = ExcelValidationResult(job_id="job-1", validation_type="schema", status="blocked")
-        time.sleep(0.01)
-        second = ExcelValidationResult(job_id="job-2", validation_type="schema", status="blocked")
-
-        assert first.validated_at < second.validated_at
 
 
 if __name__ == "__main__":

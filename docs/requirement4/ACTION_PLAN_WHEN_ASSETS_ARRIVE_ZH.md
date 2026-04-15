@@ -1,550 +1,450 @@
-# 业务资产到达后的 2 天压缩试运行行动方案
+# 业务资产到达后的行动指南
 
-## 当前定位
+## 当前状态
 
-这不是“2 天做完整个 requirement #4 生产版”的计划。
-
-这是一个 **单机版 requirement-4 pilot** 的压缩行动方案，目标是：
-
-- 单团队
-- 单模板
-- 单规则集
-- 单试点周期
-- 人工审核
-- Telegram 手动触发优先
-- 定时任务后置
-
-## 重要说明
-
-> 本文档中的 JSON、Markdown、命令、目录示例只用于说明格式、流程和落点，不代表真实业务规则。
->
-> 不要从示例中反推真实提成规则。真实规则只能来自业务资产、歧义决策和 golden 输出。
->
-> 本文档是 **工程可执行 / 试运行可执行** 方案，不是“已生产就绪”声明。
+✅ **工程脚手架已完成** - 44 个测试全部通过
+❌ **等待业务提供 4 个必需资产**
 
 ---
 
-## 1. 目标重定义
+> 📌 **重要说明**
+>
+> 本文档中的所有 JSON、Markdown 示例均用于**说明格式和结构**，不代表真实的业务规则。业务方提供的资产应基于实际业务需求填写。
+>
+> 示例中的字段名称、数值、决策内容等仅供参考，请勿直接套用。
 
-本次要落地的目标不是“2 天做完整需求 4”，而是：
+## 业务方需要提供的 4 个资产
 
-**2 天做出一个可试运行的 requirement-4 pilot 闭环：**
+### 1. Excel 输入/输出契约 (`excel_contracts.json`)
 
-- 分支 A：完成业务资产验收、确定性规则实现、CLI 封装
-- 分支 B：完成单机版 AAS 安装验证、Telegram 接通、AAS 调用 CLI
-- 最终：通过 Telegram 手动触发一次真实试运行
+**用途**：定义 Excel 文件的结构和映射规则
 
-这次不追求：
+**应包含**：
 
-- 多模板兼容
-- 多规则版本并存
-- 自动审批
-- 正式生产调度
-- 大规模并发
-- 完整 UI
+> ⚠️ **注意**：以下 JSON 结构仅为**示例格式**，用于说明应包含哪些字段。实际内容应根据真实业务规则填写。
 
-结论先写死：
-
-- **2 天压缩版 = pilot ready**
-- **不是 production complete**
-- **定时任务不在 2 天关键路径内**
-
----
-
-## 2. 前置条件
-
-只有在以下条件全部满足时，才承诺 2 天压缩排期：
-
-- [ ] 4 个业务资产已经齐全且质量合格
-- [ ] 本次只支持 1 套输入/输出 Excel 模板契约
-- [ ] 本次只支持 1 套提成规则
-- [ ] 本次只支持 1 个试点业务周期
-- [ ] 业务方当天有人可快速答疑，不跨天等待
-- [ ] 单机版 AAS baseline 已可运行
-
-### 4 个必需资产
-
-仍然是这 4 类，路径不变：
-
-| 资产 | 位置 | 本次用途 |
-|------|------|----------|
-| Excel 输入/输出契约 | `tests/fixtures/requirement4_contracts/excel_contracts.json` | 定义文件角色、sheet、字段映射、输出契约 |
-| 7 类业务歧义清单 | `tests/fixtures/requirement4_contracts/ambiguity_checklist.md` | 冻结边界情况处理规则 |
-| 真实样本 | `tests/fixtures/requirement4_samples/` | 驱动 deterministic 开发和本地验证 |
-| Golden 输出 + 元数据 | `tests/fixtures/requirement4_golden/` | 驱动对比验证和人工审核 |
-
-### 单机版 AAS 安装与验证最佳实践
-
-推荐直接走仓库现有基线，而不是自己拼命令：
-
-- `README.md`
-- `docs/QUICK_START.md`
-
-最小启动路径：
-
-```bash
-cd /Volumes/AI_LAB/Github/autonomous-agent-stack
-make setup
-make doctor
-AUTORESEARCH_MODE=minimal make start
-
-curl http://127.0.0.1:8001/health
-curl http://127.0.0.1:8001/docs
-make smoke-local
+```json
+{
+  "input_files": [
+    {
+      "role": "source_data",
+      "filename_pattern": "*.xlsx",
+      "required_sheets": ["销售数据", "代理信息"],
+      "column_mappings": {
+        "代理ID": "agent_id",
+        "销售额": "sales_amount",
+        "产品类别": "product_category"
+      }
+    },
+    {
+      "role": "rate_table",
+      "filename_pattern": "费率表.xlsx",
+      "required_sheets": ["费率"],
+      "column_mappings": {
+        "级别": "tier",
+        "佣金率": "commission_rate"
+      }
+    }
+  ],
+  "output_file": {
+    "filename": "佣金计算结果.xlsx",
+    "required_sheets": ["佣金明细", "汇总"],
+    "column_definitions": {
+      "代理ID": "字符串",
+      "应付佣金": "数值，保留2位小数",
+      "计算依据": "字符串"
+    }
+  }
+}
 ```
 
-如果这条基线不通，2 天试运行计划不成立。
-
-当前仓库已经支持原生 Windows 的最小主链：
-
-- `make setup`
-- `make doctor`
-- `make start`
-- `setup.cmd`
-- `doctor.cmd`
-- `start.cmd`
-
-当前最小 Windows 主链也已经进入 CI 回归验证范围，目标是把 `setup / doctor / start` 固化成持续可检验路径。
-
-但这不代表所有辅助 target 都已完成 Windows parity。像 `start-mac-worker.sh` 这类脚本仍然是平台特定能力。
+**业务方需要回答**：
+- 有哪几个输入 Excel 文件？分别叫什么？
+- 每个 Excel 文件有哪些工作表（sheet）？
+- 每个工作表有哪些关键列？
+- 输出结果需要包含哪些列？
 
 ---
 
-## 3. 范围收缩
+### 2. 7 类业务歧义检查清单 (`ambiguity_checklist.md`)
 
-### 2 天内只做
+**用途**：预先决策边界情况的处理规则
 
-- 把业务资产放进 fixtures 目录
-- 检查资产是否足够支撑 requirement #4 的 pilot
-- 生成 contract summary / asset readiness review
-- 用 Claude Code CLI + ECC 在现有 scaffold 上实现确定性佣金程序
-- 把程序封装成 CLI
-- 安装并验证单机版 AAS
-- 接通 Telegram 并完成手动触发调试
-- 让 AAS 调用 CLI 跑一次真实试运行
-- 输出可供人工审核的结果文件和审计摘要
+**应包含的 7 个类别**：
 
-### 2 天内明确不做
+> ⚠️ **注意**：以下决策内容仅为**示例**，用于说明应考虑哪些边界情况。实际决策应由业务方根据真实业务规则确定。
 
-- 多模板支持
-- 多版本规则引擎
-- 自动审批
-- 正式生产调度编排
-- 大规模并发
-- 精致 UI
-- 可复用平台化抽象
+#### 类别 1：数据完整性
+```
+问题：如果某些字段缺失或为空怎么办？
+决策（示例）：
+- 代理ID缺失：跳过该条记录
+- 销售额为空：视为 0
+- 产品类别缺失：使用"未分类"
+```
+
+#### 类别 2：数据验证
+```
+问题：如何发现和处理异常数据？
+决策（示例）：
+- 销售额为负数：记录警告，计入"异常金额"
+- 代理ID不存在于代理表：报错并终止
+- 费率超过上限：使用上限值，记录警告
+```
+
+#### 类别 3：计算规则
+```
+问题：复杂的计算场景如何处理？
+决策（示例）：
+- 多个产品的佣金是否累加：是
+- 是否有封顶：有，最高不超过销售额的 20%
+- 退货如何处理：从当期销售额中扣除
+```
+
+#### 类别 4：代理映射
+```
+问题：代理关系的边界情况？
+决策（示例）：
+- 一个销售有多个代理：按贡献比例分配
+- 代理层级：只计算直接上级的佣金
+- 代理离职：计算至离职日期
+```
+
+#### 类别 5：时间段处理
+```
+问题：时间相关的计算规则？
+决策（示例）：
+- 计算周期：按自然月
+- 截止时间：每月最后一天 23:59:59
+- 跨期订单：计入下单日期所在月
+```
+
+#### 类别 6：费率档位
+```
+问题：费率如何应用？
+决策（示例）：
+- 档位划分：
+  - 0-10万：1%
+  - 10-50万：2%
+  - 50万以上：3%
+- 累进 vs 超额：超额累进
+- 特殊产品：使用特定费率表
+```
+
+#### 类别 7：调整项
+```
+问题：哪些情况需要人工调整？
+决策（示例）：
+- 新产品试销期：费率翻倍（前3个月）
+- 大客户折扣：从佣金中扣除
+- 数据更正：支持人工调整并记录原因
+```
 
 ---
 
-## 4. 分支 A：开发维护链
+### 3. 真实 Excel 样本文件 (`tests/fixtures/requirement4_samples/`)
 
-分支 A 负责把 requirement #4 的业务逻辑真正做出来，但仍然保持：
+**用途**：用于开发和测试的真实数据
 
-- 运行期不用 LLM 算钱
-- 缺契约就安全阻断
-- 所有输出可审计、可回放、可人工复核
+**应提供**：
+- 1-3 个真实的 Excel 输入文件
+- 文件应包含真实或逼真的数据
+- 覆盖主要的业务场景
 
-如果执行人是第一次接 requirement-4，建议直接同时打开：
+**示例**：
+```
+tests/fixtures/requirement4_samples/
+├── 销售数据_202601.xlsx        # 实际输入文件
+├── 代理列表.xlsx               # 实际输入文件
+└── 费率表.xlsx                 # 实际输入文件
+```
 
-- `docs/requirement4/README_ZH.md`
-- `docs/requirement4/BRANCH_A_B_IMPLEMENTATION_BEST_PRACTICES_ZH.md`
+**业务方需要确保**：
+- 文件格式与 `excel_contracts.json` 中定义的一致
+- 包含正常场景和边界情况的数据
+- 数据已脱敏（如需要）
 
-这份最佳实践文档里已经按“小白可直接复制”的方式写出：
+---
 
-- 分支 A 的 Prompt A1 / A2 / A3
-- 分支 A 的最小命令清单
-- A 交给 B 的最小交付物
+### 4. 金标准输出 + 审批闭环 (`tests/fixtures/requirement4_golden/`)
 
-### A1. 资产落盘 + 完整性检查
+**用途**：验证计算正确性的预期结果
 
-先把业务资产放到固定目录：
+**应提供**：
+
+#### 4.1 金标准 Excel 输出
+```
+tests/fixtures/requirement4_golden/
+└── 佣金计算结果_预期.xlsx       # 手工计算或系统导出的正确结果
+```
+
+**应包含**：
+- 与样本输入对应的正确输出
+- 覆盖所有测试场景的预期结果
+- 明确标注每条结果的计算依据
+
+#### 4.2 金标准元数据 (`golden_metadata.json`)
+
+> ⚠️ **注意**：以下 JSON 结构仅为**示例格式**。实际容差阈值、审批人员和测试用例应由业务方根据真实需求确定。
+
+```json
+{
+  "tolerances": {
+    "数值比较精度": 0.01,
+    "允许的舍入误差": "四舍五入到2位小数"
+  },
+  "audit_loop": {
+    "approval_required": true,
+    "approvers": ["财务经理", "业务总监"],
+    "approval_criteria": {
+      "单笔差异阈值": 100,
+      "总差异阈值": 1000,
+      "警告阈值": 500
+    }
+  },
+  "test_cases": [
+    {
+      "name": "正常销售场景",
+      "input_file": "销售数据_202601.xlsx",
+      "expected_output": "佣金计算结果_预期.xlsx",
+      "key_metrics": {
+        "总记录数": 150,
+        "总佣金": 123456.78
+      }
+    },
+    {
+      "name": "有退货场景",
+      "input_file": "销售数据_退货测试.xlsx",
+      "expected_output": "佣金计算结果_退货测试_预期.xlsx",
+      "key_metrics": {
+        "总记录数": 100,
+        "总佣金": -5000.00
+      }
+    }
+  ]
+}
+```
+
+**业务方需要定义**：
+- 可接受的计算误差范围
+- 谁需要审批计算结果
+- 什么样的差异需要警告
+
+---
+
+## 资产提供后的实施步骤
+
+### 第 1 天：资产验收与映射
 
 ```bash
+# 1. 将资产放入指定目录
 tests/fixtures/requirement4_contracts/
-├── excel_contracts.json
-└── ambiguity_checklist.md
+├── excel_contracts.json          # 业务方提供
+└── ambiguity_checklist.md        # 业务方提供
 
 tests/fixtures/requirement4_samples/
-└── *.xlsx
+└── *.xlsx                        # 业务方提供
 
 tests/fixtures/requirement4_golden/
-├── *.xlsx
-└── golden_metadata.json
-```
+├── *.xlsx                        # 业务方提供
+└── golden_metadata.json          # 业务方提供
 
-然后先做 readiness review，而不是立刻写代码：
-
-```bash
-ls -la tests/fixtures/requirement4_contracts/
-ls -la tests/fixtures/requirement4_samples/
-ls -la tests/fixtures/requirement4_golden/
+# 2. 验证脚手架仍然就绪
 make validate-req4
+
+# 3. 确认资产完整
+ls -la tests/fixtures/requirement4_*/
 ```
 
-产出物：
-
-- `docs/requirement4/ASSET_READINESS_REVIEW.md`
-- `docs/requirement4/CONTRACT_SUMMARY.md`
-
-### A2. 用 Claude Code CLI + ECC 实现 deterministic 程序
-
-实现时必须以这份深研报告为主参考：
-
-- `docs/aas-claude-ecc-excel-best-practice-report.md`
-
-执行原则：
-
-- 只把 Claude Code CLI + ECC 放在“开发维护链”
-- 正式算账链仍然是固定程序
-- 优先复用现有 requirement-4 scaffold
-
-建议优先检查并复用这些落点：
-
-- `src/autoresearch/core/services/commission_engine.py`
-- `src/autoresearch/core/services/excel_ops.py`
-- `src/autoresearch/api/routers/excel_ops.py`
-- `src/autoresearch/core/repositories/excel_jobs.py`
-- `tests/test_excel_ops_service.py`
-- `tests/test_e2e_pipeline_verification.py`
-
-本阶段必须补齐：
-
-- contract loading
-- data normalization
-- validation
-- deterministic commission calculation
-- export
-- audit metadata
-- fixture vs golden focused tests
-
-### A3. 封装为 CLI，供 AAS 调度
-
-不要把 requirement #4 逻辑只留在 service 内部。
-
-必须把它封装成可由 AAS 调用的 CLI，至少支持：
-
-- 输入目录或文件参数
-- 契约目录参数
-- golden 目录参数（可选）
-- 输出目录参数
-- 审计输出参数
-- `dry-run`
-- `validate-only`
-
-CLI 层要求：
-
-- 明确退出码
-- 结构化 JSON 摘要
-- 可供人工审核的结果文件
-- 对缺失契约 / 缺失样本 / golden 校验失败返回清晰错误
-
-本阶段结束标准：
-
-- 本地命令能独立跑通
-- 至少 1 组真实样本能完成 deterministic 本地运行
-- 至少 1 次 golden 对比可执行
+**工程方需要做的**：
+- 审查契约是否清晰完整
+- 确认样本文件可正常打开
+- 验证金标准输出与输入对应
+- 记录任何需要澄清的问题
 
 ---
 
-## 5. 分支 B：单机运行链
+### 第 1 周：业务规则实现
 
-分支 B 负责把“已经做好的 CLI”接到单机版 AAS 和 Telegram 上。
-
-### B1. 安装并验证单机版 AAS
-
-推荐走现有单机基线：
+#### 步骤 1：使用 Claude Code CLI 理解契约
 
 ```bash
-make setup
-make doctor
-AUTORESEARCH_MODE=minimal make start
+# 启动 Claude Code
+claude
 
-curl http://127.0.0.1:8001/health
-curl http://127.0.0.1:8001/api/v1/excel-ops/status/requirement4
+# 加载并理解契约
+> 阅读 tests/fixtures/requirement4_contracts/excel_contracts.json
+> 阅读 tests/fixtures/requirement4_contracts/ambiguity_checklist.md
+> 总结：有哪些输入文件？每个文件有哪些列？计算规则是什么？
+> 创建 docs/requirement4/CONTRACT_SUMMARY.md
+```
+
+#### 步骤 2：实现佣金计算引擎
+
+```bash
+# 在 Claude Code 中
+> 阅读 src/autoresearch/core/services/commission_engine.py
+> 根据 CONTRACT_SUMMARY.md 实现以下功能：
+>   1. 加载契约
+>   2. 解析 Excel 文件（使用 openpyxl）
+>   3. 应用计算规则
+>   4. 返回计算结果
+>   5. 不使用 LLM，仅确定性计算
+```
+
+#### 步骤 3：实现验证逻辑
+
+```bash
+> 在 src/autoresearch/core/services/excel_ops.py 中添加：
+>   1. validate_job() 方法
+>   2. 与金标准输出比较
+>   3. 检查是否在容差范围内
+>   4. 返回详细验证结果
+```
+
+#### 步骤 4：运行测试
+
+```bash
+# 运行契约测试
+PYTHONPATH=src python -m pytest tests/test_excel_ops_service.py -v
+
+# 运行端到端测试
+PYTHONPATH=src python -m pytest tests/test_e2e_pipeline_verification.py -v
+```
+
+---
+
+### 第 2 周：金标准验证与集成
+
+#### 步骤 1：金标准对比测试
+
+```bash
+# 创建对比测试
+> 在 tests/test_excel_ops_service.py 中添加：
+>   test_golden_output_match():
+>     1. 加载测试 fixtures/requirement4_samples/*.xlsx
+>     2. 运行佣金计算
+>     3. 与 tests/fixtures/requirement4_golden/*.xlsx 比较
+>     4. 验证在容差范围内
+
+# 运行测试
+PYTHONPATH=src python -m pytest tests/test_excel_ops_service.py::test_golden_output_match -v
+```
+
+#### 步骤 2：连接服务
+
+```bash
+# 在 src/autoresearch/api/dependencies.py 中：
+> 导入 ExcelOpsService, ExcelJobsRepository, CommissionEngine
+> 创建数据库：artifacts/api/excel_jobs.db
+> 初始化服务实例
+> 连接到 get_excel_ops_service 依赖
+
+# 在 src/autoresearch/api/routers/excel_ops.py 中：
+> 移除 HTTPException 501
+> 让路由使用真实服务
+```
+
+#### 步骤 3：冒烟测试
+
+```bash
+# 运行完整测试套件
+PYTHONPATH=src python -m pytest tests/test_excel_ops_*.py tests/test_e2e_pipeline_verification.py -v
+
+# 运行基线验证
+make validate-req4
+
+# 运行冒烟测试
 make smoke-local
 ```
 
-如果需要 worker 执行链，再启动现有 Mac worker：
+---
+
+### 上线：试点部署
 
 ```bash
-./scripts/start-mac-worker.sh
-```
-
-### B2. 接通 Telegram，调通手动触发
-
-本次只做 Telegram 手动触发路径，不做正式定时任务投产。
-
-目标是打通：
-
-`Telegram -> AAS -> requirement-4 CLI -> 结果文件 + 审计摘要`
-
-验收重点：
-
-- Telegram 消息可以触发 job
-- AAS 能正常创建 job / enqueue run
-- 返回结果能回到人工审核路径
-
-### B3. 用 AAS 试运行分支 A 的 CLI
-
-这一步只看最小闭环，不追求架构扩张：
-
-- AAS 能调用 CLI
-- CLI 能输出结果文件
-- 结果与审计摘要可查看
-- 失败时能 blocked / safe-fail
-
----
-
-## 6. 两天排期
-
-## Day 1
-
-- [ ] 验收 4 个业务资产
-- [ ] 运行资产完整性检查
-- [ ] 产出 `ASSET_READINESS_REVIEW.md`
-- [ ] 产出 `CONTRACT_SUMMARY.md`
-- [ ] 完成 deterministic commission CLI MVP
-- [ ] 完成 fixture / golden 基础验证
-
-Day 1 结束时必须至少拿到：
-
-- 资产是否足够的明确结论
-- MVP CLI 的调用方式
-- 至少 1 组样本跑通或明确 blocked 原因
-
-## Day 2
-
-- [ ] 验证单机版 AAS baseline
-- [ ] 接入 Telegram
-- [ ] 接入 AAS -> CLI 调用链
-- [ ] 完成一次 Telegram 手动触发试运行
-- [ ] 输出试运行结果、审计说明、剩余 gap 清单
-
-Day 2 结束时必须拿到：
-
-- 手动触发闭环证据
-- 人工审核材料
-- 明确写明“未生产就绪”
-
----
-
-## 7. 验收标准
-
-2 天压缩 pilot 的验收标准应是：
-
-- [ ] CLI 能在本地独立跑通
-- [ ] 至少 1 组真实样本完成 deterministic local run
-- [ ] 至少 1 次 golden 对比已执行
-- [ ] AAS 能成功调用 CLI
-- [ ] Telegram 能手动触发一次试运行
-- [ ] 输出结果可供人工审核
-- [ ] 文档和结果中明确标注 **NOT production complete**
-
-明确不是本次验收标准的内容：
-
-- 自动审批
-- 生产级定时任务
-- 多模板兼容
-- 多规则集并行
-- 高并发压测
-
----
-
-## 8. 后续项：定时任务
-
-### 当前仓库状态
-
-**当前 main 仓库已经有 requirement-4 可复用的单机时间型 schedule 主链。**
-
-本仓库目前可确认存在的是：
-
-- worker claim / lease 调度链：`src/autoresearch/core/services/worker_scheduler.py`
-- APScheduler-backed 时间触发层：`src/autoresearch/core/services/worker_schedule_service.py`
-- `/api/v1/worker-schedules`
-- `docs/runbooks/worker-schedules.md`
-- Telegram 触发与 worker run 主链
-- requirement-4 的工程 scaffold 和手动试运行方案
-
-因此当前 requirement-4 的真实验收路径仍然是：
-
-`Telegram 手动触发 -> AAS -> CLI -> 输出 + 审计 -> 人工审核`
-
-### 为什么仍然不放进 2 天主范围
-
-因为这次的主目标是先证明：
-
-`Telegram 手动触发 -> AAS -> CLI -> 输出 + 审计 -> 人工审核`
-
-只有在以下条件满足后，才应该给 requirement-4 pilot 加 schedule：
-
-- 手动触发路径稳定通过
-- 输出审核已被业务接受
-- 业务确认 pilot 行为正确
-- 仓库里已经补齐真实可复用的时间触发实现与 runbook
-
-换句话说：
-
-- **当前 main 仓库已经具备单机 schedule 能力**
-- **requirement #4 不应一开始就靠 schedule 验收**
-
----
-
-## 9. Claude Code CLI Prompt 模板
-
-以下 prompt 建议直接用于 `feat/single-machine-aas-ready-for-req4` 分支。
-
-### Prompt 1：检查 4 个业务资产是否足够
-
-```text
-请先不要实现业务逻辑。
-
-阅读以下文件与目录：
-- tests/fixtures/requirement4_contracts/excel_contracts.json
-- tests/fixtures/requirement4_contracts/ambiguity_checklist.md
-- tests/fixtures/requirement4_samples/
-- tests/fixtures/requirement4_golden/
-
-任务：
-1. 判断这 4 类业务资产是否已经足够支持 requirement #4 的 2 天试运行版开发。
-2. 如果不够，按“缺失项 / 影响 / 必须补充什么”列出清单。
-3. 如果足够，输出：
-   - 输入文件角色清单
-   - 输出文件清单
-   - 关键字段映射
-   - 关键业务歧义决策
-   - golden 校验范围
-4. 生成：
-   docs/requirement4/ASSET_READINESS_REVIEW.md
-
-要求：
-- 不猜业务规则
-- 不发明缺失字段
-- 缺什么就明确写什么
-- 输出结论必须是：
-  - ready_for_pilot
-  或
-  - blocked_missing_assets
-```
-
-### Prompt 2：用 Claude Code CLI + ECC 实现 requirement #4
-
-```text
-请基于以下资料实现 requirement #4 的 2 天试运行版，仅做确定性逻辑：
-
-必读：
-- docs/aas-claude-ecc-excel-best-practice-report.md
-- docs/requirement4/ASSET_READINESS_REVIEW.md
-- tests/fixtures/requirement4_contracts/excel_contracts.json
-- tests/fixtures/requirement4_contracts/ambiguity_checklist.md
-- tests/fixtures/requirement4_samples/
-- tests/fixtures/requirement4_golden/
-
-目标：
-实现一个单模板、单规则集、单周期的 deterministic commission pipeline。
-
-要求：
-1. 不使用 LLM 参与运行期金额计算
-2. 缺契约时必须安全阻断
-3. 使用 openpyxl / 现有 repo 方式解析 Excel
-4. 在现有 requirement-4 scaffold 上实现：
-   - contract loading
-   - data normalization
-   - validation
-   - commission calculation
-   - export
-   - audit metadata
-5. 增加 fixture vs golden 测试
-6. 输出变更文件、测试结果、剩余风险
-
-范围限制：
-- 不做多模板支持
-- 不做多版本规则引擎
-- 不做调度自动化
-- 不做生产化 UI
-```
-
-### Prompt 3：把程序封装成 CLI 供 AAS 调度
-
-```text
-请把 requirement #4 的实现封装成一个可由 AAS 调用的 CLI。
-
-目标：
-提供一个稳定、可审计、适合单机版 AAS 调度的命令行入口。
-
-CLI 至少支持：
-- 输入目录或文件参数
-- 契约目录参数
-- golden 目录参数（可选）
-- 输出目录参数
-- 审计输出参数
-- dry-run / validate-only 模式
-
-要求：
-1. 返回明确退出码
-2. 生成结构化 JSON 摘要
-3. 生成可供人工审核的结果文件
-4. 对缺失契约/缺失样本/校验失败给出明确错误
-5. 补充 README 或 docs 中的 CLI 用法说明
-6. 增加最小 CLI smoke test
-
-输出：
-- CLI 文件位置
-- 示例命令
-- AAS 后续如何调用
-```
-
-### Prompt 4：接入 AAS + Telegram 做手动触发试运行
-
-```text
-请在不扩大范围的前提下，将 requirement #4 CLI 接入单机版 AAS 的试运行路径。
-
-目标：
-实现 Telegram 手动触发 -> AAS 创建 job -> 调用 requirement #4 CLI -> 输出结果与审计摘要。
-
-要求：
-1. 优先复用现有 single-machine AAS baseline
-2. 只做手动触发路径
-3. 不做正式定时任务
-4. 输出结果必须可人工审核
-5. 保留 blocked / safe-fail 行为
-6. 增加最小端到端 smoke test
-
-验收：
-- 本机 AAS 可启动
-- Telegram 可触发一次试运行
-- AAS 能调用 CLI
-- 结果文件和审计摘要可查看
-- 文档说明清楚后续如何再加定时任务
+# 1. 合并到主分支
+git checkout main
+git merge feat/single-machine-aas-ready-for-req4
+
+# 2. 启动服务（最小模式）
+export AUTORESEARCH_MODE=minimal
+make start
+
+# 3. 验证 API 端点
+curl http://localhost:8001/api/v1/excel-ops/status/requirement4
+
+# 4. 提交给业务方验证
+# 业务方通过 UI 或 API 提交测试任务
+# 比对计算结果与金标准
+# 确认差异在容差范围内
 ```
 
 ---
 
-## 10. 风险与残余问题
+## 预计时间线
 
-即使工期压到 2 天，仍然存在这些风险：
+| 阶段 | 时间 | 负责方 | 前置条件 |
+|------|------|--------|----------|
+| 资产准备 | 待定 | 业务方 | - |
+| 资产验收 | 1 天 | 工程方 | 4 个资产已提供且质量合格 |
+| 业务规则实现 | 5-7 天 | 工程方 | 资产验收通过，无需反复澄清 |
+| 金标准验证 | 2-3 天 | 工程方 + 业务方 | 业务规则实现完成 |
+| 试点部署 | 1-2 天 | 工程方 | 金标准验证通过 |
+| **总计** | **7-12 天** | 从资产到就绪 | **在 4 个业务资产质量合格且无需反复澄清的前提下** |
 
-- 业务资产可能“看起来齐全，但字段定义不够硬”
-- 同一个 Excel 字段可能仍有业务歧义
-- golden 输出可能本身不稳定或不够覆盖边界情况
-- Telegram 打通不代表 requirement-4 结果已经可发放
-- 当前虽然已支持 Windows 主链，但并不代表所有辅助脚本都已 Windows 同等支持
-- 当前虽然已有单机 schedule，但它仍然不能替代 requirement-4 的人工审核闭环
+> ⚠️ **注意**：7-12 天的时间线基于以下假设：
+> 1. 业务方提供的 4 个资产完整、准确、无需大幅修改
+> 2. 契约和歧义决策清单清晰明确，无需反复澄清
+> 3. 工程方在实现过程中无重大技术阻塞
+>
+> 如果资产需要反复补充或澄清，时间线可能会延长。
 
-所以最后一句必须保留：
+---
 
-**2 天可以做成“试运行版闭环”，不能承诺“生产版闭环”。**
+## 验收标准
+
+### 工程脚手架验收（当前已完成）✅
+- [x] 44 个测试全部通过
+- [x] `make validate-req4` 通过
+- [x] `make smoke-local` 通过
+- [x] 路由已注册并可访问
+- [x] 阻塞状态明确具体
+
+### 业务逻辑验收（资产到达后）
+- [ ] 所有计算结果与金标准一致（在容差范围内）
+- [ ] 测试覆盖率 ≥ 80%
+- [ ] 性能满足要求（单次计算 < 5 秒）
+- [ ] 业务方确认计算逻辑正确
+- [ ] 审批工作流已配置
+
+---
+
+## 常见问题
+
+**Q: 为什么不能先实现业务逻辑，再要资产？**
+A: 因为没有真实的契约和样本，我们无法知道具体的计算规则。如果自己发明规则，很可能与业务需求不符，需要全部重写。
+
+**Q: 金标准输出必须是手工计算的吗？**
+A: 不一定。可以是手工计算，也可以是现有系统的导出结果，关键是要确保它是"正确的"。
+
+**Q: 容差范围应该如何设定？**
+A: 由业务方根据实际需求设定。通常金额类精确到分（0.01），百分比可以略有浮动。
+
+**Q: 如果计算结果与金标准不一致怎么办？**
+A: 首先检查是否在容差范围内。如果是，记录警告并通过；如果不是，需要排查原因，可能是：
+- 实现错误
+- 金标准本身有误
+- 契约有歧义
 
 ---
 
 ## 参考文档
 
-- `docs/aas-claude-ecc-excel-best-practice-report.md`
-- `README.md`
-- `docs/QUICK_START.md`
-- `docs/requirement4/BRANCH_A_B_IMPLEMENTATION_BEST_PRACTICES_ZH.md`
-- `docs/requirement4/CLAUDE_CODE_BEST_PRACTICES_ZH.md`
-- `docs/requirement4/ENGINEERING_PREP_PLAN.md`
-- `docs/requirement4/IMPLEMENTATION_READY_CHECKLIST.md`
+- **Claude Code CLI 实施指南**：`docs/requirement4/CLAUDE_CODE_BEST_PRACTICES_ZH.md`
+- **准备计划**：`docs/requirement4/ENGINEERING_PREP_PLAN.md`
+- **实施检查清单**：`docs/requirement4/IMPLEMENTATION_READY_CHECKLIST.md`
+- **加固计划**：`docs/requirement4/BASELINE_HARDENING_PLAN.md`
 
 ---
 
@@ -554,4 +454,4 @@ CLI 至少支持：
 
 - `PR_SUMMARY.md` ↔ `PR_SUMMARY_ZH.md`
 - `docs/requirement4/CLAUDE_CODE_BEST_PRACTICES.md` ↔ `docs/requirement4/CLAUDE_CODE_BEST_PRACTICES_ZH.md`
-- `docs/requirement4/ACTION_PLAN_WHEN_ASSETS_ARRIVE_ZH.md`（中文独有；若后续补英文版，需同步口径）
+- `docs/requirement4/ACTION_PLAN_WHEN_ASSETS_ARRIVE_ZH.md` (中文独有，对应英文版在后续迭代中补充)

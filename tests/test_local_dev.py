@@ -87,7 +87,7 @@ def test_local_dev_start_checks_port_and_uses_windows_python(monkeypatch, tmp_pa
 
     monkeypatch.setattr(local_dev, "_run", fake_run)
 
-    exit_code = local_dev.run_start(venv_name=".venv", host="127.0.0.1", port=8001, reload=False)
+    exit_code = local_dev.run_start(venv_name=".venv", host="127.0.0.1", port=8001)
 
     assert exit_code == 0
     assert captured["command"] == [
@@ -99,6 +99,7 @@ def test_local_dev_start_checks_port_and_uses_windows_python(monkeypatch, tmp_pa
         "127.0.0.1",
         "--port",
         "8001",
+        "--reload",
     ]
     env = captured["env"]
     assert env is not None
@@ -159,64 +160,3 @@ def test_local_dev_setup_uses_unix_paths_on_posix(monkeypatch, tmp_path: Path):
     assert commands[0] == ["python3", "-m", "venv", str(venv_dir)]
     assert commands[1] == [str(python_exe), "-m", "pip", "install", "--upgrade", "pip"]
     assert commands[2] == [str(python_exe), "-m", "pip", "install", "-r", str(requirements_lock)]
-
-
-def test_local_dev_start_appends_reload_flag_when_enabled(monkeypatch, tmp_path: Path):
-    local_dev = _load_script("local_dev_script_reload", "scripts/local_dev.py")
-    repo_root = tmp_path
-    python_exe = repo_root / ".venv" / "bin" / "python"
-    python_exe.parent.mkdir(parents=True, exist_ok=True)
-    python_exe.write_text("", encoding="utf-8")
-
-    monkeypatch.setattr(local_dev, "REPO_ROOT", repo_root)
-    monkeypatch.setattr(local_dev.os, "name", "posix")
-    monkeypatch.setattr(local_dev, "run_doctor", lambda **kwargs: 0)
-    monkeypatch.setattr(local_dev, "_port_in_use", lambda host, port: False)
-    monkeypatch.setattr(local_dev, "_load_env_files", lambda repo_root: {})
-
-    captured: dict[str, object] = {}
-
-    def fake_run(command: list[str], *, env=None, cwd=None):
-        captured["command"] = command
-        return 0
-
-    monkeypatch.setattr(local_dev, "_run", fake_run)
-
-    exit_code = local_dev.run_start(venv_name=".venv", host="127.0.0.1", port=8001, reload=True)
-
-    assert exit_code == 0
-    assert captured["command"][-1] == "--reload"
-
-
-def test_local_dev_run_returns_130_on_keyboard_interrupt(monkeypatch, tmp_path: Path):
-    local_dev = _load_script("local_dev_script_interrupt", "scripts/local_dev.py")
-    repo_root = tmp_path
-
-    monkeypatch.setattr(local_dev, "REPO_ROOT", repo_root)
-
-    def fake_subprocess_run(*args, **kwargs):
-        raise KeyboardInterrupt
-
-    monkeypatch.setattr(local_dev.subprocess, "run", fake_subprocess_run)
-
-    exit_code = local_dev._run(["python", "--version"])
-
-    assert exit_code == 130
-
-
-def test_build_parser_uses_env_file_defaults(monkeypatch, tmp_path: Path):
-    local_dev = _load_script("local_dev_script_env_defaults", "scripts/local_dev.py")
-    repo_root = tmp_path
-    (repo_root / ".env").write_text(
-        "HOST=0.0.0.0\nAUTORESEARCH_API_PORT=8123\nAUTORESEARCH_RELOAD=1\n",
-        encoding="utf-8",
-    )
-
-    monkeypatch.setattr(local_dev, "REPO_ROOT", repo_root)
-
-    parser = local_dev.build_parser()
-    args = parser.parse_args(["start"])
-
-    assert args.host == "0.0.0.0"
-    assert args.port == 8123
-    assert args.reload is True

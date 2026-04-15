@@ -36,32 +36,6 @@ def _load_env_files(repo_root: Path) -> dict[str, str]:
     return merged
 
 
-def _merged_runtime_env(repo_root: Path) -> dict[str, str]:
-    runtime_env = os.environ.copy()
-    runtime_env.update(_load_env_files(repo_root))
-    return runtime_env
-
-
-def _env_default(runtime_env: dict[str, str], *keys: str, default: str) -> str:
-    for key in keys:
-        value = runtime_env.get(key)
-        if value:
-            return value
-    return default
-
-
-def _env_default_int(runtime_env: dict[str, str], *keys: str, default: int) -> int:
-    for key in keys:
-        value = runtime_env.get(key)
-        if not value:
-            continue
-        try:
-            return int(value)
-        except ValueError:
-            continue
-    return default
-
-
 def _port_in_use(host: str, port: int) -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.settimeout(0.2)
@@ -69,10 +43,7 @@ def _port_in_use(host: str, port: int) -> bool:
 
 
 def _run(command: list[str], *, env: dict[str, str] | None = None, cwd: Path | None = None) -> int:
-    try:
-        result = subprocess.run(command, cwd=str(cwd or REPO_ROOT), env=env, check=False)
-    except KeyboardInterrupt:
-        return 130
+    result = subprocess.run(command, cwd=str(cwd or REPO_ROOT), env=env, check=False)
     return int(result.returncode)
 
 
@@ -111,7 +82,7 @@ def run_doctor(*, venv_name: str, port: int, profile: str) -> int:
     )
 
 
-def run_start(*, venv_name: str, host: str, port: int, reload: bool) -> int:
+def run_start(*, venv_name: str, host: str, port: int) -> int:
     venv_python = venv_python_path(REPO_ROOT / venv_name)
     if not venv_python.exists():
         print(f"Missing {venv_python}. Run 'make setup' first.")
@@ -133,7 +104,8 @@ def run_start(*, venv_name: str, host: str, port: int, reload: bool) -> int:
         print("       Try: PORT=8010 make start")
         return 1
 
-    env = _merged_runtime_env(REPO_ROOT)
+    env = os.environ.copy()
+    env.update(_load_env_files(REPO_ROOT))
     env["PYTHONPATH"] = str(REPO_ROOT / "src") + os.pathsep + env.get("PYTHONPATH", "")
 
     print()
@@ -142,23 +114,23 @@ def run_start(*, venv_name: str, host: str, port: int, reload: bool) -> int:
     print(f"    Health: http://{host}:{port}/health")
     print(f"    Panel:  http://{host}:{port}/panel")
     print()
-    command = [
-        str(venv_python),
-        "-m",
-        "uvicorn",
-        "autoresearch.api.main:app",
-        "--host",
-        host,
-        "--port",
-        str(port),
-    ]
-    if reload:
-        command.append("--reload")
-    return _run(command, env=env)
+    return _run(
+        [
+            str(venv_python),
+            "-m",
+            "uvicorn",
+            "autoresearch.api.main:app",
+            "--host",
+            host,
+            "--port",
+            str(port),
+            "--reload",
+        ],
+        env=env,
+    )
 
 
-def build_parser(runtime_env: dict[str, str] | None = None) -> argparse.ArgumentParser:
-    runtime_env = dict(runtime_env or _merged_runtime_env(REPO_ROOT))
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Cross-platform local development helper")
     parser.add_argument("--venv", default=".venv", help="Virtualenv directory name (default: .venv)")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -167,29 +139,12 @@ def build_parser(runtime_env: dict[str, str] | None = None) -> argparse.Argument
     setup_parser.add_argument("--python", default=sys.executable, help="Base Python executable to create the venv")
 
     doctor_parser = subparsers.add_parser("doctor", help="Run doctor using the project virtualenv")
-    doctor_parser.add_argument(
-        "--port",
-        type=int,
-        default=_env_default_int(runtime_env, "PORT", "AUTORESEARCH_API_PORT", default=8001),
-    )
+    doctor_parser.add_argument("--port", type=int, default=int(os.getenv("AUTORESEARCH_API_PORT", "8001")))
     doctor_parser.add_argument("--profile", choices=("local", "linux-remote"), default="local")
 
     start_parser = subparsers.add_parser("start", help="Run doctor then start the local API")
-    start_parser.add_argument(
-        "--host",
-        default=_env_default(runtime_env, "HOST", default="127.0.0.1"),
-    )
-    start_parser.add_argument(
-        "--port",
-        type=int,
-        default=_env_default_int(runtime_env, "PORT", "AUTORESEARCH_API_PORT", default=8001),
-    )
-    start_parser.add_argument(
-        "--reload",
-        action="store_true",
-        default=_env_default(runtime_env, "AUTORESEARCH_RELOAD", default="0") == "1",
-        help="Enable uvicorn auto-reload (off by default for stable startup)",
-    )
+    start_parser.add_argument("--host", default=os.getenv("HOST", "127.0.0.1"))
+    start_parser.add_argument("--port", type=int, default=int(os.getenv("PORT", os.getenv("AUTORESEARCH_API_PORT", "8001"))))
     return parser
 
 
@@ -202,7 +157,7 @@ def main() -> int:
     if args.command == "doctor":
         return run_doctor(venv_name=args.venv, port=args.port, profile=args.profile)
     if args.command == "start":
-        return run_start(venv_name=args.venv, host=args.host, port=args.port, reload=args.reload)
+        return run_start(venv_name=args.venv, host=args.host, port=args.port)
     parser.error(f"Unsupported command: {args.command}")
     return 2
 

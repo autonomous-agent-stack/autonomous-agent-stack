@@ -1,6 +1,5 @@
 # Status & Release Notes
 
-<<<<<<< HEAD
 ---
 
 ## Requirement #4 Ready Baseline (v0.2.0-req4-ready)

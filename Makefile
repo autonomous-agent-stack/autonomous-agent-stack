@@ -44,22 +44,7 @@ PROMOTE_BRANCH_PREFIX ?= codex/auto-upgrade
 PROMOTE_PUSH ?= 0
 PROMOTE_OPEN_DRAFT_PR ?= 0
 
-LOCAL_DEV_HOST_ARG :=
-LOCAL_DEV_PORT_ARG :=
-
-ifneq ($(strip $(HOST)),)
-ifneq ($(filter command line environment environment override,$(origin HOST)),)
-LOCAL_DEV_HOST_ARG := --host $(HOST)
-endif
-endif
-
-ifneq ($(strip $(PORT)),)
-ifneq ($(filter command line environment environment override,$(origin PORT)),)
-LOCAL_DEV_PORT_ARG := --port $(PORT)
-endif
-endif
-
-.PHONY: help setup doctor doctor-linux start test-quick smoke-local validate-req4 clean setup-win doctor-win start-win smoke-win
+.PHONY: help setup doctor doctor-linux start test-quick smoke-local validate-req4 clean
 .PHONY: ai-lab ai-lab-setup ai-lab-check ai-lab-up ai-lab-down ai-lab-status ai-lab-shell ai-lab-run masfactory-flight hygiene-check openhands openhands-dry-run openhands-controlled openhands-controlled-dry-run openhands-demo agent-run promote-run
 .PHONY: review-setup review-gates-local assistant-doctor assistant-triage assistant-execute assistant-review-pr assistant-release-plan assistant-schedule
 .PHONY: telegram-butler-start telegram-butler-status telegram-butler-stop
@@ -127,13 +112,13 @@ review-setup:
 	fi
 
 doctor:
-	$(PYTHON) scripts/local_dev.py --venv $(VENV) doctor $(LOCAL_DEV_PORT_ARG)
+	$(PYTHON) scripts/local_dev.py --venv $(VENV) doctor --port $(PORT)
 
 doctor-linux:
-	$(PYTHON) scripts/local_dev.py --venv $(VENV) doctor --profile linux-remote $(LOCAL_DEV_PORT_ARG)
+	$(PYTHON) scripts/local_dev.py --venv $(VENV) doctor --profile linux-remote --port $(PORT)
 
 start:
-	$(PYTHON) scripts/local_dev.py --venv $(VENV) start $(LOCAL_DEV_HOST_ARG) $(LOCAL_DEV_PORT_ARG)
+	$(PYTHON) scripts/local_dev.py --venv $(VENV) start --host $(HOST) --port $(PORT)
 
 test-quick:
 	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \

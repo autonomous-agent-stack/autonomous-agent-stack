@@ -17,7 +17,6 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from autoresearch.api.dependencies import get_excel_ops_service as get_excel_ops_service_dependency
 from autoresearch.shared.excel_ops_models import (
     CommissionCalculationRequest,
     CommissionCalculationResponse,
@@ -42,10 +41,19 @@ async def get_excel_ops_service() -> ExcelOpsService:
     """
     Dependency injection for ExcelOpsService.
 
-    Returns the real service instance. Runtime behavior may still block
-    until requirement #4 business assets are present.
+    TODO: Wire up real service instance with repository and engine.
+    For now, raise explicit error indicating scaffold status.
     """
-    return get_excel_ops_service_dependency()
+    # This is a scaffold - service will be wired up in dependencies.py
+    # when business assets arrive
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail=(
+            "Excel operations service is not yet wired up. "
+            "This is a scaffold implementation awaiting requirement #4 "
+            "business assets. See docs/requirement4/ for details."
+        ),
+    )
 
 
 @router.post(

@@ -4,12 +4,6 @@
 **For**: Next developer implementing requirement #4
 **When**: After business provides the 4 required assets
 
-> Current execution note:
-> For the repository's current requirement-4 source of truth, use
-> `docs/requirement4/ACTION_PLAN_WHEN_ASSETS_ARRIVE_ZH.md` and
-> `docs/requirement4/BRANCH_A_B_IMPLEMENTATION_BEST_PRACTICES_ZH.md`.
-> This note is supplemental context, not the canonical 2-day pilot plan.
-
 ---
 
 ## Overview
@@ -445,19 +439,16 @@ pytest tests/test_excel_ops_service.py -v
 
 ## Summary
 
-**Current Pilot Estimate**: 2 days for the compressed pilot path defined in `ACTION_PLAN_WHEN_ASSETS_ARRIVE_ZH.md`
-
-**Later Productionization**: longer follow-up phase outside the current pilot scope
+**Time Estimate**: 7-12 days once assets arrive
 
 **Critical Path**:
-1. Assets → Readiness Review → Deterministic CLI → AAS/Telegram Manual Trigger → Manual Review
+1. Assets → Contracts → Rules → Tests → Sign-off
 
 **Success Criteria**:
-- At least one real sample runs deterministically
-- At least one golden comparison is executed
-- AAS can invoke the CLI
-- Telegram can manually trigger one pilot run
-- Outputs remain auditable and manually reviewable
+- All calculations match golden outputs within tolerance
+- All 7 ambiguity categories addressed
+- Business team signs off on results
+- Pilot workflow enabled
 
 **Next Review**: After business assets provided
 

@@ -10,6 +10,15 @@ make doctor
 make start
 ```
 
+Windows 原生最小支持范围：
+
+- `make setup`
+- `make doctor`
+- `make start`
+
+当前这条主链已经改成跨平台 Python 入口，不再要求 Bash。
+但仓库中其他 target 仍有不少 Bash / macOS / Linux 假设，不应默认视为 Windows 已支持。
+
 ## 每条命令的作用
 
 - `make setup`：创建 `.venv`、安装依赖，并在需要时从模板生成 `.env`
@@ -21,18 +30,6 @@ make start
 - API 健康检查：`http://127.0.0.1:8001/health`
 - Swagger 文档：`http://127.0.0.1:8001/docs`
 - Panel 面板：`http://127.0.0.1:8001/panel`
-
-## 平台边界
-
-当前稳定单机主链已经支持：
-
-- macOS / Linux / WSL2 的 `make setup` / `make doctor` / `make start`
-- 原生 Windows 的 `make setup` / `make doctor` / `make start`
-- 原生 Windows 的 `setup.cmd` / `doctor.cmd` / `start.cmd`
-
-这条最小 Windows 主链现在已经进入 CI 回归验证范围，目标就是让 `setup -> doctor -> start` 在 Windows 上保持持续可检验。
-
-但这仍然只代表**主链支持**，不代表仓库里所有 target 都已 Windows 同等支持。很多辅助 target 仍然有 Bash、macOS、Linux 假设。
 
 ## 运行模式
 
@@ -136,12 +133,15 @@ python3 -m venv .venv
 PYTHONPATH=src .venv/bin/python -m uvicorn autoresearch.api.main:app --host 127.0.0.1 --port 8001 --reload
 ```
 
-Windows CMD 入口：
+Windows PowerShell 等价命令：
 
-```bat
-setup.cmd
-doctor.cmd
-start.cmd
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -r requirements.lock
+.\.venv\Scripts\python.exe scripts\doctor.py --port 8001
+$env:PYTHONPATH = "src"
+.\.venv\Scripts\python.exe -m uvicorn autoresearch.api.main:app --host 127.0.0.1 --port 8001 --reload
 ```
 
 ## 故障排查
@@ -157,4 +157,7 @@ start.cmd
 
 <a id="quick-start-admin-ui"></a>
 - 字段逐项填写指南：`docs/admin-view-field-guide.md`
-- 字段指南中的互链导航锚点：`docs/admin-view-field-guide.md#admin-field-guide-links`
+
+## 单机版定时任务
+
+单机版 AAS 支持基于 APScheduler 的定时任务能力，详见 `docs/runbooks/worker-schedules.md`（单独 PR，待合并）。

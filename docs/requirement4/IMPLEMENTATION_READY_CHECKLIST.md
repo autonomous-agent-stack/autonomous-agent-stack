@@ -4,11 +4,6 @@
 **Last Updated**: 2026-04-09
 **Status**: ✅ Engineering Scaffold Complete
 
-> Source-of-truth note:
-> For the current requirement-4 execution plan, use `docs/requirement4/ACTION_PLAN_WHEN_ASSETS_ARRIVE_ZH.md`.
-> That document defines the current **2-day compressed pilot** scope.
-> This checklist should not be read as a production-complete or 7-12 day action plan.
-
 This checklist separates what engineering has prepared from what business still needs to provide.
 
 ---
@@ -124,48 +119,63 @@ Decisions documented for each of 7 categories:
 
 ## 🚀 Ready-to-Start Trigger
 
-Once the 4 business assets are provided, the current repository target is a **2-day pilot**, not a full production rollout.
+Once the 4 business assets are provided:
 
-### Day 1
-1. Review asset completeness
-2. Produce asset readiness and contract summary docs
-3. Implement the deterministic CLI MVP
-4. Run at least one local fixture/golden verification
+### Immediate (Day 1)
+1. Review sample files → document schemas
+2. Review golden outputs → document expected results
+3. Load contracts into `CommissionEngine`
+4. Wire up `excel_ops` router in dependencies.py
 
-### Day 2
-5. Validate the single-machine AAS baseline
-6. Connect Telegram manual trigger
-7. Run one pilot execution through AAS -> CLI
-8. Produce auditable outputs and remaining gap list
+### Short-term (Week 1)
+5. Implement rule execution logic in `CommissionEngine`
+6. Add data normalization for sample file format
+7. Create comparison tests against golden outputs
+8. Implement approval workflow markers
 
-### Later Phase (Not in the 2-Day Critical Path)
-9. Expand template/rule coverage
-10. Add productionization work
-11. Consider scheduled execution only after manual trigger is stable
+### Validation (Week 2)
+9. Run fixture-vs-golden tests
+10. Verify tolerances and edge cases
+11. Document any deviations from golden outputs
+12. Business sign-off on calculation correctness
+
+### Go-Live
+13. Enable pilot workflow
+14. Monitor first real runs
+15. Iterate on edge cases
 
 ---
 
 ## 📋 Implementation Sequence
 
-When assets arrive, follow this sequence for the current pilot scope:
+When assets arrive, follow this sequence:
 
-**Phase A: Asset Readiness + Deterministic CLI**
+**Phase 1: Contract Integration** (1-2 days)
 1. Drop sample files into `tests/fixtures/requirement4_samples/`
 2. Add golden outputs to `tests/fixtures/requirement4_golden/`
-3. Review contracts and ambiguity decisions
-4. Implement deterministic calculation and export
-5. Package the result as a CLI callable by AAS
+3. Create `excel_contracts.json` based on sample schemas
+4. Create `ambiguity_checklist.md` with 7 categories
+5. Load contracts in `CommissionEngine.load_contracts()`
 
-**Phase B: Single-Machine Trial Run**
-6. Validate local AAS startup
-7. Connect Telegram manual trigger
-8. Run one AAS -> CLI pilot execution
-9. Prepare manual-review outputs
+**Phase 2: Rule Implementation** (3-5 days)
+6. Implement rule parsing from contracts
+7. Add data normalization for input format
+8. Implement calculation rules deterministically
+9. Add intermediate result tracking for audit trail
 
-**Later Productionization**
-10. Expand scope beyond one template / one rule set / one cycle
-11. Add stronger approval and operations controls
-12. Evaluate scheduled execution as a separate follow-up
+**Phase 3: Testing & Validation** (2-3 days)
+10. Create tests comparing outputs to golden
+11. Test all ambiguity checklist decisions
+12. Verify tolerances are met
+13. Document any edge cases
+
+**Phase 4: Integration & Go-Live** (1-2 days)
+14. Wire up excel_ops router in dependencies.py
+15. Add API endpoint tests
+16. Business sign-off on results
+17. Enable pilot workflow
+
+**Total Estimated Time**: 7-12 days once assets arrive
 
 ---
 
