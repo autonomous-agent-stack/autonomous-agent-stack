@@ -1524,6 +1524,84 @@ class WorkerRunReportRequest(StrictModel):
         return value
 
 
+class WorkerScheduleMode(str, Enum):
+    ONCE = "once"
+    INTERVAL = "interval"
+
+
+class WorkerRunScheduleCreateRequest(StrictModel):
+    schedule_name: str | None = None
+    queue_name: WorkerQueueName = WorkerQueueName.HOUSEKEEPING
+    task_name: str | None = None
+    task_type: WorkerTaskType = WorkerTaskType.NOOP
+    payload: dict[str, Any] = Field(default_factory=dict)
+    requested_by: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    schedule_mode: WorkerScheduleMode = WorkerScheduleMode.INTERVAL
+    first_run_at: datetime | None = None
+    interval_seconds: int | None = Field(default=None, ge=1)
+    enabled: bool = True
+
+    @model_validator(mode="after")
+    def _normalize_schedule(self) -> WorkerRunScheduleCreateRequest:
+        if self.task_name is None or not self.task_name.strip():
+            self.task_name = self.task_type.value
+        else:
+            self.task_name = self.task_name.strip()
+
+        if self.schedule_name is None or not self.schedule_name.strip():
+            self.schedule_name = self.task_name
+        else:
+            self.schedule_name = self.schedule_name.strip()
+
+        if self.schedule_mode == WorkerScheduleMode.ONCE:
+            if self.first_run_at is None:
+                raise ValueError("first_run_at is required for once schedules")
+            self.interval_seconds = None
+        elif self.interval_seconds is None:
+            raise ValueError("interval_seconds is required for interval schedules")
+        return self
+
+
+class WorkerRunScheduleRead(StrictModel):
+    schedule_id: str
+    schedule_name: str
+    queue_name: WorkerQueueName = WorkerQueueName.HOUSEKEEPING
+    task_name: str
+    task_type: WorkerTaskType = WorkerTaskType.NOOP
+    payload: dict[str, Any] = Field(default_factory=dict)
+    requested_by: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    schedule_mode: WorkerScheduleMode = WorkerScheduleMode.INTERVAL
+    interval_seconds: int | None = None
+    enabled: bool = True
+    next_run_at: datetime | None = None
+    last_triggered_at: datetime | None = None
+    last_enqueued_run_id: str | None = None
+    run_count: int = 0
+    last_error: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class WorkerRunScheduleResumeRequest(StrictModel):
+    next_run_at: datetime | None = None
+
+
+class WorkerScheduleDispatchRead(StrictModel):
+    schedule_id: str
+    run_id: str
+    task_type: WorkerTaskType
+    queued_at: datetime
+
+
+class WorkerScheduleTickRead(StrictModel):
+    scanned: int = 0
+    dispatches: list[WorkerScheduleDispatchRead] = Field(default_factory=list)
+    failures: dict[str, str] = Field(default_factory=dict)
+    created_at: datetime
+
+
 class StandbyYouTubeAction(str, Enum):
     SUBSCRIBE = "subscribe"
     CHECK = "check"

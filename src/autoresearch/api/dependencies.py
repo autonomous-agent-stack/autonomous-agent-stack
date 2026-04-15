@@ -5,6 +5,7 @@ from pathlib import Path
 
 from fastapi import Depends
 
+from autoresearch.agent_protocol.runtime_registry import RuntimeAdapterRegistry
 from autoresearch.api.settings import (
     get_admin_settings,
     get_feature_settings,
@@ -39,9 +40,12 @@ from autoresearch.core.services.github_admin import GitHubAdminService
 from autoresearch.core.services.github_issue_service import GitHubIssueService
 from autoresearch.core.services.mirofish_prediction import MiroFishPredictionService
 from autoresearch.core.services.managed_skill_registry import ManagedSkillRegistryService
+from autoresearch.core.services.hermes_runtime_adapter import HermesRuntimeAdapterService
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.openclaw_memory import OpenClawMemoryService
 from autoresearch.core.services.openclaw_runtime_adapter import OpenClawRuntimeAdapterService
+from autoresearch.core.services.runtime_adapter_contract import RuntimeAdapterContract
+from autoresearch.core.services.runtime_adapter_registry import RuntimeAdapterServiceRegistry
 from autoresearch.core.services.openclaw_skills import OpenClawSkillService
 from autoresearch.core.services.openviking_memory import OpenVikingMemoryService
 from autoresearch.core.services.panel_access import PanelAccessService
@@ -51,11 +55,15 @@ from autoresearch.core.services.self_integration import SelfIntegrationService
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
 from autoresearch.core.services.upstream_watcher import UpstreamWatcherService
 from autoresearch.core.services.variants import VariantService
+from autoresearch.core.services.commission_engine import CommissionEngine
+from autoresearch.core.services.excel_ops import ExcelOpsService
+from autoresearch.core.services.worker_schedule_service import WorkerScheduleService
 from autoresearch.core.services.worker_scheduler import WorkerSchedulerService
 from autoresearch.core.services.worker_registry import WorkerRegistryService
 from autoresearch.core.services.youtube_agent import YouTubeAgentService
 from autoresearch.core.services.butler_router import ButlerIntentRouter
 from autoresearch.core.services.excel_audit import ExcelAuditService
+from autoresearch.core.repositories.excel_jobs import ExcelJobsRepository
 from autoresearch.shared.models import (
     ClaudeAgentRunRead,
     ClaudeRuntimeSessionRecordRead,
@@ -79,6 +87,7 @@ from autoresearch.shared.models import (
     WorkerLeaseRead,
     WorkerQueueItemRead,
     WorkerRegistrationRead,
+    WorkerRunScheduleRead,
     YouTubeDigestRead,
     YouTubeRunRead,
     YouTubeSubscriptionRead,
@@ -98,6 +107,10 @@ from orchestrator.mcp_context import MCPContextBlock
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
+
+
+def _runtime_manifests_dir() -> Path:
+    return _repo_root() / "configs" / "runtime_agents"
 
 
 def _api_db_path() -> Path:
@@ -261,6 +274,31 @@ def get_worker_scheduler_service() -> WorkerSchedulerService:
 
 
 @lru_cache(maxsize=1)
+def get_worker_schedule_service() -> WorkerScheduleService:
+    return WorkerScheduleService(
+        worker_scheduler=get_worker_scheduler_service(),
+        repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="worker_schedules",
+            model_cls=WorkerRunScheduleRead,
+        ),
+    )
+
+
+@lru_cache(maxsize=1)
+def get_excel_ops_service() -> ExcelOpsService:
+    repo_root = _repo_root()
+    return ExcelOpsService(
+        repository=ExcelJobsRepository(db_path=_api_db_path()),
+        commission_engine=CommissionEngine(
+            contracts_dir=repo_root / "tests" / "fixtures" / "requirement4_contracts",
+            strict_mode=True,
+        ),
+        repo_root=repo_root,
+    )
+
+
+@lru_cache(maxsize=1)
 def get_openclaw_compat_service() -> OpenClawCompatService:
     return OpenClawCompatService(
         repository=SQLiteModelRepository(
@@ -297,6 +335,30 @@ def get_openclaw_runtime_adapter_service() -> OpenClawRuntimeAdapterService:
         openclaw_service=get_openclaw_compat_service(),
         claude_service=get_claude_agent_service(),
     )
+
+
+@lru_cache(maxsize=1)
+def get_hermes_runtime_adapter_service() -> HermesRuntimeAdapterService:
+    return HermesRuntimeAdapterService(
+        openclaw_service=get_openclaw_compat_service(),
+        claude_service=get_claude_agent_service(),
+    )
+
+
+@lru_cache(maxsize=1)
+def get_runtime_adapter_registry_service() -> RuntimeAdapterServiceRegistry:
+    manifest_registry = RuntimeAdapterRegistry(_runtime_manifests_dir())
+    return RuntimeAdapterServiceRegistry(
+        manifest_registry=manifest_registry,
+        factories={
+            "openclaw": get_openclaw_runtime_adapter_service,
+            "hermes": get_hermes_runtime_adapter_service,
+        },
+    )
+
+
+def get_runtime_adapter_service(runtime_id: str = "openclaw") -> RuntimeAdapterContract:
+    return get_runtime_adapter_registry_service().get(runtime_id)
 
 
 @lru_cache(maxsize=1)
@@ -541,11 +603,15 @@ def clear_dependency_caches() -> None:
     _safe_cache_clear(get_github_issue_service)
     _safe_cache_clear(get_worker_registry_service)
     _safe_cache_clear(get_worker_scheduler_service)
+    _safe_cache_clear(get_worker_schedule_service)
     _safe_cache_clear(get_openclaw_compat_service)
     _safe_cache_clear(get_openclaw_memory_service)
     _safe_cache_clear(get_capability_provider_registry)
     _safe_cache_clear(get_managed_skill_registry_service)
     _safe_cache_clear(get_openclaw_skill_service)
+    _safe_cache_clear(get_openclaw_runtime_adapter_service)
+    _safe_cache_clear(get_hermes_runtime_adapter_service)
+    _safe_cache_clear(get_runtime_adapter_registry_service)
     _safe_cache_clear(get_claude_agent_service)
     _safe_cache_clear(get_claude_session_record_service)
     _safe_cache_clear(get_claude_runtime_service)
@@ -560,6 +626,7 @@ def clear_dependency_caches() -> None:
     _safe_cache_clear(get_admin_secret_cipher)
     _safe_cache_clear(get_admin_auth_service)
     _safe_cache_clear(get_excel_audit_service)
+    _safe_cache_clear(get_excel_ops_service)
     _safe_cache_clear(get_butler_router)
 
 

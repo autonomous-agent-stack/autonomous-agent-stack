@@ -137,6 +137,16 @@ class RuntimeSettings(_BaseApiSettings):
     api_allow_unsafe_bind: bool = Field(default=False, validation_alias="AUTORESEARCH_API_ALLOW_UNSAFE_BIND")
     enable_cluster: bool = Field(default=False, validation_alias="AUTORESEARCH_ENABLE_CLUSTER")
     enable_admin: bool = Field(default=True, validation_alias="AUTORESEARCH_ENABLE_ADMIN")
+    enable_worker_schedule_daemon: bool = Field(
+        default=False,
+        validation_alias="AUTORESEARCH_ENABLE_WORKER_SCHEDULE_DAEMON",
+    )
+    worker_schedule_poll_seconds: int = Field(
+        default=30,
+        ge=1,
+        le=3600,
+        validation_alias="AUTORESEARCH_WORKER_SCHEDULE_POLL_SECONDS",
+    )
     enable_legacy_telegram_webhook: bool = Field(
         default=False,
         validation_alias="AUTORESEARCH_ENABLE_LEGACY_TELEGRAM_WEBHOOK",
