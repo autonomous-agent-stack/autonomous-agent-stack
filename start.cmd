@@ -1,5 +1,18 @@
 @echo off
 setlocal
-set PYTHONPATH=src
-set AUTORESEARCH_MODE=minimal
-.venv\Scripts\python.exe -m uvicorn autoresearch.api.main:app --host 127.0.0.1 --port 8001
+
+where py >nul 2>nul
+if %ERRORLEVEL%==0 (
+  py -3 "%~dp0scripts\local_dev.py" --venv .venv start %*
+  exit /b %ERRORLEVEL%
+)
+
+where python >nul 2>nul
+if %ERRORLEVEL%==0 (
+  python "%~dp0scripts\local_dev.py" --venv .venv start %*
+  exit /b %ERRORLEVEL%
+)
+
+echo [FAIL] Neither "py" nor "python" is available in PATH.
+echo        Install Python 3.11+ and rerun start.cmd
+exit /b 1

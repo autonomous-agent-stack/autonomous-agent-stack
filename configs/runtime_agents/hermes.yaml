@@ -1,0 +1,44 @@
+{
+  "id": "hermes",
+  "kind": "runtime",
+  "service": "autoresearch.core.services.hermes_runtime_adapter:HermesRuntimeAdapterService",
+  "version": "0.1",
+  "capabilities": [
+    "create_session",
+    "run",
+    "stream",
+    "cancel",
+    "status"
+  ],
+  "aep_bridge": {
+    "jobspec_inputs": [
+      "run_id",
+      "agent_id",
+      "task",
+      "mode",
+      "policy.timeout_sec",
+      "metadata.hermes",
+      "input_artifacts"
+    ],
+    "result_fields": [
+      "status",
+      "summary",
+      "changed_paths",
+      "output_artifacts",
+      "metrics",
+      "recommended_action",
+      "error"
+    ],
+    "workspace_binding": "JobSpec.metadata.hermes.work_dir -> RuntimeRunRequest.work_dir -> RuntimeRunRead.work_dir",
+    "artifact_bindings": [
+      "RuntimeRunRead.stdout_preview -> log artifact",
+      "RuntimeRunRead.stderr_preview -> log artifact",
+      "RuntimeSessionRead.events -> session event log artifact"
+    ]
+  },
+  "metadata": {
+    "lane": "runtime_adapter_v1",
+    "implementation": "adapter-sandwich",
+    "fallback_metadata_namespace": "openclaw"
+  }
+}

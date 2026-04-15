@@ -9,6 +9,7 @@ import uuid
 from pathlib import Path
 
 from content_kb.contracts import IngestResult, IngestStatus, SubtitleMetadata
+from content_kb.topic_classifier import classify_by_keywords
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,13 @@ def normalize_subtitle(raw: str) -> str:
             continue
         text_lines.append(line)
     return "\n".join(text_lines)
+
+
+def infer_topic_from_subtitle(file_path: str | Path) -> str:
+    """Infer the content topic from subtitle text using the deterministic classifier."""
+    raw = read_subtitle(file_path)
+    normalized = normalize_subtitle(raw)
+    return classify_by_keywords(normalized).primary_topic
 
 
 def ingest_subtitle(

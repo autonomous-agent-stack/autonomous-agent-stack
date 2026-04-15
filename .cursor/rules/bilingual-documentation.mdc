@@ -1,0 +1,18 @@
+---
+description: Parallel ZH-CN + EN for all user-facing descriptions (docs, issues, PRs)
+globs:
+  - "**/*.md"
+  - "README*"
+  - "docs/**"
+  - ".github/**"
+---
+
+# Bilingual project descriptions | 中英并列项目描述
+
+**中文：** 在本仓库内编辑上述路径下的内容时，须遵守与 `AGENTS.md` 中「Bilingual project descriptions | 中英并列项目描述」相同的约定：**先简体中文、后对应英文**，语义一致。若在 Cursor 外通过 GitHub Web 或 `gh` 创建/修改 **Issue、PR、Discussion**，正文与标题同样须中英并列（标题可用 `英文标题 | 中文标题` 或相反顺序若团队已统一，但须两种语言同框可见）。
+
+**English:** When editing paths matched above, follow the same policy as **Bilingual project descriptions** in `AGENTS.md`: **Simplified Chinese first, then English**, aligned meaning. For **Issues, PRs, or Discussions** created outside Cursor (GitHub UI or `gh`), titles and bodies must also be bilingual (titles may use `English | 中文` or the team’s fixed order—both languages must appear together).
+
+**中文（例外）：** 明确要求单语、纯第三方引用、仅改错字/链接。
+
+**English (exceptions):** Explicit single-language request, verbatim third-party text, typo/link-only fixes.

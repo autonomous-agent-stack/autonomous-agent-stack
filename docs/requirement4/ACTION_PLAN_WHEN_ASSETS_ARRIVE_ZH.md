@@ -79,7 +79,6 @@
 
 - `README.md`
 - `docs/QUICK_START.md`
-- `docs/runbooks/worker-schedules.md`（定时任务 runbook）
 
 最小启动路径：
 
@@ -95,6 +94,19 @@ make smoke-local
 ```
 
 如果这条基线不通，2 天试运行计划不成立。
+
+当前仓库已经支持原生 Windows 的最小主链：
+
+- `make setup`
+- `make doctor`
+- `make start`
+- `setup.cmd`
+- `doctor.cmd`
+- `start.cmd`
+
+当前最小 Windows 主链也已经进入 CI 回归验证范围，目标是把 `setup / doctor / start` 固化成持续可检验路径。
+
+但这不代表所有辅助 target 都已完成 Windows parity。像 `start-mac-worker.sh` 这类脚本仍然是平台特定能力。
 
 ---
 
@@ -131,6 +143,17 @@ make smoke-local
 - 运行期不用 LLM 算钱
 - 缺契约就安全阻断
 - 所有输出可审计、可回放、可人工复核
+
+如果执行人是第一次接 requirement-4，建议直接同时打开：
+
+- `docs/requirement4/README_ZH.md`
+- `docs/requirement4/BRANCH_A_B_IMPLEMENTATION_BEST_PRACTICES_ZH.md`
+
+这份最佳实践文档里已经按“小白可直接复制”的方式写出：
+
+- 分支 A 的 Prompt A1 / A2 / A3
+- 分支 A 的最小命令清单
+- A 交给 B 的最小交付物
 
 ### A1. 资产落盘 + 完整性检查
 
@@ -329,30 +352,22 @@ Day 2 结束时必须拿到：
 
 ## 8. 后续项：定时任务
 
-### 当前是否支持单机版定时任务
+### 当前仓库状态
 
-**支持，但不应放进本次 2 天关键路径。**
+**当前 main 仓库已经有 requirement-4 可复用的单机时间型 schedule 主链。**
 
-当前单机版 AAS 已有最小定时任务能力：
+本仓库目前可确认存在的是：
 
-- `once`
-- `interval`
-- APScheduler-backed 时间触发
-- SQLite 持久化
+- worker claim / lease 调度链：`src/autoresearch/core/services/worker_scheduler.py`
+- APScheduler-backed 时间触发层：`src/autoresearch/core/services/worker_schedule_service.py`
 - `/api/v1/worker-schedules`
-- 可选后台 schedule daemon
-
-相关 runbook：
-
 - `docs/runbooks/worker-schedules.md`
+- Telegram 触发与 worker run 主链
+- requirement-4 的工程 scaffold 和手动试运行方案
 
-打开方式：
+因此当前 requirement-4 的真实验收路径仍然是：
 
-```bash
-export AUTORESEARCH_ENABLE_WORKER_SCHEDULE_DAEMON=1
-export AUTORESEARCH_WORKER_SCHEDULE_POLL_SECONDS=30
-AUTORESEARCH_MODE=minimal make start
-```
+`Telegram 手动触发 -> AAS -> CLI -> 输出 + 审计 -> 人工审核`
 
 ### 为什么仍然不放进 2 天主范围
 
@@ -365,11 +380,12 @@ AUTORESEARCH_MODE=minimal make start
 - 手动触发路径稳定通过
 - 输出审核已被业务接受
 - 业务确认 pilot 行为正确
+- 仓库里已经补齐真实可复用的时间触发实现与 runbook
 
 换句话说：
 
-- **现在已经可以支持单机 schedule**
-- **但 requirement #4 不应一开始就靠 schedule 验收**
+- **当前 main 仓库已经具备单机 schedule 能力**
+- **requirement #4 不应一开始就靠 schedule 验收**
 
 ---
 
@@ -511,7 +527,8 @@ CLI 至少支持：
 - 同一个 Excel 字段可能仍有业务歧义
 - golden 输出可能本身不稳定或不够覆盖边界情况
 - Telegram 打通不代表 requirement-4 结果已经可发放
-- 单机 schedule 已支持，也不代表 requirement-4 适合立即自动跑
+- 当前虽然已支持 Windows 主链，但并不代表所有辅助脚本都已 Windows 同等支持
+- 当前虽然已有单机 schedule，但它仍然不能替代 requirement-4 的人工审核闭环
 
 所以最后一句必须保留：
 
@@ -524,7 +541,7 @@ CLI 至少支持：
 - `docs/aas-claude-ecc-excel-best-practice-report.md`
 - `README.md`
 - `docs/QUICK_START.md`
-- `docs/runbooks/worker-schedules.md`
+- `docs/requirement4/BRANCH_A_B_IMPLEMENTATION_BEST_PRACTICES_ZH.md`
 - `docs/requirement4/CLAUDE_CODE_BEST_PRACTICES_ZH.md`
 - `docs/requirement4/ENGINEERING_PREP_PLAN.md`
 - `docs/requirement4/IMPLEMENTATION_READY_CHECKLIST.md`

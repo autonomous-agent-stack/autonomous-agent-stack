@@ -26,6 +26,7 @@ from autoresearch.core.services.commission_engine import (
     CommissionCalculationRequest,
     CommissionCalculationResult,
     CommissionEngine,
+    CommissionEngineStatus,
 )
 from autoresearch.shared.excel_ops_models import (
     CommissionCalculationResponse,
@@ -137,6 +138,11 @@ class ExcelOpsService:
         if record is None:
             return None
 
+        blocked_reason = None
+        blocked_error = record.metadata.error_message
+        if blocked_error and "blocked_" in blocked_error.lower():
+            blocked_reason = blocked_error
+
         # Determine readiness based on status
         ready_for_calculation = record.metadata.status in {
             JobStatus.CREATED,
@@ -144,10 +150,12 @@ class ExcelOpsService:
         }
         ready_for_validation = record.metadata.status == JobStatus.COMPLETED
 
-        blocked_reason = None
         next_steps = []
 
-        if record.metadata.status == JobStatus.CREATED:
+        if blocked_reason is not None:
+            ready_for_calculation = False
+            next_steps.append("Job blocked - waiting for requirement #4 business assets")
+        elif record.metadata.status == JobStatus.CREATED:
             next_steps.append("Job created - awaiting input file processing")
         elif record.metadata.status == JobStatus.QUEUED:
             next_steps.append("Job queued - awaiting execution")
@@ -198,9 +206,6 @@ class ExcelOpsService:
                 error_message=f"Job {job_id} not found",
             )
 
-        # Update job status to running
-        self._repository.update_status(job_id, JobStatus.RUNNING)
-
         try:
             # Prepare calculation request
             calc_request = CommissionCalculationRequest(
@@ -224,10 +229,20 @@ class ExcelOpsService:
             )
 
             # Update job status based on result
-            if calc_result.status.value == "ready":
+            if calc_result.status == CommissionEngineStatus.READY:
                 self._repository.update_status(job_id, JobStatus.COMPLETED)
+            elif calc_result.status in {
+                CommissionEngineStatus.BLOCKED_AWAITING_CONTRACTS,
+                CommissionEngineStatus.BLOCKED_INVALID_CONTRACTS,
+            }:
+                # Preserve the prior lifecycle state for missing-prerequisite
+                # responses so callers can distinguish blocked from failed.
+                self._repository.update_status(
+                    job_id,
+                    record.metadata.status,
+                    error_message=calc_result.error_message,
+                )
             else:
-                # Blocked or error
                 self._repository.update_status(
                     job_id,
                     JobStatus.FAILED,
@@ -339,11 +354,6 @@ class ExcelOpsService:
             "audit_workflow": audit_workflow_defined,
         }
 
-        # Determine if router is registered
-        # This will be checked dynamically via try/except in the router
-        router_registered = True  # Placeholder - will check via actual import
-        router_wired = False  # Placeholder - not wired in dependencies.py yet
-
         # Calculate overall readiness
         ready_for_business_assets = all(blocked_states.values())
 
@@ -366,8 +376,8 @@ class ExcelOpsService:
             scaffold_complete=True,
             blocked_states=blocked_states,
             current_blocked_state=current_blocked_state,
-            router_registered=router_registered,
-            router_wired=router_wired,
+            router_registered=True,
+            router_wired=True,
             verification_status="not_verified",
         )
 

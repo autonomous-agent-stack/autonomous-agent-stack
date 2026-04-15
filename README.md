@@ -150,6 +150,16 @@ Windows users now have both `.cmd` and PowerShell bootstrap entrypoints for the 
 - `make smoke-win`
 
 This covers the native Windows bootstrap path for the local single-machine baseline, but it does **not** mean every auxiliary target has full Windows parity.
+Current local startup documentation now supports the native Windows main path for local single-machine bootstrap, and CI now validates the minimal Windows bootstrap chain (`setup.cmd -> doctor.cmd -> start`):
+
+- `make setup`
+- `make doctor`
+- `make start`
+- `setup.cmd`
+- `doctor.cmd`
+- `start.cmd`
+
+This does **not** mean full Windows parity for every repo target. Many auxiliary targets still assume Bash, macOS, or Linux.
 
 ## Stable Single-Machine Mode
 
@@ -197,6 +207,24 @@ This branch provides a **complete engineering scaffold** for requirement #4 (Exc
 
 ⚠️ **This is a "stable single-machine requirement-4 ready baseline"** - engineering scaffold is complete and verified, but business logic implementation is blocked awaiting business assets.
 
+For the current execution posture, treat requirement #4 as a **2-day compressed pilot plan**, not a production-complete delivery:
+
+- One team
+- One Excel template contract set
+- One rule set
+- One pilot cycle
+- Manual review
+- Telegram manual trigger first
+- Scheduled execution later, outside the 2-day critical path
+
+中文要点：
+
+- 当前是 **2 天压缩试运行方案**
+- 目标是先打通 `Telegram -> AAS -> CLI -> 输出 + 审计 -> 人工复核`
+- 不是 production complete
+- 当前已支持原生 Windows 的 `setup / doctor / start` 主链
+- 当前已支持单机 schedule 主链，但 requirement-4 仍不应靠 schedule 直接验收
+
 ### What's Ready
 
 | Component | File | Status |
@@ -238,16 +266,21 @@ cat docs/requirement4/IMPLEMENTATION_READY_CHECKLIST.md
 - **Audit Trail**: Job state tracked in SQLite
 - **Runtime Artifact Exclusion**: Patches exclude `.masfactory_runtime/`, `logs/`, `memory/`
 
+### What This Baseline Still Does Not Claim
+
+- It does **not** claim production readiness
+- It does **not** claim full Windows parity across every repo target
+- It does **not** claim requirement-4 business logic is production-complete
+
 **See**: [docs/requirement4/](docs/requirement4/) for complete preparation details.
 
 **For implementation**:
 - English: [docs/requirement4/CLAUDE_CODE_BEST_PRACTICES.md](docs/requirement4/CLAUDE_CODE_BEST_PRACTICES.md)
 - 中文: [docs/requirement4/CLAUDE_CODE_BEST_PRACTICES_ZH.md](docs/requirement4/CLAUDE_CODE_BEST_PRACTICES_ZH.md)
 - **资产到达后的行动指南**: [docs/requirement4/ACTION_PLAN_WHEN_ASSETS_ARRIVE_ZH.md](docs/requirement4/ACTION_PLAN_WHEN_ASSETS_ARRIVE_ZH.md) ⭐ **推荐** - 包含 4 个必需资产的详细说明和示例
+- **两分支实现最佳实践**: [docs/requirement4/BRANCH_A_B_IMPLEMENTATION_BEST_PRACTICES_ZH.md](docs/requirement4/BRANCH_A_B_IMPLEMENTATION_BEST_PRACTICES_ZH.md)
 
 ---
-
-## Controlled Integrations
 
 ## Controlled Integrations
 

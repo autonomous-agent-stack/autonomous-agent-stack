@@ -21,6 +21,7 @@ from autoresearch.agent_protocol.runtime_models import (
 )
 from autoresearch.core.services.claude_agents import ClaudeAgentService
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
+from autoresearch.core.services.runtime_adapter_contract import RuntimeAdapterContract
 from autoresearch.shared.models import (
     ClaudeAgentCancelRequest,
     ClaudeAgentCreateRequest,
@@ -31,7 +32,7 @@ from autoresearch.shared.models import (
 )
 
 
-class OpenClawRuntimeAdapterService:
+class OpenClawRuntimeAdapterService(RuntimeAdapterContract):
     """Bridge OpenClaw sessions and Claude agent runs into a runtime-style contract."""
 
     def __init__(
@@ -39,10 +40,12 @@ class OpenClawRuntimeAdapterService:
         openclaw_service: OpenClawCompatService,
         claude_service: ClaudeAgentService,
         runtime_id: str = "openclaw",
+        metadata_namespace: str = "openclaw",
     ) -> None:
         self._openclaw_service = openclaw_service
         self._claude_service = claude_service
         self._runtime_id = runtime_id
+        self._metadata_namespace = metadata_namespace.strip() or runtime_id
 
     def create_session(self, request: RuntimeSessionCreateRequest) -> RuntimeSessionRead:
         session = self._openclaw_service.create_session(
@@ -354,23 +357,23 @@ class OpenClawRuntimeAdapterService:
             if run.stdout_preview:
                 artifacts.append(
                     ArtifactRef(
-                        name="openclaw_stdout_preview",
+                        name=f"{self._runtime_id}_stdout_preview",
                         kind="log",
-                        uri=f"openclaw://runs/{run.agent_run_id}/stdout-preview",
+                        uri=f"{self._runtime_id}://runs/{run.agent_run_id}/stdout-preview",
                     )
                 )
             if run.stderr_preview:
                 artifacts.append(
                     ArtifactRef(
-                        name="openclaw_stderr_preview",
+                        name=f"{self._runtime_id}_stderr_preview",
                         kind="log",
-                        uri=f"openclaw://runs/{run.agent_run_id}/stderr-preview",
+                        uri=f"{self._runtime_id}://runs/{run.agent_run_id}/stderr-preview",
                     )
                 )
             if run.work_dir:
                 artifacts.append(
                     ArtifactRef(
-                        name="openclaw_workspace",
+                        name=f"{self._runtime_id}_workspace",
                         kind="custom",
                         uri=Path(run.work_dir).resolve().as_uri(),
                     )
@@ -378,9 +381,9 @@ class OpenClawRuntimeAdapterService:
         if session is not None:
             artifacts.append(
                 ArtifactRef(
-                    name="openclaw_session_events",
+                    name=f"{self._runtime_id}_session_events",
                     kind="log",
-                    uri=f"openclaw://sessions/{session.session_id}/events",
+                    uri=f"{self._runtime_id}://sessions/{session.session_id}/events",
                 )
             )
         return artifacts
@@ -404,7 +407,12 @@ class OpenClawRuntimeAdapterService:
         )
 
     def _openclaw_metadata(self, metadata: dict[str, Any]) -> dict[str, Any]:
-        return dict(self._mapping_value(metadata.get("openclaw")))
+        scoped_metadata = self._mapping_value(metadata.get(self._metadata_namespace))
+        if scoped_metadata:
+            return dict(scoped_metadata)
+        if self._metadata_namespace != "openclaw":
+            return dict(self._mapping_value(metadata.get("openclaw")))
+        return {}
 
     @staticmethod
     def _mapping_value(value: Any) -> Mapping[str, Any]:

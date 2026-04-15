@@ -1,12 +1,23 @@
+ifeq ($(OS),Windows_NT)
+SHELL := cmd.exe
+PYTHON ?= python
+VENV_BIN_DIR := Scripts
+VENV_PYTHON_NAME := python.exe
+VENV_PIP_NAME := pip.exe
+else
 SHELL := /bin/bash
-
 PYTHON ?= python3
+VENV_BIN_DIR := bin
+VENV_PYTHON_NAME := python
+VENV_PIP_NAME := pip
+endif
+
 VENV ?= .venv
-VENV_PYTHON := $(VENV)/bin/python
-VENV_PIP := $(VENV)/bin/pip
+VENV_PYTHON := $(VENV)/$(VENV_BIN_DIR)/$(VENV_PYTHON_NAME)
+VENV_PIP := $(VENV)/$(VENV_BIN_DIR)/$(VENV_PIP_NAME)
 REVIEW_VENV ?= .venv-review
-REVIEW_VENV_PYTHON := $(REVIEW_VENV)/bin/python
-REVIEW_VENV_PIP := $(REVIEW_VENV)/bin/pip
+REVIEW_VENV_PYTHON := $(REVIEW_VENV)/$(VENV_BIN_DIR)/$(VENV_PYTHON_NAME)
+REVIEW_VENV_PIP := $(REVIEW_VENV)/$(VENV_BIN_DIR)/$(VENV_PIP_NAME)
 HOST ?= 127.0.0.1
 PORT ?= 8001
 GOAL ?= 检查 M1 原生算力与工作区可写性
@@ -32,6 +43,21 @@ PROMOTE_BASE_REF ?= main
 PROMOTE_BRANCH_PREFIX ?= codex/auto-upgrade
 PROMOTE_PUSH ?= 0
 PROMOTE_OPEN_DRAFT_PR ?= 0
+
+LOCAL_DEV_HOST_ARG :=
+LOCAL_DEV_PORT_ARG :=
+
+ifneq ($(strip $(HOST)),)
+ifneq ($(filter command line environment environment override,$(origin HOST)),)
+LOCAL_DEV_HOST_ARG := --host $(HOST)
+endif
+endif
+
+ifneq ($(strip $(PORT)),)
+ifneq ($(filter command line environment environment override,$(origin PORT)),)
+LOCAL_DEV_PORT_ARG := --port $(PORT)
+endif
+endif
 
 .PHONY: help setup doctor doctor-linux start test-quick smoke-local validate-req4 clean setup-win doctor-win start-win smoke-win
 .PHONY: ai-lab ai-lab-setup ai-lab-check ai-lab-up ai-lab-down ai-lab-status ai-lab-shell ai-lab-run masfactory-flight hygiene-check openhands openhands-dry-run openhands-controlled openhands-controlled-dry-run openhands-demo agent-run promote-run
@@ -84,17 +110,7 @@ help:
 	@echo "Optional vars: HOST=127.0.0.1 PORT=8001"
 
 setup:
-	$(PYTHON) -m venv $(VENV)
-	$(VENV_PIP) install --upgrade pip
-	@if [[ -f requirements.lock ]]; then \
-		$(VENV_PIP) install -r requirements.lock; \
-	else \
-		$(VENV_PIP) install -r requirements.txt; \
-	fi
-	@if [[ ! -f .env && -f .env.template ]]; then \
-		cp .env.template .env; \
-		echo "Created .env from .env.template"; \
-	fi
+	$(PYTHON) scripts/local_dev.py --venv $(VENV) setup --python $(PYTHON)
 
 review-setup:
 	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \
@@ -111,25 +127,13 @@ review-setup:
 	fi
 
 doctor:
-	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \
-		echo "Missing $(VENV_PYTHON). Run 'make setup' first."; \
-		exit 1; \
-	fi
-	$(VENV_PYTHON) scripts/doctor.py --port $(PORT)
+	$(PYTHON) scripts/local_dev.py --venv $(VENV) doctor $(LOCAL_DEV_PORT_ARG)
 
 doctor-linux:
-	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \
-		echo "Missing $(VENV_PYTHON). Run 'make setup' first."; \
-		exit 1; \
-	fi
-	$(VENV_PYTHON) scripts/doctor.py --profile linux-remote --port $(PORT)
+	$(PYTHON) scripts/local_dev.py --venv $(VENV) doctor --profile linux-remote $(LOCAL_DEV_PORT_ARG)
 
 start:
-	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \
-		echo "Missing $(VENV_PYTHON). Run 'make setup' first."; \
-		exit 1; \
-	fi
-	PORT=$(PORT) HOST=$(HOST) bash scripts/dev-start.sh
+	$(PYTHON) scripts/local_dev.py --venv $(VENV) start $(LOCAL_DEV_HOST_ARG) $(LOCAL_DEV_PORT_ARG)
 
 test-quick:
 	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \

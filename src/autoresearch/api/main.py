@@ -60,8 +60,27 @@ async def lifespan(_: FastAPI):
     assert_safe_bind_host(host=settings.api_host, allow_unsafe=settings.api_allow_unsafe_bind)
     mode_label = "MINIMAL (stable)" if settings.is_minimal_mode else "FULL (experimental)"
     logger.info("Autonomous Agent Stack %s startup initialized [mode=%s]", __version__, mode_label)
-    yield
-    logger.info("Autonomous Agent Stack shutdown complete")
+    schedule_daemon = None
+    if settings.enable_worker_schedule_daemon:
+        from autoresearch.api.dependencies import get_worker_schedule_service
+        from autoresearch.core.services.worker_schedule_service import WorkerScheduleDaemon
+
+        schedule_daemon = WorkerScheduleDaemon(
+            service=get_worker_schedule_service(),
+            poll_seconds=settings.worker_schedule_poll_seconds,
+        )
+        await schedule_daemon.start()
+        logger.info(
+            "Worker schedule daemon started [poll_seconds=%s]",
+            settings.worker_schedule_poll_seconds,
+        )
+    try:
+        yield
+    finally:
+        if schedule_daemon is not None:
+            await schedule_daemon.stop()
+            logger.info("Worker schedule daemon stopped")
+        logger.info("Autonomous Agent Stack shutdown complete")
 
 
 def _include_router(
@@ -123,6 +142,7 @@ def create_app() -> FastAPI:
         ("autoresearch.api.routers.approvals", "router", "approvals"),
         ("autoresearch.api.routers.workers", "router", "workers"),
         ("autoresearch.api.routers.worker_runs", "router", "worker runs"),
+        ("autoresearch.api.routers.worker_schedules", "router", "worker schedules"),
         ("autoresearch.api.routers.panel", "router", "panel api"),
     ]
 
@@ -138,6 +158,7 @@ def create_app() -> FastAPI:
         ("autoresearch.api.routers.synthesis", "router", "synthesis"),
         ("autoresearch.api.routers.loops", "router", "loops"),
         ("autoresearch.api.routers.orchestration", "router", "orchestration"),
+        ("autoresearch.api.routers.runtime", "router", "runtime"),
         ("autoresearch.api.routers.openclaw", "router", "openclaw"),
         ("autoresearch.api.routers.github_assistant", "router", "github assistant"),
         ("autoresearch.api.routers.github_admin", "router", "github admin"),

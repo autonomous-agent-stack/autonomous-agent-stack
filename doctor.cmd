@@ -1,4 +1,18 @@
 @echo off
 setlocal
-set PYTHONPATH=src
-.venv\Scripts\python.exe scripts\doctor.py --port 8001
+
+where py >nul 2>nul
+if %ERRORLEVEL%==0 (
+  py -3 "%~dp0scripts\local_dev.py" --venv .venv doctor %*
+  exit /b %ERRORLEVEL%
+)
+
+where python >nul 2>nul
+if %ERRORLEVEL%==0 (
+  python "%~dp0scripts\local_dev.py" --venv .venv doctor %*
+  exit /b %ERRORLEVEL%
+)
+
+echo [FAIL] Neither "py" nor "python" is available in PATH.
+echo        Install Python 3.11+ and rerun doctor.cmd
+exit /b 1
