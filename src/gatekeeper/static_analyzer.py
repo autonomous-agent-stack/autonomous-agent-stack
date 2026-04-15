@@ -12,7 +12,7 @@ PR 静态安全审计器 (S1, S2)
 
 import ast
 import re
-from typing import Dict, List
+from typing import Any, Dict, List
 from dataclasses import dataclass
 from enum import Enum
 
@@ -56,7 +56,7 @@ class PR_Static_Analyzer:
     
     async def analyze_pr(self, pr_diff: str) -> Dict:
         """分析 PR 代码"""
-        result = {
+        result: Dict[str, Any] = {
             "safe": True,
             "violations": [],
             "ast_analysis": None,
@@ -67,7 +67,7 @@ class PR_Static_Analyzer:
         for pattern, description in self.forbidden_patterns:
             matches = re.finditer(pattern, pr_diff, re.IGNORECASE | re.MULTILINE)
             for match in matches:
-                violation = {
+                violation: Dict[str, Any] = {
                     "type": "forbidden_pattern",
                     "description": f"[Security Reject] 检测到越权调用: {description}",
                     "line_number": pr_diff[:match.start()].count('\n') + 1,
@@ -95,13 +95,13 @@ class PR_Static_Analyzer:
                 for node in ast.walk(tree):
                     if isinstance(node, ast.Call):
                         if self._is_dangerous_call(node):
-                            violation = {
+                            dangerous_violation: Dict[str, Any] = {
                                 "type": "dangerous_call",
                                 "description": f"[Security Reject] 检测到危险函数调用: {ast.dump(node)}",
                                 "line_number": node.lineno,
                                 "severity": SecurityLevel.LOW.value,
                             }
-                            result["violations"].append(violation)
+                            result["violations"].append(dangerous_violation)
                             result["safe"] = False
         except SyntaxError as e:
             # 语法错误不一定是安全问题，可能只是 diff 格式问题
@@ -118,9 +118,9 @@ class PR_Static_Analyzer:
         
         return result
     
-    def _analyze_ast(self, tree: ast.AST) -> Dict:
+    def _analyze_ast(self, tree: ast.AST) -> Dict[str, List[str]]:
         """AST 深度分析"""
-        analysis = {
+        analysis: Dict[str, List[str]] = {
             "imports": [],
             "function_calls": [],
             "modifications": [],

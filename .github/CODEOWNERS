@@ -1,0 +1,10 @@
+# Keep merge authority human-owned.
+# Enable "Require review from Code Owners" in branch protection/rulesets.
+
+* @srxly888-creator
+
+/.github/** @srxly888-creator
+/.agents/skills/** @srxly888-creator
+/src/gatekeeper/ @srxly888-creator
+/src/autoresearch/agent_protocol/ @srxly888-creator
+/src/autoresearch/executions/ @srxly888-creator

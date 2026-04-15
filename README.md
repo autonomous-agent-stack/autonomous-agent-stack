@@ -48,6 +48,7 @@ make openhands-controlled OH_TASK="Create src/demo_math.py with add(a,b), then r
 make openhands-demo OH_BACKEND=mock OH_TASK="Create src/demo_math.py with add(a,b)."
 make agent-run AEP_AGENT=openhands AEP_TASK="Create src/demo_math.py with add(a,b)."
 make hygiene-check
+make review-gates-local
 ```
 
 `make hygiene-check` 会把结果写到 `logs/audit/prompt_hygiene/report.txt` 和 `logs/audit/prompt_hygiene/report.json`。
@@ -57,6 +58,21 @@ make hygiene-check
 `make openhands-controlled` 会走最窄闭环：创建隔离 workspace、执行 OpenHands 子任务、运行校验、输出 promotion patch 与审计摘要（不直接污染主仓库）。
 
 `make agent-run` 走 AEP v0 统一执行内核：`JobSpec -> driver adapter -> patch gate -> decision`，OpenHands/Codex/本地脚本都可作为 driver 接入。
+
+`make review-gates-local` 会在本地运行 reviewer 核心模块的 `mypy + bandit + semgrep`，与 CI 的 `Quality Gates` 流程保持一致。
+
+## PR 审查与门禁
+
+- OpenHands 首轮审查（comment-only）：`.github/workflows/pr-review-by-openhands.yml`
+  - 触发方式：默认 `review-this` label；可选通过 `OPENHANDS_REVIEWER_HANDLE` 启用 reviewer 触发
+  - 安全策略：`pull_request` 事件、仅内部分支 PR（跳过 forks）、最小权限、action/extension 固定 SHA
+  - 合并策略：按需触发模式下不设为 required status check（仅作为 advisory reviewer）
+- 质量门禁：`.github/workflows/quality-gates.yml`
+  - 检查项：`mypy + bandit + semgrep`（工具版本固定在 `requirements-review.lock`）
+  - 包含 `merge_group` 触发，兼容 merge queue
+- 仓库 required checks 建议：`CI / lint-test-audit` + `Quality Gates / reviewer-gates`
+
+完整落地说明见：[PR Review Hardening](./docs/pr-review-hardening.md)
 
 如果端口冲突：
 

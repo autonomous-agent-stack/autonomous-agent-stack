@@ -7,7 +7,7 @@ UI 汇报简化器 (U1)
 3. 极简卡片 UI
 """
 
-from typing import Dict, List
+from typing import Dict, List, Optional
 from dataclasses import dataclass
 from src.gatekeeper.llm_reviewer import LLM_Diff_Reviewer, LLMReview
 
@@ -23,7 +23,7 @@ class ReviewCard:
 class Board_Summarizer:
     """UI 汇报简化器"""
     
-    def __init__(self, llm_reviewer: LLM_Diff_Reviewer = None):
+    def __init__(self, llm_reviewer: Optional[LLM_Diff_Reviewer] = None):
         """初始化
         
         Args:

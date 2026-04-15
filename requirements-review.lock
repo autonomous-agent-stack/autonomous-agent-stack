@@ -1,0 +1,4 @@
+# Pinned review gate tooling for CI reproducibility
+mypy==1.19.1
+bandit==1.9.4
+semgrep==1.156.0
