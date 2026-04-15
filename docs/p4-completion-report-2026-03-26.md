@@ -99,6 +99,10 @@
 
 ## 🤝 与 Paperclip 协同架构
 
+> 中文：本节是历史/阶段性总结，不是当前集成契约。当前边界、API 充分性判断与术语口径，以 `docs/PAPERCLIP_INTEGRATION.md` 为准。
+>
+> English: This section is a historical stage summary, not the current integration contract. For current boundaries, API adequacy, and terminology, see `docs/PAPERCLIP_INTEGRATION.md`.
+
 **Paperclip 负责"宏观算账"，底座负责"微观干活"**
 
 ```

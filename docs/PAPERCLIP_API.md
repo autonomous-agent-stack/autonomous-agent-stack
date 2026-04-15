@@ -1,32 +1,37 @@
-# Paperclip 协同 API
+# Paperclip 原型 API / Paperclip Prototype API
 
-外部企业管理系统双向接口，用于预算指令下发和执行结果回调。
+## 状态 / Status
 
----
+中文：
+本页只描述 `src/api/paperclip_router.py` 当前原型的请求/响应形状。Paperclip 与 AAS 的职责边界、信任模型、API 充分性判断与推荐演进方向，以 [PAPERCLIP_INTEGRATION.md](PAPERCLIP_INTEGRATION.md) 为准。
 
-## POST /api/v1/paperclip/budget
+English:
+This page only describes the current request/response shape of the prototype in `src/api/paperclip_router.py`. For boundaries, trust model, API adequacy, and recommended evolution, see [PAPERCLIP_INTEGRATION.md](PAPERCLIP_INTEGRATION.md).
 
-接收目标预算指令，触发 Agent 系统执行流程。
+中文：
+当前默认主应用 `src/autoresearch/api/main.py` 没有挂载该 router，因此这些端点不是默认启动链路已经承诺的稳定产品接口。
 
-### 请求
+English:
+The default main application in `src/autoresearch/api/main.py` does not currently mount this router, so these endpoints are not a stable product API guaranteed by the default startup path.
 
-```bash
-curl -X POST http://localhost:8000/api/v1/paperclip/budget \
-  -H "Content-Type: application/json" \
-  -d '{
-    "department": "玛露美妆销售部",
-    "target_budget": 100000
-  }'
-```
+## 原型端点 / Prototype Endpoints
 
-### 参数
+### `POST /api/v1/paperclip/budget`
 
-| 字段 | 类型 | 必填 | 描述 |
-|------|------|------|------|
-| `department` | string | ✅ | 部门名称 |
-| `target_budget` | float | ✅ | 目标预算金额 |
+中文：
+接收一个最小预算指令，在进程内内存中记录请求，并返回自动生成的 `request_id`。当前不会创建 AAS `session`、`run` 或消息投递。
 
-### 响应
+English:
+Accepts a minimal budget instruction, stores it in process-local memory, and returns a generated `request_id`. It does not currently create an AAS `session`, `run`, or queue dispatch.
+
+请求字段 / Request fields:
+
+| 字段 / Field | 类型 / Type | 必填 / Required | 说明 / Meaning |
+|---|---|---|---|
+| `department` | `string` | Yes | 部门名称 / Department name |
+| `target_budget` | `float` | Yes | 目标预算金额 / Target budget amount |
+
+响应示例 / Response example:
 
 ```json
 {
@@ -39,35 +44,24 @@ curl -X POST http://localhost:8000/api/v1/paperclip/budget \
 }
 ```
 
----
+### `POST /api/v1/paperclip/callback`
 
-## POST /api/v1/paperclip/callback
+中文：
+接收一个最小执行结果回调，在进程内内存中记录 ROI 与 token 消耗，并返回一条派生的效率字符串。当前不会关联具体 `run_id`、`session_id` 或晋升决策。
 
-接收 Agent 执行结果的 ROI 和 Token 消耗数据。
+English:
+Accepts a minimal execution callback, stores ROI and token usage in process-local memory, and returns a derived efficiency string. It does not currently correlate to a concrete `run_id`, `session_id`, or promotion decision.
 
-### 请求
+请求字段 / Request fields:
 
-```bash
-curl -X POST http://localhost:8000/api/v1/paperclip/callback \
-  -H "Content-Type: application/json" \
-  -d '{
-    "roi": 2.5,
-    "token_used": 50000,
-    "timestamp": "2026-03-25T23:35:00Z",
-    "department": "玛露美妆销售部"
-  }'
-```
+| 字段 / Field | 类型 / Type | 必填 / Required | 说明 / Meaning |
+|---|---|---|---|
+| `roi` | `float` | Yes | 投资回报率 / Return on investment |
+| `token_used` | `int` | Yes | 消耗的 Token 数量 / Token count used |
+| `timestamp` | `string` | Yes | 执行时间戳（ISO 8601）/ Execution timestamp (ISO 8601) |
+| `department` | `string` | No | 部门名称 / Department name |
 
-### 参数
-
-| 字段 | 类型 | 必填 | 描述 |
-|------|------|------|------|
-| `roi` | float | ✅ | 投资回报率 |
-| `token_used` | int | ✅ | 消耗的 Token 数量 |
-| `timestamp` | string | ✅ | 执行时间戳 (ISO 8601) |
-| `department` | string | ❌ | 部门名称（可选） |
-
-### 响应
+响应示例 / Response example:
 
 ```json
 {
@@ -77,61 +71,34 @@ curl -X POST http://localhost:8000/api/v1/paperclip/callback \
 }
 ```
 
----
+### 调试端点 / Debug Endpoints
 
-## 完整示例：玛露美妆销售部
+中文：
+以下端点仅用于查看当前进程内内存中的原型记录：
 
-### 步骤 1：下发预算指令
+- `GET /api/v1/paperclip/budgets`
+- `GET /api/v1/paperclip/callbacks`
 
-```bash
-curl -X POST http://localhost:8000/api/v1/paperclip/budget \
-  -H "Content-Type: application/json" \
-  -d '{
-    "department": "玛露美妆销售部",
-    "target_budget": 50000
-  }'
-```
+English:
+The following endpoints are only for inspecting process-local prototype records:
 
-### 步骤 2：Agent 执行（内部流程）
+- `GET /api/v1/paperclip/budgets`
+- `GET /api/v1/paperclip/callbacks`
 
-系统自动触发预算执行流程，生成营销方案。
+## 当前限制 / Current Limitations
 
-### 步骤 3：接收执行结果
+中文：
 
-```bash
-curl -X POST http://localhost:8000/api/v1/paperclip/callback \
-  -H "Content-Type: application/json" \
-  -d '{
-    "roi": 3.2,
-    "token_used": 125000,
-    "timestamp": "2026-03-25T23:40:00Z",
-    "department": "玛露美妆销售部"
-  }'
-```
+- 无 durable storage
+- 无 `run_id` / `session_id`
+- 无 lifecycle events
+- 无签名、幂等与重试契约
+- 默认主应用未挂载
 
-### 步骤 4：查询记录（调试用）
+English:
 
-```bash
-# 查询所有预算指令
-curl http://localhost:8000/api/v1/paperclip/budgets
-
-# 查询所有回调记录
-curl http://localhost:8000/api/v1/paperclip/callbacks
-```
-
----
-
-## 数据流
-
-```
-外部企业管理系统
-       │
-       ▼ POST /budget
-┌──────────────────┐
-│  OpenClaw Agent  │
-│     系统         │
-└──────────────────┘
-       │
-       ▼ POST /callback
-外部企业管理系统
-```
+- no durable storage
+- no `run_id` / `session_id`
+- no lifecycle events
+- no signing, idempotency, or retry contract
+- not mounted in the default main application

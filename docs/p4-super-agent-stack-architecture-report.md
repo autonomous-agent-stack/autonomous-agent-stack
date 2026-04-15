@@ -168,6 +168,10 @@ async def synthesize_tool(
 
 ## 🤝 如何与 Paperclip（零人公司）协同作战
 
+> 中文：本节是历史/叙事性协同描述，不是当前集成契约。当前边界、API 充分性判断与术语口径，以 `docs/PAPERCLIP_INTEGRATION.md` 为准。
+>
+> English: This section is historical and narrative context, not the current integration contract. For current boundaries, API adequacy, and terminology, see `docs/PAPERCLIP_INTEGRATION.md`.
+
 ### 协同架构
 
 **Paperclip 负责"宏观算账"，底座负责"微观干活"**

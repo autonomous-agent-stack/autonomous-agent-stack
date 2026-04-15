@@ -38,10 +38,10 @@ pip install -r requirements.txt
 
 ```bash
 # 启动 FastAPI 服务
-uvicorn src.autoresearch.api.main:app --reload --port 8000
+uvicorn autoresearch.api.main:app --reload --port 8001
 
 # 访问 API 文档
-open http://localhost:8000/docs
+open http://localhost:8001/docs
 ```
 
 ### 3. 创建评估任务
@@ -51,7 +51,7 @@ import requests
 
 # 创建评估任务
 response = requests.post(
-    "http://localhost:8000/api/v1/evaluations",
+    "http://localhost:8001/api/v1/evaluations",
     json={
         "task_name": "my_first_task",
         "config_path": "task.json",
@@ -73,7 +73,7 @@ print(f"任务 ID: {task_id}")
 
 ```python
 # 查询评估结果
-result = requests.get(f"http://localhost:8000/api/v1/evaluations/{task_id}")
+result = requests.get(f"http://localhost:8001/api/v1/evaluations/{task_id}")
 
 print(f"状态: {result.json()['status']}")
 print(f"结果: {result.json()['result']}")
@@ -327,7 +327,7 @@ memory.flush_short_term_memory()
 ```python
 # tests/test_my_integration.py
 from fastapi.testclient import TestClient
-from src.autoresearch.api.main import app
+from autoresearch.api.main import app
 
 client = TestClient(app)
 

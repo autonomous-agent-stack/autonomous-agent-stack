@@ -5,7 +5,7 @@
 ### 基础 URL
 
 ```
-http://localhost:8000
+http://localhost:8001
 ```
 
 ### 安装依赖
@@ -18,16 +18,16 @@ pip install -r requirements.txt
 
 ```bash
 # 方式一：直接运行
-python src/api/main.py
+python -m autoresearch.api.main
 
 # 方式二：使用 uvicorn（推荐开发环境）
-uvicorn src/api/main:app --host 0.0.0.0 --port 8000 --reload
+uvicorn autoresearch.api.main:app --host 0.0.0.0 --port 8001 --reload
 ```
 
 ### 验证服务
 
 ```bash
-curl http://localhost:8000/health
+curl http://localhost:8001/health
 ```
 
 响应：
@@ -51,6 +51,10 @@ curl http://localhost:8000/health
 ---
 
 ## API 端点总览
+
+> 中文：`/api/v1/paperclip/*` 当前对应 `src/api/paperclip_router.py` 原型，默认主应用未挂载；边界与契约说明见 `docs/PAPERCLIP_INTEGRATION.md`，原型接口形状见 `docs/PAPERCLIP_API.md`。
+>
+> English: `/api/v1/paperclip/*` currently refers to the prototype in `src/api/paperclip_router.py` and is not mounted in the default main app. See `docs/PAPERCLIP_INTEGRATION.md` for boundaries and contract, and `docs/PAPERCLIP_API.md` for the prototype shape.
 
 | 端点 | 方法 | 描述 |
 |------|------|------|
@@ -103,5 +107,5 @@ curl http://localhost:8000/health
 ## 交互式文档
 
 启动服务后访问：
-- Swagger UI: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
+- Swagger UI: http://localhost:8001/docs
+- ReDoc: http://localhost:8001/redoc
