@@ -1,0 +1,30 @@
+# Coarse check: PR body should contain both Chinese (CJK) and English (Latin) prose.
+# See AGENTS.md and .github/pull_request_template.md
+name: PR bilingual (coarse)
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  bilingual-description:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Draft PRs: allow WIP; enforce when marked ready (ready_for_review) or non-draft edits.
+    if: |
+      github.actor != 'dependabot[bot]' &&
+      github.actor != 'renovate[bot]' &&
+      !contains(github.event.pull_request.labels.*.name, 'skip-bilingual-check') &&
+      !github.event.pull_request.draft
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify PR title/body (bilingual coarse)
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: python3 scripts/ci/check_pr_bilingual.py

@@ -7,6 +7,8 @@ import logging
 from typing import Dict, Any
 from fastapi import APIRouter
 
+from autoresearch.core.runtime_identity import get_runtime_identity
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/system")
@@ -16,10 +18,17 @@ router = APIRouter(prefix="/api/v1/system")
 async def get_system_health() -> Dict[str, Any]:
     """返回底座的通用物理健康指标与 Agent 矩阵状态"""
     logger.info("系统健康状态查询")
-    
+    runtime = get_runtime_identity()
+
     return {
         "status": "online",
         "timestamp": datetime.now().isoformat(),
+        "runtime": {
+            "display": runtime["runtime_display"],
+            "host": runtime["runtime_host"],
+            "platform": runtime["runtime_platform"],
+            "family": runtime["runtime_family"],
+        },
         "matrix_active": True,
         "agents": [
             {"name": "架构领航员", "status": "idle", "task": "监听指令"},

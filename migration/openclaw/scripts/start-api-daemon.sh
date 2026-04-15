@@ -3,9 +3,9 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROJECT_ROOT="$(cd "${ROOT_DIR}/../.." && pwd)"
-ENV_FILE="${ROOT_DIR}/.env.local"
 PID_FILE="${ROOT_DIR}/logs/api.pid"
 LOG_FILE="${ROOT_DIR}/logs/api.log"
+source "${ROOT_DIR}/scripts/env-common.sh"
 
 mkdir -p "${ROOT_DIR}/logs" "${PROJECT_ROOT}/artifacts/api"
 
@@ -23,14 +23,13 @@ if [[ ! -x "${PROJECT_ROOT}/.venv/bin/python" ]]; then
   exit 1
 fi
 
-if [[ -f "${ENV_FILE}" ]]; then
-  set -a
-  source "${ENV_FILE}"
-  set +a
-fi
+ENV_FILES=()
+load_shared_env_files "${PROJECT_ROOT}" "${ROOT_DIR}" ENV_FILES
+warn_env_conflicts ENV_FILES AUTORESEARCH_API_HOST AUTORESEARCH_API_PORT
 
 AUTORESEARCH_API_HOST="${AUTORESEARCH_API_HOST:-127.0.0.1}"
-AUTORESEARCH_API_PORT="${AUTORESEARCH_API_PORT:-8000}"
+AUTORESEARCH_API_PORT="${AUTORESEARCH_API_PORT:-8001}"
+print_effective_env_values AUTORESEARCH_API_HOST AUTORESEARCH_API_PORT
 
 cd "${PROJECT_ROOT}"
 nohup env PYTHONPATH=src "${PROJECT_ROOT}/.venv/bin/python" -m uvicorn autoresearch.api.main:app \

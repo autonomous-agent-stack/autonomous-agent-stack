@@ -1,0 +1,78 @@
+version: "1"
+
+agent:
+  id: "content_kb"
+  name: "Content Knowledge Base Agent"
+  description: "负责字幕入库、主题分类、知识库索引维护和 README 更新"
+  role: "specialist"
+
+routing:
+  task_types:
+    - "content_kb"
+    - "content_kb.classify_topic"
+    - "content_kb.choose_repo"
+    - "content_kb.ingest"
+    - "content_kb.build_index"
+    - "subtitle_ingest"
+    - "knowledge_index"
+  keywords:
+    - "字幕"
+    - "入库"
+    - "知识库"
+    - "分类"
+    - "索引"
+
+execution:
+  default_driver: "opencode"
+  fallback_drivers:
+    - "codex"
+    - "claude_code"
+  workspace_mode: "isolated"
+  allow_code_change: false
+  require_patch_gate: true
+
+inputs:
+  required:
+    - "content_source"
+  optional:
+    - "owner_profile"
+    - "target_repo"
+    - "topic"
+    - "language"
+    - "options"
+
+outputs:
+  schema:
+    type: "object"
+    required:
+      - "status"
+      - "artifacts"
+  artifacts:
+    - "metadata.json"
+    - "summary.md"
+    - "normalized_subtitle.txt"
+
+permissions:
+  filesystem:
+    read:
+      - "data/inbox/"
+      - "configs/"
+    write:
+      - "artifacts/content_kb/"
+  network: "deny"
+  git:
+    commit: false
+    push: false
+
+gates:
+  validators: []
+  approvals:
+    human_required_for:
+      - "create_new_repo"
+      - "open_pr"
+
+prompts:
+  classify_topic: "agents/content_kb/prompts/classify_topic.md"
+  choose_repo: "agents/content_kb/prompts/choose_repo.md"
+  ingest: "agents/content_kb/prompts/ingest_subtitles.md"
+  build_index: "agents/content_kb/prompts/build_index.md"

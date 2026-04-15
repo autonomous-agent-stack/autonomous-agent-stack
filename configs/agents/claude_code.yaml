@@ -1,0 +1,40 @@
+{
+  "id": "claude_code",
+  "kind": "process",
+  "entrypoint": "drivers/claude_code_adapter.sh",
+  "version": "0.1",
+  "capabilities": [
+    "read_repo",
+    "write_repo",
+    "run_shell",
+    "produce_patchable_changes"
+  ],
+  "default_mode": "apply_in_workspace",
+  "policy_defaults": {
+    "timeout_sec": 900,
+    "max_steps": 1,
+    "network": "disabled",
+    "network_allowlist": [],
+    "tool_allowlist": [
+      "read",
+      "write",
+      "bash"
+    ],
+    "allowed_paths": [
+      "src/**",
+      "tests/**",
+      "docs/**"
+    ],
+    "forbidden_paths": [
+      ".git/**",
+      "logs/**",
+      ".masfactory_runtime/**",
+      "memory/**"
+    ],
+    "max_changed_files": 10,
+    "max_patch_lines": 400,
+    "allow_binary_changes": false,
+    "cleanup_on_success": true,
+    "retain_workspace_on_failure": true
+  }
+}

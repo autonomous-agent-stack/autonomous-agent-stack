@@ -6,6 +6,7 @@ PROJECT_ROOT="$(cd "${ROOT_DIR}/../.." && pwd)"
 PID_FILE="${ROOT_DIR}/logs/telegram-poller.pid"
 LOG_FILE="${ROOT_DIR}/logs/telegram-poller.log"
 SCRIPT="${ROOT_DIR}/scripts/telegram_poller_bridge.py"
+source "${ROOT_DIR}/scripts/env-common.sh"
 
 mkdir -p "${ROOT_DIR}/logs"
 
@@ -23,13 +24,9 @@ if [[ ! -x "${PROJECT_ROOT}/.venv/bin/python" ]]; then
   exit 1
 fi
 
-for ENV_FILE in "${PROJECT_ROOT}/.env" "${PROJECT_ROOT}/.env.local" "${ROOT_DIR}/.env.local"; do
-  if [[ -f "${ENV_FILE}" ]]; then
-    set -a
-    source "${ENV_FILE}"
-    set +a
-  fi
-done
+ENV_FILES=()
+load_shared_env_files "${PROJECT_ROOT}" "${ROOT_DIR}" ENV_FILES
+warn_env_conflicts ENV_FILES AUTORESEARCH_API_HOST AUTORESEARCH_API_PORT AUTORESEARCH_TELEGRAM_BOT_TOKEN TELEGRAM_BOT_TOKEN
 
 if [[ -n "${AUTORESEARCH_TELEGRAM_BOT_TOKEN:-}" && -z "${TELEGRAM_BOT_TOKEN:-}" ]]; then
   export TELEGRAM_BOT_TOKEN="${AUTORESEARCH_TELEGRAM_BOT_TOKEN}"
@@ -39,7 +36,10 @@ if [[ -n "${TELEGRAM_BOT_TOKEN:-}" && -z "${AUTORESEARCH_TELEGRAM_BOT_TOKEN:-}" 
 fi
 
 API_HOST="${AUTORESEARCH_API_HOST:-127.0.0.1}"
-API_PORT="${AUTORESEARCH_API_PORT:-8000}"
+API_PORT="${AUTORESEARCH_API_PORT:-8001}"
+AUTORESEARCH_API_HOST="${API_HOST}"
+AUTORESEARCH_API_PORT="${API_PORT}"
+print_effective_env_values AUTORESEARCH_API_HOST AUTORESEARCH_API_PORT AUTORESEARCH_TELEGRAM_BOT_TOKEN TELEGRAM_BOT_TOKEN
 if ! curl -fsS "http://${API_HOST}:${API_PORT}/health" >/dev/null 2>&1; then
   echo "api not healthy on http://${API_HOST}:${API_PORT}/health"
   echo "run: make start  (or start API daemon with the same port)"

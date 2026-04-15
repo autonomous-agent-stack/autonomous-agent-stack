@@ -1,0 +1,88 @@
+version: "1"
+
+agent:
+  id: "excel_audit"
+  name: "Excel Audit Agent"
+  description: "负责 Excel 计算核对、差异定位、规则维护和核对报告生成"
+  role: "specialist"
+
+routing:
+  task_types:
+    - "excel_audit"
+    - "commission_check"
+    - "reconciliation"
+  keywords:
+    - "Excel核对"
+    - "提成核算"
+    - "计算检查"
+    - "对账"
+    - "差异报告"
+
+execution:
+  default_driver: "claude_code"
+  fallback_drivers:
+    - "codex"
+  workspace_mode: "isolated"
+  allow_code_change: true
+  require_patch_gate: true
+
+inputs:
+  required:
+    - "task_brief"
+    - "attachments"
+  optional:
+    - "business_case"
+    - "sheet_mapping"
+    - "business_rules"
+    - "allow_writeback"
+    - "allow_code_change"
+
+outputs:
+  schema:
+    type: "object"
+    required:
+      - "status"
+      - "summary"
+      - "artifacts"
+  artifacts:
+    - "report.md"
+    - "report.json"
+    - "diff.xlsx"
+
+permissions:
+  filesystem:
+    read:
+      - "data/"
+      - "artifacts/"
+      - "docs/"
+      - "src/excel_audit/"
+      - "tests/excel_audit/"
+    write:
+      - "artifacts/excel_audit/"
+      - "src/excel_audit/"
+      - "tests/excel_audit/"
+  network: "deny"
+  git:
+    commit: false
+    push: false
+
+gates:
+  validators:
+    - "pytest -q tests/excel_audit"
+  approvals:
+    human_required_for:
+      - "writeback_to_source_excel"
+      - "merge_to_main"
+
+runtime:
+  deterministic_execution_required: true
+  llm_must_not_do_final_math: true
+  report_formats:
+    - "markdown"
+    - "json"
+    - "xlsx"
+
+prompts:
+  intake: "agents/excel_audit/prompts/excel_intake.md"
+  translate_rules: "agents/excel_audit/prompts/excel_rule_translate.md"
+  repair: "agents/excel_audit/prompts/excel_repair.md"

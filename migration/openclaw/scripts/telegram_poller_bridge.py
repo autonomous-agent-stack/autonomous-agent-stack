@@ -20,6 +20,7 @@ ENV_FILES = (
     ROOT_DIR / ".env.local",
 )
 OPENCLAW_CONFIG = Path("/Users/iCloud_GZ/.openclaw/openclaw.json")
+PREEXISTING_ENV_KEYS = set(os.environ)
 
 
 def load_env_file(path: Path) -> None:
@@ -32,7 +33,9 @@ def load_env_file(path: Path) -> None:
         key, value = raw.split("=", 1)
         key = key.strip()
         value = value.strip().strip('"').strip("'")
-        os.environ.setdefault(key, value)
+        if key in PREEXISTING_ENV_KEYS:
+            continue
+        os.environ[key] = value
 
 
 def mask_token(token: str) -> str:
@@ -151,7 +154,7 @@ def main() -> int:
 
     webhook_url = os.getenv(
         "TELEGRAM_BRIDGE_LOCAL_WEBHOOK_URL",
-        "http://127.0.0.1:8000/api/v1/gateway/telegram/webhook",
+        "http://127.0.0.1:8001/api/v1/gateway/telegram/webhook",
     )
     secret_token = os.getenv("AUTORESEARCH_TELEGRAM_SECRET_TOKEN", "").strip() or None
 

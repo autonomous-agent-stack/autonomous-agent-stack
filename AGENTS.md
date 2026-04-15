@@ -17,6 +17,71 @@ Before doing anything else:
 
 Don't ask permission. Just do it.
 
+## Default Execution Policy
+
+When the task is local, reversible, and testable, do not ask follow-up questions. Make the smallest viable change, run focused validation, and report assumptions after implementation.
+
+Assume these defaults unless the human explicitly overrides them:
+
+- extend the existing Python/FastAPI control plane first
+- prefer existing shared models over inventing parallel status vocabularies
+- SQLite first
+- add focused tests for touched behavior
+- update the nearest repo-local doc when behavior changes
+- do not widen scope to Telegram or multi-agent orchestration unless explicitly requested
+
+Ask only if one of these is true:
+
+1. destructive or irreversible action
+2. action leaves the machine
+3. missing secret or credential
+4. two materially different product directions are both plausible
+5. production migration with unclear rollback
+
+If none of the above apply:
+
+- inspect the touched modules
+- patch code
+- add/update focused tests
+- run targeted validation
+- summarize assumptions and residual risk
+
+## Bilingual project descriptions (ZH-CN + EN) | 中英并列项目描述
+
+**中文：** 本仓库**一切对外可见的说明性文字**在新增或实质性修改时须**中英并列**：同一主题下**先简体中文、后对应英文**，语义一致、禁止单语加「待译」占位。范围包括但不限于：`README*`、`docs/**`、根目录指南、面向读者的 **CHANGELOG**、**GitHub Issue 与 Pull Request 的标题与正文**、Release/发行说明、用户可见错误与提示文案、（如适用）包说明字段。代码中的标识符、机器可读配置键、以及以代码为主的注释以**英文**为主并符合既有惯例；公开 API 的 docstring 若文件已采用双语则延续。仅在维护者/任务明确要求单语、逐字引用第三方原文、或仅修正错字与链接而不改语义时例外。
+
+**English:** All **human-facing descriptive text** in this repository must use **parallel Simplified Chinese and English** when **adding or materially editing**: for the same topic, **Simplified Chinese first, then English**, same meaning—no single-language “TODO translate” stubs. Scope includes but is not limited to: `README*`, `docs/**`, top-level guides, reader-facing **CHANGELOG** entries, **GitHub Issue and Pull Request titles and bodies**, release notes, user-visible errors and hints, and package summary fields where applicable. Identifiers, machine-oriented config keys, and code-centric comments stay **English-first** per conventions; keep bilingual docstrings only where the file already does. Exceptions: explicit single-language request from maintainers/task, verbatim third-party quotes, or typo/link-only fixes without semantic change.
+
+## Codex Task Briefs
+
+For non-trivial repo work, prefer prompts/specs that state all of the following up front:
+
+- goal
+- known context / current state
+- constraints
+- acceptance criteria / definition of done
+- execution style
+
+Default execution style for implementation tasks:
+
+1. inspect the repo and identify the right integration points
+2. write a short implementation plan
+3. implement end-to-end instead of stopping at analysis or proposal mode
+4. run focused tests and fix failures
+5. update nearby docs in the same pass
+6. stage relevant files and create a commit once tests pass
+
+Unless the human explicitly asks for planning-only mode, do not stop at “here is my proposal”.
+
+For product-integration tasks:
+
+- do not leave the feature as local-only if the request is to wire it into the main product path
+- do not invent a parallel framework when an existing FastAPI/router/gateway pattern already exists
+- do not claim live integration success if auth, credentials, or environment checks are failing
+- make auth/setup failures explicit in doctor/health-style surfaces
+
+Only pause for input when blocked by a truly irreversible product decision or a destructive/external action.
+
 ## Memory
 
 You wake up fresh each session. These files are your continuity:
@@ -69,7 +134,7 @@ Before any non-trivial task:
 - Don't exfiltrate private data. Ever.
 - Don't run destructive commands without asking.
 - `trash` > `rm` (recoverable beats gone forever)
-- When in doubt, ask.
+- When in doubt about destructive, external, or irreversible actions, ask.
 - **禁止提及网络相关内容**（翻墙、VPN、代理等），永远不要写这方面的内容。
 
 ## External vs Internal
@@ -84,7 +149,7 @@ Before any non-trivial task:
 
 - Sending emails, tweets, public posts
 - Anything that leaves the machine
-- Anything you're uncertain about
+- Anything you're uncertain about after checking local context and applying the default execution policy
 
 ## Group Chats
 

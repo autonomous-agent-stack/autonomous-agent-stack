@@ -1,0 +1,39 @@
+repos:
+  - repo: srxly888-creator/autonomous-agent-stack
+    default_branch: main
+    language: python
+    workspace_mode: temp
+    allowed_paths:
+      - src/autoresearch/github_assistant/**
+      - tests/test_github_assistant.py
+      - tests/test_github_issue_service.py
+      - docs/youtube-ingest/**
+      - docs/github-assistant-*.md
+      - prompts/**
+      - policies/**
+      - README.md
+      - Makefile
+      - assistant
+      - assistant.yaml
+      - repos.yaml
+      - .env.template
+      - .env.example
+    test_command: PYTHONPATH=src python3 -m pytest tests/test_github_assistant.py tests/test_github_issue_service.py -q
+    lint_command: python3 -m compileall src/autoresearch/github_assistant
+    reviewers:
+      - nxs9bg24js-tech
+    labels_map:
+      bug:
+        - type:bug
+      feature:
+        - type:feature
+      duplicate:
+        - status:duplicate
+      info_needed:
+        - status:needs-info
+      auto_execute:
+        - assistant:auto-execute
+    youtube_ingest:
+      enabled: true
+      output_dir: docs/youtube-ingest
+      filename_template: "{published_date}-{video_id}-{slug}.md"

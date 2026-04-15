@@ -1,0 +1,19 @@
+{
+  "default_profile": "DD",
+  "profiles": [
+    {
+      "id": "Lisa",
+      "display_name": "Lisa",
+      "root": "profiles/Lisa",
+      "github_host": "github.com",
+      "gh_config_dir": ".gh-profiles/Lisa"
+    },
+    {
+      "id": "DD",
+      "display_name": "DD",
+      "root": "profiles/DD",
+      "github_host": "github.com",
+      "gh_config_dir": ".gh-profiles/DD"
+    }
+  ]
+}

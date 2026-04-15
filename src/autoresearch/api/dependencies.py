@@ -5,6 +5,7 @@ from pathlib import Path
 
 from fastapi import Depends
 
+from autoresearch.agent_protocol.runtime_registry import RuntimeAdapterRegistry
 from autoresearch.api.settings import (
     get_admin_settings,
     get_feature_settings,
@@ -22,6 +23,7 @@ from autoresearch.core.adapters import (
     MCPContextProviderAdapter,
     OpenClawSkillProviderAdapter,
 )
+from autoresearch.github_assistant.service import GitHubAssistantService, GitHubAssistantServiceRegistry
 from autoresearch.core.repositories import SQLiteEvaluationRepository
 from autoresearch.core.services.admin_auth import AdminAuthService
 from autoresearch.core.services.admin_config import AdminConfigService
@@ -34,12 +36,17 @@ from autoresearch.core.services.claude_agents import ClaudeAgentService
 from autoresearch.core.services.control_plane_service import ControlPlaneService
 from autoresearch.core.services.evaluations import EvaluationService
 from autoresearch.core.services.executions import ExecutionService
+from autoresearch.core.services.github_admin import GitHubAdminService
 from autoresearch.core.services.github_issue_service import GitHubIssueService
 from autoresearch.core.services.linux_supervisor import LinuxSupervisorService
 from autoresearch.core.services.mirofish_prediction import MiroFishPredictionService
 from autoresearch.core.services.managed_skill_registry import ManagedSkillRegistryService
+from autoresearch.core.services.hermes_runtime_adapter import HermesRuntimeAdapterService
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.openclaw_memory import OpenClawMemoryService
+from autoresearch.core.services.openclaw_runtime_adapter import OpenClawRuntimeAdapterService
+from autoresearch.core.services.runtime_adapter_contract import RuntimeAdapterContract
+from autoresearch.core.services.runtime_adapter_registry import RuntimeAdapterServiceRegistry
 from autoresearch.core.services.openclaw_skills import OpenClawSkillService
 from autoresearch.core.services.openviking_memory import OpenVikingMemoryService
 from autoresearch.core.services.panel_access import PanelAccessService
@@ -53,6 +60,7 @@ from autoresearch.core.services.variants import VariantService
 from autoresearch.core.services.worker_registry import WorkerRegistryService
 from autoresearch.shared.models import (
     ClaudeAgentRunRead,
+    ClaudeRuntimeSessionRecordRead,
     AdminAgentConfigRead,
     AdminChannelConfigRead,
     AdminConfigRevisionRead,
@@ -70,11 +78,22 @@ from autoresearch.shared.models import (
     PanelAuditLogRead,
     ReportRead,
     VariantRead,
+    WorkerLeaseRead,
+    WorkerQueueItemRead,
+    WorkerRegistrationRead,
+    WorkerRunScheduleRead,
+    YouTubeDigestRead,
+    YouTubeRunRead,
+    YouTubeSubscriptionRead,
+    YouTubeTranscriptRead,
+    YouTubeVideoRead,
 )
 from autoresearch.shared.housekeeper_contract import ControlPlaneTaskRead, HousekeeperTaskRead
 from autoresearch.shared.autoresearch_planner_contract import AutoResearchPlanRead
+from autoresearch.shared.excel_audit_contract import ExcelAuditRead
 from autoresearch.shared.manager_agent_contract import ManagerDispatchRead
 from autoresearch.shared.store import SQLiteModelRepository
+from github_admin.contracts import GitHubAdminRunRead
 from autoresearch.train.services.experiments import ExperimentService
 from autoresearch.train.services.optimizations import OptimizationService
 from integrations.apple_bridge.calendar import CalendarService
@@ -83,6 +102,10 @@ from orchestrator.mcp_context import MCPContextBlock
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
+
+
+def _runtime_manifests_dir() -> Path:
+    return _repo_root() / "configs" / "runtime_agents"
 
 
 def _api_db_path() -> Path:
@@ -156,6 +179,17 @@ def get_execution_service() -> ExecutionService:
 
 
 @lru_cache(maxsize=1)
+def get_youtube_agent_service():
+    from autoresearch.core.repositories import SQLiteYouTubeRepository
+    from autoresearch.core.services.youtube_agent import YouTubeAgentService
+
+    return YouTubeAgentService(
+        repository=SQLiteYouTubeRepository(db_path=_api_db_path()),
+        repo_root=_repo_root(),
+    )
+
+
+@lru_cache(maxsize=1)
 def get_autoresearch_planner_service() -> AutoResearchPlannerService:
     return AutoResearchPlannerService(
         repository=SQLiteModelRepository(
@@ -183,6 +217,67 @@ def get_manager_agent_service() -> ManagerAgentService:
 @lru_cache(maxsize=1)
 def get_github_issue_service() -> GitHubIssueService:
     return GitHubIssueService(repo_root=_repo_root())
+
+
+@lru_cache(maxsize=1)
+def get_github_assistant_service_registry() -> GitHubAssistantServiceRegistry:
+    return GitHubAssistantServiceRegistry(repo_root=_repo_root())
+
+
+def get_github_assistant_service(profile: str | None = None) -> GitHubAssistantService:
+    return get_github_assistant_service_registry().get(profile)
+
+
+@lru_cache(maxsize=1)
+def get_github_admin_service() -> GitHubAdminService:
+    return GitHubAdminService(
+        repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="github_admin_runs",
+            model_cls=GitHubAdminRunRead,
+        ),
+        repo_root=_repo_root(),
+    )
+
+
+@lru_cache(maxsize=1)
+def get_worker_registry_service() -> WorkerRegistryService:
+    return WorkerRegistryService(
+        repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="worker_registrations",
+            model_cls=WorkerRegistrationRead,
+        )
+    )
+
+
+@lru_cache(maxsize=1)
+def get_worker_scheduler_service() -> WorkerSchedulerService:
+    return WorkerSchedulerService(
+        worker_registry=get_worker_registry_service(),
+        queue_repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="worker_run_queue",
+            model_cls=WorkerQueueItemRead,
+        ),
+        lease_repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="worker_leases",
+            model_cls=WorkerLeaseRead,
+        ),
+    )
+
+
+@lru_cache(maxsize=1)
+def get_worker_schedule_service() -> WorkerScheduleService:
+    return WorkerScheduleService(
+        worker_scheduler=get_worker_scheduler_service(),
+        repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="worker_schedules",
+            model_cls=WorkerRunScheduleRead,
+        ),
+    )
 
 
 @lru_cache(maxsize=1)
@@ -214,6 +309,38 @@ def get_openclaw_skill_service() -> OpenClawSkillService:
         max_skill_file_bytes=max(8_192, min(feature_settings.openclaw_skill_max_bytes, 2_000_000)),
         max_skills_per_root=max(1, min(feature_settings.openclaw_skill_max_per_root, 10_000)),
     )
+
+
+@lru_cache(maxsize=1)
+def get_openclaw_runtime_adapter_service() -> OpenClawRuntimeAdapterService:
+    return OpenClawRuntimeAdapterService(
+        openclaw_service=get_openclaw_compat_service(),
+        claude_service=get_claude_agent_service(),
+    )
+
+
+@lru_cache(maxsize=1)
+def get_hermes_runtime_adapter_service() -> HermesRuntimeAdapterService:
+    return HermesRuntimeAdapterService(
+        openclaw_service=get_openclaw_compat_service(),
+        claude_service=get_claude_agent_service(),
+    )
+
+
+@lru_cache(maxsize=1)
+def get_runtime_adapter_registry_service() -> RuntimeAdapterServiceRegistry:
+    manifest_registry = RuntimeAdapterRegistry(_runtime_manifests_dir())
+    return RuntimeAdapterServiceRegistry(
+        manifest_registry=manifest_registry,
+        factories={
+            "openclaw": get_openclaw_runtime_adapter_service,
+            "hermes": get_hermes_runtime_adapter_service,
+        },
+    )
+
+
+def get_runtime_adapter_service(runtime_id: str = "openclaw") -> RuntimeAdapterContract:
+    return get_runtime_adapter_registry_service().get(runtime_id)
 
 
 @lru_cache(maxsize=1)
@@ -249,6 +376,25 @@ def get_claude_agent_service() -> ClaudeAgentService:
         max_agents=feature_settings.agent_max_concurrency,
         max_depth=feature_settings.agent_max_depth,
         openclaw_skill_service=get_openclaw_skill_service(),
+    )
+
+
+@lru_cache(maxsize=1)
+def get_claude_session_record_service() -> ClaudeSessionRecordService:
+    return ClaudeSessionRecordService(
+        repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="claude_runtime_session_records",
+            model_cls=ClaudeRuntimeSessionRecordRead,
+        )
+    )
+
+
+@lru_cache(maxsize=1)
+def get_claude_runtime_service() -> ClaudeRuntimeService:
+    return ClaudeRuntimeService(
+        agent_service=get_claude_agent_service(),
+        session_record_service=get_claude_session_record_service(),
     )
 
 

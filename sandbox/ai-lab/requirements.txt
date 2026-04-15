@@ -16,12 +16,12 @@ websockets>=14.0
 
 # MCP Integration
 mcp>=1.0.0
-litellm>=1.74.0
+litellm>=1.83.0
 
 # Utils
 python-dotenv>=1.0.0
 PyYAML>=6.0
-cryptography>=43.0.0
+cryptography>=46.0.6
 
 # Vision
 Pillow>=10.0.0

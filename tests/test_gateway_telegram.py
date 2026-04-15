@@ -8,17 +8,21 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from fastapi.testclient import TestClient
 
+from autoresearch.api import dependencies as api_dependencies
 from autoresearch.api.dependencies import (
     get_admin_config_service,
     get_approval_store_service,
     get_capability_provider_registry,
     get_claude_agent_service,
+    get_claude_session_record_service,
     get_github_issue_service,
     get_manager_agent_service,
     get_openclaw_memory_service,
     get_openclaw_compat_service,
     get_panel_access_service,
     get_telegram_notifier_service,
+    get_worker_registry_service,
+    get_worker_scheduler_service,
 )
 from autoresearch.api.main import app
 from autoresearch.api.routers import gateway_telegram
@@ -33,18 +37,25 @@ from autoresearch.core.services.github_issue_service import GitHubIssueCommentRe
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.openclaw_memory import OpenClawMemoryService
 from autoresearch.core.services.panel_access import PanelAccessService
+from autoresearch.core.services.worker_registry import WorkerRegistryService
+from autoresearch.core.services.worker_scheduler import WorkerSchedulerService
+from autoresearch.core.services.claude_session_records import ClaudeSessionRecordService
 from autoresearch.shared.manager_agent_contract import ManagerDispatchRead
 from autoresearch.shared.models import (
     AdminAgentConfigRead,
     AdminChannelConfigRead,
     AdminConfigRevisionRead,
     ClaudeAgentRunRead,
+    ClaudeRuntimeSessionRecordRead,
     ApprovalRequestRead,
     ApprovalRequestCreateRequest,
     OpenClawMemoryRecordRead,
     OpenClawSessionRead,
     PromotionDiffStats,
     PromotionResult,
+    WorkerLeaseRead,
+    WorkerQueueItemRead,
+    WorkerRegistrationRead,
     utc_now,
 )
 from autoresearch.shared.store import SQLiteModelRepository
@@ -128,12 +139,81 @@ class _StubTelegramNotifier:
         text: str,
         disable_web_page_preview: bool = True,
         reply_markup: dict[str, object] | None = None,
+        message_thread_id: int | None = None,
+        reply_to_message_id: int | None = None,
     ) -> bool:
-        self.messages.append({"chat_id": chat_id, "text": text})
+        self.messages.append({"chat_id": chat_id, "text": text, "message_thread_id": message_thread_id})
         return True
 
     def notify_manual_action(self, *, chat_id: str, entry: object, run_status: str) -> bool:
         return True
+
+
+class _StubExcelAuditService:
+    def __init__(self, *, mode: str = "success") -> None:
+        from autoresearch.shared.store import InMemoryRepository
+
+        self._repository = InMemoryRepository()
+        self._mode = mode
+        self._counter = 0
+        self.created_requests: list[object] = []
+        self.executed_audit_ids: list[str] = []
+
+    def create(self, request):
+        from autoresearch.shared.excel_audit_contract import ExcelAuditRead
+        from autoresearch.shared.models import JobStatus, utc_now
+
+        self._counter += 1
+        audit_id = f"ea_test_{self._counter:03d}"
+        now = utc_now()
+        record = ExcelAuditRead(
+            audit_id=audit_id,
+            task_brief=request.task_brief,
+            status=JobStatus.QUEUED,
+            created_at=now,
+            updated_at=now,
+        )
+        self.created_requests.append(request)
+        return self._repository.save(audit_id, record)
+
+    def execute(self, audit_id: str):
+        from autoresearch.shared.excel_audit_contract import ExcelAuditResultRead
+        from autoresearch.shared.models import JobStatus, utc_now
+
+        self.executed_audit_ids.append(audit_id)
+        if self._mode == "raise":
+            raise RuntimeError("simulated execute failure")
+
+        record = self._repository.get(audit_id)
+        assert record is not None
+
+        if self._mode == "failed":
+            updated = record.model_copy(
+                update={
+                    "status": JobStatus.FAILED,
+                    "error": "simulated audit failure",
+                    "updated_at": utc_now(),
+                }
+            )
+        else:
+            updated = record.model_copy(
+                update={
+                    "status": JobStatus.COMPLETED,
+                    "result": ExcelAuditResultRead(
+                        rows_checked=12,
+                        rows_mismatched=2,
+                        mismatch_amount_total=88.5,
+                        findings_count=2,
+                    ),
+                    "artifacts": ["/tmp/report.md", "/tmp/report.json"],
+                    "updated_at": utc_now(),
+                }
+            )
+
+        return self._repository.save(audit_id, updated)
+
+    def create_and_execute(self, request):
+        raise AssertionError("gateway should not use synchronous create_and_execute")
 
 
 class _StubGitHubIssueService:
@@ -253,6 +333,26 @@ def telegram_client(tmp_path: Path) -> TestClient:
         ),
         openclaw_service=openclaw_service,
     )
+    worker_registry = WorkerRegistryService(
+        repository=SQLiteModelRepository(
+            db_path=db_path,
+            table_name="worker_registrations_gateway_it",
+            model_cls=WorkerRegistrationRead,
+        )
+    )
+    worker_scheduler = WorkerSchedulerService(
+        worker_registry=worker_registry,
+        queue_repository=SQLiteModelRepository(
+            db_path=db_path,
+            table_name="worker_run_queue_gateway_it",
+            model_cls=WorkerQueueItemRead,
+        ),
+        lease_repository=SQLiteModelRepository(
+            db_path=db_path,
+            table_name="worker_leases_gateway_it",
+            model_cls=WorkerLeaseRead,
+        ),
+    )
     approval_service = ApprovalStoreService(
         repository=SQLiteModelRepository(
             db_path=db_path,
@@ -266,9 +366,19 @@ def telegram_client(tmp_path: Path) -> TestClient:
     app.dependency_overrides[get_approval_store_service] = lambda: approval_service
     app.dependency_overrides[get_claude_agent_service] = lambda: claude_service
     app.dependency_overrides[get_admin_config_service] = lambda: admin_config_service
+    app.dependency_overrides[get_worker_registry_service] = lambda: worker_registry
+    app.dependency_overrides[get_worker_scheduler_service] = lambda: worker_scheduler
+    app.dependency_overrides[get_claude_session_record_service] = lambda: ClaudeSessionRecordService(
+        repository=SQLiteModelRepository(
+            db_path=db_path,
+            table_name="claude_runtime_session_records_it",
+            model_cls=ClaudeRuntimeSessionRecordRead,
+        )
+    )
 
     with TestClient(app) as client:
         setattr(client, "_approval_store", approval_service)
+        setattr(client, "_worker_scheduler", worker_scheduler)
         yield client
 
     app.dependency_overrides.clear()
@@ -307,20 +417,10 @@ def test_telegram_webhook_routes_to_openclaw_and_agents(
     assert payload["accepted"] is True
     assert payload["chat_id"] == "9527"
     assert payload["session_id"] is not None
-    assert payload["agent_run_id"] is not None
-
-    finalized = None
-    for _ in range(20):
-        fetched = telegram_client.get(f"/api/v1/openclaw/agents/{payload['agent_run_id']}")
-        assert fetched.status_code == 200
-        finalized = fetched.json()
-        if finalized["status"] in {"completed", "failed"}:
-            break
-        time.sleep(0.05)
-
-    assert finalized is not None
-    assert finalized["status"] == "completed"
-    assert "tg-agent-ok" in (finalized.get("stdout_preview") or "")
+    # Default chat now routes to worker queue instead of direct agent execution
+    assert payload.get("metadata", {}).get("routed_to") == "worker_queue"
+    run_id = payload.get("metadata", {}).get("run_id")
+    assert run_id is not None
 
     session = telegram_client.get(f"/api/v1/openclaw/sessions/{payload['session_id']}")
     assert session.status_code == 200
@@ -330,7 +430,6 @@ def test_telegram_webhook_routes_to_openclaw_and_agents(
     assert session_payload["session_key"] == "telegram:personal:user:9527"
     assert session_payload["chat_context"]["chat_type"] == "private"
     assert any(event["role"] == "user" for event in session_payload["events"])
-    assert any("agent queued" in event["content"] for event in session_payload["events"])
 
 
 def test_legacy_telegram_webhook_uses_same_processing_path(
@@ -359,7 +458,8 @@ def test_legacy_telegram_webhook_uses_same_processing_path(
     payload = response.json()
     assert payload["accepted"] is True
     assert payload["chat_id"] == "9528"
-    assert payload["agent_run_id"] is not None
+    # Default chat now routes to worker queue
+    assert payload.get("metadata", {}).get("routed_to") == "worker_queue"
 
 
 def test_telegram_webhook_separates_private_and_group_sessions(
@@ -561,6 +661,327 @@ def test_telegram_group_reply_to_bot_is_accepted_when_group_whitelist_enabled(
     assert payload["session_id"] is not None
 
 
+def test_telegram_youtube_link_enqueues_existing_autoflow_and_tracks_session(
+    telegram_client: TestClient,
+) -> None:
+    notifier = _StubTelegramNotifier()
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+
+    try:
+        response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 1315,
+                "message": {
+                    "message_id": 88,
+                    "text": "请处理这个视频 https://www.youtube.com/watch?v=6yjJ7Prt-RI",
+                    "chat": {"id": 9710, "type": "private"},
+                    "from": {"id": 9710, "username": "youtube-user"},
+                },
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["accepted"] is True
+        assert payload["agent_run_id"] is None
+        assert payload["session_id"] is not None
+        assert payload["metadata"]["source"] == "telegram_youtube_autoflow"
+        assert payload["metadata"]["status"] == "accepted"
+        assert payload["metadata"]["task_type"] == "youtube_autoflow"
+        run_id = payload["metadata"]["run_id"]
+        assert run_id
+
+        worker_scheduler = getattr(telegram_client, "_worker_scheduler")
+        queued_run = worker_scheduler.get_run(run_id)
+        assert queued_run is not None
+        assert queued_run.task_type.value == "youtube_autoflow"
+        assert queued_run.payload["source_url"] == "https://www.youtube.com/watch?v=6yjJ7Prt-RI"
+        assert queued_run.payload["input_text"] == "请处理这个视频 https://www.youtube.com/watch?v=6yjJ7Prt-RI"
+        assert queued_run.payload["source"] == "telegram_gateway"
+        assert queued_run.metadata["session_id"] == payload["session_id"]
+
+        session = telegram_client.get(f"/api/v1/openclaw/sessions/{payload['session_id']}")
+        assert session.status_code == 200
+        session_payload = session.json()
+        assert any(event["role"] == "user" for event in session_payload["events"])
+        assert any("youtube autoflow queued" in event["content"] for event in session_payload["events"])
+        assert session_payload["metadata"]["latest_telegram_youtube_autoflow_run_id"] == run_id
+
+        assert len(notifier.messages) == 1
+        assert "status: accepted" in notifier.messages[0]["text"]
+        assert run_id in notifier.messages[0]["text"]
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+
+
+def test_telegram_youtube_link_rejects_multiple_urls(
+    telegram_client: TestClient,
+) -> None:
+    notifier = _StubTelegramNotifier()
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+
+    try:
+        response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 1316,
+                "message": {
+                    "message_id": 89,
+                    "text": "先处理 https://youtu.be/6yjJ7Prt-RI 再处理 https://youtu.be/dQw4w9WgXcQ",
+                    "chat": {"id": 9711, "type": "private"},
+                    "from": {"id": 9711, "username": "youtube-user"},
+                },
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["accepted"] is False
+        assert payload["session_id"] is not None
+        assert payload["metadata"]["source"] == "telegram_youtube_autoflow"
+        assert payload["metadata"]["status"] == "rejected"
+        assert payload["reason"] == "当前只支持每条消息提交 1 条 YouTube 链接。"
+
+        worker_scheduler = getattr(telegram_client, "_worker_scheduler")
+        assert worker_scheduler.list_queue() == []
+
+        assert len(notifier.messages) == 1
+        assert "status: rejected" in notifier.messages[0]["text"]
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+
+
+def test_telegram_youtube_reference_without_valid_url_is_rejected(
+    telegram_client: TestClient,
+) -> None:
+    notifier = _StubTelegramNotifier()
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+
+    try:
+        response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 1317,
+                "message": {
+                    "message_id": 90,
+                    "text": "处理这个 youtu.be/6yjJ7Prt-RI",
+                    "chat": {"id": 9712, "type": "private"},
+                    "from": {"id": 9712, "username": "youtube-user"},
+                },
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["accepted"] is False
+        assert payload["metadata"]["status"] == "rejected"
+        assert payload["reason"] == "未找到合法的 YouTube URL。"
+
+        worker_scheduler = getattr(telegram_client, "_worker_scheduler")
+        assert worker_scheduler.list_queue() == []
+
+        assert len(notifier.messages) == 1
+        assert "未找到合法的 YouTube URL" in notifier.messages[0]["text"]
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+
+
+def test_telegram_non_youtube_url_continues_to_existing_agent_path(
+    telegram_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "AUTORESEARCH_TELEGRAM_CLAUDE_COMMAND_OVERRIDE",
+        f"{sys.executable} -c \"print('non-youtube-link-ok')\"",
+    )
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_APPEND_PROMPT", "false")
+
+    response = telegram_client.post(
+        "/api/v1/gateway/telegram/webhook",
+        json={
+            "update_id": 1318,
+            "message": {
+                "message_id": 91,
+                "text": "请看这个链接 https://example.com/docs",
+                "chat": {"id": 9713, "type": "private"},
+                "from": {"id": 9713, "username": "link-user"},
+            },
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["accepted"] is True
+    # Default chat now routes to worker queue
+    assert payload.get("metadata", {}).get("routed_to") == "worker_queue"
+    assert payload["metadata"].get("source") != "telegram_youtube_autoflow"
+
+
+def test_telegram_butler_excel_audit_is_accepted_and_reports_background_success(
+    telegram_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    notifier = _StubTelegramNotifier()
+    excel_service = _StubExcelAuditService(mode="success")
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+    monkeypatch.setattr(api_dependencies, "get_excel_audit_service", lambda: excel_service)
+
+    try:
+        response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 1320,
+                "message": {
+                    "message_id": 93,
+                    "text": "帮我核对 sales.xlsx 和 commission.xlsx 的提成差异",
+                    "chat": {"id": 9715, "type": "private"},
+                    "from": {"id": 9715, "username": "excel-user"},
+                },
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["accepted"] is True
+        assert payload["reason"] == "butler routed to excel_audit (async)"
+        assert payload["metadata"]["audit_id"] == "ea_test_001"
+        assert payload["metadata"]["butler_task_type"] == "excel_audit"
+        assert excel_service.created_requests
+        assert excel_service.created_requests[0].source_files == ["sales.xlsx", "commission.xlsx"]
+        assert excel_service.executed_audit_ids == ["ea_test_001"]
+
+        assert len(notifier.messages) == 2
+        assert "Excel 核对已受理" in notifier.messages[0]["text"]
+        assert "ea_test_001" in notifier.messages[0]["text"]
+        assert "Excel 核对完成" in notifier.messages[1]["text"]
+        assert "任务号: ea_test_001" in notifier.messages[1]["text"]
+        assert "/tmp/report.md" in notifier.messages[1]["text"]
+        assert "/tmp/report.json" in notifier.messages[1]["text"]
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+
+
+def test_telegram_butler_excel_audit_reports_background_failure(
+    telegram_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    notifier = _StubTelegramNotifier()
+    excel_service = _StubExcelAuditService(mode="raise")
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+    monkeypatch.setattr(api_dependencies, "get_excel_audit_service", lambda: excel_service)
+
+    try:
+        response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 1321,
+                "message": {
+                    "message_id": 94,
+                    "text": "请核对 report.xlsx",
+                    "chat": {"id": 9716, "type": "private"},
+                    "from": {"id": 9716, "username": "excel-user"},
+                },
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["accepted"] is True
+        assert payload["metadata"]["audit_id"] == "ea_test_001"
+        assert excel_service.executed_audit_ids == ["ea_test_001"]
+
+        assert len(notifier.messages) == 2
+        assert "Excel 核对已受理" in notifier.messages[0]["text"]
+        assert "Excel 核对失败 (ea_test_001): simulated execute failure" == notifier.messages[1]["text"]
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+
+
+def test_telegram_non_excel_request_keeps_original_route_and_skips_excel_dispatch(
+    telegram_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    excel_service = _StubExcelAuditService(mode="success")
+    monkeypatch.setattr(api_dependencies, "get_excel_audit_service", lambda: excel_service)
+    monkeypatch.setenv(
+        "AUTORESEARCH_TELEGRAM_CLAUDE_COMMAND_OVERRIDE",
+        f"{sys.executable} -c \"print('non-excel-ok')\"",
+    )
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_APPEND_PROMPT", "false")
+
+    response = telegram_client.post(
+        "/api/v1/gateway/telegram/webhook",
+        json={
+            "update_id": 1322,
+            "message": {
+                "message_id": 95,
+                "text": "普通聊天，不是表格任务",
+                "chat": {"id": 9717, "type": "private"},
+                "from": {"id": 9717, "username": "chat-user"},
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["accepted"] is True
+    assert payload.get("metadata", {}).get("routed_to") == "worker_queue"
+    assert "audit_id" not in payload.get("metadata", {})
+    assert excel_service.created_requests == []
+    assert excel_service.executed_audit_ids == []
+
+
+def test_telegram_short_affirmation_rewrites_followup_from_previous_assistant_question(
+    telegram_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "AUTORESEARCH_TELEGRAM_CLAUDE_COMMAND_OVERRIDE",
+        f"{sys.executable} -c \"import sys; print(sys.argv[-1])\"",
+    )
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_APPEND_PROMPT", "true")
+
+    openclaw_service = app.dependency_overrides[get_openclaw_compat_service]()
+    session = openclaw_service.create_session(
+        gateway_telegram.OpenClawSessionCreateRequest(
+            channel="telegram",
+            external_id="9714",
+            title="Telegram 9714",
+            metadata={"source": "test"},
+        )
+    )
+    openclaw_service.append_event(
+        session_id=session.session_id,
+        request=gateway_telegram.OpenClawSessionEventAppendRequest(
+            role="assistant",
+            content="今天还没有跑过视频字幕处理。需要我现在触发一次处理吗？",
+            metadata={"source": "test"},
+        ),
+    )
+
+    response = telegram_client.post(
+        "/api/v1/gateway/telegram/webhook",
+        json={
+            "update_id": 1319,
+            "message": {
+                "message_id": 92,
+                "text": "好",
+                "chat": {"id": 9714, "type": "private"},
+                "from": {"id": 9714, "username": "confirm-user"},
+            },
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["accepted"] is True
+    # Default chat now routes to worker queue
+    assert payload.get("metadata", {}).get("routed_to") == "worker_queue"
+    run_id = payload.get("metadata", {}).get("run_id")
+    assert run_id is not None
+
+    # Verify the queued task has the context-resolved prompt
+    scheduler = app.dependency_overrides[get_worker_scheduler_service]()
+    queued_run = scheduler.get_run(run_id)
+    assert queued_run is not None
+    assert queued_run.payload["prompt"].startswith("请按我上一条确认，立即触发一次今天的视频字幕处理。")
+
 def test_telegram_webhook_secret_token_guard(
     telegram_client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
@@ -710,6 +1131,147 @@ def test_telegram_status_query_returns_magic_link(
         assert "skill_providers: 1" in notifier.status_events[0]["summary"]
     finally:
         app.dependency_overrides.pop(get_panel_access_service, None)
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+        app.dependency_overrides.pop(get_capability_provider_registry, None)
+
+
+def test_telegram_location_query_includes_runtime_and_worker_summary(
+    telegram_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    notifier = _StubTelegramNotifier()
+    capability_registry = CapabilityProviderRegistry()
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+    app.dependency_overrides[get_capability_provider_registry] = lambda: capability_registry
+    monkeypatch.setattr(
+        gateway_telegram,
+        "get_runtime_identity",
+        lambda: {
+            "runtime_computer_name": "Linux VM",
+            "runtime_host": "linux-vm.local",
+            "runtime_host_short": "linux-vm",
+            "runtime_platform": "Linux",
+            "runtime_family": "linux",
+            "runtime_display": "Linux VM (linux)",
+            "runtime_fingerprint": "linux:linux-vm.local",
+        },
+    )
+
+    try:
+        registered = telegram_client.post(
+            "/api/v1/workers/register",
+            json={
+                "worker_id": "linux-01",
+                "worker_type": "linux",
+                "name": "Linux Worker",
+                "host": "linux-vm.local",
+                "mode": "active",
+                "role": "housekeeper",
+                "capabilities": ["youtube_autoflow"],
+            },
+        )
+        assert registered.status_code == 200
+
+        response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 3002,
+                "message": {
+                    "message_id": 91,
+                    "text": "在哪",
+                    "chat": {"id": 9527, "type": "private"},
+                    "from": {"id": 9527, "username": "alice"},
+                },
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["accepted"] is True
+        assert payload["agent_run_id"] is None
+
+        assert len(notifier.status_events) == 1
+        summary = notifier.status_events[0]["summary"]
+        assert "runtime: Linux VM (linux)" in summary
+        assert "runtime_host: linux-vm.local" in summary
+        assert "workers_online: 1" in summary
+        assert "worker linux-01 | linux/active | linux-vm.local | ok" in summary
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+        app.dependency_overrides.pop(get_capability_provider_registry, None)
+
+
+def test_telegram_runtime_switch_sends_notification(
+    telegram_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    notifier = _StubTelegramNotifier()
+    capability_registry = CapabilityProviderRegistry()
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+    app.dependency_overrides[get_capability_provider_registry] = lambda: capability_registry
+
+    try:
+        monkeypatch.setattr(
+            gateway_telegram,
+            "get_runtime_identity",
+            lambda: {
+                "runtime_computer_name": "Mac Mini",
+                "runtime_host": "mac-mini.local",
+                "runtime_host_short": "mac-mini",
+                "runtime_platform": "Darwin",
+                "runtime_family": "mac",
+                "runtime_display": "Mac Mini (mac)",
+                "runtime_fingerprint": "mac:mac-mini.local",
+            },
+        )
+        first = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 3003,
+                "message": {
+                    "message_id": 92,
+                    "text": "/memory 记住当前运行位置",
+                    "chat": {"id": 9531, "type": "private"},
+                    "from": {"id": 9531, "username": "runtime-user"},
+                },
+            },
+        )
+        assert first.status_code == 200
+        first_payload = first.json()
+
+        monkeypatch.setattr(
+            gateway_telegram,
+            "get_runtime_identity",
+            lambda: {
+                "runtime_computer_name": "Linux VM",
+                "runtime_host": "linux-vm.local",
+                "runtime_host_short": "linux-vm",
+                "runtime_platform": "Linux",
+                "runtime_family": "linux",
+                "runtime_display": "Linux VM (linux)",
+                "runtime_fingerprint": "linux:linux-vm.local",
+            },
+        )
+        second = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 3004,
+                "message": {
+                    "message_id": 93,
+                    "text": "/status",
+                    "chat": {"id": 9531, "type": "private"},
+                    "from": {"id": 9531, "username": "runtime-user"},
+                },
+            },
+        )
+        assert second.status_code == 200
+        assert any("执行环境已切换" in item["text"] for item in notifier.messages)
+
+        session = telegram_client.get(f"/api/v1/openclaw/sessions/{first_payload['session_id']}")
+        assert session.status_code == 200
+        session_payload = session.json()
+        assert session_payload["metadata"]["runtime_display"] == "Linux VM (linux)"
+        assert session_payload["metadata"]["runtime_previous_display"] == "Mac Mini (mac)"
+    finally:
         app.dependency_overrides.pop(get_telegram_notifier_service, None)
         app.dependency_overrides.pop(get_capability_provider_registry, None)
 

@@ -58,7 +58,8 @@ _PANEL_NOT_READY_HTML = """
 async def lifespan(_: FastAPI):
     settings = get_runtime_settings()
     assert_safe_bind_host(host=settings.api_host, allow_unsafe=settings.api_allow_unsafe_bind)
-    logger.info("Autonomous Agent Stack %s startup initialized", __version__)
+    mode_label = "MINIMAL (stable)" if settings.is_minimal_mode else "FULL (experimental)"
+    logger.info("Autonomous Agent Stack %s startup initialized [mode=%s]", __version__, mode_label)
     yield
     logger.info("Autonomous Agent Stack shutdown complete")
 
@@ -114,15 +115,22 @@ def _mount_panel_surface(app: FastAPI) -> None:
 
 def create_app() -> FastAPI:
     settings = get_runtime_settings()
-    app = FastAPI(
-        title="Autonomous Agent Stack",
-        version=__version__,
-        description="Unified API entrypoint for Telegram, OpenClaw compatibility, and panel control.",
-        lifespan=lifespan,
-    )
+    is_minimal = settings.is_minimal_mode
 
-    required_routers = [
+    # Core routers required for stable single-machine operation
+    core_routers = [
+        ("autoresearch.api.routers.capabilities", "router", "capabilities"),
+        ("autoresearch.api.routers.approvals", "router", "approvals"),
+        ("autoresearch.api.routers.workers", "router", "workers"),
+        ("autoresearch.api.routers.worker_runs", "router", "worker runs"),
+        ("autoresearch.api.routers.panel", "router", "panel api"),
+    ]
+
+    # Optional routers - allowed to fail in minimal mode
+    optional_routers = [
         ("autoresearch.api.routers.evaluations", "router", "evaluations"),
+        ("autoresearch.api.routers.excel_audit", "router", "excel audit"),
+        ("autoresearch.api.routers.excel_ops", "router", "excel ops (requirement #4 scaffold)"),
         ("autoresearch.api.routers.generators", "router", "generators"),
         ("autoresearch.api.routers.executors", "router", "executors"),
         ("autoresearch.api.routers.autoresearch_plans", "router", "autoresearch plans"),
@@ -130,6 +138,7 @@ def create_app() -> FastAPI:
         ("autoresearch.api.routers.synthesis", "router", "synthesis"),
         ("autoresearch.api.routers.loops", "router", "loops"),
         ("autoresearch.api.routers.orchestration", "router", "orchestration"),
+        ("autoresearch.api.routers.runtime", "router", "runtime"),
         ("autoresearch.api.routers.openclaw", "router", "openclaw"),
         ("autoresearch.api.routers.openclaw_housekeeper", "router", "openclaw housekeeper"),
         ("autoresearch.api.routers.panel", "router", "panel api"),
@@ -139,21 +148,45 @@ def create_app() -> FastAPI:
         ("autoresearch.api.routers.gateway_telegram", "router", "telegram gateway"),
         ("autoresearch.api.routers.integrations", "router", "integrations"),
         ("autoresearch.api.routers.reports", "router", "reports"),
+        ("autoresearch.api.routers.youtube", "router", "youtube"),
         ("autoresearch.api.routers.variants", "router", "variants"),
         ("autoresearch.api.routers.optimizations", "router", "optimizations"),
         ("autoresearch.api.routers.experiments", "router", "experiments"),
         ("autoresearch.api.routers.streaming", "router", "streaming"),
         ("autoresearch.api.routers.knowledge_graph", "router", "knowledge graph"),
+        ("autoresearch.api.routers.content_kb", "router", "content kb"),
     ]
-    for module_path, attribute, message in required_routers:
+
+    app = FastAPI(
+        title="Autonomous Agent Stack",
+        version=__version__,
+        description="Unified API entrypoint for Telegram, OpenClaw compatibility, and panel control.",
+        lifespan=lifespan,
+    )
+
+    # Mount core routers (always required)
+    for module_path, attribute, message in core_routers:
         _include_router(app, module_path=module_path, attribute=attribute, required=True, message=message)
+
+    # Mount optional routers (required in full mode, optional in minimal mode)
+    for module_path, attribute, message in optional_routers:
+        _include_router(
+            app,
+            module_path=module_path,
+            attribute=attribute,
+            required=not is_minimal,
+            message=message,
+        )
+
+    if is_minimal:
+        logger.info("Running in MINIMAL mode - optional routers are non-blocking")
 
     if settings.enable_admin:
         _include_router(
             app,
             module_path="autoresearch.api.routers.admin",
             attribute="router",
-            required=True,
+            required=not is_minimal,
             message="admin",
         )
 
@@ -162,7 +195,7 @@ def create_app() -> FastAPI:
             app,
             module_path="autoresearch.api.routers.webauthn",
             attribute="router",
-            required=True,
+            required=not is_minimal,
             message="webauthn",
         )
         _include_router(
@@ -178,7 +211,7 @@ def create_app() -> FastAPI:
             app,
             module_path="autoresearch.api.routers.gateway_telegram",
             attribute="compat_router",
-            required=True,
+            required=not is_minimal,
             message="legacy telegram compat",
         )
 
@@ -187,7 +220,7 @@ def create_app() -> FastAPI:
             app,
             module_path="autoresearch.api.routers.cluster",
             attribute="router",
-            required=True,
+            required=not is_minimal,
             message="cluster",
         )
 

@@ -1,0 +1,46 @@
+{
+  "id": "openclaw",
+  "kind": "runtime",
+  "service": "autoresearch.core.services.openclaw_runtime_adapter:OpenClawRuntimeAdapterService",
+  "version": "0.1",
+  "capabilities": [
+    "create_session",
+    "run",
+    "stream",
+    "cancel",
+    "status"
+  ],
+  "aep_bridge": {
+    "jobspec_inputs": [
+      "run_id",
+      "agent_id",
+      "task",
+      "mode",
+      "policy.timeout_sec",
+      "metadata.openclaw",
+      "input_artifacts"
+    ],
+    "result_fields": [
+      "status",
+      "summary",
+      "changed_paths",
+      "output_artifacts",
+      "metrics",
+      "recommended_action",
+      "error"
+    ],
+    "workspace_binding": "JobSpec.metadata.openclaw.work_dir -> ClaudeAgentCreateRequest.work_dir -> RuntimeRunRead.work_dir",
+    "artifact_bindings": [
+      "ClaudeAgentRunRead.stdout_preview -> log artifact",
+      "ClaudeAgentRunRead.stderr_preview -> log artifact",
+      "OpenClawSessionRead.events -> session event log artifact"
+    ]
+  },
+  "metadata": {
+    "lane": "runtime_adapter_v1",
+    "non_goals": [
+      "process_driver",
+      "runtime_factory_v2"
+    ]
+  }
+}

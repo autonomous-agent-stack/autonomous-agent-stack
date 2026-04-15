@@ -1,301 +1,313 @@
 # Autonomous Agent Stack
 
-一个面向多智能体编排、工作流触发、自集成验证和零信任加固的工程化仓库。
+**A governed, session-centered control plane for long-running agents.**
 
-## 运行时要求
+Run coding agents under zero-trust execution, durable session history, isolated capabilities, and explicit promotion gates instead of handing repository ownership to a single runtime.
 
-- Python 基线：`3.11+`
-- 本仓库当前在 CI 中验证：`3.11`、`3.12`
-- 如果本机默认 `python3` 低于 3.11，请先安装 3.11+ 再执行 `make setup`
+[![CI](https://github.com/srxly888-creator/autonomous-agent-stack/workflows/CI/badge.svg)](https://github.com/srxly888-creator/autonomous-agent-stack/actions/workflows/ci.yml)
+[![Quality Gates](https://github.com/srxly888-creator/autonomous-agent-stack/workflows/Quality%20Gates/badge.svg)](https://github.com/srxly888-creator/autonomous-agent-stack/actions/workflows/quality-gates.yml)
+[![RFC](https://img.shields.io/badge/RFC-4%20Draft-orange)](docs/rfc/)
 
-## 为什么现在更容易上手
+**English** | [简体中文](README.zh-CN.md)
 
-参考 ClawX 的使用体验，这个仓库把新手最常见的三个问题做了统一入口。
+---
 
-| 常见痛点 | 现在的做法 |
-| --- | --- |
-| 启动命令太多，不知道先跑哪个 | `make setup -> make doctor -> make start` |
-| 报错信息分散，定位慢 | `scripts/doctor.py` 统一体检并给出下一步建议 |
-| 文档和实际入口不一致 | README、Makefile、启动脚本使用同一套命令 |
+## What AAS Is
 
-## 3 分钟上手
+Autonomous Agent Stack (AAS) is a governed control plane for long-running agent execution.
+
+It separates durable session history, execution capabilities, orchestration policies, and promotion authority so that no single model runtime gets to discover work, edit code, approve its own output, and publish it.
+
+AAS is not a generic AI agent demo. It is built for teams that want to integrate tools such as OpenHands, Codex, or custom agents without collapsing trust boundaries. In AAS, those tools are execution surfaces, not the system of record.
+
+Today, AAS is focused on a high-value vertical: governed repository changes. Long term, the same control-plane model is intended to support broader agent work across heterogeneous runtimes, tools, and environments.
+
+AAS is evolving toward a more Agent OS-like control layer, but today it should first be understood as a governed control plane for long-running agents.
+
+Over time, agent distribution may look increasingly app-like, with installable and removable agent packages, tools, or skills. But that is the distribution layer. AAS is concerned with the system layer beneath it: session, capability, policy, and promotion.
+
+In federated settings, agents are not just app-like packages. They also behave like dispatched workers: scoped, leased, auditable, and recallable across trust boundaries. Capabilities may look like apps, agents behave more like workers, and AAS exists as the control plane that governs both.
+
+## Why This Matters
+
+As agents take on work that spans many context windows, the hard problem is no longer just "can the model code?"
+
+The hard problem is:
+
+- Can the system preserve progress across sessions?
+- Can it recover state after failure or handoff?
+- Can it isolate capabilities without making one runtime the trusted core?
+- Can it promote privileged changes explicitly instead of implicitly?
+
+Most agent stacks hard-code temporary model limitations into permanent architecture. AAS takes the opposite approach: keep the system abstractions stable, and keep the harness replaceable.
+
+## Core Model
+
+```text
+Session -> policy -> isolated capability -> validation -> promotion
+```
+
+Current implementation focus:
+
+```text
+Planner -> isolated worker -> validation gate -> promotion gate -> patch artifact or draft PR
+```
+
+Core invariants:
+
+- Patch-only by default
+- Deny-wins policy merging
+- Single-writer promotion for mutable state
+- Runtime artifacts never promote into source
+- Clean-base checks before draft PR promotion
+
+Deep implementation details live in [ARCHITECTURE.md](ARCHITECTURE.md) and the RFC index in [docs/rfc/README.en.md](docs/rfc/README.en.md).
+
+## Stable Abstractions
+
+### Session
+
+A durable execution history, not a mirror of the context window.
+
+### Capability
+
+Sandboxes, remote workers, MCP servers, browsers, and git proxies treated as isolated hands.
+
+### Policy
+
+Replaceable orchestration rules for context assembly, retries, evaluation, escalation, and routing.
+
+### Promotion
+
+Explicit, auditable state transitions for any privileged change.
+
+## What Makes AAS Different
+
+| Traditional agent stack | AAS |
+|---|---|
+| Agent gets repository write authority | Worker produces a bounded patch candidate |
+| Planning, execution, and merge authority live in one runtime | Policy, execution, and promotion are separated |
+| Validation is optional or ad hoc | Validation and promotion rules are on the main path |
+| External tools become the de facto control plane | Tools plug into a governed control plane |
+| Runtime state leaks into source changes | Runtime artifacts and source promotion are isolated |
+| Trust is implicit | Zero-trust invariants are explicit and auditable |
+
+## Design Principles
+
+- Do not turn temporary model weaknesses into permanent system architecture.
+- Do not let a single runtime become the trusted core.
+- Do not rely on the model being "not clever enough" for security.
+- Keep orchestration replaceable.
+- Keep privileged changes explicit.
+- Preserve recoverable history outside the context window.
+
+## Quick Start
+
+Requirements:
+
+- Python 3.11+
+- `make`
+- Docker or Colima for `ai-lab` and sandbox-backed flows (optional for basic local startup)
 
 ```bash
-cd /Volumes/PS1008/Github/autonomous-agent-stack
-# 确保这里用的是 Python 3.11+
+git clone https://github.com/srxly888-creator/autonomous-agent-stack.git
+cd autonomous-agent-stack
+
 make setup
 make doctor
-make doctor-linux
 make start
 ```
 
-启动后可访问：
+Open after startup:
 
-- `http://127.0.0.1:8001/health`
-- `http://127.0.0.1:8001/docs`
-- `http://127.0.0.1:8001/panel`
+- API docs: `http://127.0.0.1:8001/docs`
+- Admin panel: `http://127.0.0.1:8001/panel`
+- Health check: `http://127.0.0.1:8001/health`
 
-如果你要启用 Telegram 提醒和 Mini App 审批，至少补齐这 4 个环境变量：
-
-```bash
-AUTORESEARCH_TELEGRAM_BOT_TOKEN=...
-AUTORESEARCH_TELEGRAM_ALLOWED_UIDS=你的TelegramUID
-AUTORESEARCH_PANEL_JWT_SECRET=随机长串
-AUTORESEARCH_PANEL_BASE_URL=https://你的面板域名/api/v1/panel/view
-```
-
-如果还希望通知卡片直接带 `Mini App` 按钮，再补：
+Validate the local setup:
 
 ```bash
-AUTORESEARCH_TELEGRAM_MINI_APP_URL=https://你的面板域名/api/v1/panel/view
-```
-
-如果你要把上游 OpenClaw 巡检挂成 Planner 的可选低噪音任务，再补这 3 个变量：
-
-```bash
-AUTORESEARCH_UPSTREAM_WATCH_URL=https://github.com/openclaw/openclaw.git
-AUTORESEARCH_UPSTREAM_WATCH_WORKSPACE_ROOT=/Volumes/AI_LAB/ai_lab/workspace
-AUTORESEARCH_UPSTREAM_WATCH_MAX_COMMITS=5
-```
-
-当前代码会优先使用 `AUTORESEARCH_TELEGRAM_BOT_TOKEN`；旧变量 `TELEGRAM_BOT_TOKEN` 还能兼容，但已经是 deprecated。
-
-## Linux 远端节点
-
-如果你准备把 Linux 当“执行面”来跑真实 OpenHands，最稳的第一步不是照搬 Mac/Colima，而是直接走 `host` runtime。
-
-最小路径：
-
-```bash
-python3.11 -m venv .venv
-source .venv/bin/activate
-make setup
-OPENHANDS_RUNTIME=host make doctor-linux
-OPENHANDS_RUNTIME=host make start
-```
-
-更完整的落地清单、环境变量建议和远端使用姿势见：
-
-- [Linux Remote Worker Guide](./docs/linux-remote-worker.md)
-- [cc-switch Usage Guide](./docs/cc-switch-usage.md)
-- [OpenHands Controlled Backend Integration](./docs/openhands-cli-integration.md)
-
-## 常用命令
-
-```bash
-make help
-make setup
-make doctor
-make doctor-linux
-make start
 make test-quick
-make ai-lab
-make ai-lab-check
-make ai-lab-setup
-make masfactory-flight
-make masfactory-flight GOAL="探测当前 M1 的 CPU 核心数"
-make masfactory-flight GOAL="探测当前 M1 的 CPU 核心数" WATCH=1
-make openhands-dry-run
-make openhands OH_TASK="Please scan /opt/workspace/src/autoresearch/core and fix TODOs with tests."
-make openhands-controlled-dry-run
-make openhands-controlled OH_TASK="Create src/demo_math.py with add(a,b), then run validation."
-make openhands-demo OH_BACKEND=mock OH_TASK="Create src/demo_math.py with add(a,b)."
-make agent-run AEP_AGENT=openhands AEP_TASK="Create src/demo_math.py with add(a,b)."
+make smoke-local
+make hygiene-check
+```
+
+For detailed setup and troubleshooting, read [docs/QUICK_START.md](docs/QUICK_START.md). For remote or multi-machine execution, start with [docs/linux-remote-worker.md](docs/linux-remote-worker.md).
+
+## Stable Single-Machine Mode
+
+**v0.1.0-stable** establishes a verified baseline for running AAS on a single machine without external dependencies.
+
+The default mode is **minimal** (stable), which:
+- Starts reliably with core features only
+- Makes optional routers non-blocking
+- Disables experimental features by default
+- Suitable for local development and testing
+
+```bash
+# Default: minimal mode (stable)
+AUTORESEARCH_MODE=minimal make start
+
+# Full mode: all features (experimental)
+AUTORESEARCH_MODE=full make start
+```
+
+### What Works in Stable Mode
+
+| Feature | Status |
+|---------|--------|
+| FastAPI application | ✅ Starts at `http://127.0.0.1:8001` |
+| SQLite control plane | ✅ `artifacts/api/*.sqlite3` |
+| AEP runner (mock) | ✅ End-to-end execution |
+| Runtime artifact exclusion | ✅ Patch hygiene enforced |
+| Health/docs endpoints | ✅ All respond correctly |
+
+### What's Explicitly Out of Scope
+
+- Distributed execution (requires queue infrastructure)
+- Telegram integration (requires bot token)
+- WebAuthn (requires additional setup)
+- Cluster mode (distributed coordination only)
+
+See [STATUS_AND_RELEASE_NOTES.md](STATUS_AND_RELEASE_NOTES.md) for complete details.
+
+## Requirement #4 Ready Baseline
+
+**Branch**: `feat/single-machine-aas-ready-for-req4`
+**Status**: ✅ Engineering Scaffold Complete - **NOT Production Complete**
+
+This branch provides a **complete engineering scaffold** for requirement #4 (Excel commission processing). All preparation is done - business logic implementation can start immediately when required assets arrive.
+
+⚠️ **This is a "stable single-machine requirement-4 ready baseline"** - engineering scaffold is complete and verified, but business logic implementation is blocked awaiting business assets.
+
+### What's Ready
+
+| Component | File | Status |
+|-----------|------|--------|
+| Commission Engine | `src/autoresearch/core/services/commission_engine.py` | ✅ Deterministic interface |
+| Excel Jobs Repository | `src/autoresearch/core/repositories/excel_jobs.py` | ✅ SQLite-backed |
+| Excel Ops Service | `src/autoresearch/core/services/excel_ops.py` | ✅ Orchestration layer |
+| Excel Ops Router | `src/autoresearch/api/routers/excel_ops.py` | ✅ REST API |
+| Models & Contracts | `src/autoresearch/shared/excel_ops_models.py` | ✅ Schemas defined |
+| Contract Tests | `tests/test_excel_ops_service.py` | ✅ Verify blocking |
+| Validation Script | `scripts/validate_stable_baseline.sh` | ✅ `make validate-req4` |
+
+### Awaiting Business Assets
+
+| Asset | Purpose | Location |
+|-------|---------|----------|
+| Excel contracts | File schemas, column mappings | `tests/fixtures/requirement4_contracts/` |
+| Ambiguity checklist | 7 categories of edge case decisions | `tests/fixtures/requirement4_contracts/` |
+| Sample Excel files | Real input data for testing | `tests/fixtures/requirement4_samples/` |
+| Golden outputs | Expected calculation results | `tests/fixtures/requirement4_golden/` |
+
+### Validate Scaffold
+
+```bash
+# Validate requirement #4 readiness
+make validate-req4
+
+# Run contract tests
+pytest tests/test_excel_ops_service.py -v
+
+# Check readiness status
+cat docs/requirement4/IMPLEMENTATION_READY_CHECKLIST.md
+```
+
+### Safety Guarantees
+
+- **No Silent Calculations**: Blocks without valid contracts
+- **Deterministic Only**: No LLM reasoning in production path
+- **Audit Trail**: Job state tracked in SQLite
+- **Runtime Artifact Exclusion**: Patches exclude `.masfactory_runtime/`, `logs/`, `memory/`
+
+**See**: [docs/requirement4/](docs/requirement4/) for complete preparation details.
+
+**For implementation**:
+- English: [docs/requirement4/CLAUDE_CODE_BEST_PRACTICES.md](docs/requirement4/CLAUDE_CODE_BEST_PRACTICES.md)
+- 中文: [docs/requirement4/CLAUDE_CODE_BEST_PRACTICES_ZH.md](docs/requirement4/CLAUDE_CODE_BEST_PRACTICES_ZH.md)
+- **资产到达后的行动指南**: [docs/requirement4/ACTION_PLAN_WHEN_ASSETS_ARRIVE_ZH.md](docs/requirement4/ACTION_PLAN_WHEN_ASSETS_ARRIVE_ZH.md) ⭐ **推荐** - 包含 4 个必需资产的详细说明和示例
+
+---
+
+## Controlled Integrations
+
+## Controlled Integrations
+
+AAS is designed to integrate agent runtimes without turning them into the trusted core:
+
+- OpenHands as a constrained worker behind patch-only contracts and promotion gates
+- Codex and custom adapters through controlled execution and AEP-style job specs
+- Remote workers for machine-specific capabilities, credentials, or isolated execution surfaces
+- GitHub and chat-triggered workflows routed back into the same control plane
+
+See [docs/openhands-cli-integration.md](docs/openhands-cli-integration.md), [docs/agent-execution-protocol.md](docs/agent-execution-protocol.md), and [docs/linux-remote-worker.md](docs/linux-remote-worker.md).
+
+## Documentation
+
+Start here:
+
+- [WHY_AAS.md](WHY_AAS.md): project motivation and design direction
+- [docs/QUICK_START.md](docs/QUICK_START.md): detailed setup and troubleshooting
+- [CONTRIBUTING.md](CONTRIBUTING.md): contribution workflow and expectations
+
+Go deeper:
+
+- [ARCHITECTURE.md](ARCHITECTURE.md): canonical current architecture
+- [docs/agent-execution-protocol.md](docs/agent-execution-protocol.md): execution contract and policy model
+- [docs/api-reference.md](docs/api-reference.md): API surface
+
+Explore integrations and evolution:
+
+- [docs/openhands-cli-integration.md](docs/openhands-cli-integration.md): OpenHands as a controlled worker
+- [docs/github-assistant-quickstart.md](docs/github-assistant-quickstart.md): GitHub assistant flows
+- [docs/rfc/README.en.md](docs/rfc/README.en.md): RFC index and design process
+
+## Roadmap
+
+### Now
+
+A stable single-repo control plane with isolated execution and promotion checks.
+
+### Next
+
+- Session-first recovery and replay
+- Capability registry for heterogeneous workers and tools
+- Policy seams for orchestration strategies
+- Distributed execution with durable queues, leases, and heartbeats
+
+### Long Term
+
+A governed runtime substrate for long-running agent work across multiple models, multiple hands, and multiple trust boundaries.
+
+## Who This Is For
+
+AAS is for teams that want:
+
+- autonomous execution without repository ownership
+- durable progress across long-running tasks
+- zero-trust safety boundaries
+- auditable promotion workflows
+- multi-runtime interoperability without surrendering control
+
+## Contributing
+
+If you want to contribute, start with [CONTRIBUTING.md](CONTRIBUTING.md) and [ARCHITECTURE.md](ARCHITECTURE.md). Small documentation fixes and focused bug fixes are good first contributions. Architectural changes should start as an RFC in [docs/rfc/](docs/rfc/).
+
+A typical local loop is:
+
+```bash
+make review-setup
+make test-quick
 make hygiene-check
 make review-gates-local
 ```
 
-`make hygiene-check` 会把结果写到 `logs/audit/prompt_hygiene/report.txt` 和 `logs/audit/prompt_hygiene/report.json`。
+`make review-setup` installs mypy, bandit, and semgrep into `.venv-review` so the
+main `.venv` can stay aligned with `make setup`.
 
-`make openhands` 会调用 `scripts/openhands_start.sh`（CLI 直连模式），默认注入 `DIFF_ONLY=1` 与 `MAX_FILES_PER_STEP=3` 的执行约束；当前真实边界请以 [ARCHITECTURE.md](./ARCHITECTURE.md) 为总图，以 [memory/SOP/MASFactory_Strict_Execution_v1.md](./memory/SOP/MASFactory_Strict_Execution_v1.md) 为执行清单。
+Open an issue or discussion if you want to validate a design direction before implementation.
 
-当前 launcher 会优先读取根目录 `ai_lab.env`。`host` 模式下会优先寻找 `./.masfactory_runtime/tools/openhands-cli-py312/bin/openhands` 这类独立工具 venv，并自动在本地 OpenHands home 下生成 `agent_settings.json`；`ai-lab` 模式则默认调用容器内的 `openhands`。默认模板会走 `--exp --headless`，因为本地验证的 `OpenHands CLI 1.5.0` 在这条路径上能自动收尾退出，更适合作为 pipeline worker：
+## License
 
-```bash
-RUNTIME=process \
-SANDBOX_VOLUMES=/你的workspace:/workspace:rw \
-openhands --exp --headless -t "你的任务"
-```
-
-实际执行时 launcher 会先 `cd` 到目标 worktree，再启动 CLI，所以 OpenHands 的 workspace 会对准当前任务目录。如果你要切回旧的“把 prompt 当位置参数”模式，可显式设置 `OPENHANDS_HEADLESS=0`；如果你明确想关闭 `--exp`，可设置 `OPENHANDS_EXPERIMENTAL=0`。`OPENHANDS_JSON=1` 仅适用于明确支持该 flag 的 CLI 版本；当前本地验证的 `OpenHands CLI 1.5.0` 默认不带它。如果要走真实 `ai-lab` 容器链，除了容器内 `openhands` 本身可用，还需要当前 shell 对配置的 Docker/Colima socket 有访问权限。`sandbox/ai-lab/Dockerfile` 也默认锁到同一个 `OpenHands CLI 1.5.0`，避免容器冷启动时漂移到未验证的新版本。
-
-`launch_ai_lab.sh` 也会显式识别 `DOCKER_HOST=unix://...` 这类 Colima socket。如果当前配置指向了一个当前用户不可访问的 Colima socket，它会先尝试安全回退：有外置盘 Colima store 时走 repo 自带的 `scripts/colima-external.sh`，否则直接回退到当前用户自己的 `~/.colima/<profile>/docker.sock`，而不是直接放宽宿主机 socket 权限。当前用户回退分支还会显式把 `/Volumes/AI_LAB` 挂进 Colima；如果你不想碰现有默认 profile，可直接用独立 profile，例如 `COLIMA_PROFILE=ai-lab bash ./scripts/launch_ai_lab.sh status`。
-
-`make openhands-controlled` 会走最窄闭环：创建隔离 workspace、执行 OpenHands 子任务、运行校验、输出 promotion patch 与审计摘要（不直接污染主仓库）。
-
-`make agent-run` 走 AEP v0 统一执行内核：`JobSpec -> driver adapter -> patch gate -> decision`，OpenHands/Codex/本地脚本都可作为 driver 接入。
-
-`make review-gates-local` 会在本地运行 reviewer 核心模块的 `mypy + bandit + semgrep`，与 CI 的 `Quality Gates` 流程保持一致。
-
-## 本地 CLI 切换工具的边界
-
-像 `cc-switch` 这类工具，适合放在本地开发工作台，用来切换 `Codex`、`OpenClaw`、`Claude Code` 等 CLI 进行人工调试和 prompt 试验。
-
-但它不应该替代本仓库的执行主链。这里真正负责受控执行的是 `make agent-run`、`make openhands-controlled`、AEP runner、validator 和 promotion gate。
-
-如果你想把 `cc-switch` 接进日常工作流，推荐只做旁路工作台，不要改写 `drivers/openhands_adapter.sh` 或 `scripts/openhands_start.sh` 的主逻辑。详细边界见 [cc-switch Usage Guide](./docs/cc-switch-usage.md)。
-
-## PR 审查与门禁
-
-- OpenHands 首轮审查（comment-only）：`.github/workflows/pr-review-by-openhands.yml`
-  - 触发方式：默认 `review-this` label；可选通过 `OPENHANDS_REVIEWER_HANDLE` 启用 reviewer 触发
-  - 安全策略：`pull_request` 事件、仅内部分支 PR（跳过 forks）、最小权限、action/extension 固定 SHA
-  - 合并策略：按需触发模式下不设为 required status check（仅作为 advisory reviewer）
-- 质量门禁：`.github/workflows/quality-gates.yml`
-  - 检查项：`mypy + bandit + semgrep`（工具版本固定在 `requirements-review.lock`）
-  - 包含 `merge_group` 触发，兼容 merge queue
-- 仓库 required checks 建议：`CI / lint-test-audit` + `Quality Gates / reviewer-gates`
-- 试运行与反馈闭环：见 [PR Review Hardening](./docs/pr-review-hardening.md) 里的 `Trial Rubric` 与 `Feedback Loop`
-
-完整落地说明见：[PR Review Hardening](./docs/pr-review-hardening.md)
-
-如果端口冲突：
-
-```bash
-PORT=8010 make start
-```
-
-## 你可以拿它做什么
-
-- 从 Telegram 触发仓库审查任务
-- 生成带语言分布的审查报告
-- 为外部仓库生成 prototype，并在 secure-fetch 后推进 promotion
-- 扫描并执行本地技能
-- 运行零信任加固脚本和相关验证脚本
-
-## OpenHands 接入边界（重要）
-
-- “更容易上手”指 AAS 的统一启动和排错流程：`make setup -> make doctor -> make start`。
-- OpenHands 文档里的“切换简单”指其内部 SDK/workspace 抽象下的切换，不等同于跨平台融合。
-- 本仓库采用分层接法：AAS 负责任务路由、状态、校验与 promotion；OpenHands 只负责隔离 workspace 内的代码执行。
-
-最窄链路：
-
-1. AAS 下发 task（受控输入契约）
-2. OpenHands 在隔离 workspace 执行
-3. AAS 执行 validation gate
-4. AAS 产出 promotion patch 并决定 promote/reject
-
-详见：[OpenHands Controlled Backend Integration](./docs/openhands-cli-integration.md)
-协议文档：[Agent Execution Protocol (AEP v0)](./docs/agent-execution-protocol.md)
-
-## 关键入口
-
-- [API 主入口](./src/autoresearch/api/main.py)
-- [工作流引擎](./src/workflow/workflow_engine.py)
-- [Telegram Gateway（主线）](./src/autoresearch/api/routers/gateway_telegram.py)
-- [Telegram Webhook（legacy compatibility only）](./src/gateway/telegram_webhook.py)
-- [自集成服务](./src/autoresearch/core/services/self_integration.py)
-- [自集成路由](./src/autoresearch/api/routers/integrations.py)
-- [技能注册表](./src/opensage/skill_registry.py)
-- [MASFactory 骨架](./src/masfactory/graph.py)
-- [MASFactory 首航示例](./examples/masfactory_first_flight.py)
-
-## 快速排错
-
-1. 先跑 `make doctor`，看是否有 `FAIL`
-2. Linux 远端执行节点先跑 `OPENHANDS_RUNTIME=host make doctor-linux`
-3. 如果提示 Python 版本过低，先切到 Python 3.11+，再执行 `make setup`
-4. 如果是端口问题，执行 `PORT=8010 make start`
-5. 如果是导入问题，确认通过 `make start` 启动（脚本会自动设置 `PYTHONPATH=src`）
-
-## 🎯 灵感来源（Inspirations）
-
-本项目深受以下 6 个优秀开源库的启发：
-
-### 1. **MASFactory** - 多智能体编排框架
-**GitHub**: https://github.com/BUPT-GAMMA/MASFactory  
-**Stars**: 125+  
-**启发点**:
-- ✅ 4 节点图结构（Planner/Generator/Executor/Evaluator）
-- ✅ M1 本地执行沙盒
-- ✅ MCP 网关集成
-- ✅ 可视化监控看板
-
----
-
-### 2. **deer-flow** - 并发编排与沙盒隔离
-**GitHub**: https://github.com/nxs9bg24js-tech/deer-flow  
-**Stars**: 45,000+  
-**启发点**:
-- ✅ 多智能体并发编排（Lead Agent + Sub-agents）
-- ✅ 沙盒隔离执行（三级防御：L1/L2/L3）
-- ✅ 持久化长程记忆
-- ✅ Markdown Skills
-
----
-
-### 3. **OpenSage** - 自演化智能体
-**论文**: arXiv:2602.16891  
-**官网**: https://www.opensage-agent.ai/  
-**启发点**:
-- ✅ 自编程智能体（Level 3 - AI 自动创建）
-- ✅ Self-generating Agent Topology（自生成拓扑）
-- ✅ Dynamic Tool and Skill Synthesis（动态工具合成）
-- ✅ Hierarchical, Graph-based Memory（分层图记忆）
-
----
-
-### 4. **OpenClaw** - 多渠道接入与技能系统
-**GitHub**: https://github.com/openclaw/openclaw  
-**Stars**: 1,000+  
-**启发点**:
-- ✅ 多渠道接入（Telegram、Discord、Signal）
-- ✅ 技能系统（SKILL.md）
-- ✅ 会话管理
-- ✅ 记忆系统（MEMORY.md）
-
----
-
-### 5. **OpenSpace** - SOP 演化引擎
-**GitHub**: https://github.com/HKUDS/OpenSpace  
-**版本**: v0.1.0  
-**启发点**:
-- ✅ 自演化技能引擎（越用越聪明）
-- ✅ Markdown SOP 演化（安全、可读、可积累）
-- ✅ AUTO-LEARN 机制（自动学习新技能）
-- ✅ 网络效应（集体智慧共享）
-
----
-
-### 6. **AutoResearch** - Karpathy 循环
-**GitHub**: https://github.com/karpathy/autoresearch  
-**Stars**: 48,800+  
-**作者**: Andrej Karpathy（前 Tesla AI 总监）  
-**启发点**:
-- ✅ **自主实验循环**（Autonomous Experiment Loop）
-  ```
-  propose → train → evaluate → commit/revert → repeat
-  ```
-- ✅ 并行探索策略（多分支并行）
-- ✅ 结果导向（保留改进，回滚失败）
-- ✅ 无限迭代（自主优化）
-
----
-
-### 整合价值
-
-| 开源库 | 核心价值 | 应用到本项目 |
-|--------|---------|-------------|
-| **MASFactory** | 多智能体编排 | 4 节点图结构 + MCP 网关 |
-| **deer-flow** | 并发编排 + 沙盒 | Lead Agent + Docker 沙盒 |
-| **OpenSage** | 自演化机制 | OpenSage 模块 + 动态工具合成 |
-| **OpenClaw** | 渠道接入 | Telegram Webhook + 技能系统 |
-| **OpenSpace** | SOP 演化引擎 | Markdown 技能库 + AUTO-LEARN |
-| **AutoResearch** | Karpathy 循环 | Propose-Train-Evaluate-Repeat |
-
----
-
-**价值主张**: "构建无需人类干预、通过多渠道自我优化的超级智能体网络"
-
----
-
-## 深入文档
-
-- [快速启动文档](./docs/QUICK_START.md)
-- [架构总图](./ARCHITECTURE.md)
-- [Admin View 字段填写教程](./docs/admin-view-field-guide.md)
-- [状态与发布说明](./STATUS_AND_RELEASE_NOTES.md)
-- [工作流引擎验证报告](./docs/WORKFLOW_ENGINE_VERIFICATION_REPORT.md)
-- [自集成协议](./docs/p4-self-integration-protocol.md)
-- [零信任实施方案](./docs/zero-trust-implementation-plan-v2.md)
+[MIT](LICENSE)

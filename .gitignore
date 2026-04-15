@@ -10,7 +10,6 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
 lib64/
 parts/
 sdist/
@@ -19,6 +18,10 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+
+# BUT keep our project lib/ module
+!lib/
+!lib/*.py
 
 # Virtual environments
 .venv/
@@ -52,6 +55,8 @@ artifacts/
 .env.linux
 ai_lab.env
 .masfactory_runtime/
+runs/
+.gh-profiles/
 
 # Logs
 *.log
@@ -65,3 +70,5 @@ htmlcov/
 # Memory
 memory/daily-logs/*.md
 !memory/daily-logs/.gitkeep
+gstack/
+.autoresearch/p4_runs/

@@ -21,7 +21,9 @@ OPENCLAW_REPO="${OPENCLAW_REPO:-/Volumes/PS1008/Github/openclaw}"
   echo "## candidates: sqlite db files"
   for p in "${OPENCLAW_HOME}" "${OPENCLAW_MEMORY_REPO}" "${OPENCLAW_REPO}"; do
     if [[ -d "${p}" ]]; then
-      find "${p}" -type f \( -name "*.sqlite" -o -name "*.sqlite3" -o -name "*.db" \) 2>/dev/null | sed "s/^/  - /"
+      while IFS= read -r match; do
+        [[ -n "${match}" ]] && echo "  - ${match}"
+      done < <(find "${p}" -type f \( -name "*.sqlite" -o -name "*.sqlite3" -o -name "*.db" \) 2>/dev/null || true)
     else
       echo "  - missing dir: ${p}"
     fi
@@ -31,7 +33,9 @@ OPENCLAW_REPO="${OPENCLAW_REPO:-/Volumes/PS1008/Github/openclaw}"
   echo "## candidates: openclaw config json"
   for p in "${OPENCLAW_HOME}" "${OPENCLAW_MEMORY_REPO}" "${OPENCLAW_REPO}"; do
     if [[ -d "${p}" ]]; then
-      find "${p}" -maxdepth 3 -type f \( -name "openclaw.json" -o -name "*.state.json" -o -name "runs.json" \) 2>/dev/null | sed "s/^/  - /"
+      while IFS= read -r match; do
+        [[ -n "${match}" ]] && echo "  - ${match}"
+      done < <(find "${p}" -maxdepth 3 -type f \( -name "openclaw.json" -o -name "*.state.json" -o -name "runs.json" \) 2>/dev/null || true)
     fi
   done
 } | tee "${LOG_FILE}"

@@ -1,9 +1,23 @@
+ifeq ($(OS),Windows_NT)
+SHELL := cmd.exe
+PYTHON ?= python
+VENV_BIN_DIR := Scripts
+VENV_PYTHON_NAME := python.exe
+VENV_PIP_NAME := pip.exe
+else
 SHELL := /bin/bash
-
 PYTHON ?= python3
+VENV_BIN_DIR := bin
+VENV_PYTHON_NAME := python
+VENV_PIP_NAME := pip
+endif
+
 VENV ?= .venv
 VENV_PYTHON := $(VENV)/bin/python
 VENV_PIP := $(VENV)/bin/pip
+REVIEW_VENV ?= .venv-review
+REVIEW_VENV_PYTHON := $(REVIEW_VENV)/bin/python
+REVIEW_VENV_PIP := $(REVIEW_VENV)/bin/pip
 HOST ?= 127.0.0.1
 PORT ?= 8001
 GOAL ?= 检查 M1 原生算力与工作区可写性
@@ -30,9 +44,10 @@ PROMOTE_BRANCH_PREFIX ?= codex/auto-upgrade
 PROMOTE_PUSH ?= 0
 PROMOTE_OPEN_DRAFT_PR ?= 0
 
-.PHONY: help setup doctor doctor-linux start test-quick clean
+.PHONY: help setup doctor doctor-linux start test-quick smoke-local validate-req4 clean
 .PHONY: ai-lab ai-lab-setup ai-lab-check ai-lab-up ai-lab-down ai-lab-status ai-lab-shell ai-lab-run masfactory-flight hygiene-check openhands openhands-dry-run openhands-controlled openhands-controlled-dry-run openhands-demo agent-run promote-run
-.PHONY: review-gates-local
+.PHONY: review-setup review-gates-local assistant-doctor assistant-triage assistant-execute assistant-review-pr assistant-release-plan assistant-schedule
+.PHONY: telegram-butler-start telegram-butler-status telegram-butler-stop
 
 help:
 	@echo "Autonomous Agent Stack - common commands"
@@ -41,6 +56,10 @@ help:
 	@echo "  make doctor      Run environment checks"
 	@echo "  make doctor-linux Run Linux remote-worker checks"
 	@echo "  make start       Run doctor then start local API"
+	@echo "  make setup-win   Run Windows PowerShell bootstrap"
+	@echo "  make doctor-win  Run Windows PowerShell doctor"
+	@echo "  make start-win   Run Windows PowerShell start"
+	@echo "  make smoke-win   Run Windows PowerShell smoke test"
 	@echo "  make ai-lab      One-key launch AI lab shell"
 	@echo "  make ai-lab-setup Initialize AI lab user and quota volume"
 	@echo "  make ai-lab-check Run guardrail checks only"
@@ -56,46 +75,64 @@ help:
 	@echo "  make openhands-demo OH_BACKEND=mock Run minimal closed-loop demo (contract + failure policy)"
 	@echo "  make agent-run AEP_AGENT=openhands AEP_TASK='...' Run AEP v0 runner entrypoint"
 	@echo "  make promote-run PROMOTE_RUN_ID='...' Turn a ready AEP run into branch/commit/draft PR payload"
+	@echo "  make assistant-doctor Validate GitHub assistant template setup"
+	@echo "  make assistant-triage REPO='owner/repo' ISSUE=123 Triage a managed issue"
+	@echo "  make assistant-execute REPO='owner/repo' ISSUE=123 Execute a managed issue"
+	@echo "  make assistant-review-pr REPO='owner/repo' PR=123 Review a managed pull request"
+	@echo "  make assistant-release-plan REPO='owner/repo' VERSION='v1.2.3' Build a release plan"
+	@echo "  make assistant-schedule Run scheduled issue triage"
+	@echo "  make telegram-butler-start Start API daemon + Telegram poller"
+	@echo "  make telegram-butler-status Show API daemon + Telegram poller status"
+	@echo "  make telegram-butler-stop Stop API daemon + Telegram poller"
 	@echo "  make hygiene-check FAIL_ON_FINDINGS=1 Run prompt hygiene audit for src/"
+	@echo "  make review-setup Create .venv-review with mypy/bandit/semgrep"
 	@echo "  make review-gates-local Run mypy/bandit/semgrep on reviewer core modules"
 	@echo "  make test-quick  Run quick smoke tests"
+	@echo "  make smoke-local Run stable single-machine baseline smoke test"
+	@echo "  make validate-req4 Validate requirement #4 scaffold readiness"
 	@echo "  make clean       Remove Python cache folders"
 	@echo ""
 	@echo "Optional vars: HOST=127.0.0.1 PORT=8001"
 
 setup:
-	$(PYTHON) -m venv $(VENV)
-	$(VENV_PIP) install --upgrade pip
-	@if [[ -f requirements.lock ]]; then \
-		$(VENV_PIP) install -r requirements.lock; \
-	else \
-		$(VENV_PIP) install -r requirements.txt; \
+	$(PYTHON) scripts/local_dev.py --venv $(VENV) setup --python $(PYTHON)
+
+review-setup:
+	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \
+		echo "Missing $(VENV_PYTHON). Run 'make setup' first."; \
+		exit 1; \
 	fi
-	@if [[ ! -f .env && -f .env.template ]]; then \
-		cp .env.template .env; \
-		echo "Created .env from .env.template"; \
+	$(VENV_PYTHON) -m venv $(REVIEW_VENV)
+	$(REVIEW_VENV_PIP) install --upgrade pip
+	@if [[ -f requirements-review.lock ]]; then \
+		$(REVIEW_VENV_PIP) install -r requirements-review.lock; \
+	else \
+		echo "Missing requirements-review.lock."; \
+		exit 1; \
+	fi
+
+review-setup:
+	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \
+		echo "Missing $(VENV_PYTHON). Run 'make setup' first."; \
+		exit 1; \
+	fi
+	$(VENV_PYTHON) -m venv $(REVIEW_VENV)
+	$(REVIEW_VENV_PIP) install --upgrade pip
+	@if [[ -f requirements-review.lock ]]; then \
+		$(REVIEW_VENV_PIP) install -r requirements-review.lock; \
+	else \
+		echo "Missing requirements-review.lock."; \
+		exit 1; \
 	fi
 
 doctor:
-	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \
-		echo "Missing $(VENV_PYTHON). Run 'make setup' first."; \
-		exit 1; \
-	fi
-	$(VENV_PYTHON) scripts/doctor.py --port $(PORT)
+	$(PYTHON) scripts/local_dev.py --venv $(VENV) doctor --port $(PORT)
 
 doctor-linux:
-	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \
-		echo "Missing $(VENV_PYTHON). Run 'make setup' first."; \
-		exit 1; \
-	fi
-	$(VENV_PYTHON) scripts/doctor.py --profile linux-remote --port $(PORT)
+	$(PYTHON) scripts/local_dev.py --venv $(VENV) doctor --profile linux-remote --port $(PORT)
 
 start:
-	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \
-		echo "Missing $(VENV_PYTHON). Run 'make setup' first."; \
-		exit 1; \
-	fi
-	PORT=$(PORT) HOST=$(HOST) bash scripts/dev-start.sh
+	$(PYTHON) scripts/local_dev.py --venv $(VENV) start --host $(HOST) --port $(PORT)
 
 test-quick:
 	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \
@@ -109,6 +146,30 @@ test-quick:
 	fi
 	PYTHONPATH=src $(VENV_PYTHON) tests/test_workflow_quick.py
 	PYTHONPATH=src $(VENV_PYTHON) scripts/test_registry_simple.py
+
+smoke-local:
+	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \
+		echo "Missing $(VENV_PYTHON). Run 'make setup' first."; \
+		exit 1; \
+	fi
+	@echo "Running stable single-machine baseline smoke test..."
+	AUTORESEARCH_MODE=minimal PYTHONPATH=src $(VENV_PYTHON) -m pytest tests/test_stable_local_smoke.py -v
+
+validate-req4:
+	@echo "Validating requirement #4 scaffold readiness..."
+	bash ./scripts/validate_stable_baseline.sh
+
+setup-win:
+	powershell -ExecutionPolicy Bypass -File .\setup.ps1
+
+doctor-win:
+	powershell -ExecutionPolicy Bypass -File .\doctor.ps1
+
+start-win:
+	powershell -ExecutionPolicy Bypass -File .\start.ps1
+
+smoke-win:
+	powershell -ExecutionPolicy Bypass -File .\scripts\windows_smoke.ps1
 
 clean:
 	find . -name "__pycache__" -type d -prune -exec rm -rf {} +
@@ -171,12 +232,24 @@ review-gates-local:
 	MYPY_BIN="mypy"; \
 	BANDIT_BIN="bandit"; \
 	SEMGREP_BIN="semgrep"; \
-	if [[ -x "$(VENV)/bin/mypy" ]]; then MYPY_BIN="$(VENV)/bin/mypy"; fi; \
-	if [[ -x "$(VENV)/bin/bandit" ]]; then BANDIT_BIN="$(VENV)/bin/bandit"; fi; \
-	if [[ -x "$(VENV)/bin/semgrep" ]]; then SEMGREP_BIN="$(VENV)/bin/semgrep"; fi; \
+	SEMGREP_HOME_DIR="$(CURDIR)/.semgrep-home"; \
+	SEMGREP_CERT_FILE=""; \
+	if [[ -x "$(REVIEW_VENV)/bin/mypy" ]]; then MYPY_BIN="$(REVIEW_VENV)/bin/mypy"; \
+	elif [[ -x "$(VENV)/bin/mypy" ]]; then MYPY_BIN="$(VENV)/bin/mypy"; fi; \
+	if [[ -x "$(REVIEW_VENV)/bin/bandit" ]]; then BANDIT_BIN="$(REVIEW_VENV)/bin/bandit"; \
+	elif [[ -x "$(VENV)/bin/bandit" ]]; then BANDIT_BIN="$(VENV)/bin/bandit"; fi; \
+	if [[ -x "$(REVIEW_VENV)/bin/semgrep" ]]; then SEMGREP_BIN="$(REVIEW_VENV)/bin/semgrep"; \
+	elif [[ -x "$(VENV)/bin/semgrep" ]]; then SEMGREP_BIN="$(VENV)/bin/semgrep"; fi; \
+	if ! command -v "$$MYPY_BIN" >/dev/null 2>&1; then echo "Missing mypy. Run 'make review-setup'."; exit 1; fi; \
+	if ! command -v "$$BANDIT_BIN" >/dev/null 2>&1; then echo "Missing bandit. Run 'make review-setup'."; exit 1; fi; \
+	if ! command -v "$$SEMGREP_BIN" >/dev/null 2>&1; then echo "Missing semgrep. Run 'make review-setup'."; exit 1; fi; \
+	if [[ -x "$(REVIEW_VENV_PYTHON)" ]]; then \
+		SEMGREP_CERT_FILE="$$("$(REVIEW_VENV_PYTHON)" -c 'import certifi; print(certifi.where())')"; \
+	fi; \
+	mkdir -p "$$SEMGREP_HOME_DIR"; \
 	$$MYPY_BIN --config-file mypy.ini src/gatekeeper/static_analyzer.py src/gatekeeper/business_enforcer.py src/gatekeeper/llm_reviewer.py src/gatekeeper/board_summarizer.py; \
 	$$BANDIT_BIN -q src/gatekeeper/static_analyzer.py src/gatekeeper/business_enforcer.py src/gatekeeper/llm_reviewer.py src/gatekeeper/board_summarizer.py; \
-	$$SEMGREP_BIN --error --config=p/python src/gatekeeper/static_analyzer.py src/gatekeeper/business_enforcer.py src/gatekeeper/llm_reviewer.py src/gatekeeper/board_summarizer.py
+	HOME="$$SEMGREP_HOME_DIR" SSL_CERT_FILE="$$SEMGREP_CERT_FILE" $$SEMGREP_BIN --error --config=p/python src/gatekeeper/static_analyzer.py src/gatekeeper/business_enforcer.py src/gatekeeper/llm_reviewer.py src/gatekeeper/board_summarizer.py
 
 openhands:
 	OPENHANDS_TASK='$(OH_TASK)' OPENHANDS_DRY_RUN='$(OH_DRY_RUN)' bash ./scripts/openhands_start.sh
@@ -220,3 +293,50 @@ promote-run:
 	else \
 		eval "PYTHONPATH=src $(PYTHON) scripts/promote_run.py $$CMD_ARGS"; \
 	fi
+
+assistant-doctor:
+	@PYTHONPATH=src ./assistant doctor
+
+assistant-triage:
+	@if [[ -z "$(strip $(REPO))" || -z "$(strip $(ISSUE))" ]]; then \
+		echo "Usage: make assistant-triage REPO='owner/repo' ISSUE=123"; \
+		exit 1; \
+	fi
+	@PYTHONPATH=src ./assistant triage "$(REPO)" "$(ISSUE)"
+
+assistant-execute:
+	@if [[ -z "$(strip $(REPO))" || -z "$(strip $(ISSUE))" ]]; then \
+		echo "Usage: make assistant-execute REPO='owner/repo' ISSUE=123"; \
+		exit 1; \
+	fi
+	@PYTHONPATH=src ./assistant execute "$(REPO)" "$(ISSUE)"
+
+assistant-review-pr:
+	@if [[ -z "$(strip $(REPO))" || -z "$(strip $(PR))" ]]; then \
+		echo "Usage: make assistant-review-pr REPO='owner/repo' PR=123"; \
+		exit 1; \
+	fi
+	@PYTHONPATH=src ./assistant review-pr "$(REPO)" "$(PR)"
+
+assistant-release-plan:
+	@if [[ -z "$(strip $(REPO))" ]]; then \
+		echo "Usage: make assistant-release-plan REPO='owner/repo' VERSION='v1.2.3'"; \
+		exit 1; \
+	fi
+	@CMD_ARGS="release-plan \"$(REPO)\""; \
+	if [[ -n "$(strip $(VERSION))" ]]; then CMD_ARGS="$$CMD_ARGS --version \"$(VERSION)\""; fi; \
+	eval "PYTHONPATH=src ./assistant $$CMD_ARGS"
+
+assistant-schedule:
+	@PYTHONPATH=src ./assistant schedule run
+
+telegram-butler-start:
+	bash migration/openclaw/scripts/start-telegram-butler.sh
+
+telegram-butler-status:
+	bash migration/openclaw/scripts/status-api-daemon.sh
+	bash migration/openclaw/scripts/status-telegram-poller.sh
+
+telegram-butler-stop:
+	bash migration/openclaw/scripts/stop-telegram-poller.sh
+	bash migration/openclaw/scripts/stop-api-daemon.sh
