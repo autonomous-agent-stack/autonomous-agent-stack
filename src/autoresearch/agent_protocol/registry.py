@@ -18,6 +18,20 @@ class AgentRegistry:
         payload = _load_yaml_like(manifest_path)
         return AgentManifest.model_validate(payload)
 
+    def load_all(self) -> list[AgentManifest]:
+        manifests: list[AgentManifest] = []
+        if not self._manifests_dir.exists():
+            return manifests
+
+        for manifest_path in sorted(self._manifests_dir.glob("*.yaml")):
+            if manifest_path.stem.startswith("_"):
+                # `_shared*` files are reserved for control-plane shared config,
+                # not per-agent manifests.
+                continue
+            payload = _load_yaml_like(manifest_path)
+            manifests.append(AgentManifest.model_validate(payload))
+        return manifests
+
 
 def _load_yaml_like(path: Path) -> dict[str, Any]:
     text = path.read_text(encoding="utf-8")
