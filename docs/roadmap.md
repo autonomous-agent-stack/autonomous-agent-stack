@@ -163,3 +163,11 @@ Autonomous Agent Stack 的终局不再定义为“更强的自动改代码 Agent
 - capability-first
 
 这不是偏航，而是把现有“受治理的代码变更控制面”继续推进成更稳的 Agent runtime 外层。
+
+---
+
+## 相关笔记 | Related notes
+
+**中文：** 与外部项目（例如 holaOS）做「产品化 / 分发层 / 连续性体验」对标时，优先阅读已核实的决策笔记：[AAS 与 holaOS：可借鉴边界与公开信号核实（2026-04-17）](./decisions/aas-holaos-positioning-and-adoption-notes-2026-04-17.md)。
+
+**English:** When benchmarking productization, distribution, and continuity UX against external projects (e.g., holaOS), start with the verified decision note: [AAS vs holaOS: borrowable boundaries and public-signal verification (2026-04-17)](./decisions/aas-holaos-positioning-and-adoption-notes-2026-04-17.md).
