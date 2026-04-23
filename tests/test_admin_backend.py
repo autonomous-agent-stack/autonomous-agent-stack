@@ -771,3 +771,9 @@ def test_admin_channel_secret_is_encrypted(admin_client: TestClient) -> None:
     )
     assert cleared.status_code == 200
     assert cleared.json()["has_secret"] is False
+
+
+def test_admin_health_endpoint(admin_client: TestClient) -> None:
+    response = admin_client.get("/api/v1/admin/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "version": "1.0.0"}

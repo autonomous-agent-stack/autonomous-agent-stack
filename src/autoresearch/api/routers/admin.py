@@ -337,7 +337,7 @@ def _require_valid_managed_skill_action_binding(
 
 @router.get("/health")
 def admin_health() -> dict[str, str]:
-    return {"status": "ok"}
+    return {"status": "ok", "version": "1.0.0"}
 
 
 @router.get("/capabilities", response_model=AdminCapabilitySnapshotRead)
