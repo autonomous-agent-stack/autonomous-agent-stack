@@ -183,7 +183,7 @@ class WorkerSchedulerService:
         run = self._queue_repository.get(run_id)
         if run is None:
             raise KeyError(run_id)
-        if run.status in {JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.INTERRUPTED}:
+        if run.status in {JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.INTERRUPTED, JobStatus.CANCELLED}:
             raise WorkerReportError("Run is already in a terminal state")
 
         active_leases = self._active_leases(now=current)

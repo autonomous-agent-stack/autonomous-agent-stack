@@ -349,7 +349,7 @@ def test_panel_cancel_retry_writes_audit_and_pushes_notify(panel_client: TestCli
         json={"reason": "manual-stop"},
     )
     assert cancelled.status_code == 200
-    assert cancelled.json()["status"] == "interrupted"
+    assert cancelled.json()["status"] == "cancelled"
 
     retried = panel_client.post(
         f"/api/v1/panel/agents/{run.agent_run_id}/retry",

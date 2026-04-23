@@ -78,7 +78,7 @@ class OpenClawRuntimeAdapterService(RuntimeAdapterContract):
                 session_key=self._string_value(openclaw_metadata.get("session_key")),
                 assistant_id=self._string_value(openclaw_metadata.get("assistant_id")),
                 metadata={
-                    "source": "openclaw_runtime_adapter",
+                    "source": self._runtime_source_label(),
                     "aep_run_id": job.run_id,
                     "aep_agent_id": job.agent_id,
                     "aep_mode": job.mode,
@@ -88,49 +88,10 @@ class OpenClawRuntimeAdapterService(RuntimeAdapterContract):
         )
 
     def run(self, request: RuntimeRunRequest) -> RuntimeRunRead:
-        session_id = request.session_id
-        if session_id is None:
-            session = self.create_session(
-                RuntimeSessionCreateRequest(
-                    runtime_id=self._runtime_id,
-                    channel="runtime",
-                    title=request.task_name,
-                    metadata={
-                        "source": "openclaw_runtime_adapter",
-                    },
-                )
-            )
-            session_id = session.session_id
-        else:
-            self._require_session(session_id)
-
-        create_request = ClaudeAgentCreateRequest(
-            task_name=request.task_name,
-            prompt=request.prompt,
-            session_id=session_id,
-            parent_agent_id=request.parent_run_id,
-            generation_depth=1,
-            timeout_seconds=request.timeout_seconds,
-            work_dir=request.work_dir,
-            cli_args=request.cli_args,
-            command_override=request.command_override,
-            append_prompt=request.append_prompt,
-            skill_names=request.skill_names,
-            images=request.images,
-            env=request.env,
-            metadata={
-                **request.metadata,
-                "runtime_adapter": self._runtime_id,
-            },
-        )
+        session_id = self._resolve_session_id(request)
+        create_request = self._build_create_request(request, session_id=session_id)
         created = self._claude_service.create(create_request)
-        worker = threading.Thread(
-            target=self._claude_service.execute,
-            args=(created.agent_run_id, create_request),
-            daemon=True,
-            name=f"{self._runtime_id}-run-{created.agent_run_id}",
-        )
-        worker.start()
+        self._start_created_run(created.agent_run_id, create_request)
         return self._map_run(created)
 
     def run_from_job(self, job: JobSpec, session_id: str | None = None) -> RuntimeRunRead:
@@ -252,7 +213,7 @@ class OpenClawRuntimeAdapterService(RuntimeAdapterContract):
         elif runtime_run.status in {JobStatus.CREATED, JobStatus.QUEUED, JobStatus.RUNNING}:
             driver_status = "partial"
             recommended_action = "human_review"
-        elif runtime_run.status is JobStatus.INTERRUPTED:
+        elif runtime_run.status in {JobStatus.INTERRUPTED, JobStatus.CANCELLED}:
             driver_status = "failed"
             recommended_action = "retry"
         else:
@@ -319,8 +280,10 @@ class OpenClawRuntimeAdapterService(RuntimeAdapterContract):
         if run is None:
             raise ValueError("run is required")
 
+        metadata = self._compose_runtime_metadata(run)
+        run_for_projection = run.model_copy(update={"metadata": metadata})
         changed_paths = self._string_list(run.metadata.get("changed_paths"))
-        summary = (run.stdout_preview or run.stderr_preview or run.error or f"openclaw runtime {run.status.value}").strip()
+        summary = self._compose_summary(run_for_projection)
         metrics = DriverMetrics(
             duration_ms=int((run.duration_seconds or 0) * 1000),
             steps=max(1, len(run.command)) if run.command else 0,
@@ -339,12 +302,20 @@ class OpenClawRuntimeAdapterService(RuntimeAdapterContract):
             command=list(run.command),
             timeout_seconds=run.timeout_seconds,
             work_dir=run.work_dir,
+            stdout_preview=run.stdout_preview,
+            stderr_preview=run.stderr_preview,
             returncode=run.returncode,
             created_at=run.created_at,
             updated_at=run.updated_at,
-            metadata=dict(run.metadata),
+            metadata=metadata,
             error=run.error,
         )
+
+    def _compose_runtime_metadata(self, run: ClaudeAgentRunRead) -> dict[str, Any]:
+        return dict(run.metadata)
+
+    def _compose_summary(self, run: ClaudeAgentRunRead) -> str:
+        return (run.stdout_preview or run.stderr_preview or run.error or f"openclaw runtime {run.status.value}").strip()
 
     def _build_artifacts(
         self,
@@ -405,6 +376,66 @@ class OpenClawRuntimeAdapterService(RuntimeAdapterContract):
             created_at=self._string_value(payload.get("created_at")) or "",
             metadata=dict(self._mapping_value(payload.get("metadata"))),
         )
+
+    def _runtime_source_label(self) -> str:
+        return f"{self._runtime_id}_runtime_adapter"
+
+    def _resolve_session_id(self, request: RuntimeRunRequest) -> str:
+        session_id = request.session_id
+        if session_id is None:
+            session = self.create_session(
+                RuntimeSessionCreateRequest(
+                    runtime_id=self._runtime_id,
+                    channel="runtime",
+                    title=request.task_name,
+                    metadata={
+                        "source": self._runtime_source_label(),
+                    },
+                )
+            )
+            return session.session_id
+
+        self._require_session(session_id)
+        return session_id
+
+    def _build_create_request(
+        self,
+        request: RuntimeRunRequest,
+        *,
+        session_id: str,
+    ) -> ClaudeAgentCreateRequest:
+        return ClaudeAgentCreateRequest(
+            task_name=request.task_name,
+            prompt=request.prompt,
+            session_id=session_id,
+            parent_agent_id=request.parent_run_id,
+            generation_depth=1,
+            timeout_seconds=request.timeout_seconds,
+            work_dir=request.work_dir,
+            cli_args=request.cli_args,
+            command_override=request.command_override,
+            append_prompt=request.append_prompt,
+            skill_names=request.skill_names,
+            images=request.images,
+            env=request.env,
+            metadata={
+                **request.metadata,
+                "runtime_adapter": self._runtime_id,
+            },
+        )
+
+    def _start_created_run(
+        self,
+        agent_run_id: str,
+        create_request: ClaudeAgentCreateRequest,
+    ) -> None:
+        worker = threading.Thread(
+            target=self._claude_service.execute,
+            args=(agent_run_id, create_request),
+            daemon=True,
+            name=f"{self._runtime_id}-run-{agent_run_id}",
+        )
+        worker.start()
 
     def _openclaw_metadata(self, metadata: dict[str, Any]) -> dict[str, Any]:
         scoped_metadata = self._mapping_value(metadata.get(self._metadata_namespace))

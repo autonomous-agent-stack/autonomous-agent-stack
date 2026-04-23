@@ -55,6 +55,8 @@ class _FakeRuntimeAdapter(RuntimeAdapterContract):
             command=["fake-runtime"],
             timeout_seconds=request.timeout_seconds,
             work_dir=request.work_dir,
+            stdout_preview="runtime stdout",
+            stderr_preview=None,
             returncode=None,
             created_at=now,
             updated_at=now,
@@ -81,7 +83,7 @@ class _FakeRuntimeAdapter(RuntimeAdapterContract):
             runtime_id=request.runtime_id,
             run_id=request.run_id,
             session_id="sess-1",
-            status=JobStatus.INTERRUPTED,
+            status=JobStatus.CANCELLED,
             error=request.reason,
             metadata={},
         )
@@ -112,6 +114,8 @@ class _FakeRuntimeAdapter(RuntimeAdapterContract):
             command=["fake-runtime"],
             timeout_seconds=10,
             work_dir=None,
+            stdout_preview="status stdout",
+            stderr_preview="status stderr",
             returncode=None,
             created_at=now,
             updated_at=now,
@@ -126,6 +130,11 @@ class _FakeRuntimeAdapter(RuntimeAdapterContract):
             error=None,
             metadata={},
         )
+
+
+class _ValueErrorRuntimeAdapter(_FakeRuntimeAdapter):
+    def run(self, request: RuntimeRunRequest) -> RuntimeRunRead:
+        raise ValueError("invalid metadata.hermes: approval_mode")
 
 
 def _client() -> TestClient:
@@ -159,6 +168,8 @@ def test_runtime_router_provides_unified_endpoints() -> None:
     )
     assert run_resp.status_code == 201
     assert run_resp.json()["runtime_id"] == "hermes"
+    assert run_resp.json()["stdout_preview"] == "runtime stdout"
+    assert "stderr_preview" in run_resp.json()
 
     stream_resp = client.get("/api/v1/runtime/hermes/sessions/sess-1/events")
     assert stream_resp.status_code == 200
@@ -167,6 +178,8 @@ def test_runtime_router_provides_unified_endpoints() -> None:
     status_resp = client.get("/api/v1/runtime/hermes/status", params={"run_id": "run-1"})
     assert status_resp.status_code == 200
     assert status_resp.json()["runtime_id"] == "hermes"
+    assert status_resp.json()["run"]["stdout_preview"] == "status stdout"
+    assert status_resp.json()["run"]["stderr_preview"] == "status stderr"
 
     cancel_resp = client.post(
         "/api/v1/runtime/hermes/runs/run-1/cancel",
@@ -174,3 +187,31 @@ def test_runtime_router_provides_unified_endpoints() -> None:
     )
     assert cancel_resp.status_code == 200
     assert cancel_resp.json()["run_id"] == "run-1"
+    assert cancel_resp.json()["status"] == "cancelled"
+
+
+def test_runtime_router_maps_adapter_value_error_to_400() -> None:
+    app = FastAPI()
+    app.include_router(router)
+    registry = RuntimeAdapterServiceRegistry(
+        manifest_registry=type(
+            "_ManifestRegistry",
+            (),
+            {"load": staticmethod(lambda runtime_id: type("_M", (), {"id": runtime_id})())},
+        )(),
+        factories={"hermes": _ValueErrorRuntimeAdapter},
+    )
+    app.dependency_overrides[get_runtime_adapter_registry_service] = lambda: registry
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/v1/runtime/hermes/runs",
+        json={
+            "task_name": "bad-hermes-request",
+            "prompt": "run",
+            "metadata": {"hermes": {"approval_mode": "always_yes"}},
+        },
+    )
+
+    assert response.status_code == 400
+    assert "invalid metadata.hermes" in response.json()["detail"]

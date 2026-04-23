@@ -67,7 +67,7 @@ def _wait_terminal(client: TestClient, agent_run_id: str, attempts: int = 40) ->
         fetched = client.get(f"/api/v1/openclaw/agents/{agent_run_id}")
         assert fetched.status_code == 200
         finalized = fetched.json()
-        if finalized["status"] in {"completed", "failed", "interrupted"}:
+        if finalized["status"] in {"completed", "failed", "interrupted", "cancelled"}:
             break
         time.sleep(0.05)
     assert finalized is not None
@@ -131,11 +131,11 @@ def test_openclaw_cancel_agent(openclaw_client: TestClient) -> None:
         json={"reason": "manual-stop"},
     )
     assert cancelled.status_code == 200
-    assert cancelled.json()["status"] == "interrupted"
+    assert cancelled.json()["status"] == "cancelled"
     worker.join(timeout=5)
 
     finalized = _wait_terminal(openclaw_client, created.agent_run_id)
-    assert finalized["status"] == "interrupted"
+    assert finalized["status"] == "cancelled"
     assert finalized["error"] == "manual-stop"
 
 
@@ -172,7 +172,7 @@ def test_openclaw_retry_and_tree_view(openclaw_client: TestClient) -> None:
     assert retry_run_id != failed_run_id
 
     retry_final = _wait_terminal(openclaw_client, retry_run_id, attempts=25)
-    assert retry_final["status"] in {"failed", "completed", "interrupted"}
+    assert retry_final["status"] in {"failed", "completed", "interrupted", "cancelled"}
     assert retry_final["parent_agent_id"] == failed_run_id
 
     tree = openclaw_client.get("/api/v1/openclaw/agents/tree", params={"session_id": session_id})

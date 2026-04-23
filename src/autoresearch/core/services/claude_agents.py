@@ -36,7 +36,8 @@ class ClaudeAgentService:
     """Claude CLI subagent scheduler with depth/concurrency guardrails."""
 
     ACTIVE_STATUSES = {JobStatus.QUEUED, JobStatus.RUNNING}
-    TERMINAL_STATUSES = {JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.INTERRUPTED}
+    TERMINAL_STATUSES = {JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.INTERRUPTED, JobStatus.CANCELLED}
+    CANCEL_GRACE_SECONDS = 2.0
 
     def __init__(
         self,
@@ -281,6 +282,7 @@ class ClaudeAgentService:
                             **running.metadata,
                             "work_dir": str(work_dir),
                             "env_overrides": request.env,
+                            "timeout_failed": True,
                         },
                     }
                 )
@@ -299,10 +301,10 @@ class ClaudeAgentService:
                 }
             )
             cancel_reason = str(base_metadata.get("cancel_reason", "")).strip() or "cancelled by user"
-            if self._is_cancel_requested(agent_run_id) or (latest is not None and latest.status is JobStatus.INTERRUPTED):
+            if self._is_cancel_requested(agent_run_id) or (latest is not None and latest.status is JobStatus.CANCELLED):
                 finalized = running.model_copy(
                     update={
-                        "status": JobStatus.INTERRUPTED,
+                        "status": JobStatus.CANCELLED,
                         "returncode": returncode,
                         "stdout_preview": self._preview_output(stdout_text),
                         "stderr_preview": self._preview_output(stderr_text),
@@ -334,12 +336,13 @@ class ClaudeAgentService:
                 )
             self._repository.save(finalized.agent_run_id, finalized)
             self._finalize_openclaw_session(finalized)
-        except FileNotFoundError as exc:
+        except OSError as exc:
             duration_seconds = time.perf_counter() - started
             missing = running.model_copy(
                 update={
                     "status": JobStatus.FAILED,
                     "returncode": -1,
+                    "stderr_preview": self._preview_output(str(exc)),
                     "duration_seconds": duration_seconds,
                     "updated_at": utc_now(),
                     "error": str(exc),
@@ -347,15 +350,72 @@ class ClaudeAgentService:
                         **running.metadata,
                         "work_dir": str(work_dir),
                         "env_overrides": request.env,
+                        "launch_failed": True,
+                        "launch_error_type": type(exc).__name__,
                     },
                 }
             )
             self._repository.save(missing.agent_run_id, missing)
             self._finalize_openclaw_session(missing)
+        except Exception as exc:
+            duration_seconds = time.perf_counter() - started
+            failed = running.model_copy(
+                update={
+                    "status": JobStatus.FAILED,
+                    "returncode": -1,
+                    "stderr_preview": self._preview_output(str(exc)),
+                    "duration_seconds": duration_seconds,
+                    "updated_at": utc_now(),
+                    "error": str(exc),
+                    "metadata": {
+                        **running.metadata,
+                        "work_dir": str(work_dir),
+                        "env_overrides": request.env,
+                        "internal_failure": True,
+                        "internal_error_type": type(exc).__name__,
+                    },
+                }
+            )
+            self._repository.save(failed.agent_run_id, failed)
+            self._finalize_openclaw_session(failed)
         finally:
             self._clear_cancel_requested(agent_run_id)
             if process is not None:
                 self._unregister_process(agent_run_id)
+
+    def fail_preflight(
+        self,
+        agent_run_id: str,
+        request: ClaudeAgentCreateRequest,
+        error: str,
+    ) -> ClaudeAgentRunRead:
+        current = self.get(agent_run_id)
+        if current is None:
+            raise KeyError(f"agent run not found: {agent_run_id}")
+        if current.status in self.TERMINAL_STATUSES:
+            return current
+
+        failed = current.model_copy(
+            update={
+                "status": JobStatus.FAILED,
+                "returncode": -1,
+                "stdout_preview": None,
+                "stderr_preview": self._preview_output(error),
+                "duration_seconds": 0.0,
+                "updated_at": utc_now(),
+                "error": error,
+                "metadata": {
+                    **current.metadata,
+                    "work_dir": str(self._resolve_work_dir(request.work_dir)),
+                    "env_overrides": request.env,
+                    "preflight_failed": True,
+                },
+            }
+        )
+        self._repository.save(failed.agent_run_id, failed)
+        self._finalize_openclaw_session(failed)
+        self._clear_cancel_requested(agent_run_id)
+        return failed
 
     def cancel(
         self,
@@ -377,46 +437,50 @@ class ClaudeAgentService:
                 "cancel_requested_at": utc_now().isoformat(),
             }
         )
-        interrupted = current.model_copy(
+        cancelled = current.model_copy(
             update={
-                "status": JobStatus.INTERRUPTED,
+                "status": JobStatus.CANCELLED,
                 "updated_at": utc_now(),
                 "error": reason,
                 "metadata": metadata,
             }
         )
-        self._repository.save(interrupted.agent_run_id, interrupted)
+        self._repository.save(cancelled.agent_run_id, cancelled)
         self._set_cancel_requested(agent_run_id)
 
         process = self._get_process(agent_run_id)
         if process is not None:
             try:
                 process.terminate()
+                try:
+                    process.wait(timeout=self.CANCEL_GRACE_SECONDS)
+                except subprocess.TimeoutExpired:
+                    process.kill()
             except ProcessLookupError:
                 pass
 
-        if interrupted.session_id is not None:
+        if cancelled.session_id is not None:
             self._openclaw_service.append_event(
-                session_id=interrupted.session_id,
+                session_id=cancelled.session_id,
                 request=OpenClawSessionEventAppendRequest(
                     role="status",
-                    content=f"agent cancelled: {interrupted.agent_run_id}",
+                    content=f"agent cancelled: {cancelled.agent_run_id}",
                     metadata={
-                        "agent_run_id": interrupted.agent_run_id,
+                        "agent_run_id": cancelled.agent_run_id,
                         "reason": reason,
                     },
                 ),
             )
             self._openclaw_service.set_status(
-                session_id=interrupted.session_id,
-                status=JobStatus.INTERRUPTED,
+                session_id=cancelled.session_id,
+                status=JobStatus.CANCELLED,
                 error=reason,
                 metadata_updates={
-                    "latest_agent_run_id": interrupted.agent_run_id,
-                    "latest_status": JobStatus.INTERRUPTED.value,
+                    "latest_agent_run_id": cancelled.agent_run_id,
+                    "latest_status": JobStatus.CANCELLED.value,
                 },
             )
-        return interrupted
+        return cancelled
 
     def retry(
         self,
@@ -427,8 +491,8 @@ class ClaudeAgentService:
         current = self.get(agent_run_id)
         if current is None:
             raise KeyError(f"agent run not found: {agent_run_id}")
-        if current.status not in {JobStatus.FAILED, JobStatus.INTERRUPTED}:
-            raise ValueError("retry is only allowed for failed or interrupted agent runs")
+        if current.status not in {JobStatus.FAILED, JobStatus.INTERRUPTED, JobStatus.CANCELLED}:
+            raise ValueError("retry is only allowed for failed, interrupted, or cancelled agent runs")
 
         replay_request = self._build_retry_request(current, retry_request)
         replay_run = self.create(replay_request)
@@ -515,6 +579,8 @@ class ClaudeAgentService:
         
         if run.status is JobStatus.COMPLETED:
             status_text = "completed"
+        elif run.status is JobStatus.CANCELLED:
+            status_text = "cancelled"
         elif run.status is JobStatus.INTERRUPTED:
             status_text = "interrupted"
         else:

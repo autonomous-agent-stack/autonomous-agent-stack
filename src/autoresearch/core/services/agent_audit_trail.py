@@ -256,7 +256,7 @@ class AgentAuditTrailService:
                         status=run.status.value,
                         final_status=(
                             run.status.value
-                            if run.status in {JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.INTERRUPTED}
+                            if run.status in {JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.INTERRUPTED, JobStatus.CANCELLED}
                             else None
                         ),
                         recorded_at=run.updated_at,

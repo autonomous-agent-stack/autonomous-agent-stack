@@ -163,3 +163,14 @@ Autonomous Agent Stack 的终局不再定义为“更强的自动改代码 Agent
 - capability-first
 
 这不是偏航，而是把现有“受治理的代码变更控制面”继续推进成更稳的 Agent runtime 外层。
+
+---
+
+## Hermes runtime lane（后续） / Hermes Runtime Lane (Follow-up)
+
+- Hermes runtime v1 PR 1 + PR 2 已落地：合同字段、structured command builder、`error_kind` taxonomy、`CANCELLED` 取消语义、summary 收紧都已经进入主线实现。
+  Hermes runtime v1 PR 1 + PR 2 are now shipped: the contract fields, structured command builder, `error_kind` taxonomy, `CANCELLED` cancel semantics, and tighter summary behavior are all in the main implementation.
+- `cli_args` 与结构化 `metadata.hermes` 的优先级合同现在固定为“结构化映射先生成 argv，`cli_args` 后追加，但 denylist 不能被绕过”。
+  The precedence contract between `cli_args` and structured `metadata.hermes` is now fixed as “structured mapping builds argv first, `cli_args` append later, but the denylist cannot be bypassed.”
+- 下一步仍然不是多实例调度；`aas_dispatch_tool`、`target_node`、node registry 必须排在 Hermes runtime v1 hardening 之后独立推进。
+  The next step is still not multi-instance scheduling; `aas_dispatch_tool`, `target_node`, and the node registry must be developed separately after Hermes runtime v1 hardening.

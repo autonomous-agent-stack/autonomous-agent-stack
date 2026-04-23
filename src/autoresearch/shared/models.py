@@ -23,6 +23,7 @@ class JobStatus(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     INTERRUPTED = "interrupted"
+    CANCELLED = "cancelled"
 
 
 class ScoreDirection(str, Enum):
