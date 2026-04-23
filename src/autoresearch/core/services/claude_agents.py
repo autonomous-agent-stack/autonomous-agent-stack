@@ -65,6 +65,10 @@ class ClaudeAgentService:
         self._running_processes: dict[str, subprocess.Popen[str]] = {}
         self._cancel_requests: set[str] = set()
 
+    @property
+    def openclaw_service(self) -> OpenClawCompatService:
+        return self._openclaw_service
+
     def create(self, request: ClaudeAgentCreateRequest) -> ClaudeAgentRunRead:
         if request.generation_depth > self._max_depth:
             raise ValueError(

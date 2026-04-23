@@ -16,7 +16,6 @@ repos:
       - assistant
       - assistant.yaml
       - repos.yaml
-      - .env.template
       - .env.example
     test_command: PYTHONPATH=src python3 -m pytest tests/test_github_assistant.py tests/test_github_issue_service.py -q
     lint_command: python3 -m compileall src/autoresearch/github_assistant

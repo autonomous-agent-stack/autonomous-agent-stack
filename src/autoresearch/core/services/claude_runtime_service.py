@@ -48,6 +48,14 @@ class ClaudeRuntimeService:
         self._agent_service = agent_service
         self._session_record_service = session_record_service
 
+    @property
+    def agent_service(self) -> Any:
+        return self._agent_service
+
+    @property
+    def session_record_service(self) -> Any:
+        return self._session_record_service
+
     def execute_payload(
         self,
         payload: dict[str, Any],

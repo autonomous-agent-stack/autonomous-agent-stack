@@ -3,7 +3,7 @@
 ## 1. Bootstrap
 
 ```bash
-cp .env.template .env.local
+cp .env.example .env.local
 chmod +x ./assistant
 PATH="$PWD:$PATH" assistant doctor
 ```

@@ -118,6 +118,8 @@ make doctor
 make start
 ```
 
+Environment files: `make setup` creates `.env` from [`.env.example`](.env.example) when `.env` is missing. Prefer `.env.local` for secrets (gitignored). Do not commit real tokens.
+
 Open after startup:
 
 - API docs: `http://127.0.0.1:8001/docs`
@@ -132,7 +134,7 @@ make smoke-local
 make hygiene-check
 ```
 
-For detailed setup and troubleshooting, read [docs/QUICK_START.md](docs/QUICK_START.md). For remote or multi-machine execution, start with [docs/linux-remote-worker.md](docs/linux-remote-worker.md).
+For detailed setup and troubleshooting, read [docs/QUICK_START.md](docs/QUICK_START.md). For remote or multi-machine execution, start with [docs/linux-remote-worker.md](docs/linux-remote-worker.md). If you want to run Hermes on Windows through WSL2 and let the base control plane take over, read [docs/windows-wsl2-hermes-control-plane.md](docs/windows-wsl2-hermes-control-plane.md).
 
 Native Windows support is currently limited to the minimal local control-plane path:
 `make setup`, `make doctor`, and `make start`. Other targets still assume Bash and/or macOS/Linux tooling.

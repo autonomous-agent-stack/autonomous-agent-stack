@@ -412,8 +412,15 @@ def _handle_telegram_webhook(
     if sticky_record and sticky_record.worker_id:
         preferred_worker_id = sticky_record.worker_id
 
-    # Build claude_runtime task payload
-    runtime_payload = {
+    # Build claude_runtime task payload (optionally routed to Hermes via runtime_id)
+    dispatch_runtime = telegram_settings.telegram_dispatch_runtime_id
+    hermes_fragment = telegram_settings.hermes_metadata_fragment_for_worker()
+    metadata: dict[str, Any] = {}
+    if hermes_fragment:
+        metadata["hermes"] = hermes_fragment
+    image_urls = [] if dispatch_runtime == "hermes" else list(extracted.get("images") or [])
+
+    runtime_payload: dict[str, Any] = {
         "session_id": session.session_id,
         "session_key": session_identity.session_key,
         "assistant_id": session_identity.assistant_id,
@@ -432,12 +439,15 @@ def _handle_telegram_webhook(
         "cli_args": telegram_settings.claude_args or [],
         "command_override": telegram_settings.command_override,
         "skill_names": [],
-        "images": extracted.get("images", []),
+        "images": image_urls,
         "preferred_worker_id": preferred_worker_id,
         "source": "telegram_webhook",
         "scope": session_identity.scope.value,
         "chat_type": session_identity.chat_context.chat_type.value,
+        "runtime_id": dispatch_runtime,
     }
+    if metadata:
+        runtime_payload["metadata"] = metadata
 
     queue_item = worker_scheduler.enqueue(WorkerQueueItemCreateRequest(
         task_type=WorkerTaskType.CLAUDE_RUNTIME,

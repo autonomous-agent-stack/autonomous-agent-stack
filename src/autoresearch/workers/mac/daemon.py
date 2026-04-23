@@ -6,6 +6,7 @@ from typing import Callable
 
 from autoresearch.core.runtime_identity import get_runtime_identity
 from autoresearch.core.services.claude_runtime_service import ClaudeRuntimeService
+from autoresearch.core.services.worker_runtime_dispatch import WorkerRuntimeDispatchService
 from autoresearch.core.services.claude_session_records import ClaudeSessionRecordService
 from autoresearch.shared.models import (
     ClaudeRuntimeSessionRecordRead,
@@ -49,8 +50,8 @@ class MacWorkerDaemon:
     def from_env(cls) -> MacWorkerDaemon:
         config = MacWorkerConfig.from_env()
         client = MacWorkerApiClient(config)
-        claude_runtime = _build_claude_runtime(config)
-        executor = MacWorkerExecutor(config, claude_runtime=claude_runtime)
+        runtime_dispatch = _build_worker_runtime_dispatch(config)
+        executor = MacWorkerExecutor(config, runtime_dispatch=runtime_dispatch)
         bridge = _build_content_kb_bridge(config)
         return cls(config=config, client=client, executor=executor, content_kb_promotion_bridge=bridge)
 
@@ -184,6 +185,9 @@ class MacWorkerDaemon:
             text = preview[:4000] if preview else "执行完成（无输出）"
         else:
             text = f"执行失败：{(outcome.error or '未知错误')[:500]}"
+            hint = (outcome.result or {}).get("telegram_hint")
+            if isinstance(hint, str) and hint.strip():
+                text = f"{hint.strip()}\n{text}"[:4000]
 
         payload = {
             "chat_id": chat_id,
@@ -235,6 +239,27 @@ class MacWorkerDaemon:
         if self._last_claim_at is None:
             return True
         return (current - self._last_claim_at).total_seconds() >= self._config.claim_poll_seconds
+
+
+def _build_worker_runtime_dispatch(config: MacWorkerConfig) -> WorkerRuntimeDispatchService | None:
+    """Build Telegram / worker runtime dispatch (Claude CLI + optional Hermes adapter)."""
+    claude_runtime = _build_claude_runtime(config)
+    if claude_runtime is None:
+        return None
+    try:
+        from autoresearch.core.services.runtime_registry_builder import build_runtime_adapter_registry_for_worker
+
+        registry = build_runtime_adapter_registry_for_worker(
+            repo_root=config.housekeeping_root,
+            claude_runtime=claude_runtime,
+        )
+        return WorkerRuntimeDispatchService(claude_runtime=claude_runtime, registry=registry)
+    except Exception:
+        logger.warning(
+            "Failed to wire runtime adapter registry on worker; Hermes lane disabled",
+            exc_info=True,
+        )
+        return WorkerRuntimeDispatchService(claude_runtime=claude_runtime, registry=None)
 
 
 def _build_claude_runtime(config: MacWorkerConfig) -> ClaudeRuntimeService | None:

@@ -65,10 +65,10 @@ def run_setup(*, python_executable: str, venv_name: str) -> int:
             return code
 
     env_file = REPO_ROOT / ".env"
-    env_template = REPO_ROOT / ".env.template"
-    if not env_file.exists() and env_template.exists():
-        shutil.copyfile(env_template, env_file)
-        print("Created .env from .env.template")
+    env_example = REPO_ROOT / ".env.example"
+    if not env_file.exists() and env_example.exists():
+        shutil.copyfile(env_example, env_file)
+        print("Created .env from .env.example")
     return 0
 
 

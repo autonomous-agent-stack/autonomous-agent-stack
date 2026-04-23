@@ -177,7 +177,7 @@ api_key="test-key-2",
 
 ⚠️ **配置文件**:
 - `.env` 存在
-- `.env.template` 存在
+- `.env.example` 存在
 - `.env.topic-routing` 存在
 
 **建议**: 检查配置完整性

@@ -118,6 +118,9 @@ make doctor
 make start
 ```
 
+环境变量：`make setup` 若发现没有 `.env`，会从 [`.env.example`](.env.example) 复制生成；敏感项请放在 `.env.local`（已 gitignore），勿提交真实 token。  
+Environment: if `.env` is missing, `make setup` copies from `.env.example`. Put secrets in gitignored `.env.local`; never commit real tokens.
+
 启动后可访问：
 
 - API 文档：`http://127.0.0.1:8001/docs`
@@ -131,7 +134,7 @@ make test-quick
 make hygiene-check
 ```
 
-如果你需要更完整的安装与排障说明，请看 [docs/QUICK_START.md](docs/QUICK_START.md)。如果要在单机版 AAS 上开启基于 APScheduler 的 `once` / `interval` 定时任务，请读 [docs/runbooks/worker-schedules.md](docs/runbooks/worker-schedules.md)。如果要继续到远端或多机执行，先读 [docs/linux-remote-worker.zh-CN.md](docs/linux-remote-worker.zh-CN.md)。
+如果你需要更完整的安装与排障说明，请看 [docs/QUICK_START.md](docs/QUICK_START.md)。如果要在单机版 AAS 上开启基于 APScheduler 的 `once` / `interval` 定时任务，请读 [docs/runbooks/worker-schedules.md](docs/runbooks/worker-schedules.md)。如果要继续到远端或多机执行，先读 [docs/linux-remote-worker.zh-CN.md](docs/linux-remote-worker.zh-CN.md)。如果你要在 Windows 上通过 WSL2 跑 Hermes，再由底座接管，先读 [docs/windows-wsl2-hermes-control-plane.md](docs/windows-wsl2-hermes-control-plane.md)。
 
 当前 Windows 原生支持只覆盖最小本地主链：`make setup`、`make doctor`、`make start`。仓库中的其他 target 仍然大量依赖 Bash 和 macOS/Linux 工具，不应默认视为 Windows 已支持。
 

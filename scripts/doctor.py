@@ -155,16 +155,16 @@ def _check_core_imports(repo_root: Path) -> CheckResult:
 
 def _check_env_files(repo_root: Path) -> CheckResult:
     env_file = repo_root / ".env"
-    env_template = repo_root / ".env.template"
+    env_example = repo_root / ".env.example"
     if env_file.exists():
         return _ok("Environment file", "Found .env")
-    if env_template.exists():
+    if env_example.exists():
         return _warn(
             "Environment file",
-            ".env missing but .env.template exists",
-            "Copy `.env.template` to `.env` and fill required values.",
+            ".env missing but .env.example exists",
+            "Copy `.env.example` to `.env` (and use `.env.local` for secrets).",
         )
-    return _warn("Environment file", "No .env template found")
+    return _warn("Environment file", "No .env.example template found")
 
 
 def _read_env_value(repo_root: Path, key: str) -> str:

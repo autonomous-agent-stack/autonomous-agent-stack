@@ -28,6 +28,11 @@
   - Mac standby 只做执行兜底
 - 不把飞书 handler 做成第二个大脑；YouTube / GitHub / repo routing 仍应留在 control plane。
 
+## Windows + Hermes WSL2 接管（2026-04-22）
+- Hermes 在 Windows 上的稳定路径是 WSL2，不走原生 Windows。
+- AAS 接管 Hermes 时优先通过 `configs/runtime_agents/hermes.yaml` + `HermesRuntimeAdapterService` + `metadata.hermes`，不要在调用侧散落 shell 启动逻辑。
+- 如果 Windows 客户端要启动 Hermes，先切到目标项目目录再启动，别默认相信 `cwd` 会被自动翻译成 WSL 路径。
+
 ## Prompt Hygiene 审计尺子（2026-03-26）
 - 新增只读审计脚本 `scripts/check_prompt_hygiene.py`，配套 `make hygiene-check`
 - 默认扫描 `src/`，输出到 `logs/audit/prompt_hygiene/report.txt` 和 `report.json`

@@ -223,6 +223,25 @@ class TelegramSettings(_BaseApiSettings):
         validation_alias="AUTORESEARCH_TELEGRAM_CHANNEL_DISPLAY_NAME",
     )
     channel_actor: str = Field(default="telegram-webhook", validation_alias="AUTORESEARCH_TELEGRAM_CHANNEL_ACTOR")
+    telegram_dispatch_runtime_id: str = Field(
+        default="claude",
+        validation_alias="AUTORESEARCH_TELEGRAM_RUNTIME_ID",
+    )
+    telegram_hermes_profile: str = Field(default="", validation_alias="AUTORESEARCH_TELEGRAM_HERMES_PROFILE")
+    telegram_hermes_toolsets_raw: str = Field(
+        default="",
+        validation_alias="AUTORESEARCH_TELEGRAM_HERMES_TOOLSETS",
+    )
+    telegram_hermes_approval_mode: str = Field(
+        default="",
+        validation_alias="AUTORESEARCH_TELEGRAM_HERMES_APPROVAL_MODE",
+    )
+
+    @field_validator("telegram_dispatch_runtime_id", mode="before")
+    @classmethod
+    def _normalize_telegram_dispatch_runtime_id(cls, value: Any) -> str:
+        raw = str(value or "claude").strip().lower()
+        return raw if raw in {"claude", "hermes"} else "claude"
 
     @field_validator("allowed_uids", "owner_uids", "partner_uids", "internal_groups", "bot_usernames", mode="before")
     @classmethod
@@ -241,6 +260,23 @@ class TelegramSettings(_BaseApiSettings):
     @property
     def command_override(self) -> list[str] | None:
         return shlex.split(self.command_override_raw) if self.command_override_raw.strip() else None
+
+    def hermes_metadata_fragment_for_worker(self) -> dict[str, Any]:
+        """Structured defaults for `metadata.hermes` on Telegram → worker → Hermes adapter."""
+        out: dict[str, Any] = {"session_mode": "oneshot"}
+        profile = self.telegram_hermes_profile.strip()
+        if profile:
+            out["profile"] = profile
+        if self.telegram_hermes_toolsets_raw.strip():
+            out["toolsets"] = [
+                item.strip()
+                for item in self.telegram_hermes_toolsets_raw.split(",")
+                if item.strip()
+            ]
+        mode = self.telegram_hermes_approval_mode.strip().lower()
+        if mode in ("manual", "smart"):
+            out["approval_mode"] = mode
+        return out
 
 
 class PanelSettings(_BaseApiSettings):

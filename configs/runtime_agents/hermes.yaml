@@ -2,7 +2,7 @@
   "id": "hermes",
   "kind": "runtime",
   "service": "autoresearch.core.services.hermes_runtime_adapter:HermesRuntimeAdapterService",
-  "version": "0.1",
+  "version": "1.0",
   "capabilities": [
     "create_session",
     "run",
@@ -23,6 +23,9 @@
     "result_fields": [
       "status",
       "summary",
+      "stdout_preview",
+      "stderr_preview",
+      "returncode",
       "changed_paths",
       "output_artifacts",
       "metrics",
@@ -33,7 +36,7 @@
     "artifact_bindings": [
       "RuntimeRunRead.stdout_preview -> log artifact",
       "RuntimeRunRead.stderr_preview -> log artifact",
-      "RuntimeSessionRead.events -> session event log artifact"
+      "RuntimeStatusRead.latest_events / RuntimeStreamEvent -> session event log artifact"
     ]
   },
   "metadata": {

@@ -62,6 +62,7 @@ from autoresearch.core.services.youtube_agent import YouTubeAgentService
 from autoresearch.core.services.butler_router import ButlerIntentRouter
 from autoresearch.core.services.excel_audit import ExcelAuditService
 from autoresearch.core.repositories.excel_jobs import ExcelJobsRepository
+from autoresearch.core.services.commission_engine import CommissionEngine
 from autoresearch.shared.models import (
     ClaudeAgentRunRead,
     ClaudeRuntimeSessionRecordRead,
@@ -94,6 +95,7 @@ from autoresearch.shared.models import (
 )
 from autoresearch.shared.autoresearch_planner_contract import AutoResearchPlanRead
 from autoresearch.shared.excel_audit_contract import ExcelAuditRead
+from autoresearch.core.services.excel_ops import ExcelOpsService
 from autoresearch.shared.manager_agent_contract import ManagerDispatchRead
 from autoresearch.shared.store import SQLiteModelRepository
 from github_admin.contracts import GitHubAdminRunRead
@@ -623,6 +625,15 @@ def get_excel_audit_service() -> ExcelAuditService:
             table_name="excel_audits",
             model_cls=ExcelAuditRead,
         ),
+        repo_root=_repo_root(),
+    )
+
+
+@lru_cache(maxsize=1)
+def get_excel_ops_service() -> ExcelOpsService:
+    return ExcelOpsService(
+        repository=ExcelJobsRepository(db_path=_api_db_path()),
+        commission_engine=CommissionEngine(),
         repo_root=_repo_root(),
     )
 

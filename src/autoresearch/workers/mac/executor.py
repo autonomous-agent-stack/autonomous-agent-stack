@@ -16,7 +16,7 @@ from autoresearch.core.services.standby_youtube_bridge import (
 )
 from autoresearch.shared.models import JobStatus, WorkerQueueItemRead, WorkerTaskType, utc_now
 from autoresearch.workers.mac.config import MacWorkerConfig
-from autoresearch.core.services.claude_runtime_service import ClaudeRuntimeService
+from autoresearch.core.services.worker_runtime_dispatch import WorkerRuntimeDispatchService
 
 
 @dataclass(slots=True)
@@ -35,12 +35,12 @@ class MacWorkerExecutor:
         *,
         youtube_bridge: StandbyYouTubeBridgeService | None = None,
         youtube_autoflow: StandbyYouTubeAutoflowService | None = None,
-        claude_runtime: ClaudeRuntimeService | None = None,
+        runtime_dispatch: WorkerRuntimeDispatchService | None = None,
     ) -> None:
         self._config = config
         self._youtube_bridge = youtube_bridge
         self._youtube_autoflow = youtube_autoflow
-        self._claude_runtime = claude_runtime
+        self._runtime_dispatch = runtime_dispatch
 
     def execute(self, run: WorkerQueueItemRead) -> MacWorkerExecutionResult:
         if run.task_type == WorkerTaskType.NOOP:
@@ -156,14 +156,14 @@ class MacWorkerExecutor:
         )
 
     def _execute_claude_runtime(self, run: WorkerQueueItemRead) -> MacWorkerExecutionResult:
-        runtime = self._claude_runtime
-        if runtime is None:
+        dispatch = self._runtime_dispatch
+        if dispatch is None:
             return MacWorkerExecutionResult(
                 message="claude_runtime not available",
                 status=JobStatus.FAILED,
-                error="ClaudeRuntimeService not configured on this worker",
+                error="WorkerRuntimeDispatchService not configured on this worker",
             )
-        outcome = runtime.execute_payload(
+        outcome = dispatch.execute_payload(
             run.payload,
             worker_id=run.assigned_worker_id,
             queue_metadata=run.metadata,

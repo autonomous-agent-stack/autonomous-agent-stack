@@ -189,6 +189,15 @@ Run metadata writes back:
 - `session_mode` 仍然固定为 `oneshot`，AAS `session_id` 不映射到 Hermes 原生 resume/session continuation。
   `session_mode` remains fixed at `oneshot`, and AAS `session_id` does not map to Hermes-native resume/session continuation.
 
+## Telegram 管家与 Mac worker / Telegram Butler and Mac Worker
+
+- Telegram webhook 将普通对话排队为 `CLAUDE_RUNTIME` 时，可在环境变量中设置 `AUTORESEARCH_TELEGRAM_RUNTIME_ID=hermes`，使 **Mac worker 通过 `WorkerRuntimeDispatchService` 调用与 HTTP `/api/v1/runtime/hermes/runs` 相同的 `HermesRuntimeAdapterService`**，从而继承 v1 的拒绝面、`error_kind`、summary 与取消语义。
+  For Telegram messages enqueued as `CLAUDE_RUNTIME`, set `AUTORESEARCH_TELEGRAM_RUNTIME_ID=hermes` so the **Mac worker routes through `WorkerRuntimeDispatchService` into the same `HermesRuntimeAdapterService` as HTTP `POST /api/v1/runtime/hermes/runs`**, inheriting v1 reject rules, `error_kind`, summary, and cancel semantics.
+- 可选 Hermes 默认值：`AUTORESEARCH_TELEGRAM_HERMES_PROFILE`、`AUTORESEARCH_TELEGRAM_HERMES_TOOLSETS`（逗号分隔）、`AUTORESEARCH_TELEGRAM_HERMES_APPROVAL_MODE`（`manual` 或 `smart`；`off` 仍会被 Hermes v1 拒绝）。
+  Optional Hermes defaults: `AUTORESEARCH_TELEGRAM_HERMES_PROFILE`, comma-separated `AUTORESEARCH_TELEGRAM_HERMES_TOOLSETS`, and `AUTORESEARCH_TELEGRAM_HERMES_APPROVAL_MODE` (`manual` or `smart`; `off` remains rejected by Hermes v1).
+- 当 `runtime_id=hermes` 时，webhook **不会**把 Telegram 图片 URL 放进 worker payload，避免触发 v1 对 `images` 的硬拒绝；需要视觉输入时请走其他 runtime 或单独设计入口。
+  When `runtime_id=hermes`, the webhook **omits** Telegram image URLs from the worker payload so v1 does not hard-reject on `images`; use another runtime or a dedicated ingress for vision.
+
 ## 当前边界 / Current Boundaries
 
 - Hermes runtime v1 仍然是单机 `oneshot` runtime，不支持 Hermes 原生 session 恢复、多实例路由或 gateway 反向事件。

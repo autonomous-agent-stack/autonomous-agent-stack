@@ -10,6 +10,7 @@ from .models import (
     ValidationReport,
 )
 from .runtime_models import (
+    HermesRuntimeMetadata,
     JobBackedRuntimeBridge,
     RuntimeAdapterManifest,
     RuntimeAepBridgeSpec,
@@ -31,6 +32,7 @@ __all__ = [
     "DriverResult",
     "ExecutionPolicy",
     "FallbackStep",
+    "HermesRuntimeMetadata",
     "JobBackedRuntimeBridge",
     "JobSpec",
     "RunSummary",

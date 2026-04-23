@@ -101,7 +101,7 @@ open http://localhost:8000/docs
 
 1. **编辑 .env 文件**
    ```bash
-   cp .env.template .env
+   cp .env.example .env
    nano .env
    ```
 

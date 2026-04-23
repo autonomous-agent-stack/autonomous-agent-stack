@@ -121,7 +121,7 @@ A stable single-machine AAS must provide:
 |------|--------|--------|
 | `src/autoresearch/api/settings.py` | Add `mode` field | Support minimal/full modes |
 | `src/autoresearch/api/main.py` | Graceful router loading | Prevent startup failures |
-| `.env.template` | Add `AUTORESEARCH_MODE` | Document new setting |
+| `.env.example` | Add `AUTORESEARCH_MODE` | Document new setting |
 | `tests/test_stable_local_smoke.py` | **NEW** | E2E smoke test |
 | `Makefile` | Add `smoke-local` target | Easy verification |
 | `README.md` | Add stable mode section | User-facing docs |
@@ -144,7 +144,7 @@ Before treating branch as releasable, enforce:
 
 1. **Ambiguities → Explicit documented decisions**
    - Every `TODO` becomes either a task or documented non-goal
-   - All environment variables documented in `.env.template`
+   - All environment variables documented in `.env.example`
 
 2. **Real sample workflow**
    - `examples/stable_local_demo.py` showing mock AEP run

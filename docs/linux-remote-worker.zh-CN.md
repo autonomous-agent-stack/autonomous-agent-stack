@@ -40,7 +40,7 @@ make setup
 
 ```bash
 # 复制环境变量模板
-cp .env.template .env
+cp .env.example .env
 
 # 编辑 .env 文件，配置必要的变量
 vim .env

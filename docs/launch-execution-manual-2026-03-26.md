@@ -35,7 +35,7 @@ cat /tmp/cloudflared_8001.log | grep "trycloudflare.com"
 cd /Volumes/PS1008/Github/autonomous-agent-stack
 
 # 复制模板
-cp .env.template .env
+cp .env.example .env
 
 # 编辑 .env
 nano .env
@@ -150,7 +150,7 @@ cat /tmp/cloudflared_8001.log | grep "trycloudflare.com" | tail -1
 
 # 一键创建 .env
 cd /Volumes/PS1008/Github/autonomous-agent-stack
-cp .env.template .env
+cp .env.example .env
 nano .env
 
 # 一键重启服务

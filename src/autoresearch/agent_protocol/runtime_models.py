@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from autoresearch.agent_protocol.models import ArtifactRef, DriverMetrics, DriverResult, JobSpec
 from autoresearch.shared.models import (
@@ -80,6 +80,48 @@ class RuntimeRunRequest(StrictModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class HermesRuntimeMetadata(StrictModel):
+    provider: str | None = None
+    model: str | None = None
+    profile: str | None = None
+    toolsets: list[str] = Field(default_factory=list)
+    approval_mode: Literal["manual", "smart", "off"] | None = None
+    session_mode: Literal["oneshot"] | None = None
+
+    @field_validator("provider", "model", "profile", mode="before")
+    @classmethod
+    def _normalize_optional_string(cls, value: Any) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("value must be a string")
+        normalized = value.strip()
+        return normalized or None
+
+    @field_validator("toolsets", mode="before")
+    @classmethod
+    def _normalize_toolsets(cls, value: Any) -> list[str]:
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            raise ValueError("toolsets must be a list of strings")
+
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for item in value:
+            if not isinstance(item, str):
+                raise ValueError("toolsets must be a list of strings")
+            toolset = item.strip()
+            if not toolset:
+                continue
+            lowered = toolset.lower()
+            if lowered in seen:
+                continue
+            seen.add(lowered)
+            normalized.append(toolset)
+        return normalized
+
+
 class RuntimeRunRead(StrictModel):
     runtime_id: str
     run_id: str
@@ -93,6 +135,8 @@ class RuntimeRunRead(StrictModel):
     command: list[str] = Field(default_factory=list)
     timeout_seconds: int
     work_dir: str | None = None
+    stdout_preview: str | None = None
+    stderr_preview: str | None = None
     returncode: int | None = None
     created_at: datetime
     updated_at: datetime

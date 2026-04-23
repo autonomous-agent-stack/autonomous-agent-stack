@@ -26,7 +26,7 @@ if [ -f ".env" ]; then
     fi
 else
     echo "⚠️  .env 文件不存在，请创建:"
-    echo "   cp .env.template .env"
+    echo "   cp .env.example .env"
     echo "   nano .env"
 fi
 
