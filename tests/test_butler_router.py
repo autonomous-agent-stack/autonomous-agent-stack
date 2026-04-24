@@ -50,6 +50,39 @@ class TestButlerIntentClassification:
         result = router.classify("")
         assert result.task_type == ButlerTaskType.UNKNOWN
 
+    def test_bookmark_keywords_chinese(self) -> None:
+        router = ButlerIntentRouter()
+        result = router.classify("帮我整理书签")
+        assert result.task_type == ButlerTaskType.BOOKMARK
+
+    def test_bookmark_keywords_english(self) -> None:
+        router = ButlerIntentRouter()
+        result = router.classify("organize my bookmarks for read later")
+        assert result.task_type == ButlerTaskType.BOOKMARK
+
+    def test_bookmark_url_extraction(self) -> None:
+        router = ButlerIntentRouter()
+        result = router.classify("收藏 https://example.com/article 有用链接")
+        assert result.task_type == ButlerTaskType.BOOKMARK
+        assert "https://example.com/article" in result.extracted_params.get("urls", [])
+
+    def test_youtube_keywords(self) -> None:
+        router = ButlerIntentRouter()
+        result = router.classify("下载这个youtube视频的字幕")
+        assert result.task_type == ButlerTaskType.YOUTUBE
+
+    def test_youtube_transcript_keyword(self) -> None:
+        router = ButlerIntentRouter()
+        result = router.classify("视频转文字 extract transcript")
+        assert result.task_type == ButlerTaskType.YOUTUBE
+
+    def test_url_extraction_without_keyword_match(self) -> None:
+        router = ButlerIntentRouter()
+        result = router.classify("看看这个 https://example.com")
+        # URL extracted but no keyword match → UNKNOWN
+        assert result.task_type == ButlerTaskType.UNKNOWN
+        assert "https://example.com" in result.extracted_params.get("urls", [])
+
     def test_file_path_extraction_xlsx(self) -> None:
         router = ButlerIntentRouter()
         result = router.classify("核对 sales.xlsx 和 commission.xlsx 的提成")
