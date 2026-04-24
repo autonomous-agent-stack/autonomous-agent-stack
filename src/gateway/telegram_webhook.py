@@ -1,19 +1,20 @@
 """
 Legacy Telegram webhook compatibility handler.
 
-This module exists only for backward compatibility with the old
-workflow-driven `/telegram/webhook` path. New Telegram integration work
-must target `autoresearch.api.routers.gateway_telegram`.
+DEPRECATED: This module will be removed after 2025-06-01.
+Migrate all callers to `/api/v1/gateway/telegram/webhook`.
 """
 
 import asyncio
 import logging
 import os
 import re
+import warnings
 from typing import Dict, Any
 
 import httpx
 from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse
 
 from workflow.workflow_engine import run_workflow
 
@@ -29,7 +30,25 @@ async def telegram_webhook(request: Request):
     Deprecated: keep this path stable for existing callers, but do not
     extend it with new product behavior. The mainline Telegram entrypoint
     lives under `/api/v1/gateway/telegram/webhook`.
+
+    Scheduled for removal after 2025-06-01.
     """
+    warnings.warn(
+        "/telegram/webhook is deprecated — use /api/v1/gateway/telegram/webhook. "
+        "This path will be removed after 2025-06-01.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    logger.warning(
+        "[Deprecated] /telegram/webhook hit — migrate to /api/v1/gateway/telegram/webhook. "
+        "Removal scheduled after 2025-06-01.",
+    )
+    _DEPRECATION_HEADERS = {
+        "Deprecation": "true",
+        "Sunset": "Sat, 01 Jun 2025 00:00:00 GMT",
+        "Link": '</api/v1/gateway/telegram/webhook>; rel="successor-version"',
+    }
+
     try:
         data = await request.json()
 
@@ -38,10 +57,7 @@ async def telegram_webhook(request: Request):
         chat_id = message.get("chat", {}).get("id")
         text = message.get("text", "")
 
-        logger.warning(
-            "[Legacy Telegram Webhook] compatibility path hit; prefer /api/v1/gateway/telegram/webhook"
-        )
-        logger.info(f"[Webhook] 收到消息: {text[:50]}...")
+        logger.info("[Webhook] 收到消息: %s...", text[:50])
 
         # 指令拦截：GitHub 深度审查
         if "执行审查" in text or "#1" in text:
@@ -60,16 +76,25 @@ async def telegram_webhook(request: Request):
                     execute_and_deliver_workflow(target_repo, chat_id)
                 )
 
-                return {"status": "workflow_started", "repo": target_repo}
+                return JSONResponse(
+                    content={"status": "workflow_started", "repo": target_repo},
+                    headers=_DEPRECATION_HEADERS,
+                )
             else:
-                return {"status": "error", "message": "未指定仓库"}
+                return JSONResponse(
+                    content={"status": "error", "message": "未指定仓库"},
+                    headers=_DEPRECATION_HEADERS,
+                )
 
         # 其他指令...
-        return {"status": "ok"}
+        return JSONResponse(content={"status": "ok"}, headers=_DEPRECATION_HEADERS)
 
     except Exception as e:
-        logger.error(f"[Webhook] 处理失败: {e}")
-        return {"status": "error", "message": str(e)}
+        logger.error("[Webhook] 处理失败: %s", e)
+        return JSONResponse(
+            content={"status": "error", "message": str(e)},
+            headers=_DEPRECATION_HEADERS,
+        )
 
 
 async def execute_and_deliver_workflow(target_repo: str, chat_id: int):
