@@ -19,6 +19,8 @@ class ButlerTaskType:
     EXCEL_AUDIT = "excel_audit"
     GITHUB_ADMIN = "github_admin"
     CONTENT_KB = "content_kb"
+    BOOKMARK = "bookmark"
+    YOUTUBE = "youtube"
     UNKNOWN = "unknown"
 
 
@@ -43,10 +45,21 @@ _KEYWORD_MAP: dict[str, list[str]] = {
         "字幕入库", "知识库", "字幕分类", "索引", "subtitle",
         "知识整理", "内容分类",
     ],
+    ButlerTaskType.BOOKMARK: [
+        "书签", "收藏", "bookmark", "稍后读", "read later",
+        "链接整理", "书签整理", "收藏夹", "收藏整理",
+    ],
+    ButlerTaskType.YOUTUBE: [
+        "youtube", "视频", "字幕下载", "字幕提取", "yt-dlp",
+        "视频下载", "transcript", "视频转文字",
+    ],
 }
 
 # Regex to detect file paths (xlsx, xls, csv)
 _FILE_PATH_RE = re.compile(r'[\w/\-\\\.]+\.(?:xlsx?|csv)', re.IGNORECASE)
+
+# Regex to detect URLs (bookmark links)
+_URL_RE = re.compile(r'https?://\S+', re.IGNORECASE)
 
 
 class ButlerIntentRouter:
@@ -70,7 +83,11 @@ class ButlerIntentRouter:
                 scores[task_type] = score
 
         if not scores:
-            return ButlerClassification()
+            urls = _URL_RE.findall(text)
+            extracted: dict[str, Any] = {}
+            if urls:
+                extracted["urls"] = urls
+            return ButlerClassification(extracted_params=extracted)
 
         best_type = max(scores, key=lambda t: scores[t])
         total = sum(scores.values())
@@ -79,9 +96,14 @@ class ButlerIntentRouter:
         # Extract file paths
         file_paths = _FILE_PATH_RE.findall(text)
 
+        # Extract URLs
+        urls = _URL_RE.findall(text)
+
         extracted_params: dict[str, Any] = {}
         if file_paths:
             extracted_params["attachments"] = file_paths
+        if urls:
+            extracted_params["urls"] = urls
 
         return ButlerClassification(
             task_type=best_type,
