@@ -108,7 +108,7 @@ class ClusterManager:
         # 检查是否已存在
         for node in self.nodes.values():
             if node.endpoint == endpoint:
-                logger.warning(f"⚠️ 节点已存在: {name} ({endpoint})")
+                logger.warning("⚠️ 节点已存在: %s (%s)", name, endpoint)
                 return node
         
         # 生成节点 ID
@@ -132,7 +132,7 @@ class ClusterManager:
         # 保存节点
         self.nodes[node_id] = node
         
-        logger.info(f"✅ 节点已注册: {name} ({endpoint}) - {node.status.value}")
+        logger.info("✅ 节点已注册: %s (%s) - %s", name, endpoint, node.status.value)
         
         return node
     
@@ -146,13 +146,13 @@ class ClusterManager:
             是否成功
         """
         if node_id not in self.nodes:
-            logger.warning(f"⚠️ 节点不存在: {node_id}")
+            logger.warning("⚠️ 节点不存在: %s", node_id)
             return False
         
         node = self.nodes[node_id]
         del self.nodes[node_id]
         
-        logger.info(f"✅ 节点已注销: {node.name} ({node.endpoint})")
+        logger.info("✅ 节点已注销: %s (%s)", node.name, node.endpoint)
         
         return True
     
@@ -190,7 +190,7 @@ class ClusterManager:
                     return False
         
         except Exception as e:
-            logger.warning(f"⚠️ 节点健康检查失败: {node.name} - {e}")
+            logger.warning("⚠️ 节点健康检查失败: %s - %s", node.name, e)
             node.status = NodeStatus.OFFLINE
             return False
     
@@ -226,7 +226,7 @@ class ClusterManager:
             ]
         
         if not available_nodes:
-            logger.warning(f"⚠️ 无满足能力的节点: {required_capabilities}")
+            logger.warning("⚠️ 无满足能力的节点: %s", required_capabilities)
             return None
         
         # 3. 根据策略选择节点
@@ -268,7 +268,7 @@ class ClusterManager:
         if not node:
             raise ValueError(f"节点不存在: {node_id}")
         
-        logger.info(f"🚀 分发任务到节点: {node.name}")
+        logger.info("🚀 分发任务到节点: %s", node.name)
         
         try:
             # 更新节点状态
@@ -287,18 +287,18 @@ class ClusterManager:
                     result = response.json()
                     node.successful_tasks += 1
                     node.status = NodeStatus.ONLINE
-                    logger.info(f"✅ 任务分发成功: {node.name}")
+                    logger.info("✅ 任务分发成功: %s", node.name)
                     return result
                 else:
                     node.failed_tasks += 1
                     node.status = NodeStatus.ONLINE
-                    logger.error(f"❌ 任务分发失败: {node.name} - {response.text}")
+                    logger.error("❌ 任务分发失败: %s - %s", node.name, response.text)
                     raise RuntimeError(f"任务分发失败: {response.text}")
         
         except Exception as e:
             node.failed_tasks += 1
             node.status = NodeStatus.ONLINE
-            logger.error(f"❌ 任务分发异常: {node.name} - {e}")
+            logger.error("❌ 任务分发异常: %s - %s", node.name, e)
             raise
     
     async def dispatch_task_smart(
@@ -353,13 +353,13 @@ class ClusterManager:
                     if node.status == NodeStatus.ONLINE:
                         elapsed = (now - node.last_heartbeat).total_seconds()
                         if elapsed > self.heartbeat_timeout:
-                            logger.warning(f"⚠️ 节点心跳超时: {node.name} ({elapsed:.0f}s)")
+                            logger.warning("⚠️ 节点心跳超时: %s (%.0fs)", node.name, elapsed)
                             node.status = NodeStatus.OFFLINE
                 
                 await asyncio.sleep(self.heartbeat_interval)
             
             except Exception as e:
-                logger.error(f"❌ 心跳监控异常: {e}")
+                logger.error("❌ 心跳监控异常: %s", e)
                 await asyncio.sleep(5)
     
     def start_monitoring(self):

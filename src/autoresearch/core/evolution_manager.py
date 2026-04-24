@@ -90,7 +90,7 @@ class EvolutionManager:
         Returns:
             处理结果
         """
-        logger.info(f"[环境防御] 处理视觉事件: {event.event_id}")
+        logger.info("[环境防御] 处理视觉事件: %s", event.event_id)
         
         # 发布到事件总线
         message = Message(
@@ -119,7 +119,7 @@ class EvolutionManager:
         Returns:
             P4 事件结果
         """
-        logger.info(f"[环境防御] 启动 P4 流水线: {github_url}")
+        logger.info("[环境防御] 启动 P4 流水线: %s", github_url)
         
         # 创建 P4 事件
         event = P4Event(
@@ -152,11 +152,11 @@ class EvolutionManager:
             await self._p4_hitl(event)
             
             event.status = "completed"
-            logger.info(f"[环境防御] P4 流水线完成: {event.event_id}")
+            logger.info("[环境防御] P4 流水线完成: %s", event.event_id)
             
         except Exception as e:
             event.status = "failed"
-            logger.error(f"[环境防御] P4 流水线失败: {e}")
+            logger.error("[环境防御] P4 流水线失败: %s", e)
             raise
             
         finally:
@@ -167,7 +167,7 @@ class EvolutionManager:
         
     async def _p4_trigger(self, event: P4Event) -> None:
         """P4 Step 1: Trigger"""
-        logger.info(f"[环境防御] P4 Trigger: {event.github_url}")
+        logger.info("[环境防御] P4 Trigger: %s", event.github_url)
 
         run_dir = self._workspace_root / event.event_id
         repo_dir = run_dir / "repo"
@@ -214,7 +214,7 @@ class EvolutionManager:
         
         执行 AST 静态安全审计
         """
-        logger.info(f"[环境防御] P4 Scan: AST 安全审计")
+        logger.info("[环境防御] P4 Scan: AST 安全审计")
 
         repo_path = Path(self._pipeline_state[event.event_id].get("repo_path", ""))
         if not repo_path.exists():
@@ -270,7 +270,7 @@ class EvolutionManager:
         
         在 Docker 容器中运行测试
         """
-        logger.info(f"[环境防御] P4 Sandbox: Docker 隔离测试")
+        logger.info("[环境防御] P4 Sandbox: Docker 隔离测试")
 
         repo_path = Path(self._pipeline_state[event.event_id].get("repo_path", ""))
         compile_errors: list[dict[str, Any]] = []
@@ -339,7 +339,7 @@ class EvolutionManager:
         
         品牌调性约束审计
         """
-        logger.info(f"[环境防御] P4 Audit: 品牌调性审计")
+        logger.info("[环境防御] P4 Audit: 品牌调性审计")
 
         repo_path = Path(self._pipeline_state[event.event_id].get("repo_path", ""))
         text_files = [
@@ -392,7 +392,7 @@ class EvolutionManager:
         
         发送 Telegram 审批请求
         """
-        logger.info(f"[环境防御] P4 HITL: 等待人工审批")
+        logger.info("[环境防御] P4 HITL: 等待人工审批")
 
         admin_chat_id = (
             os.getenv("TELEGRAM_ADMIN_CHAT_ID")
@@ -460,12 +460,12 @@ class EvolutionManager:
     async def _handle_vision_event(self, message: Message) -> None:
         """处理视觉事件消息"""
         event_data = message.payload
-        logger.info(f"[环境防御] 收到视觉事件: {event_data.get('event_id')}")
+        logger.info("[环境防御] 收到视觉事件: %s", event_data.get('event_id'))
         
     async def _handle_p4_event(self, message: Message) -> None:
         """处理 P4 事件消息"""
         event_data = message.payload
-        logger.info(f"[环境防御] 收到 P4 事件: {event_data.get('event_id')}")
+        logger.info("[环境防御] 收到 P4 事件: %s", event_data.get('event_id'))
         
     def _extract_repo_name(self, github_url: str) -> str:
         """提取仓库名称"""

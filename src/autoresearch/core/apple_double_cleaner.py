@@ -34,18 +34,18 @@ class AppleDoubleCleaner:
         Returns:
             清理结果
         """
-        logger.info(f"[环境防御] 开始扫描 AppleDouble 文件: {self.root_path}")
+        logger.info("[环境防御] 开始扫描 AppleDouble 文件: %s", self.root_path)
         
         # 扫描所有 ._* 文件
         apple_doubles = await self._scan_apple_doubles()
         
-        logger.info(f"[环境防御] 发现 {len(apple_doubles)} 个 AppleDouble 文件")
+        logger.info("[环境防御] 发现 %s 个 AppleDouble 文件", len(apple_doubles))
         
         if not dry_run:
             # 删除文件
             deleted_count = await self._delete_files(apple_doubles)
             
-            logger.info(f"[环境防御] 已删除 {deleted_count} 个 AppleDouble 文件")
+            logger.info("[环境防御] 已删除 %s 个 AppleDouble 文件", deleted_count)
         else:
             logger.info("[环境防御] 仅扫描模式，未删除文件")
             
@@ -65,12 +65,12 @@ class AppleDoubleCleaner:
         Args:
             operation: 操作名称
         """
-        logger.info(f"[环境防御] Pre-Execute Hook: {operation}")
+        logger.info("[环境防御] Pre-Execute Hook: %s", operation)
         
         result = await self.cleanup(dry_run=False)
         
         if result["deleted"] > 0:
-            logger.warning(f"[环境防御] 清理了 {result['deleted']} 个 AppleDouble 文件")
+            logger.warning("[环境防御] 清理了 %s 个 AppleDouble 文件", result['deleted'])
             
     async def _scan_apple_doubles(self) -> List[Path]:
         """扫描 AppleDouble 文件
@@ -99,7 +99,7 @@ class AppleDoubleCleaner:
         except subprocess.TimeoutExpired:
             logger.error("[环境防御] 扫描超时")
         except Exception as e:
-            logger.error(f"[环境防御] 扫描失败: {e}")
+            logger.error("[环境防御] 扫描失败: %s", e)
             
         return apple_doubles
         
@@ -127,15 +127,15 @@ class AppleDoubleCleaner:
                 
                 if result.returncode == 0:
                     deleted_count += 1
-                    logger.info(f"[环境防御] 已删除: {file_path}")
+                    logger.info("[环境防御] 已删除: %s", file_path)
                 else:
                     # 如果 trash 失败，使用 rm
                     os.remove(file_path)
                     deleted_count += 1
-                    logger.info(f"[环境防御] 已强制删除: {file_path}")
+                    logger.info("[环境防御] 已强制删除: %s", file_path)
                     
             except Exception as e:
-                logger.error(f"[环境防御] 删除失败: {file_path}, {e}")
+                logger.error("[环境防御] 删除失败: %s, %s", file_path, e)
                 
         return deleted_count
         

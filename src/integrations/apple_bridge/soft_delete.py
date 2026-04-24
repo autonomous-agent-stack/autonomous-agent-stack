@@ -52,7 +52,7 @@ class AppleBridgeSoftDelete:
         Returns:
             ArchiveResult
         """
-        logger.info(f"🗑️ 归档备忘录: {note_name} (方法: {method})")
+        logger.info("🗑️ 归档备忘录: %s (方法: %s)", note_name, method)
         
         try:
             if method == "move":
@@ -81,7 +81,7 @@ class AppleBridgeSoftDelete:
                     )
                 else:
                     # 如果回收站文件夹不存在，尝试创建
-                    logger.warning(f"回收站文件夹不存在，尝试创建: {self.trash_folder_name}")
+                    logger.warning("回收站文件夹不存在，尝试创建: %s", self.trash_folder_name)
                     create_result = await self._create_trash_folder()
                     
                     if create_result:
@@ -147,7 +147,7 @@ class AppleBridgeSoftDelete:
                 message="AppleScript 执行超时",
             )
         except Exception as e:
-            logger.error(f"❌ 归档备忘录失败: {e}")
+            logger.error("❌ 归档备忘录失败: %s", e)
             return ArchiveResult(
                 success=False,
                 message=f"归档失败: {str(e)}",
@@ -170,14 +170,14 @@ class AppleBridgeSoftDelete:
             )
             
             if result.returncode == 0:
-                logger.info(f"✅ 已创建回收站文件夹: {self.trash_folder_name}")
+                logger.info("✅ 已创建回收站文件夹: %s", self.trash_folder_name)
                 return True
             else:
-                logger.warning(f"创建回收站文件夹失败: {result.stderr}")
+                logger.warning("创建回收站文件夹失败: %s", result.stderr)
                 return False
         
         except Exception as e:
-            logger.error(f"❌ 创建回收站文件夹失败: {e}")
+            logger.error("❌ 创建回收站文件夹失败: %s", e)
             return False
     
     async def complete_apple_reminder(
@@ -192,7 +192,7 @@ class AppleBridgeSoftDelete:
         Returns:
             CompleteResult
         """
-        logger.info(f"✅ 完成待办事项: {reminder_name}")
+        logger.info("✅ 完成待办事项: %s", reminder_name)
         
         try:
             script = f'''
@@ -227,7 +227,7 @@ class AppleBridgeSoftDelete:
                 message="AppleScript 执行超时",
             )
         except Exception as e:
-            logger.error(f"❌ 完成待办事项失败: {e}")
+            logger.error("❌ 完成待办事项失败: %s", e)
             return CompleteResult(
                 success=False,
                 message=f"完成失败: {str(e)}",
