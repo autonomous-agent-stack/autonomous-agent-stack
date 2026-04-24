@@ -77,11 +77,11 @@ class GoogleMCPScopedDeletion:
         # 检查是否包含任何允许的关键词
         for keyword in self.allowed_keywords:
             if keyword.lower() in resource_name.lower():
-                logger.info(f"✅ 作用域验证通过: {resource_name} (匹配关键词: {keyword})")
+                logger.info("✅ 作用域验证通过: %s (匹配关键词: %s)", resource_name, keyword)
                 return True
         
         # 如果没有匹配任何关键词，拒绝删除
-        logger.warning(f"❌ 作用域验证失败: {resource_name}")
+        logger.warning("❌ 作用域验证失败: %s", resource_name)
         return False
 
     def _has_google_credentials(self) -> bool:
@@ -136,7 +136,7 @@ class GoogleMCPScopedDeletion:
         Raises:
             ScopeViolationError: 如果事件名称不在允许的作用域内
         """
-        logger.info(f"🗑️ 准备删除 Google 日历事件: {event_name}")
+        logger.info("🗑️ 准备删除 Google 日历事件: %s", event_name)
         
         # 1. 作用域验证
         if not self._validate_scope(event_name):
@@ -147,7 +147,7 @@ class GoogleMCPScopedDeletion:
         try:
             if self._has_google_credentials():
                 await asyncio.to_thread(self._delete_google_event_sync, event_id, calendar_id)
-                logger.info(f"✅ 已删除日历事件: {event_name} (ID: {event_id})")
+                logger.info("✅ 已删除日历事件: %s (ID: %s)", event_name, event_id)
                 message = "已删除日历事件"
             else:
                 logger.warning("⚠️ 未配置 Google 凭据，执行作用域通过后的模拟删除。")
@@ -159,7 +159,7 @@ class GoogleMCPScopedDeletion:
                 resource_name=event_name,
             )
         except HttpError as e:
-            logger.error(f"❌ 删除日历事件失败: {e}")
+            logger.error("❌ 删除日历事件失败: %s", e)
             return DeletionResult(
                 success=False,
                 message=f"删除失败: {str(e)}",
@@ -167,7 +167,7 @@ class GoogleMCPScopedDeletion:
                 resource_name=event_name,
             )
         except Exception as e:
-            logger.error(f"❌ 删除日历事件失败: {e}")
+            logger.error("❌ 删除日历事件失败: %s", e)
             return DeletionResult(
                 success=False,
                 message=f"删除失败: {str(e)}",
@@ -192,7 +192,7 @@ class GoogleMCPScopedDeletion:
         Raises:
             ScopeViolationError: 如果文件名称不在允许的作用域内
         """
-        logger.info(f"🗑️ 准备删除 Google Drive 文件: {file_name}")
+        logger.info("🗑️ 准备删除 Google Drive 文件: %s", file_name)
         
         # 1. 作用域验证
         if not self._validate_scope(file_name):
@@ -203,7 +203,7 @@ class GoogleMCPScopedDeletion:
         try:
             if self._has_google_credentials():
                 await asyncio.to_thread(self._delete_drive_file_sync, file_id)
-                logger.info(f"✅ 已删除文件: {file_name} (ID: {file_id})")
+                logger.info("✅ 已删除文件: %s (ID: %s)", file_name, file_id)
                 message = "已删除文件"
             else:
                 logger.warning("⚠️ 未配置 Google 凭据，执行作用域通过后的模拟删除。")
@@ -215,7 +215,7 @@ class GoogleMCPScopedDeletion:
                 resource_name=file_name,
             )
         except HttpError as e:
-            logger.error(f"❌ 删除文件失败: {e}")
+            logger.error("❌ 删除文件失败: %s", e)
             return DeletionResult(
                 success=False,
                 message=f"删除失败: {str(e)}",
@@ -223,7 +223,7 @@ class GoogleMCPScopedDeletion:
                 resource_name=file_name,
             )
         except Exception as e:
-            logger.error(f"❌ 删除文件失败: {e}")
+            logger.error("❌ 删除文件失败: %s", e)
             return DeletionResult(
                 success=False,
                 message=f"删除失败: {str(e)}",
