@@ -57,6 +57,7 @@ from autoresearch.core.services.upstream_watcher import UpstreamWatcherService
 from autoresearch.core.services.variants import VariantService
 from autoresearch.core.services.worker_schedule_service import WorkerScheduleService
 from autoresearch.core.services.worker_scheduler import WorkerSchedulerService
+from autoresearch.core.services.worker_inventory import WorkerInventoryService
 from autoresearch.core.services.worker_registry import WorkerRegistryService
 from autoresearch.core.services.youtube_agent import YouTubeAgentService
 from autoresearch.core.services.butler_router import ButlerIntentRouter
@@ -84,6 +85,9 @@ from autoresearch.shared.models import (
     ReportRead,
     VariantRead,
     WorkerLeaseRead,
+    WorkerInventoryListRead,
+    WorkerInventoryRead,
+    WorkerInventorySummaryRead,
     WorkerQueueItemRead,
     WorkerRegistrationRead,
     WorkerRunScheduleRead,
@@ -282,6 +286,14 @@ def get_worker_schedule_service() -> WorkerScheduleService:
             table_name="worker_schedules",
             model_cls=WorkerRunScheduleRead,
         ),
+    )
+
+
+@lru_cache(maxsize=1)
+def get_worker_inventory_service() -> WorkerInventoryService:
+    return WorkerInventoryService(
+        worker_registry=get_worker_registry_service(),
+        worker_scheduler=get_worker_scheduler_service(),
     )
 
 

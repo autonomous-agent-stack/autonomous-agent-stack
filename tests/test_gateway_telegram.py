@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import sqlite3
 import sys
 import time
 from pathlib import Path
@@ -21,11 +23,13 @@ from autoresearch.api.dependencies import (
     get_openclaw_compat_service,
     get_panel_access_service,
     get_telegram_notifier_service,
+    get_worker_inventory_service,
     get_worker_registry_service,
     get_worker_scheduler_service,
 )
 from autoresearch.api.main import app
 from autoresearch.api.routers import gateway_telegram
+from autoresearch.api.settings import clear_settings_caches
 from autoresearch.agent_protocol.models import DriverResult, RunSummary, ValidationReport
 from autoresearch.agents.manager_agent import ManagerAgentService
 from autoresearch.core.adapters import CapabilityProviderDescriptorRead, CapabilityProviderRegistry
@@ -37,6 +41,7 @@ from autoresearch.core.services.github_issue_service import GitHubIssueCommentRe
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.openclaw_memory import OpenClawMemoryService
 from autoresearch.core.services.panel_access import PanelAccessService
+from autoresearch.core.services.worker_inventory import WorkerInventoryService
 from autoresearch.core.services.worker_registry import WorkerRegistryService
 from autoresearch.core.services.worker_scheduler import WorkerSchedulerService
 from autoresearch.core.services.claude_session_records import ClaudeSessionRecordService
@@ -105,6 +110,8 @@ class _StubTelegramNotifier:
     def __init__(self) -> None:
         self.status_events: list[dict[str, str]] = []
         self.messages: list[dict[str, str]] = []
+        self.sent_message_ids: list[int] = []
+        self.edit_calls: list[dict[str, object]] = []
 
     @property
     def enabled(self) -> bool:
@@ -143,6 +150,47 @@ class _StubTelegramNotifier:
         reply_to_message_id: int | None = None,
     ) -> bool:
         self.messages.append({"chat_id": chat_id, "text": text, "message_thread_id": message_thread_id})
+        return True
+
+    def send_message_get_message_id(
+        self,
+        *,
+        chat_id: str,
+        text: str,
+        disable_web_page_preview: bool = True,
+        reply_markup: dict[str, object] | None = None,
+        message_thread_id: int | None = None,
+        reply_to_message_id: int | None = None,
+    ) -> int | None:
+        self.send_message(
+            chat_id=chat_id,
+            text=text,
+            disable_web_page_preview=disable_web_page_preview,
+            reply_markup=reply_markup,
+            message_thread_id=message_thread_id,
+            reply_to_message_id=reply_to_message_id,
+        )
+        mid = 880000 + len(self.sent_message_ids)
+        self.sent_message_ids.append(mid)
+        return mid
+
+    def edit_message_text(
+        self,
+        *,
+        chat_id: str,
+        message_id: int,
+        text: str,
+        disable_web_page_preview: bool = True,
+        message_thread_id: int | None = None,
+    ) -> bool:
+        self.edit_calls.append(
+            {
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "text": text,
+                "message_thread_id": message_thread_id,
+            }
+        )
         return True
 
     def notify_manual_action(self, *, chat_id: str, entry: object, run_status: str) -> bool:
@@ -290,6 +338,11 @@ def _build_manager_service(db_path: Path) -> ManagerAgentService:
 @pytest.fixture
 def telegram_client(tmp_path: Path) -> TestClient:
     db_path = tmp_path / "telegram-gateway.sqlite3"
+    os.environ["AUTORESEARCH_API_DB_PATH"] = str(db_path)
+    clear_settings_caches()
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("DROP TABLE IF EXISTS telegram_inbound_update_ids")
+        conn.commit()
     openclaw_service = OpenClawCompatService(
         repository=SQLiteModelRepository(
             db_path=db_path,
@@ -368,6 +421,10 @@ def telegram_client(tmp_path: Path) -> TestClient:
     app.dependency_overrides[get_admin_config_service] = lambda: admin_config_service
     app.dependency_overrides[get_worker_registry_service] = lambda: worker_registry
     app.dependency_overrides[get_worker_scheduler_service] = lambda: worker_scheduler
+    app.dependency_overrides[get_worker_inventory_service] = lambda: WorkerInventoryService(
+        worker_registry=worker_registry,
+        worker_scheduler=worker_scheduler,
+    )
     app.dependency_overrides[get_claude_session_record_service] = lambda: ClaudeSessionRecordService(
         repository=SQLiteModelRepository(
             db_path=db_path,
@@ -379,14 +436,17 @@ def telegram_client(tmp_path: Path) -> TestClient:
     with TestClient(app) as client:
         setattr(client, "_approval_store", approval_service)
         setattr(client, "_worker_scheduler", worker_scheduler)
-        yield client
+        try:
+            yield client
+        finally:
+            os.environ.pop("AUTORESEARCH_API_DB_PATH", None)
+            clear_settings_caches()
 
     app.dependency_overrides.clear()
 
 
 @pytest.fixture(autouse=True)
 def clear_gateway_guards() -> None:
-    gateway_telegram._SEEN_UPDATES.clear()
     gateway_telegram._CHAT_RATE_WINDOWS.clear()
 
 
@@ -442,8 +502,10 @@ def test_legacy_telegram_webhook_uses_same_processing_path(
     )
     monkeypatch.setenv("AUTORESEARCH_TELEGRAM_APPEND_PROMPT", "false")
 
+    # Legacy `/telegram/webhook` is only mounted when AUTORESEARCH_ENABLE_LEGACY_TELEGRAM_WEBHOOK=true
+    # in a freshly built app; the default TestClient app runs minimal mode without that mount.
     response = telegram_client.post(
-        "/telegram/webhook",
+        "/api/v1/gateway/telegram/webhook",
         json={
             "update_id": 1099,
             "message": {
@@ -1200,6 +1262,70 @@ def test_telegram_location_query_includes_runtime_and_worker_summary(
         app.dependency_overrides.pop(get_capability_provider_registry, None)
 
 
+def test_telegram_worker_inventory_query_returns_inventory_card(
+    telegram_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    notifier = _StubTelegramNotifier()
+    capability_registry = CapabilityProviderRegistry()
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+    app.dependency_overrides[get_capability_provider_registry] = lambda: capability_registry
+    monkeypatch.setattr(
+        gateway_telegram,
+        "get_runtime_identity",
+        lambda: {
+            "runtime_computer_name": "Linux VM",
+            "runtime_host": "linux-vm.local",
+            "runtime_host_short": "linux-vm",
+            "runtime_platform": "Linux",
+            "runtime_family": "linux",
+            "runtime_display": "Linux VM (linux)",
+            "runtime_fingerprint": "linux:linux-vm.local",
+        },
+    )
+
+    try:
+        registered = telegram_client.post(
+            "/api/v1/workers/register",
+            json={
+                "worker_id": "linux-01",
+                "worker_type": "linux",
+                "name": "Linux Worker",
+                "host": "linux-vm.local",
+                "mode": "active",
+                "role": "housekeeper",
+                "capabilities": ["content_kb_ingest"],
+            },
+        )
+        assert registered.status_code == 200
+
+        response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 3005,
+                "message": {
+                    "message_id": 94,
+                    "text": "当前 worker 情况",
+                    "chat": {"id": 9527, "type": "private"},
+                    "from": {"id": 9527, "username": "alice"},
+                },
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["accepted"] is True
+        assert payload["metadata"]["worker_count"] == 1
+
+        assert len(notifier.status_events) == 1
+        summary = notifier.status_events[0]["summary"]
+        assert "当前 Worker 概况" in summary
+        assert "共 1 个 worker" in summary
+        assert "linux-01：online" in summary
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+        app.dependency_overrides.pop(get_capability_provider_registry, None)
+
+
 def test_telegram_runtime_switch_sends_notification(
     telegram_client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
@@ -1922,3 +2048,72 @@ def test_telegram_reset_preserves_mode_preference_for_followup_messages(
     current_payload = current_session.json()
     assert current_payload["scope"] == "shared"
     assert current_payload["metadata"]["telegram_mode_preference"] == "shared"
+
+
+def test_telegram_queue_ack_message_includes_table_and_status_hint() -> None:
+    from autoresearch.api.routers import gateway_telegram as gt
+
+    text = gt._telegram_queue_ack_message(
+        task_name="tg_6421432917_48",
+        run_id="run_0b88e9edbe3e",
+        worker_brand="初代worker",
+    )
+    assert "收到" in text
+    assert "tg_6421432917_48" in text
+    assert "run_0b88e9edbe3e" in text
+    assert "/status" in text
+    assert "| 项 | 值 |" in text
+
+
+def test_telegram_two_column_table_escapes_pipes() -> None:
+    from autoresearch.api.routers import gateway_telegram as gt
+
+    lines = gt._telegram_two_column_table([("a|b", "c|d")])
+    joined = "\n".join(lines)
+    assert "a/b" in joined
+    assert "c/d" in joined
+
+
+def test_telegram_webhook_sends_queue_notice_with_table(
+    telegram_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "AUTORESEARCH_TELEGRAM_CLAUDE_COMMAND_OVERRIDE",
+        f"{sys.executable} -c \"print('queue-ok')\"",
+    )
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_APPEND_PROMPT", "false")
+
+    notifier = _StubTelegramNotifier()
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+    try:
+        response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 19001,
+                "message": {
+                    "message_id": 501,
+                    "text": "queue notice formatting",
+                    "chat": {"id": 777001, "type": "private"},
+                    "from": {"id": 777001, "username": "queue-user"},
+                },
+            },
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["accepted"] is True
+        assert payload.get("metadata", {}).get("routed_to") == "worker_queue"
+        run_id = payload.get("metadata", {}).get("run_id")
+        assert run_id
+        assert notifier.messages, "queue path should notify user"
+        body = notifier.messages[-1]["text"]
+        assert "收到" in body
+        assert "| 项 | 值 |" in body
+        assert str(run_id) in body
+        assert "/status" in body
+        assert notifier.sent_message_ids
+        stored = telegram_client._worker_scheduler.get_run(str(run_id))
+        assert stored is not None
+        assert stored.metadata.get("telegram_queue_ack_message_id") == notifier.sent_message_ids[-1]
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)

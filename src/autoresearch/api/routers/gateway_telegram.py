@@ -21,6 +21,7 @@ from autoresearch.api.dependencies import (
     get_openclaw_memory_service,
     get_panel_access_service,
     get_telegram_notifier_service,
+    get_worker_inventory_service,
     get_worker_registry_service,
     get_worker_scheduler_service,
 )
@@ -45,6 +46,8 @@ from autoresearch.core.services.telegram_identity import (
     build_telegram_session_identity,
 )
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
+from autoresearch.core.services.telegram_webhook_dedup import claim_first_telegram_update
+from autoresearch.core.services.worker_inventory import WorkerInventoryService
 from autoresearch.core.services.worker_registry import WorkerRegistryService
 from autoresearch.core.services.worker_scheduler import WorkerSchedulerService
 from autoresearch.core.services.claude_session_records import ClaudeSessionRecordService
@@ -78,10 +81,8 @@ from autoresearch.shared.manager_agent_contract import ManagerDispatchRead, Mana
 
 router = APIRouter(prefix="/api/v1/gateway/telegram", tags=["gateway", "telegram"])
 compat_router = APIRouter(tags=["gateway", "telegram", "compat"])
-_UPDATE_REPLAY_TTL_SECONDS = 600
 _RATE_WINDOW_SECONDS = 60
 _RATE_MAX_REQUESTS_PER_CHAT = 30
-_SEEN_UPDATES: dict[str, float] = {}
 _CHAT_RATE_WINDOWS: dict[str, list[float]] = {}
 _GUARD_LOCK = threading.Lock()
 _SHORT_AFFIRMATIVE_RE = re.compile(r"^(好|好的|好啊|好呀|行|行啊|行呀|可以|可以啊|可以呀|开始|开始吧|来吧|继续|确认|是|是的|嗯|嗯嗯)\s*[.!。！？~～]*$")
@@ -113,6 +114,7 @@ def telegram_webhook(
     notifier: TelegramNotifierService = Depends(get_telegram_notifier_service),
     admin_config_service: AdminConfigService = Depends(get_admin_config_service),
     worker_registry: WorkerRegistryService = Depends(get_worker_registry_service),
+    worker_inventory: WorkerInventoryService = Depends(get_worker_inventory_service),
     worker_scheduler: WorkerSchedulerService = Depends(get_worker_scheduler_service),
     session_record_service: ClaudeSessionRecordService = Depends(get_claude_session_record_service),
 ) -> TelegramWebhookAck:
@@ -131,6 +133,7 @@ def telegram_webhook(
         notifier=notifier,
         admin_config_service=admin_config_service,
         worker_registry=worker_registry,
+        worker_inventory=worker_inventory,
         worker_scheduler=worker_scheduler,
         session_record_service=session_record_service,
     )
@@ -156,6 +159,7 @@ def legacy_telegram_webhook(
     notifier: TelegramNotifierService = Depends(get_telegram_notifier_service),
     admin_config_service: AdminConfigService = Depends(get_admin_config_service),
     worker_registry: WorkerRegistryService = Depends(get_worker_registry_service),
+    worker_inventory: WorkerInventoryService = Depends(get_worker_inventory_service),
     worker_scheduler: WorkerSchedulerService = Depends(get_worker_scheduler_service),
     session_record_service: ClaudeSessionRecordService = Depends(get_claude_session_record_service),
 ) -> TelegramWebhookAck:
@@ -174,6 +178,7 @@ def legacy_telegram_webhook(
         notifier=notifier,
         admin_config_service=admin_config_service,
         worker_registry=worker_registry,
+        worker_inventory=worker_inventory,
         worker_scheduler=worker_scheduler,
         session_record_service=session_record_service,
     )
@@ -195,6 +200,7 @@ def _handle_telegram_webhook(
     notifier: TelegramNotifierService,
     admin_config_service: AdminConfigService,
     worker_registry: WorkerRegistryService,
+    worker_inventory: WorkerInventoryService,
     worker_scheduler: WorkerSchedulerService,
     session_record_service: ClaudeSessionRecordService,
 ) -> TelegramWebhookAck:
@@ -269,6 +275,7 @@ def _handle_telegram_webhook(
             notifier=notifier,
             session_identity=session_identity,
             worker_registry=worker_registry,
+            worker_inventory=worker_inventory,
         )
 
     if _is_help_command(text):
@@ -460,15 +467,24 @@ def _handle_telegram_webhook(
         },
     ))
 
-    # Notify user that task is queued
+    # Notify user that task is queued (sync so we capture message_id for worker editMessageText)
     thread_id_int = _safe_int(extracted.get("message_thread_id"))
     if notifier.enabled:
-        background_tasks.add_task(
-            notifier.send_message,
+        ack_text = _telegram_queue_ack_message(
+            task_name=str(runtime_payload["task_name"]),
+            run_id=str(queue_item.run_id),
+            worker_brand=telegram_settings.telegram_worker_display_name,
+        )
+        ack_message_id = notifier.send_message_get_message_id(
             chat_id=chat_id,
-            text=f"已接收，已排队：{runtime_payload['task_name']} (run: {queue_item.run_id})",
+            text=ack_text,
             message_thread_id=thread_id_int,
         )
+        if ack_message_id is not None:
+            worker_scheduler.merge_queue_metadata(
+                queue_item.run_id,
+                {"telegram_queue_ack_message_id": ack_message_id},
+            )
 
     return TelegramWebhookAck(
         accepted=True,
@@ -575,13 +591,19 @@ def _guard_webhook_replay_and_rate(update: dict[str, Any]) -> None:
 
     with _GUARD_LOCK:
         _gc_guard_state(now_ts)
-        update_key = str(update_id)
-        if update_key in _SEEN_UPDATES:
+        try:
+            if not claim_first_telegram_update(load_runtime_settings().api_db_path, int(update_id)):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="duplicate telegram update rejected",
+                )
+        except HTTPException:
+            raise
+        except Exception as exc:
             raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="duplicate telegram update rejected",
-            )
-        _SEEN_UPDATES[update_key] = now_ts
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="telegram update dedup store unavailable",
+            ) from exc
 
         if not chat_id:
             return
@@ -648,11 +670,6 @@ def _message_addresses_bot(*, extracted: dict[str, Any], telegram_settings) -> b
 
 
 def _gc_guard_state(now_ts: float) -> None:
-    replay_cutoff = now_ts - _UPDATE_REPLAY_TTL_SECONDS
-    expired_updates = [key for key, ts in _SEEN_UPDATES.items() if ts < replay_cutoff]
-    for key in expired_updates:
-        _SEEN_UPDATES.pop(key, None)
-
     empty_chats: list[str] = []
     rate_cutoff = now_ts - _RATE_WINDOW_SECONDS
     for chat_id, timestamps in _CHAT_RATE_WINDOWS.items():
@@ -2229,6 +2246,49 @@ def _truncate_telegram_text(text: str) -> str:
     return normalized
 
 
+def _telegram_md_cell(value: str, *, max_len: int = 120) -> str:
+    """Plain-text Markdown-ish tables for Telegram (no parse_mode); keep cells on one line."""
+    text = str(value).replace("|", "/").replace("\n", " ").strip()
+    if len(text) <= max_len:
+        return text
+    return text[: max(1, max_len - 1)] + "…"
+
+
+def _telegram_two_column_table(rows: list[tuple[str, str]]) -> list[str]:
+    if not rows:
+        return []
+    lines = ["| 项 | 值 |", "| --- | --- |"]
+    for key, val in rows:
+        lines.append(f"| {_telegram_md_cell(key, max_len=40)} | {_telegram_md_cell(val)} |")
+    return lines
+
+
+def _telegram_queue_ack_message(*, task_name: str, run_id: str, worker_brand: str) -> str:
+    brand = (worker_brand or "").strip()
+    opener = f"收到，任务已进队（由【{brand}】执行）。" if brand else "收到，任务已进队。"
+    tail = (
+        f"完成后由【{brand}】在此会话回复；要看 worker / 队列发 /status。"
+        if brand
+        else "Worker 接单即跑；要看 worker / 队列发 /status。"
+    )
+    table = _telegram_two_column_table(
+        [
+            ("任务", task_name),
+            ("run_id", run_id),
+        ]
+    )
+    body = "\n".join(
+        [
+            opener,
+            "",
+            *table,
+            "",
+            tail,
+        ]
+    )
+    return _truncate_telegram_text(body)
+
+
 def _handle_status_query(
     *,
     chat_id: str,
@@ -2243,6 +2303,7 @@ def _handle_status_query(
     notifier: TelegramNotifierService,
     session_identity: TelegramSessionIdentityRead,
     worker_registry: WorkerRegistryService,
+    worker_inventory: WorkerInventoryService,
 ) -> TelegramWebhookAck:
     runtime_identity = get_runtime_identity()
     session = _find_existing_telegram_session(
@@ -2263,6 +2324,7 @@ def _handle_status_query(
         runs.sort(key=lambda item: item.updated_at, reverse=True)
     memory_bundle = memory_service.bundle_for_session(session.session_id) if session is not None else None
     workers = worker_registry.list_workers()
+    inventory = worker_inventory.list_workers()
 
     summary_lines = _build_status_summary_lines(
         chat_id=chat_id,
@@ -2273,6 +2335,7 @@ def _handle_status_query(
         capability_registry=capability_registry,
         runtime_identity=runtime_identity,
         workers=workers,
+        worker_inventory=inventory,
     )
 
     # Initialize GroupAccessManager for whitelist groups
@@ -2342,6 +2405,7 @@ def _handle_status_query(
             "magic_link_expires_at": expires_at_iso,
             "active_runs": len(runs),
             "provider_count": len(capability_registry.list_descriptors()),
+            "worker_count": inventory.summary.total_workers,
             "is_group_link": is_group_link,
             "mini_app_url": mini_app_url,
             "scope": session_identity.scope.value,
@@ -2369,6 +2433,16 @@ def _is_status_query(text: str) -> bool:
         "在哪儿",
         "你在哪",
         "你在哪儿",
+        "worker",
+        "workers",
+        "worker状态",
+        "worker 状态",
+        "worker情况",
+        "worker 情况",
+        "有哪些worker",
+        "有哪些 worker",
+        "几个worker",
+        "几个 worker",
     }:
         return True
     return any(
@@ -2387,6 +2461,17 @@ def _is_status_query(text: str) -> bool:
             "which computer",
             "what host",
             "where are you running",
+            "who is online",
+            "who is busy",
+            "worker inventory",
+            "worker status",
+            "worker heartbeat",
+            "心跳如何",
+            "谁在线",
+            "谁在忙",
+            "aAS 当前 worker 情况".lower(),
+            "当前worker情况",
+            "当前 worker 情况",
         )
     )
 
@@ -2676,6 +2761,7 @@ def _build_status_summary_lines(
     capability_registry: CapabilityProviderRegistry,
     runtime_identity: dict[str, str],
     workers: list[Any],
+    worker_inventory,
 ) -> list[str]:
     descriptors = capability_registry.list_descriptors()
     skill_provider_count = len([item for item in descriptors if item.domain == CapabilityDomain.SKILL])
@@ -2696,6 +2782,7 @@ def _build_status_summary_lines(
             "发送任务文本后系统会自动创建会话并执行。",
         ]
         _append_worker_summary_lines(lines, workers)
+        _append_worker_inventory_lines(lines, worker_inventory)
         return lines
 
     runtime_display = str(session.metadata.get("runtime_display") or runtime_display)
@@ -2724,6 +2811,7 @@ def _build_status_summary_lines(
     if session.actor is not None:
         lines.append(f"actor_role: {session.actor.role.value}")
     _append_worker_summary_lines(lines, workers)
+    _append_worker_inventory_lines(lines, worker_inventory)
     if not runs:
         lines.append("最近任务: 暂无")
         return lines
@@ -2749,6 +2837,30 @@ def _append_worker_summary_lines(lines: list[str], workers: list[Any]) -> None:
         mode = getattr(getattr(worker, "mode", None), "value", getattr(worker, "mode", "unknown"))
         health = getattr(getattr(worker, "health", None), "value", getattr(worker, "health", "unknown"))
         lines.append(f"- worker {worker.worker_id} | {worker_type}/{mode} | {host} | {health}")
+
+
+def _append_worker_inventory_lines(lines: list[str], inventory) -> None:
+    summary = getattr(inventory, "summary", None)
+    workers = list(getattr(inventory, "workers", []) or [])
+    if summary is None:
+        return
+    lines.extend(
+        [
+            "当前 Worker 概况",
+            f"- 共 {summary.total_workers} 个 worker",
+            f"- 在线 {summary.online_workers} 个，忙碌 {summary.busy_workers} 个，异常 {summary.degraded_workers} 个，离线 {summary.offline_workers} 个",
+        ]
+    )
+    if not workers:
+        lines.append("- 当前没有已注册 worker")
+        return
+    lines.append("Worker 列表")
+    for worker in workers[:4]:
+        latest = worker.latest_task_summary
+        last_task = latest.task_name if latest is not None else "当前空闲"
+        lines.append(
+            f"- {worker.worker_id}：{worker.display_status}，队列 {worker.queue_depth}，活跃任务 {worker.active_tasks}，最近任务 {last_task}"
+        )
 
 
 def _build_help_message(*, session_identity: TelegramSessionIdentityRead) -> str:

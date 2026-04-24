@@ -5,7 +5,9 @@ import logging
 import time
 from typing import Any
 from urllib import error, request
+from urllib.parse import urlparse
 
+from autoresearch.core.services.panel_access import is_private_or_tailscale_host
 from autoresearch.shared.models import PanelAuditLogRead
 
 
@@ -67,6 +69,78 @@ class TelegramNotifierService:
         return self._send_request(
             req=req,
             operation="sendMessage",
+            chat_id=str(chat_id),
+        )
+
+    def send_message_get_message_id(
+        self,
+        *,
+        chat_id: str,
+        text: str,
+        disable_web_page_preview: bool = True,
+        reply_markup: dict[str, Any] | None = None,
+        message_thread_id: int | None = None,
+        reply_to_message_id: int | None = None,
+    ) -> int | None:
+        """Like send_message but returns Telegram message_id for later editMessageText."""
+        if not self.enabled:
+            return None
+
+        payload: dict[str, Any] = {
+            "chat_id": chat_id,
+            "text": text,
+            "disable_web_page_preview": disable_web_page_preview,
+        }
+        if message_thread_id is not None:
+            payload["message_thread_id"] = message_thread_id
+        if reply_to_message_id is not None:
+            payload["reply_to_message_id"] = reply_to_message_id
+        if reply_markup is not None:
+            payload["reply_markup"] = reply_markup
+        endpoint = f"{self._api_base}/bot{self._bot_token}/sendMessage"
+        body = json.dumps(payload).encode("utf-8")
+        req = request.Request(
+            endpoint,
+            data=body,
+            headers={"content-type": "application/json"},
+            method="POST",
+        )
+        return self._send_request_message_id(
+            req=req,
+            operation="sendMessage",
+            chat_id=str(chat_id),
+        )
+
+    def edit_message_text(
+        self,
+        *,
+        chat_id: str,
+        message_id: int,
+        text: str,
+        disable_web_page_preview: bool = True,
+        message_thread_id: int | None = None,
+    ) -> bool:
+        if not self.enabled:
+            return False
+        payload: dict[str, Any] = {
+            "chat_id": chat_id,
+            "message_id": int(message_id),
+            "text": text,
+            "disable_web_page_preview": disable_web_page_preview,
+        }
+        if message_thread_id is not None:
+            payload["message_thread_id"] = message_thread_id
+        endpoint = f"{self._api_base}/bot{self._bot_token}/editMessageText"
+        body = json.dumps(payload).encode("utf-8")
+        req = request.Request(
+            endpoint,
+            data=body,
+            headers={"content-type": "application/json"},
+            method="POST",
+        )
+        return self._send_request(
+            req=req,
+            operation="editMessageText",
             chat_id=str(chat_id),
         )
 
@@ -132,10 +206,18 @@ class TelegramNotifierService:
 
         # For regular links, use text message (with optional Mini App button)
         lines = ["[状态查询]", *summary_lines]
-        if magic_link_url:
+        if mini_app_url:
             lines.append("")
-            lines.append(f"Web 面板: {magic_link_url}")
-            if expires_at_iso:
+            lines.append("面板入口：请使用下方按钮打开。 / Panel entry: use the button below.")
+        elif magic_link_url:
+            lines.append("")
+            if _is_local_only_panel_url(magic_link_url):
+                lines.append(
+                    "本地 Web 面板已生成，仅当前机器可打开。 / Local panel link generated; only accessible on this machine."
+                )
+            else:
+                lines.append(f"Web 面板: {magic_link_url}")
+            if expires_at_iso and not _is_local_only_panel_url(magic_link_url):
                 lines.append(f"链接有效期至(UTC): {expires_at_iso}")
 
         reply_markup: dict[str, Any] | None = None
@@ -257,3 +339,56 @@ class TelegramNotifierService:
                 last_error,
             )
         return False
+
+    def _send_request_message_id(
+        self,
+        *,
+        req: request.Request,
+        operation: str,
+        chat_id: str,
+    ) -> int | None:
+        last_error: Exception | None = None
+        for attempt in range(1, self._max_attempts + 1):
+            try:
+                with request.urlopen(req, timeout=self._timeout_seconds) as response:
+                    response_payload = json.loads(response.read().decode("utf-8"))
+                if not bool(response_payload.get("ok")):
+                    logger.warning(
+                        "Telegram notifier %s returned ok=false on attempt %s for chat_id=%s payload=%s",
+                        operation,
+                        attempt,
+                        chat_id,
+                        response_payload,
+                    )
+                    return None
+                result = response_payload.get("result")
+                if isinstance(result, dict):
+                    mid = result.get("message_id")
+                    if isinstance(mid, int):
+                        return mid
+                return None
+            except (error.URLError, error.HTTPError, TimeoutError, json.JSONDecodeError) as exc:
+                last_error = exc
+                logger.warning(
+                    "Telegram notifier %s failed on attempt %s/%s for chat_id=%s: %s",
+                    operation,
+                    attempt,
+                    self._max_attempts,
+                    chat_id,
+                    exc,
+                )
+                if attempt < self._max_attempts:
+                    time.sleep(0.5)
+        if last_error is not None:
+            logger.error(
+                "Telegram notifier %s exhausted retries for chat_id=%s: %s",
+                operation,
+                chat_id,
+                last_error,
+            )
+        return None
+
+
+def _is_local_only_panel_url(url: str) -> bool:
+    host = (urlparse(url).hostname or "").strip().lower()
+    return bool(host) and is_private_or_tailscale_host(host)

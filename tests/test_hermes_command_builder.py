@@ -71,6 +71,34 @@ def test_reject_unsupported_cli_args_blocks_yolo() -> None:
         reject_unsupported_cli_args(["--yolo"])
 
 
+def test_build_hermes_command_plan_remaps_legacy_butler_in_cli_args(monkeypatch) -> None:
+    monkeypatch.setenv("AUTORESEARCH_HERMES_COMMAND", f"{sys.executable} /tmp/hermes_stub.py")
+    request = RuntimeRunRequest(
+        task_name="t",
+        prompt="hi",
+        work_dir="/tmp/w",
+        timeout_seconds=30,
+        cli_args=["--profile", "butler", "--verbose"],
+    )
+    meta = HermesRuntimeMetadata(session_mode="oneshot")
+    plan = build_hermes_command_plan(request, meta)
+    assert plan.argv[-3:] == ["--profile", "default", "--verbose"]
+    assert "butler" not in plan.argv
+
+
+def test_build_hermes_command_plan_removes_legacy_butler_from_base_command(monkeypatch) -> None:
+    monkeypatch.setenv(
+        "AUTORESEARCH_HERMES_COMMAND",
+        f"{sys.executable} /tmp/hermes_stub.py --profile butler",
+    )
+    request = RuntimeRunRequest(task_name="t", prompt="hi", work_dir="/tmp/w", timeout_seconds=30)
+    meta = HermesRuntimeMetadata(session_mode="oneshot")
+    plan = build_hermes_command_plan(request, meta)
+    assert "--profile" in plan.argv
+    idx = plan.argv.index("--profile")
+    assert plan.argv[idx + 1] == "default"
+
+
 def test_build_hermes_command_plan_raises_on_unparseable_command(monkeypatch) -> None:
     monkeypatch.setenv("AUTORESEARCH_HERMES_COMMAND", "'")
     request = RuntimeRunRequest(task_name="builder-fail", prompt="hello")

@@ -119,6 +119,74 @@ def test_dispatch_hermes_uses_registry() -> None:
     assert req.prompt == "ping"
 
 
+def test_dispatch_hermes_polls_until_terminal_status() -> None:
+    claude_rt = MagicMock(spec=ClaudeRuntimeService)
+    claude_rt.session_record_service = MagicMock()
+    adapter = MagicMock()
+    now = datetime.now(timezone.utc)
+    adapter.run.return_value = RuntimeRunRead(
+        runtime_id="hermes",
+        run_id="run-h",
+        session_id="sess-h",
+        task_name="tg",
+        status=JobStatus.QUEUED,
+        summary="queued",
+        timeout_seconds=60,
+        created_at=now,
+        updated_at=now,
+        metadata={},
+    )
+    adapter.status.side_effect = [
+        MagicMock(
+            run=RuntimeRunRead(
+                runtime_id="hermes",
+                run_id="run-h",
+                session_id="sess-h",
+                task_name="tg",
+                status=JobStatus.RUNNING,
+                summary="running",
+                timeout_seconds=60,
+                created_at=now,
+                updated_at=now,
+                metadata={},
+            )
+        ),
+        MagicMock(
+            run=RuntimeRunRead(
+                runtime_id="hermes",
+                run_id="run-h",
+                session_id="sess-h",
+                task_name="tg",
+                status=JobStatus.COMPLETED,
+                summary="done",
+                timeout_seconds=60,
+                stdout_preview="final output",
+                created_at=now,
+                updated_at=now,
+                metadata={},
+            )
+        ),
+    ]
+    registry = MagicMock()
+    registry.get.return_value = adapter
+
+    dispatch = WorkerRuntimeDispatchService(claude_runtime=claude_rt, registry=registry)
+    payload: dict[str, Any] = {
+        "runtime_id": "hermes",
+        "prompt": "ping",
+        "task_name": "tg",
+        "session_key": "sk1",
+        "timeout_seconds": 60,
+        "metadata": {"hermes": {"session_mode": "oneshot"}},
+    }
+    out = dispatch.execute_payload(payload, worker_id="w1", queue_metadata=None)
+
+    assert out.status == JobStatus.COMPLETED
+    assert out.stdout_preview == "final output"
+    adapter.run.assert_called_once()
+    assert adapter.status.call_count == 2
+
+
 def test_dispatch_unknown_runtime() -> None:
     dispatch = WorkerRuntimeDispatchService(
         claude_runtime=MagicMock(spec=ClaudeRuntimeService),
@@ -127,3 +195,26 @@ def test_dispatch_unknown_runtime() -> None:
     out = dispatch.execute_payload({"runtime_id": "unknown", "prompt": "x"}, worker_id=None, queue_metadata=None)
     assert out.status == JobStatus.FAILED
     assert "unsupported" in (out.error or "").lower()
+
+
+def test_telegram_hermes_metadata_default_profile_is_default() -> None:
+    from autoresearch.api.settings import TelegramSettings
+
+    s = TelegramSettings(bot_token="t", owner_uids={"1"}, partner_uids=set(), allowed_uids={"1"})
+    frag = s.hermes_metadata_fragment_for_worker()
+    assert frag["session_mode"] == "oneshot"
+    assert frag["profile"] == "default"
+
+
+def test_telegram_hermes_profile_legacy_butler_maps_to_default() -> None:
+    from autoresearch.api.settings import TelegramSettings
+
+    s = TelegramSettings(
+        bot_token="t",
+        owner_uids={"1"},
+        partner_uids=set(),
+        allowed_uids={"1"},
+        telegram_hermes_profile="butler",
+    )
+    assert s.telegram_hermes_profile == "default"
+    assert s.hermes_metadata_fragment_for_worker()["profile"] == "default"

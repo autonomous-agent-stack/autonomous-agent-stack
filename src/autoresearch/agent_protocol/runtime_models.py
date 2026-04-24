@@ -88,7 +88,7 @@ class HermesRuntimeMetadata(StrictModel):
     approval_mode: Literal["manual", "smart", "off"] | None = None
     session_mode: Literal["oneshot"] | None = None
 
-    @field_validator("provider", "model", "profile", mode="before")
+    @field_validator("provider", "model", mode="before")
     @classmethod
     def _normalize_optional_string(cls, value: Any) -> str | None:
         if value is None:
@@ -96,6 +96,18 @@ class HermesRuntimeMetadata(StrictModel):
         if not isinstance(value, str):
             raise ValueError("value must be a string")
         normalized = value.strip()
+        return normalized or None
+
+    @field_validator("profile", mode="before")
+    @classmethod
+    def _normalize_profile_name(cls, value: Any) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("value must be a string")
+        normalized = value.strip()
+        if normalized.lower() == "butler":
+            return "default"
         return normalized or None
 
     @field_validator("toolsets", mode="before")
@@ -181,7 +193,8 @@ class RuntimeStatusRequest(StrictModel):
     runtime_id: str = "openclaw"
     session_id: str | None = None
     run_id: str | None = None
-    event_limit: int = Field(default=20, ge=1, le=200)
+    # 0 = skip loading stream events (cheap polling for worker Hermes wait loops).
+    event_limit: int = Field(default=20, ge=0, le=200)
 
 
 class RuntimeStatusRead(StrictModel):

@@ -227,7 +227,14 @@ class TelegramSettings(_BaseApiSettings):
         default="claude",
         validation_alias="AUTORESEARCH_TELEGRAM_RUNTIME_ID",
     )
-    telegram_hermes_profile: str = Field(default="", validation_alias="AUTORESEARCH_TELEGRAM_HERMES_PROFILE")
+    telegram_worker_display_name: str = Field(
+        default="初代worker",
+        validation_alias="AUTORESEARCH_TELEGRAM_WORKER_DISPLAY_NAME",
+    )
+    telegram_hermes_profile: str = Field(
+        default="default",
+        validation_alias="AUTORESEARCH_TELEGRAM_HERMES_PROFILE",
+    )
     telegram_hermes_toolsets_raw: str = Field(
         default="",
         validation_alias="AUTORESEARCH_TELEGRAM_HERMES_TOOLSETS",
@@ -236,6 +243,25 @@ class TelegramSettings(_BaseApiSettings):
         default="",
         validation_alias="AUTORESEARCH_TELEGRAM_HERMES_APPROVAL_MODE",
     )
+    butler_completion_fallback_enabled: bool = Field(
+        default=True,
+        validation_alias="AUTORESEARCH_TELEGRAM_BUTLER_FALLBACK_ENABLED",
+    )
+
+    @field_validator("telegram_worker_display_name", mode="before")
+    @classmethod
+    def _normalize_telegram_worker_display_name(cls, value: Any) -> str:
+        if value is None:
+            return "初代worker"
+        return str(value).strip()
+
+    @field_validator("telegram_hermes_profile", mode="before")
+    @classmethod
+    def _normalize_telegram_hermes_profile(cls, value: Any) -> str:
+        raw = str(value or "").strip()
+        if raw.lower() == "butler":
+            return "default"
+        return raw
 
     @field_validator("telegram_dispatch_runtime_id", mode="before")
     @classmethod

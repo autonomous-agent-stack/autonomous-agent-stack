@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from typing import Any
 
 from autoresearch.core.services.worker_registry import WorkerRegistryService
 from autoresearch.shared.models import (
@@ -204,6 +205,15 @@ class WorkerSchedulerService:
             },
             "result": request.result if request.result is not None else run.result,
             "error": request.error if request.error is not None else run.error,
+            "metadata": {
+                **run.metadata,
+                **request.metadata,
+                "worker_id": worker_id,
+                "run_id": run_id,
+                "task_type": run.task_type.value,
+                "status": request.status.value,
+                "summary": request.message if request.message is not None else run.message,
+            },
         }
 
         if request.status == JobStatus.RUNNING:
@@ -230,6 +240,22 @@ class WorkerSchedulerService:
 
     def get_run(self, run_id: str) -> WorkerQueueItemRead | None:
         return self._queue_repository.get(run_id)
+
+    def merge_queue_metadata(
+        self,
+        run_id: str,
+        patch: dict[str, Any],
+        *,
+        now: datetime | None = None,
+    ) -> WorkerQueueItemRead | None:
+        """Merge keys into queue item metadata (e.g. Telegram message_id for edit-in-place)."""
+        current = now or utc_now()
+        run = self._queue_repository.get(run_id)
+        if run is None:
+            return None
+        merged = {**(run.metadata or {}), **dict(patch)}
+        updated = run.model_copy(update={"metadata": merged, "updated_at": current})
+        return self._queue_repository.save(run_id, updated)
 
     def list_queue(self, *, queue_name: WorkerQueueName | None = None) -> list[WorkerQueueItemRead]:
         items = self._queue_repository.list()

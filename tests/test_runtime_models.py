@@ -6,6 +6,11 @@ from pydantic import ValidationError
 from autoresearch.agent_protocol.runtime_models import HermesRuntimeMetadata
 
 
+def test_hermes_runtime_metadata_maps_legacy_butler_profile_to_default() -> None:
+    meta = HermesRuntimeMetadata.model_validate({"profile": "butler", "session_mode": "oneshot"})
+    assert meta.profile == "default"
+
+
 def test_hermes_runtime_metadata_normalizes_supported_fields() -> None:
     metadata = HermesRuntimeMetadata.model_validate(
         {

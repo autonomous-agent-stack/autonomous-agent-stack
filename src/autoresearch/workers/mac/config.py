@@ -40,6 +40,7 @@ class MacWorkerConfig:
     role: str = "housekeeper"
     capabilities: tuple[str, ...] = (
         "housekeeping",
+        "claude_runtime",
         "cleanup_appledouble",
         "cleanup_tmp",
         "youtube_action",
@@ -48,6 +49,8 @@ class MacWorkerConfig:
     queue_name: WorkerQueueName = WorkerQueueName.HOUSEKEEPING
     worker_type: WorkerType = WorkerType.MAC
     mode: WorkerMode = WorkerMode.STANDBY
+    #: Shown in Telegram completion messages; empty string disables the 【…】 prefix.
+    telegram_reply_brand: str = "初代worker"
 
     @classmethod
     def from_env(cls) -> MacWorkerConfig:
@@ -55,6 +58,11 @@ class MacWorkerConfig:
         default_worker_id = _sanitize_worker_id(f"mac-{host.split('.')[0]}")
         base_url = os.getenv("CONTROL_PLANE_BASE_URL", "http://127.0.0.1:8001").rstrip("/")
         housekeeping_root = Path(os.getenv("HOUSEKEEPING_ROOT", str(Path.cwd()))).expanduser().resolve()
+        brand_raw = os.environ.get("AUTORESEARCH_TELEGRAM_WORKER_DISPLAY_NAME")
+        if brand_raw is None:
+            telegram_reply_brand = "初代worker"
+        else:
+            telegram_reply_brand = str(brand_raw).strip()
         return cls(
             worker_id=_sanitize_worker_id(os.getenv("WORKER_ID", default_worker_id)),
             control_plane_base_url=base_url,
@@ -66,6 +74,7 @@ class MacWorkerConfig:
             housekeeping_root=housekeeping_root,
             dry_run=_parse_bool(os.getenv("WORKER_DRY_RUN"), default=True),
             role=os.getenv("WORKER_ROLE", "housekeeper").strip() or "housekeeper",
+            telegram_reply_brand=telegram_reply_brand,
         )
 
     def build_register_request(self) -> WorkerRegisterRequest:

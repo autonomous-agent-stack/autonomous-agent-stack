@@ -8,6 +8,54 @@ from typing import Any
 from autoresearch.agent_protocol.runtime_models import HermesRuntimeMetadata, RuntimeRunRequest
 from autoresearch.core.services.hermes_runtime_errors import HermesRuntimeErrorKind, HermesRuntimeFailure
 
+_LEGACY_BUTLER_PROFILE = "butler"
+
+
+def _remap_legacy_butler_profile_argv(argv: list[str]) -> list[str]:
+    """Old docs/examples used `butler` as a profile name; Hermes has no such stock profile."""
+    if len(argv) < 2:
+        return argv
+    out: list[str] = []
+    i = 0
+    while i < len(argv):
+        tok = argv[i]
+        low = tok.lower()
+        if low in ("--profile", "-p") and i + 1 < len(argv):
+            nxt = argv[i + 1]
+            if str(nxt).strip().lower() == _LEGACY_BUTLER_PROFILE:
+                out.extend([tok, "default"])
+            else:
+                out.extend([tok, nxt])
+            i += 2
+            continue
+        if low.startswith("--profile="):
+            _, _, val = tok.partition("=")
+            if val.strip().lower() == _LEGACY_BUTLER_PROFILE:
+                out.append("--profile=default")
+            else:
+                out.append(tok)
+            i += 1
+            continue
+        if low.startswith("-p=") and len(tok) > 3:
+            val = tok[3:]
+            if val.strip().lower() == _LEGACY_BUTLER_PROFILE:
+                out.append("-p=default")
+            else:
+                out.append(tok)
+            i += 1
+            continue
+        if len(tok) > 2 and low.startswith("-p") and tok[2] not in ("=", "-"):
+            rest = tok[2:]
+            if rest.strip().lower() == _LEGACY_BUTLER_PROFILE:
+                out.append("-pdefault")
+            else:
+                out.append(tok)
+            i += 1
+            continue
+        out.append(tok)
+        i += 1
+    return out
+
 
 @dataclass(slots=True)
 class HermesCommandPlan:
@@ -53,6 +101,8 @@ def build_hermes_command_plan(
             details={"raw_command": raw_command},
         )
 
+    base_command = _remap_legacy_butler_profile_argv(list(base_command))
+
     global_flags: list[str] = []
     chat_flags: list[str] = []
     mapped_fields: list[str] = []
@@ -75,7 +125,9 @@ def build_hermes_command_plan(
     if hermes_meta.session_mode:
         unmapped_fields.append("session_mode")
 
-    sanitized_cli_args = list(request.cli_args)
+    # Telegram queues `telegram_settings.claude_args` into `cli_args` for every runtime; a mistaken
+    # `--profile butler` there must not override Hermes (common mis-copy from old examples).
+    sanitized_cli_args = _remap_legacy_butler_profile_argv(list(request.cli_args))
     argv = [*base_command, *global_flags, "chat", "-Q", "-q", request.prompt, *chat_flags, *sanitized_cli_args]
     effective_metadata = hermes_meta.model_dump(mode="json")
     safety_flags = {

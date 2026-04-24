@@ -3,17 +3,26 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
-from autoresearch.agent_protocol.runtime_models import RuntimeRunRead, RuntimeRunRequest
+from autoresearch.agent_protocol.runtime_models import RuntimeRunRead, RuntimeRunRequest, RuntimeStatusRequest
 from autoresearch.core.services.claude_runtime_service import (
     ClaudeRuntimeExecutionResult,
     ClaudeRuntimeService,
 )
+from autoresearch.core.services.runtime_adapter_contract import RuntimeAdapterContract
 from autoresearch.core.services.runtime_adapter_registry import RuntimeAdapterServiceRegistry
 from autoresearch.shared.models import JobStatus
 
 logger = logging.getLogger(__name__)
+
+_TERMINAL_RUNTIME_STATUSES = {
+    JobStatus.COMPLETED,
+    JobStatus.FAILED,
+    JobStatus.INTERRUPTED,
+    JobStatus.CANCELLED,
+}
 
 
 def build_runtime_run_request_for_telegram_hermes(payload: dict[str, Any]) -> RuntimeRunRequest:
@@ -106,6 +115,10 @@ def _telegram_hint_for_hermes_failure(read: RuntimeRunRead) -> str | None:
 class WorkerRuntimeDispatchService:
     """Route CLAUDE_RUNTIME queue payloads to Claude CLI or Hermes runtime adapter."""
 
+    # Avoid hammering SQLite + session deserialization (was 0.1s → EMFILE under load).
+    _RUNTIME_STATUS_POLL_SECONDS = 1.0
+    _RUNTIME_STATUS_GRACE_SECONDS = 5.0
+
     def __init__(
         self,
         *,
@@ -189,8 +202,10 @@ class WorkerRuntimeDispatchService:
                 result={"error_kind": "invalid_request", "telegram_hint": _telegram_hint_for_value_error()},
             )
 
+        adapter = self._registry.get("hermes")
+
         try:
-            read = self._registry.get("hermes").run(request)
+            read = adapter.run(request)
         except KeyError as exc:
             logger.warning("Hermes adapter missing: %s", exc)
             self._update_sticky_hermes(session_key, JobStatus.FAILED, str(exc))
@@ -217,11 +232,44 @@ class WorkerRuntimeDispatchService:
                 error=str(exc),
             )
 
-        outcome = runtime_run_read_to_claude_execution_result(read)
-        summary = (read.summary or read.stdout_preview or "")[:500]
-        if read.status != JobStatus.COMPLETED:
-            summary = (read.error or read.summary or "unknown")[:500]
-        self._update_sticky_hermes(session_key, read.status, summary)
+        final_read, reached_terminal = self._wait_for_terminal_run(
+            adapter=adapter,
+            initial_read=read,
+            timeout_seconds=request.timeout_seconds,
+        )
+        if not reached_terminal:
+            error = (
+                final_read.error
+                or f"Hermes runtime did not reach a terminal state within {request.timeout_seconds}s"
+            )
+            logger.warning(
+                "Hermes runtime run %s did not reach terminal state before worker timeout; latest=%s",
+                read.run_id,
+                final_read.status.value,
+            )
+            self._update_sticky_hermes(session_key, JobStatus.FAILED, error)
+            return ClaudeRuntimeExecutionResult(
+                message="hermes_runtime timed out waiting for completion",
+                status=JobStatus.FAILED,
+                error=error,
+                result={
+                    "runtime_run_id": final_read.run_id,
+                    "session_id": final_read.session_id,
+                    "runtime_id": final_read.runtime_id,
+                    "last_status": final_read.status.value,
+                    "stdout_preview": final_read.stdout_preview,
+                    "stderr_preview": final_read.stderr_preview,
+                },
+                metrics={
+                    "duration_seconds": (final_read.metrics.duration_ms or 0) / 1000.0,
+                },
+            )
+
+        outcome = runtime_run_read_to_claude_execution_result(final_read)
+        summary = (final_read.summary or final_read.stdout_preview or "")[:500]
+        if final_read.status != JobStatus.COMPLETED:
+            summary = (final_read.error or final_read.summary or "unknown")[:500]
+        self._update_sticky_hermes(session_key, final_read.status, summary)
         return outcome
 
     def _update_sticky_hermes(self, session_key: str, status: JobStatus, summary: str) -> None:
@@ -234,6 +282,49 @@ class WorkerRuntimeDispatchService:
             )
         except Exception:
             logger.warning("Failed to update sticky session for hermes %s", session_key, exc_info=True)
+
+    def _wait_for_terminal_run(
+        self,
+        *,
+        adapter: RuntimeAdapterContract,
+        initial_read: RuntimeRunRead,
+        timeout_seconds: int,
+    ) -> tuple[RuntimeRunRead, bool]:
+        latest = initial_read
+        if latest.status in _TERMINAL_RUNTIME_STATUSES:
+            return latest, True
+
+        deadline = time.monotonic() + max(timeout_seconds, 1) + self._RUNTIME_STATUS_GRACE_SECONDS
+        while time.monotonic() < deadline:
+            time.sleep(self._RUNTIME_STATUS_POLL_SECONDS)
+            status = adapter.status(
+                RuntimeStatusRequest(
+                    runtime_id=initial_read.runtime_id,
+                    run_id=initial_read.run_id,
+                    event_limit=0,
+                )
+            )
+            if status.run is None:
+                continue
+            latest = status.run
+            if latest.status in _TERMINAL_RUNTIME_STATUSES:
+                return latest, True
+
+        try:
+            status = adapter.status(
+                RuntimeStatusRequest(
+                    runtime_id=initial_read.runtime_id,
+                    run_id=initial_read.run_id,
+                    event_limit=0,
+                )
+            )
+        except Exception:
+            logger.warning("Failed final Hermes runtime status poll for %s", initial_read.run_id, exc_info=True)
+            return latest, False
+
+        if status.run is not None:
+            latest = status.run
+        return latest, latest.status in _TERMINAL_RUNTIME_STATUSES
 
 
 def _telegram_hint_for_value_error() -> str:

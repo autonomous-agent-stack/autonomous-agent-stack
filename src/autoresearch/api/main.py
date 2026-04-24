@@ -12,6 +12,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from autoresearch import __version__
+from autoresearch.build_label import get_build_label
 from autoresearch.api.settings import get_runtime_settings
 from autoresearch.core.services.panel_access import assert_safe_bind_host
 
@@ -59,7 +60,12 @@ async def lifespan(_: FastAPI):
     settings = get_runtime_settings()
     assert_safe_bind_host(host=settings.api_host, allow_unsafe=settings.api_allow_unsafe_bind)
     mode_label = "MINIMAL (stable)" if settings.is_minimal_mode else "FULL (experimental)"
-    logger.info("Autonomous Agent Stack %s startup initialized [mode=%s]", __version__, mode_label)
+    logger.info(
+        "Autonomous Agent Stack startup [build=%s] [package=%s] [mode=%s]",
+        get_build_label(),
+        __version__,
+        mode_label,
+    )
     schedule_daemon = None
     if settings.enable_worker_schedule_daemon:
         from autoresearch.api.dependencies import get_worker_schedule_service

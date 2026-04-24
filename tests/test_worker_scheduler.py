@@ -215,3 +215,25 @@ def test_expired_lease_allows_reclaim_by_another_worker(
     assert reclaimed.run.run_id == queued.run_id
     assert reclaimed.run.assigned_worker_id == "mac-mini-02"
     assert reclaimed.lease.worker_id == "mac-mini-02"
+
+
+def test_merge_queue_metadata_merges_into_existing(
+    worker_services: tuple[WorkerRegistryService, WorkerSchedulerService],
+) -> None:
+    _, scheduler = worker_services
+    item = scheduler.enqueue(
+        WorkerQueueItemCreateRequest(
+            task_name="demo",
+            metadata={"session_key": "telegram:personal:user:1"},
+        ),
+    )
+    assert item.metadata.get("session_key") == "telegram:personal:user:1"
+
+    updated = scheduler.merge_queue_metadata(
+        item.run_id,
+        {"telegram_queue_ack_message_id": 4242, "chat_id": "999"},
+    )
+    assert updated is not None
+    assert updated.metadata["telegram_queue_ack_message_id"] == 4242
+    assert updated.metadata["chat_id"] == "999"
+    assert updated.metadata["session_key"] == "telegram:personal:user:1"

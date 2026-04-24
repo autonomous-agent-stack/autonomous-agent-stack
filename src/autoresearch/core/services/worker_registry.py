@@ -45,10 +45,13 @@ class WorkerRegistryService:
             capabilities=self._normalize_capabilities(request.capabilities),
             metadata=dict(request.metadata),
             health=WorkerHealth.OK,
-            load=existing.load if existing is not None else None,
-            queue_depth=existing.queue_depth if existing is not None else 0,
+            # Registration represents a fresh worker process coming online.
+            # Reset transient runtime fields so stale state from a crashed
+            # process does not block new claims.
+            load=0.0,
+            queue_depth=0,
             disk_free_gb=existing.disk_free_gb if existing is not None else None,
-            accepting_work=existing.accepting_work if existing is not None else request.mode != WorkerMode.OFFLINE,
+            accepting_work=request.mode != WorkerMode.OFFLINE,
             is_stale=False,
             registered_at=registered_at,
             last_heartbeat_at=current,

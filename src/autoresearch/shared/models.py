@@ -1417,6 +1417,75 @@ class WorkerRegistrationRead(StrictModel):
     updated_at: datetime
 
 
+class WorkerLatestTaskSummaryRead(StrictModel):
+    run_id: str
+    task_name: str
+    task_type: WorkerTaskType | str
+    status: JobStatus
+    message: str | None = None
+    updated_at: datetime
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    result: dict[str, Any] | None = None
+    error: str | None = None
+    metrics: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class WorkerLocationRead(StrictModel):
+    host: str | None = None
+    runtime: str | None = None
+    work_dir: str | None = None
+
+
+class WorkerDispatchRulesRead(StrictModel):
+    accepting_work: bool = True
+    mode: WorkerMode = WorkerMode.ACTIVE
+    queue_names: list[str] = Field(default_factory=list)
+    task_types: list[str] = Field(default_factory=list)
+    preferred_run_ids: list[str] = Field(default_factory=list)
+    capability_tags: list[str] = Field(default_factory=list)
+
+
+class WorkerInventoryRead(StrictModel):
+    worker_id: str
+    worker_type: WorkerType
+    name: str | None = None
+    host: str | None = None
+    mode: WorkerMode = WorkerMode.ACTIVE
+    role: str | None = None
+    capabilities: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    health: WorkerHealth = WorkerHealth.OK
+    load: float | None = None
+    queue_depth: int = 0
+    disk_free_gb: float | None = None
+    accepting_work: bool = True
+    is_stale: bool = False
+    registered_at: datetime
+    last_heartbeat_at: datetime
+    updated_at: datetime
+    active_tasks: int = 0
+    latest_task_summary: WorkerLatestTaskSummaryRead | None = None
+    location: WorkerLocationRead = Field(default_factory=WorkerLocationRead)
+    dispatch_rules: WorkerDispatchRulesRead = Field(default_factory=WorkerDispatchRulesRead)
+    display_status: str = "online"
+
+
+class WorkerInventorySummaryRead(StrictModel):
+    total_workers: int = 0
+    online_workers: int = 0
+    busy_workers: int = 0
+    degraded_workers: int = 0
+    offline_workers: int = 0
+    issued_at: datetime
+
+
+class WorkerInventoryListRead(StrictModel):
+    summary: WorkerInventorySummaryRead
+    workers: list[WorkerInventoryRead] = Field(default_factory=list)
+
+
 class WorkerQueueName(str, Enum):
     HOUSEKEEPING = "housekeeping"
 
@@ -1509,6 +1578,7 @@ class WorkerRunReportRequest(StrictModel):
     metrics: dict[str, Any] = Field(default_factory=dict)
     result: dict[str, Any] | None = None
     error: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("status", mode="before")
     @classmethod
