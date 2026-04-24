@@ -4,6 +4,7 @@
 实现话题间的消息备份和同步
 """
 
+import itertools
 import logging
 import os
 from typing import Dict, Optional
@@ -175,15 +176,10 @@ class MessageMirror:
         logger.warning("[Router-Gate] Bot not configured, using mock mode")
         return self._generate_mock_message_id()
     
+    _mock_id_counter = itertools.count(10000)
+
     def _generate_mock_message_id(self) -> int:
-        """
-        生成模拟消息 ID（用于测试）
-        
-        Returns:
-            模拟的消息 ID
-        """
-        import random
-        return random.randint(10000, 99999)
+        return next(self._mock_id_counter)
     
     async def batch_mirror(
         self,
