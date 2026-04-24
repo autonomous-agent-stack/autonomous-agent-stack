@@ -247,6 +247,10 @@ class TelegramSettings(_BaseApiSettings):
         default=True,
         validation_alias="AUTORESEARCH_TELEGRAM_BUTLER_FALLBACK_ENABLED",
     )
+    butler_api_completion_enabled: bool = Field(
+        default=True,
+        validation_alias="AUTORESEARCH_TELEGRAM_BUTLER_API_COMPLETION_ENABLED",
+    )
 
     @field_validator("telegram_worker_display_name", mode="before")
     @classmethod

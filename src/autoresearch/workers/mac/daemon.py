@@ -112,6 +112,16 @@ def _strip_hermes_summary_noise(summary: str) -> str:
     return _strip_hermes_noise_lines(cleaned) or cleaned
 
 
+def _truthy_metadata_flag(value: object) -> bool:
+    if value is True:
+        return True
+    if isinstance(value, str) and value.strip().lower() in {"1", "true", "yes", "on"}:
+        return True
+    if isinstance(value, (int, float)) and value == 1:
+        return True
+    return False
+
+
 def _truncate_worker_telegram_body(text: str, limit: int = _WORKER_TELEGRAM_TEXT_LIMIT) -> str:
     normalized = text.strip()
     if len(normalized) <= limit:
@@ -304,10 +314,15 @@ class MacWorkerDaemon:
 
             {
                 "telegram_notify_status": "edited" | "sent" | "failed"
-                                          | "skipped_no_token" | "skipped_no_chat",
+                                          | "skipped_no_token" | "skipped_no_chat"
+                                          | "delegated_api",
                 "telegram_notify_attempts": int,
                 "telegram_notify_error": str | None,
             }
+
+        ``delegated_api``: ``metadata.telegram_completion_via_api`` is set (管家队列);
+        the worker writes ``result.telegram_completion_card_text`` and the API bot
+        edits the queue-ack message on ``/report`` instead of the worker calling Telegram.
 
         Non-``claude_runtime`` runs return ``{}`` (no delivery work attempted).
         """
@@ -321,21 +336,7 @@ class MacWorkerDaemon:
                 "telegram_notify_error": None,
             }
 
-        bot_token = os.getenv("AUTORESEARCH_TELEGRAM_BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
-        if not bot_token:
-            label = (self._config.telegram_reply_brand or "初代worker").strip() or "初代worker"
-            msg = (
-                f"[{label}] skip telegram: no bot token "
-                "(set AUTORESEARCH_TELEGRAM_BOT_TOKEN or TELEGRAM_BOT_TOKEN for this worker process)"
-            )
-            logger.warning(msg)
-            print(msg, file=sys.stderr, flush=True)
-            return {
-                "telegram_notify_status": "skipped_no_token",
-                "telegram_notify_attempts": 0,
-                "telegram_notify_error": "missing AUTORESEARCH_TELEGRAM_BOT_TOKEN/TELEGRAM_BOT_TOKEN in worker env",
-            }
-
+        via_api = _truthy_metadata_flag((run.metadata or {}).get("telegram_completion_via_api"))
         brand = (self._config.telegram_reply_brand or "").strip()
         payload = run.payload
         task_name = str(payload.get("task_name") or run.task_name or "").strip() or "(unnamed)"
@@ -346,10 +347,6 @@ class MacWorkerDaemon:
         summary_clean = _strip_hermes_summary_noise(summary_raw)
 
         if outcome.status == JobStatus.COMPLETED:
-            # Prefer cleaned variants. If cleaning swallowed everything (i.e. the
-            # whole stdout was just `Warning:` noise), do NOT fall back to the
-            # raw noise — surface the explicit "no output" template instead so
-            # the user gets a meaningful card with run_id to inspect.
             had_raw_content = bool(stdout_raw or summary_raw)
             cleaned_main = stdout_clean or summary_clean
             if cleaned_main:
@@ -379,8 +376,6 @@ class MacWorkerDaemon:
             ("状态", status_label),
         ]
         summary_for_cell = (summary_clean or summary_raw).strip()
-        # Hermes often leaves summary as the generic ``Hermes completed.`` while
-        # stdout carries the user-visible line — avoid a useless 摘要 row.
         if _is_vacuous_hermes_summary(summary_for_cell) and stdout_clean:
             fl = _first_nonempty_line(stdout_clean, limit=600)
             if fl:
@@ -403,6 +398,32 @@ class MacWorkerDaemon:
         parts.append("")
         parts.append(main_body)
         text = _truncate_worker_telegram_body("\n".join(parts))
+
+        if via_api:
+            merged = dict(outcome.result or {})
+            merged["telegram_completion_card_text"] = text[:48000]
+            merged["telegram_completion_editor"] = "api_butler"
+            outcome.result = merged
+            return {
+                "telegram_notify_status": "delegated_api",
+                "telegram_notify_attempts": 0,
+                "telegram_notify_error": None,
+            }
+
+        bot_token = os.getenv("AUTORESEARCH_TELEGRAM_BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
+        if not bot_token:
+            label = (self._config.telegram_reply_brand or "初代worker").strip() or "初代worker"
+            msg = (
+                f"[{label}] skip telegram: no bot token "
+                "(set AUTORESEARCH_TELEGRAM_BOT_TOKEN or TELEGRAM_BOT_TOKEN for this worker process)"
+            )
+            logger.warning(msg)
+            print(msg, file=sys.stderr, flush=True)
+            return {
+                "telegram_notify_status": "skipped_no_token",
+                "telegram_notify_attempts": 0,
+                "telegram_notify_error": "missing AUTORESEARCH_TELEGRAM_BOT_TOKEN/TELEGRAM_BOT_TOKEN in worker env",
+            }
 
         thread_raw = run.payload.get("message_thread_id")
         thread_id: int | None = None

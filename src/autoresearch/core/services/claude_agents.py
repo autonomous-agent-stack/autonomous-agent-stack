@@ -185,14 +185,17 @@ class ClaudeAgentService:
         # 下载图片（如果有）
         downloaded_images = []
         if request.images:
-            bot_token = os.getenv("AUTORESEARCH_TELEGRAM_BOT_TOKEN", "")
+            bot_token = (
+                os.getenv("AUTORESEARCH_TELEGRAM_BOT_TOKEN", "").strip()
+                or os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+            )
             if bot_token:
                 downloader = TelegramImageDownloader(bot_token)
                 
                 for image_url in request.images:
                     file_id = parse_telegram_image_url(image_url)
                     if file_id:
-                        local_path = downloader.download_image(file_id)
+                        local_path = downloader.download_image_sync(file_id)
                         if local_path:
                             downloaded_images.append(local_path)
         
@@ -385,6 +388,13 @@ class ClaudeAgentService:
         finally:
             self._clear_cancel_requested(agent_run_id)
             if process is not None:
+                try:
+                    if process.stdout is not None:
+                        process.stdout.close()
+                    if process.stderr is not None:
+                        process.stderr.close()
+                except Exception:
+                    pass
                 self._unregister_process(agent_run_id)
 
     def fail_preflight(
@@ -740,7 +750,18 @@ class ClaudeAgentService:
             return path.resolve()
         return (self._repo_root / path).resolve()
 
-    def _preview_output(self, text: str, limit: int = 1000) -> str | None:
+    def _preview_output(self, text: str, limit: int | None = None) -> str | None:
+        """Truncate captured stdout/stderr for persistence and Telegram payloads.
+
+        Default limit is raised for long Hermes / agent transcripts; override with
+        ``AUTORESEARCH_AGENT_STDOUT_PREVIEW_LIMIT`` (1000–32000).
+        """
+        if limit is None:
+            raw = os.getenv("AUTORESEARCH_AGENT_STDOUT_PREVIEW_LIMIT", "16000")
+            try:
+                limit = max(1000, min(int(raw.strip()), 32000))
+            except ValueError:
+                limit = 16000
         normalized = text.strip()
         if not normalized:
             return None

@@ -250,13 +250,20 @@ def _enqueue_and_claim_claude_runtime(
     *,
     chat_id: str = "777",
     ack_message_id: int = 4242,
+    extra_metadata: dict[str, object] | None = None,
 ) -> str:
+    meta: dict[str, object] = {
+        "telegram_queue_ack_message_id": ack_message_id,
+        "telegram_completion_via_api": True,
+    }
+    if extra_metadata:
+        meta.update(extra_metadata)
     queued = scheduler.enqueue(
         WorkerQueueItemCreateRequest(
             task_name="claude_runtime",
             task_type="claude_runtime",
             payload={"chat_id": chat_id, "prompt": "hi"},
-            metadata={"telegram_queue_ack_message_id": ack_message_id},
+            metadata=meta,
         ),
         now=utc_now(),
     )
@@ -305,6 +312,48 @@ def test_butler_fallback_fires_when_worker_notify_failed(
         assert stored is not None
         assert stored.metadata.get("telegram_butler_fallback_sent") is True
         assert stored.metadata.get("telegram_butler_fallback_reason") == "failed"
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+
+
+def test_butler_primary_edits_ack_when_worker_delegates_card(
+    worker_client: TestClient,
+    worker_services: tuple[WorkerRegistryService, WorkerSchedulerService],
+) -> None:
+    """API edits the queue ack bubble using the worker-built card (管家同一条消息)."""
+    from autoresearch.api.dependencies import get_telegram_notifier_service
+    from autoresearch.api.main import app
+
+    registry, scheduler = worker_services
+    _register_worker(registry, worker_id="mac-mini-01")
+    run_id = _enqueue_and_claim_claude_runtime(scheduler)
+
+    notifier = _StubNotifier()
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+    try:
+        card = "【初代worker】\n任务已结束。\n\n| 项 | 值 |\n| --- | --- |\n| 任务 | x |\n\n正文第一行\n第二行"
+        report = worker_client.post(
+            f"/api/v1/workers/mac-mini-01/runs/{run_id}/report",
+            json={
+                "status": "completed",
+                "message": "ok",
+                "metrics": {
+                    "telegram_notify_status": "delegated_api",
+                    "telegram_notify_attempts": 0,
+                },
+                "result": {"telegram_completion_card_text": card},
+            },
+        )
+        assert report.status_code == 200
+        assert len(notifier.edits) == 1
+        assert notifier.edits[0]["chat_id"] == "777"
+        assert notifier.edits[0]["message_id"] == 4242
+        assert "正文第一行" in str(notifier.edits[0]["text"])
+        assert notifier.sends == []
+        stored = scheduler.get_run(run_id)
+        assert stored is not None
+        assert stored.metadata.get("telegram_butler_primary_sent") is True
+        assert stored.metadata.get("telegram_butler_fallback_sent") is not True
     finally:
         app.dependency_overrides.pop(get_telegram_notifier_service, None)
 
@@ -435,7 +484,10 @@ def test_butler_fallback_disabled_by_setting(
 
     notifier = _StubNotifier()
     disabled_settings = real_get_telegram_settings().model_copy(
-        update={"butler_completion_fallback_enabled": False}
+        update={
+            "butler_completion_fallback_enabled": False,
+            "butler_api_completion_enabled": False,
+        }
     )
     app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
     # Override the settings dependency directly for this request.

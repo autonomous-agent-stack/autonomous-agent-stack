@@ -13,6 +13,7 @@ from autoresearch.api.dependencies import (
     get_worker_scheduler_service,
 )
 from autoresearch.api.settings import TelegramSettings
+from autoresearch.core.services.telegram_completion_format import polish_butler_completion_card
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
 from autoresearch.core.services.worker_inventory import WorkerInventoryService
 from autoresearch.core.services.worker_scheduler import (
@@ -130,18 +131,101 @@ def report_worker_run(
     except WorkerReportError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.detail) from exc
 
-    if telegram_settings.butler_completion_fallback_enabled and stored.status in _TERMINAL_STATUSES:
+    if stored.status in _TERMINAL_STATUSES:
+        if telegram_settings.butler_api_completion_enabled:
+            try:
+                _try_deliver_butler_completion_primary(
+                    stored,
+                    notifier=notifier,
+                    scheduler=service,
+                )
+            except Exception:
+                logger.exception("butler primary completion raised for run=%s", stored.run_id)
+            # Primary may merge ``telegram_butler_primary_sent``; refresh before fallback
+            # so we never double-notify with a stale ``WorkerQueueItemRead``.
+            refreshed = service.get_run(stored.run_id)
+            if refreshed is not None:
+                stored = refreshed
+        if telegram_settings.butler_completion_fallback_enabled:
+            try:
+                _maybe_send_butler_completion_fallback(
+                    stored,
+                    notifier=notifier,
+                    settings=telegram_settings,
+                    scheduler=service,
+                )
+            except Exception:
+                # Fallback is a best-effort safety net; never let it break /report.
+                logger.exception("butler completion fallback raised for run=%s", stored.run_id)
+    return stored
+
+
+def _try_deliver_butler_completion_primary(
+    run: WorkerQueueItemRead,
+    *,
+    notifier: TelegramNotifierService,
+    scheduler: WorkerSchedulerService,
+) -> None:
+    """Edit the queue-ack bubble via the API bot when the worker delegated the card (Hermes path)."""
+    if not notifier.enabled:
+        return
+    metadata: dict[str, Any] = run.metadata or {}
+    if not metadata.get("telegram_completion_via_api"):
+        return
+    if metadata.get("telegram_butler_primary_sent"):
+        return
+    result: dict[str, Any] = run.result if isinstance(run.result, dict) else {}
+    card = str(result.get("telegram_completion_card_text") or "").strip()
+    if not card:
+        return
+    payload: dict[str, Any] = run.payload or {}
+    chat_id = str(payload.get("chat_id") or "").strip()
+    if not chat_id:
+        return
+
+    ack_raw = metadata.get("telegram_queue_ack_message_id")
+    ack_message_id: int | None = None
+    if ack_raw is not None and str(ack_raw).strip() != "":
         try:
-            _maybe_send_butler_completion_fallback(
-                stored,
-                notifier=notifier,
-                settings=telegram_settings,
-                scheduler=service,
+            ack_message_id = int(ack_raw)
+        except (TypeError, ValueError):
+            ack_message_id = None
+
+    thread_raw = payload.get("message_thread_id")
+    thread_id: int | None = None
+    if thread_raw is not None and str(thread_raw).strip() != "":
+        try:
+            thread_id = int(thread_raw)
+        except (TypeError, ValueError):
+            thread_id = None
+
+    text = polish_butler_completion_card(card)
+    delivered = False
+    if ack_message_id is not None:
+        delivered = notifier.edit_message_text(
+            chat_id=chat_id,
+            message_id=ack_message_id,
+            text=text,
+            message_thread_id=thread_id,
+        )
+    if not delivered:
+        delivered = notifier.send_message(
+            chat_id=chat_id,
+            text=text,
+            message_thread_id=thread_id,
+        )
+    if delivered:
+        try:
+            scheduler.merge_queue_metadata(
+                run.run_id,
+                {"telegram_butler_primary_sent": True},
             )
         except Exception:
-            # Fallback is a best-effort safety net; never let it break /report.
-            logger.exception("butler completion fallback raised for run=%s", stored.run_id)
-    return stored
+            logger.warning(
+                "butler primary delivery ok but metadata write failed run=%s",
+                run.run_id,
+                exc_info=True,
+            )
 
 
 def _maybe_send_butler_completion_fallback(
@@ -168,6 +252,8 @@ def _maybe_send_butler_completion_fallback(
     metadata: dict[str, Any] = run.metadata or {}
     notify_state = str(metrics.get("telegram_notify_status") or "").strip().lower()
     if notify_state in _WORKER_DELIVERED_STATES:
+        return
+    if metadata.get("telegram_butler_primary_sent"):
         return
     if metadata.get("telegram_butler_fallback_sent"):
         return

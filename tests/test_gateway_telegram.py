@@ -2115,5 +2115,6 @@ def test_telegram_webhook_sends_queue_notice_with_table(
         stored = telegram_client._worker_scheduler.get_run(str(run_id))
         assert stored is not None
         assert stored.metadata.get("telegram_queue_ack_message_id") == notifier.sent_message_ids[-1]
+        assert stored.metadata.get("telegram_completion_via_api") is True
     finally:
         app.dependency_overrides.pop(get_telegram_notifier_service, None)

@@ -483,7 +483,12 @@ def _handle_telegram_webhook(
         if ack_message_id is not None:
             worker_scheduler.merge_queue_metadata(
                 queue_item.run_id,
-                {"telegram_queue_ack_message_id": ack_message_id},
+                {
+                    "telegram_queue_ack_message_id": ack_message_id,
+                    # Worker skips direct Telegram; API edits the same ack bubble with the
+                    # full completion card after report_run (same bot = 管家界面).
+                    "telegram_completion_via_api": True,
+                },
             )
 
     return TelegramWebhookAck(

@@ -857,6 +857,43 @@ def test_notify_telegram_emits_no_output_template_when_only_warnings(
     assert "Warning: a" not in text or "仅有警告输出" in text
 
 
+def test_notify_telegram_skips_worker_http_when_delegated_to_api(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    worker_services: tuple[WorkerRegistryService, WorkerSchedulerService],
+) -> None:
+    """telegram_completion_via_api: worker only fills result + metrics; no Telegram HTTP."""
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_BOT_TOKEN", "fake-bot-token")
+    edit_calls: list[dict[str, object]] = []
+    send_calls: list[dict[str, object]] = []
+
+    daemon = _build_daemon(tmp_path, worker_services=worker_services)
+    monkeypatch.setattr(daemon, "_worker_telegram_edit_or_send", lambda **kw: edit_calls.append(kw) or True)
+    monkeypatch.setattr(
+        daemon,
+        "_worker_telegram_send_message_with_retries",
+        lambda **kw: (send_calls.append(kw), (True, 1, None))[1],
+    )
+    now = utc_now()
+    run = WorkerQueueItemRead(
+        run_id="run_deleg",
+        queue_name=WorkerQueueName.HOUSEKEEPING,
+        task_name="demo",
+        task_type=WorkerTaskType.CLAUDE_RUNTIME,
+        payload={"chat_id": "9"},
+        metadata={"telegram_completion_via_api": True, "telegram_queue_ack_message_id": 55},
+        created_at=now,
+        updated_at=now,
+    )
+    outcome = MacWorkerExecutionResult(message="ok", result={"stdout_preview": "worker stdout"})
+    delivery = daemon._notify_telegram_result(run=run, outcome=outcome)
+    assert delivery["telegram_notify_status"] == "delegated_api"
+    assert edit_calls == []
+    assert send_calls == []
+    assert "telegram_completion_card_text" in (outcome.result or {})
+    assert "worker stdout" in str(outcome.result.get("telegram_completion_card_text"))
+
+
 def test_process_run_records_delivery_status_into_metrics(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
