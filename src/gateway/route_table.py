@@ -123,8 +123,8 @@ class RouteTable:
             "enabled": enabled
         }
         
-        logger.info("[Router-Gate] New route added: %s -> %s", message_type, 
-                   f"{chat_id}:{thread_id}")
+        logger.info("[Router-Gate] New route added: %s -> %s", message_type,
+                   "%s:%s" % (chat_id, thread_id))
         return True
     
     def update_route(self, message_type: str, **kwargs) -> bool:
@@ -217,7 +217,7 @@ class RouteTable:
         return {
             "chat_id": route["chat_id"],
             "thread_id": backup_thread_id,
-            "description": f"{route['description']} (备份)"
+            "description": "%s (备份)" % route['description']
         }
     
     def _validate_routes(self):
@@ -226,13 +226,13 @@ class RouteTable:
         """
         for msg_type, config in self.routes.items():
             if "chat_id" not in config:
-                raise ValueError(f"Invalid route {msg_type}: missing chat_id")
-            
+                raise ValueError("Invalid route %s: missing chat_id" % msg_type)
+
             if not isinstance(config["chat_id"], int):
-                raise ValueError(f"Invalid route {msg_type}: chat_id must be integer")
-            
+                raise ValueError("Invalid route %s: chat_id must be integer" % msg_type)
+
             thread_id = config.get("thread_id")
             if thread_id is not None and not isinstance(thread_id, int):
-                raise ValueError(f"Invalid route {msg_type}: thread_id must be integer or None")
+                raise ValueError("Invalid route %s: thread_id must be integer or None" % msg_type)
         
         logger.info("[Router-Gate] Route validation passed")

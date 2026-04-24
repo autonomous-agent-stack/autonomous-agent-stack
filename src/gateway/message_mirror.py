@@ -119,10 +119,10 @@ class MessageMirror:
         source_thread = original_message.get("thread_id", "Main")
         
         # 构建镜像头部
-        header = f"📋 镜像消息 #{msg_id}\n"
-        header += f"👤 发送者: {sender_id}\n"
-        header += f"💬 来源话题: {source_thread}\n"
-        header += f"⏰ {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}\n"
+        header = "📋 镜像消息 #%s\n" % msg_id
+        header += "👤 发送者: %s\n" % sender_id
+        header += "💬 来源话题: %s\n" % source_thread
+        header += "⏰ %s\n" % datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
         header += "-" * 40 + "\n\n"
         
         return header + text

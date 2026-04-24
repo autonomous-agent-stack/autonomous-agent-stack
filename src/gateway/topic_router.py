@@ -78,7 +78,7 @@ class TopicRouter:
             if not route:
                 return {
                     "status": "error",
-                    "error": f"No route found for message type: {message_type}",
+                    "error": "No route found for message type: %s" % message_type,
                     "message_type": message_type
                 }
             
