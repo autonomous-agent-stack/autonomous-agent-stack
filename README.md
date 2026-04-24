@@ -307,12 +307,15 @@ A stable single-repo control plane with isolated execution and promotion checks.
 
 - Session-first recovery and replay
 - Capability registry for heterogeneous workers and tools
+- Fast policy routing for low-latency direct paths, with slow orchestration for escalation and cross-domain work
 - Policy seams for orchestration strategies
 - Distributed execution with durable queues, leases, and heartbeats
 
 ### Long Term
 
 A governed runtime substrate for long-running agent work across multiple models, multiple hands, and multiple trust boundaries.
+
+Related decision: [Fast Policy Router and Slow Orchestration](docs/decisions/fast-policy-router-and-slow-orchestration-v1.md).
 
 ## Who This Is For
 
