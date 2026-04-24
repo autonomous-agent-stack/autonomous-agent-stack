@@ -1,5 +1,11 @@
-"""
-话题路由器 - 实现动态路由选择和消息分发
+"""Topic message router — route_table-based message delivery and mirroring.
+
+Routes messages by type to specific Telegram Topics via a configurable
+route table, with optional message mirroring to backup threads.
+
+NOTE: For keyword-based intent *classification*, see
+autoresearch.core.services.topic_intent_classifier.TopicIntentClassifier.
+This module handles message *delivery*, not intent detection.
 """
 
 import itertools
