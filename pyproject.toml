@@ -18,3 +18,23 @@ target-version = ["py311"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+addopts = "--tb=short -q"
+
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "tests/*",
+    "*/migrations/*",
+    "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+fail_under = 10
+show_missing = true
+skip_empty = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "pass",
+]
