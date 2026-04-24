@@ -105,7 +105,7 @@ async def execute_and_deliver_workflow(target_repo: str, chat_id: int):
         chat_id: Telegram Chat ID
     """
     try:
-        logger.info(f"[Workflow] 启动审查流水线: {target_repo}")
+        logger.info("[Workflow] 启动审查流水线: %s", target_repo)
 
         # 执行工作流
         report_text = await run_workflow(
@@ -113,7 +113,7 @@ async def execute_and_deliver_workflow(target_repo: str, chat_id: int):
             {"repo": target_repo}
         )
 
-        logger.info(f"[Workflow] 工作流执行完成，准备投递...")
+        logger.info("[Workflow] 工作流执行完成，准备投递...")
         delivery_ok = await _deliver_report_to_telegram(chat_id=chat_id, report_text=report_text)
         if delivery_ok:
             logger.info("[Workflow] ✅ 报告已投递 Telegram（%s 字符）", len(report_text))
@@ -121,7 +121,7 @@ async def execute_and_deliver_workflow(target_repo: str, chat_id: int):
             logger.warning("[Workflow] ⚠️ 报告投递失败或未配置 Telegram（%s 字符）", len(report_text))
 
     except Exception as e:
-        logger.error(f"[Workflow] 执行失败: {e}")
+        logger.error("[Workflow] 执行失败: %s", e)
 
 
 async def _deliver_report_to_telegram(chat_id: int, report_text: str) -> bool:
