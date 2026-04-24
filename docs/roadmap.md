@@ -83,6 +83,7 @@ Autonomous Agent Stack 的终局不再定义为“更强的自动改代码 Agent
 交付物：
 
 - 把当前 orchestration 中可替换的部分显式抽成 policy 接口
+- 快策略路由与慢编排的词汇与边界（Telegram 管家：规则优先、模型补位、Hermes 重活）见 [fast-policy-router-and-slow-orchestration-v1.md](./decisions/fast-policy-router-and-slow-orchestration-v1.md)
 - 至少覆盖 context assembly、task selection、retry/escalation、evaluation、promotion 五类策略
 - 保持现有 single-repo patch / Draft PR 流程不变
 - 为策略切换补最小可用测试和文档，不引入第二套执行主线

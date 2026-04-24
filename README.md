@@ -281,6 +281,7 @@ A stable single-repo control plane with isolated execution and promotion checks.
 - Session-first recovery and replay
 - Capability registry for heterogeneous workers and tools
 - Policy seams for orchestration strategies
+- Fast policy router vs slow orchestration (butler: rules-first, model fill-in, Hermes for heavy work) — [docs/decisions/fast-policy-router-and-slow-orchestration-v1.md](docs/decisions/fast-policy-router-and-slow-orchestration-v1.md)
 - Distributed execution with durable queues, leases, and heartbeats
 
 ### Long Term
