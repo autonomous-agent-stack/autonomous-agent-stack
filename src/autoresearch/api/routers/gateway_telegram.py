@@ -746,15 +746,12 @@ def _handle_butler_excel_audit(
     record = service.create(req)
 
     # Store DSL params for async execution
-    record = record.model_copy(update={
-        "metadata": {
-            "source_files": attachments,
-            "rules": [r.model_dump() for r in req.rules],
-            "sheet_mapping": req.sheet_mapping.model_dump(),
-            "outputs": req.options,
-        },
+    record = service.store_metadata(record.audit_id, {
+        "source_files": attachments,
+        "rules": [r.model_dump() for r in req.rules],
+        "sheet_mapping": req.sheet_mapping.model_dump(),
+        "outputs": req.options,
     })
-    service._repository.save(record.audit_id, record)
 
     # Step 2: Send immediate acceptance notice
     if notifier.enabled:
