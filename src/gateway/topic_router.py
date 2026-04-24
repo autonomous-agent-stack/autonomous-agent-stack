@@ -2,9 +2,10 @@
 话题路由器 - 实现动态路由选择和消息分发
 """
 
+import itertools
 import logging
 import os
-from typing import Dict, Optional
+from typing import ClassVar, Dict, Optional
 
 import httpx
 from .route_table import RouteTable
@@ -253,11 +254,11 @@ class TopicRouter:
         )
         return mock_id
 
-    @staticmethod
-    def _generate_mock_message_id() -> int:
-        import random
+    _mock_id_counter: ClassVar[itertools.count] = itertools.count(1000)
 
-        return random.randint(1000, 9999)
+    @classmethod
+    def _generate_mock_message_id(cls) -> int:
+        return next(cls._mock_id_counter)
     
     async def broadcast_message(
         self,
