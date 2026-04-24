@@ -260,12 +260,56 @@ def create_app() -> FastAPI:
         }
 
     @app.get("/health", tags=["meta"])
-    async def healthcheck() -> dict[str, str]:
-        return {"status": "ok"}
+    async def healthcheck() -> dict[str, Any]:
+        from datetime import datetime, timezone
+
+        checks: dict[str, Any] = {}
+        overall = "ok"
+
+        # DB reachability
+        try:
+            import sqlite3
+
+            db_path = str(get_runtime_settings().api_db_path)
+            conn = sqlite3.connect(db_path, timeout=2)
+            conn.execute("SELECT 1")
+            conn.close()
+            checks["db"] = {"status": "ok", "path": db_path}
+        except Exception as exc:
+            overall = "degraded"
+            checks["db"] = {"status": "error", "error": str(exc)}
+
+        # Worker inventory (optional — may not be available in minimal mode)
+        try:
+            from autoresearch.api.dependencies import get_worker_inventory_service
+
+            inventory_svc = get_worker_inventory_service()
+            summary = inventory_svc.summary()
+            checks["workers"] = {
+                "status": "ok",
+                "total": summary.total_workers,
+                "online": summary.online_workers,
+                "busy": summary.busy_workers,
+                "degraded": summary.degraded_workers,
+                "offline": summary.offline_workers,
+            }
+            if summary.online_workers == 0 and summary.total_workers > 0:
+                overall = "degraded"
+        except Exception:
+            checks["workers"] = {"status": "unavailable"}
+
+        return {
+            "status": overall,
+            "version": __version__,
+            "build": get_build_label(),
+            "mode": "minimal" if is_minimal else "full",
+            "checks": checks,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
 
     @app.get("/healthz", tags=["meta"])
-    async def healthcheck_alias() -> dict[str, str]:
-        return {"status": "ok"}
+    async def healthcheck_alias() -> dict[str, Any]:
+        return await healthcheck()
 
     return app
 
