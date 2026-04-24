@@ -6,7 +6,27 @@ import pytest
 from fastapi.testclient import TestClient
 
 from autoresearch.api.routers import gateway_telegram
+from autoresearch.api.routers.gateway_telegram import _guard
+from autoresearch.api.routers.gateway_telegram import router as _router_pkg
+from autoresearch.api.routers.gateway_telegram.router import _validate_secret_token as _orig_validate
+from autoresearch.api.routers.gateway_telegram.router import _guard_webhook_replay_and_rate as _orig_guard
 from tests.test_gateway_telegram import clear_gateway_guards, telegram_client  # noqa: F401
+
+
+def _patch_guard_functions(monkeypatch: pytest.MonkeyPatch, *, validate_fn, guard_fn) -> None:
+    """Patch guard functions in both the _guard module and the router module."""
+    import sys
+
+    _router_mod = sys.modules["autoresearch.api.routers.gateway_telegram.router"]
+
+    monkeypatch.setattr(_guard, "_validate_secret_token", validate_fn)
+    monkeypatch.setattr(_guard, "_guard_webhook_replay_and_rate", guard_fn)
+    # Router imports these directly, so must patch its local names too.
+    monkeypatch.setattr(_router_mod, "_validate_secret_token", validate_fn)
+    monkeypatch.setattr(_router_mod, "_guard_webhook_replay_and_rate", guard_fn)
+    # Also patch the package-level re-exports for good measure.
+    monkeypatch.setattr(gateway_telegram, "_validate_secret_token", validate_fn)
+    monkeypatch.setattr(gateway_telegram, "_guard_webhook_replay_and_rate", guard_fn)
 
 
 def test_mainline_webhook_happy_path_with_secret_header(
@@ -46,8 +66,8 @@ def test_mainline_webhook_rejects_missing_secret_before_replay_guard(
     monkeypatch.setenv("AUTORESEARCH_TELEGRAM_SECRET_TOKEN", "ordered-secret")
 
     events: list[str] = []
-    original_validate = gateway_telegram._validate_secret_token
-    original_guard = gateway_telegram._guard_webhook_replay_and_rate
+    original_validate = _guard._validate_secret_token
+    original_guard = _guard._guard_webhook_replay_and_rate
 
     def wrapped_validate(raw_request) -> None:
         events.append("secret")
@@ -57,8 +77,11 @@ def test_mainline_webhook_rejects_missing_secret_before_replay_guard(
         events.append("guard")
         return original_guard(update)
 
-    monkeypatch.setattr(gateway_telegram, "_validate_secret_token", wrapped_validate)
-    monkeypatch.setattr(gateway_telegram, "_guard_webhook_replay_and_rate", wrapped_guard)
+    _patch_guard_functions(
+        monkeypatch,
+        validate_fn=wrapped_validate,
+        guard_fn=wrapped_guard,
+    )
 
     response = telegram_client.post(
         "/api/v1/gateway/telegram/webhook",
@@ -88,8 +111,8 @@ def test_mainline_webhook_runs_secret_check_before_replay_guard_on_success(
     monkeypatch.setenv("AUTORESEARCH_TELEGRAM_APPEND_PROMPT", "false")
 
     events: list[str] = []
-    original_validate = gateway_telegram._validate_secret_token
-    original_guard = gateway_telegram._guard_webhook_replay_and_rate
+    original_validate = _guard._validate_secret_token
+    original_guard = _guard._guard_webhook_replay_and_rate
 
     def wrapped_validate(raw_request) -> None:
         events.append("secret")
@@ -99,8 +122,11 @@ def test_mainline_webhook_runs_secret_check_before_replay_guard_on_success(
         events.append("guard")
         return original_guard(update)
 
-    monkeypatch.setattr(gateway_telegram, "_validate_secret_token", wrapped_validate)
-    monkeypatch.setattr(gateway_telegram, "_guard_webhook_replay_and_rate", wrapped_guard)
+    _patch_guard_functions(
+        monkeypatch,
+        validate_fn=wrapped_validate,
+        guard_fn=wrapped_guard,
+    )
 
     response = telegram_client.post(
         "/api/v1/gateway/telegram/webhook",
