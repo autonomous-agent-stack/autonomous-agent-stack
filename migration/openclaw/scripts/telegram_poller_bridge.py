@@ -134,6 +134,35 @@ def forward_update(update: dict[str, Any], webhook_url: str, secret_token: str |
     )
 
 
+def should_advance_offset_on_http_error(status_code: int, body: str) -> bool:
+    """Advance Telegram offset when the control plane rejects a replayed update (idempotent dedup).
+
+    Match both the canonical FastAPI string detail and any JSON shape that still mentions duplicate
+    rejection, so urllib-forwarded 409s do not wedge the poller on the same update_id batch.
+    """
+    if status_code != 409:
+        return False
+    raw = (body or "").strip()
+    lowered = raw.lower()
+    if "duplicate telegram update" in lowered:
+        return True
+    try:
+        payload = json.loads(raw or "{}")
+    except json.JSONDecodeError:
+        return False
+    detail = payload.get("detail")
+    if isinstance(detail, list):
+        parts = []
+        for item in detail:
+            if isinstance(item, dict):
+                parts.append(str(item.get("msg") or item.get("message") or ""))
+            else:
+                parts.append(str(item))
+        blob = " ".join(parts).lower()
+        return "duplicate telegram update" in blob
+    return str(detail or "").strip().lower() == "duplicate telegram update rejected"
+
+
 def main() -> int:
     for env_file in ENV_FILES:
         load_env_file(env_file)
@@ -217,6 +246,11 @@ def main() -> int:
                     status, ack = forward_update(update, webhook_url, secret_token)
                 except error.HTTPError as exc:
                     body = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
+                    if should_advance_offset_on_http_error(exc.code, body):
+                        offset = next_offset
+                        write_offset(offset)
+                        log(f"[poller] update_id={update_id} skipped duplicate status={exc.code}")
+                        continue
                     raise RuntimeError(f"local webhook http {exc.code}: {body}") from exc
                 except error.URLError as exc:
                     raise RuntimeError(f"local webhook network error: {exc}") from exc

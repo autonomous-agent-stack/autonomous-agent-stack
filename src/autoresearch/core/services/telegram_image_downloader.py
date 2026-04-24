@@ -87,6 +87,49 @@ class TelegramImageDownloader:
         except Exception as e:
             logger.error(f"❌ 下载图片失败: {e}")
             return None
+
+    def download_image_sync(
+        self,
+        file_id: str,
+        save_dir: Optional[str] = None,
+    ) -> Optional[str]:
+        """Download a Telegram image using a synchronous HTTP client.
+
+        Use this from threads or non-async code (e.g. ``ClaudeAgentService.execute``).
+        The async ``download_image`` must not be called without ``await``.
+        """
+        try:
+            with httpx.Client(timeout=httpx.Timeout(30.0, connect=30.0)) as client:
+                response = client.get(
+                    f"{self.base_url}/getFile",
+                    params={"file_id": file_id},
+                )
+                if response.status_code != 200:
+                    logger.error("获取文件路径失败: %s", response.text)
+                    return None
+                data = response.json()
+                if not data.get("ok"):
+                    logger.error("API 返回错误: %s", data)
+                    return None
+                file_path = data["result"]["file_path"]
+
+            file_url = f"https://api.telegram.org/file/bot{self.bot_token}/{file_path}"
+            with httpx.Client(timeout=httpx.Timeout(60.0, connect=30.0)) as client:
+                response = client.get(file_url)
+                if response.status_code != 200:
+                    logger.error("下载文件失败: %s", response.status_code)
+                    return None
+
+                if save_dir is None:
+                    save_dir = tempfile.mkdtemp()
+                filename = file_path.split("/")[-1]
+                local_path = Path(save_dir) / filename
+                local_path.write_bytes(response.content)
+                logger.info("✅ 图片已下载(sync): %s", local_path)
+                return str(local_path)
+        except Exception as e:
+            logger.error("❌ 下载图片失败(sync): %s", e)
+            return None
     
     async def download_images(
         self,

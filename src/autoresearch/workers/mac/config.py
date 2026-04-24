@@ -51,6 +51,10 @@ class MacWorkerConfig:
     mode: WorkerMode = WorkerMode.STANDBY
     #: Shown in Telegram completion messages; empty string disables the 【…】 prefix.
     telegram_reply_brand: str = "初代worker"
+    #: Hermes wait loop: report RUNNING to control plane at most this often (seconds).
+    hermes_live_report_interval_seconds: float = 30.0
+    #: When true, also report when stdout_preview grows past a newline (still API-throttled).
+    hermes_live_report_on_newline: bool = False
 
     @classmethod
     def from_env(cls) -> MacWorkerConfig:
@@ -63,6 +67,16 @@ class MacWorkerConfig:
             telegram_reply_brand = "初代worker"
         else:
             telegram_reply_brand = str(brand_raw).strip()
+        live_interval_raw = os.getenv("AUTORESEARCH_TELEGRAM_BUTLER_LIVE_INTERVAL_SECONDS", "30")
+        try:
+            hermes_live_report_interval_seconds = float(live_interval_raw)
+        except ValueError:
+            hermes_live_report_interval_seconds = 30.0
+        hermes_live_report_interval_seconds = max(5.0, min(hermes_live_report_interval_seconds, 300.0))
+        hermes_live_report_on_newline = _parse_bool(
+            os.getenv("AUTORESEARCH_TELEGRAM_BUTLER_LIVE_ON_NEWLINE"),
+            default=False,
+        )
         return cls(
             worker_id=_sanitize_worker_id(os.getenv("WORKER_ID", default_worker_id)),
             control_plane_base_url=base_url,
@@ -75,6 +89,8 @@ class MacWorkerConfig:
             dry_run=_parse_bool(os.getenv("WORKER_DRY_RUN"), default=True),
             role=os.getenv("WORKER_ROLE", "housekeeper").strip() or "housekeeper",
             telegram_reply_brand=telegram_reply_brand,
+            hermes_live_report_interval_seconds=hermes_live_report_interval_seconds,
+            hermes_live_report_on_newline=hermes_live_report_on_newline,
         )
 
     def build_register_request(self) -> WorkerRegisterRequest:

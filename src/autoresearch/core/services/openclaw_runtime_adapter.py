@@ -175,12 +175,12 @@ class OpenClawRuntimeAdapterService(RuntimeAdapterContract):
                 run = self._claude_service.get(latest_run_id)
 
         stream_events: list[RuntimeStreamEvent] = []
-        if session is not None:
+        if session is not None and request.event_limit > 0:
             stream_events = self.stream(
                 RuntimeStreamRequest(
                     runtime_id=self._runtime_id,
                     session_id=session.session_id,
-                    limit=request.event_limit,
+                    limit=min(request.event_limit, 1000),
                 )
             )
 

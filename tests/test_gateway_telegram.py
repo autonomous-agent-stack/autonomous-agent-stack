@@ -2118,3 +2118,44 @@ def test_telegram_webhook_sends_queue_notice_with_table(
         assert stored.metadata.get("telegram_completion_via_api") is True
     finally:
         app.dependency_overrides.pop(get_telegram_notifier_service, None)
+
+
+def test_telegram_hermes_queue_payload_appends_eof_instruction_when_enabled(
+    telegram_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_RUNTIME_ID", "hermes")
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_HERMES_APPEND_EOF_INSTRUCTION", "true")
+    clear_settings_caches()
+    monkeypatch.setenv(
+        "AUTORESEARCH_TELEGRAM_CLAUDE_COMMAND_OVERRIDE",
+        f"{sys.executable} -c \"print('q')\"",
+    )
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_APPEND_PROMPT", "false")
+
+    notifier = _StubTelegramNotifier()
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+    try:
+        response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 19555,
+                "message": {
+                    "message_id": 901,
+                    "text": "hermes eof prompt check",
+                    "chat": {"id": 888201, "type": "private"},
+                    "from": {"id": 888201, "username": "eof-user"},
+                },
+            },
+        )
+        assert response.status_code == 200
+        run_id = response.json().get("metadata", {}).get("run_id")
+        assert run_id
+        stored = telegram_client._worker_scheduler.get_run(str(run_id))
+        assert stored is not None
+        prompt = str((stored.payload or {}).get("prompt") or "")
+        assert "EOF" in prompt
+        assert "最后一行" in prompt or "final line" in prompt.lower()
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+        clear_settings_caches()

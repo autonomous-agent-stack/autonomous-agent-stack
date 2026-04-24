@@ -132,3 +132,45 @@ curl -sS "http://127.0.0.1:8001/api/v1/runtime/hermes/sessions/<session_id>/even
   Current failures do not fall back to the Claude / OpenClaw execution path
 - 如果后续要接 queue、schedule 或 promotion，应继续挂在这条 runtime lane 上，而不是再造一套平行框架
   If queue, schedule, or promotion are added later, they should build on this runtime lane instead of creating a parallel framework
+
+## 7. 让已有 Hermes 被 AAS 发现 / Make an Existing Hermes Discoverable by AAS
+
+- 最佳实践不是让 AAS 直接扫描或托管你手工启动的 `hermes gateway` 进程。
+  The best practice is not to have AAS directly scan or manage a manually started `hermes gateway` process.
+- 当前 AAS 只会发现主动执行 `register + heartbeat` 的 worker。
+  Today AAS only discovers workers that actively perform `register + heartbeat`.
+- 因此，**把已有 Hermes 编入 AAS 的推荐方式，是启动 AAS 的 Mac worker，让这个 worker 通过 `WorkerRuntimeDispatchService` 调 Hermes runtime lane**。
+  Therefore, the recommended way to bring an existing Hermes into AAS is to start the AAS Mac worker and let that worker call the Hermes runtime lane through `WorkerRuntimeDispatchService`.
+
+推荐启动顺序：
+Recommended startup order:
+
+```bash
+make telegram-butler-start
+bash scripts/start-mac-worker.sh
+```
+
+启动后再查：
+Then query:
+
+```bash
+curl -sS http://127.0.0.1:8001/api/v1/workers
+```
+
+你应该会看到：
+You should then see:
+
+- 一个已注册的 `mac-*` worker
+  One registered `mac-*` worker
+- `capabilities` 包含 `claude_runtime`
+  `capabilities` including `claude_runtime`
+- `metadata` 里带当前主机与工作目录信息
+  `metadata` carrying host and work-dir information
+
+边界要说清楚：
+The boundary is important:
+
+- 单独运行 `hermes gateway` 本身不会自动进入 worker 盘点。
+  Running `hermes gateway` by itself does not automatically appear in worker inventory.
+- 如果以后要把 `hermes gateway` 本体做成一等 worker，需要额外实现一个 Hermes gateway -> AAS worker registry bridge。
+  If you later want the `hermes gateway` process itself to become a first-class worker, you need an extra Hermes gateway -> AAS worker registry bridge.

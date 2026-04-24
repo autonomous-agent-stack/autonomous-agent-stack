@@ -251,6 +251,24 @@ class TelegramSettings(_BaseApiSettings):
         default=True,
         validation_alias="AUTORESEARCH_TELEGRAM_BUTLER_API_COMPLETION_ENABLED",
     )
+    butler_live_updates_enabled: bool = Field(
+        default=True,
+        validation_alias="AUTORESEARCH_TELEGRAM_BUTLER_LIVE_UPDATES_ENABLED",
+    )
+    butler_live_interval_seconds: float = Field(
+        default=30.0,
+        ge=5.0,
+        le=300.0,
+        validation_alias="AUTORESEARCH_TELEGRAM_BUTLER_LIVE_INTERVAL_SECONDS",
+    )
+    butler_live_on_newline: bool = Field(
+        default=False,
+        validation_alias="AUTORESEARCH_TELEGRAM_BUTLER_LIVE_ON_NEWLINE",
+    )
+    hermes_append_eof_instruction: bool = Field(
+        default=False,
+        validation_alias="AUTORESEARCH_TELEGRAM_HERMES_APPEND_EOF_INSTRUCTION",
+    )
 
     @field_validator("telegram_worker_display_name", mode="before")
     @classmethod

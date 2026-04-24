@@ -427,6 +427,14 @@ def _handle_telegram_webhook(
         metadata["hermes"] = hermes_fragment
     image_urls = [] if dispatch_runtime == "hermes" else list(extracted.get("images") or [])
 
+    prompt_for_worker = resolved_prompt
+    if dispatch_runtime == "hermes" and telegram_settings.hermes_append_eof_instruction:
+        prompt_for_worker = (
+            f"{resolved_prompt}\n\n---\n"
+            "[系统] 全部工作完成后，请在输出的最后一行仅写：EOF（无其它字符）。\n"
+            "[System] When fully finished, print a single final line containing only: EOF"
+        )
+
     runtime_payload: dict[str, Any] = {
         "session_id": session.session_id,
         "session_key": session_identity.session_key,
@@ -435,7 +443,7 @@ def _handle_telegram_webhook(
         "message_thread_id": extracted.get("message_thread_id"),
         "is_topic_message": extracted.get("is_topic_message", False),
         "reply_to_message_id": extracted.get("reply_to_message_id"),
-        "prompt": resolved_prompt,
+        "prompt": prompt_for_worker,
         "task_name": _build_task_name(chat_id, update, extracted),
         "actor_user_id": session_identity.actor.user_id,
         "actor_role": session_identity.actor.role.value,

@@ -559,3 +559,138 @@ def test_butler_fallback_does_not_double_send_after_marker_set(
         assert notifier.sends == []
     finally:
         app.dependency_overrides.pop(get_telegram_notifier_service, None)
+
+
+def test_butler_live_edit_on_running_report(
+    worker_client: TestClient,
+    worker_services: tuple[WorkerRegistryService, WorkerSchedulerService],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from autoresearch.api.dependencies import get_telegram_notifier_service
+    from autoresearch.api.main import app
+    import autoresearch.api.routers.workers as workers_mod
+
+    registry, scheduler = worker_services
+    _register_worker(registry, worker_id="mac-mini-01")
+    run_id = _enqueue_and_claim_claude_runtime(scheduler)
+
+    notifier = _StubNotifier()
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+    clock = {"t": 1000.0}
+
+    def fake_time() -> float:
+        return float(clock["t"])
+
+    monkeypatch.setattr(workers_mod.time, "time", fake_time)
+    try:
+        live_body = {
+            "status": "running",
+            "message": "Hermes 运行中（0s）· running",
+            "metrics": {
+                "telegram_live_phase": "running",
+                "telegram_live_elapsed_s": 0,
+                "hermes_status": "running",
+                "hermes_runtime_run_id": "run-h",
+            },
+        }
+        r1 = worker_client.post(
+            f"/api/v1/workers/mac-mini-01/runs/{run_id}/report",
+            json=live_body,
+        )
+        assert r1.status_code == 200
+        assert len(notifier.edits) == 1
+        assert "Hermes 运行中" in str(notifier.edits[0]["text"])
+
+        clock["t"] = 1002.0
+        r2 = worker_client.post(
+            f"/api/v1/workers/mac-mini-01/runs/{run_id}/report",
+            json=live_body,
+        )
+        assert r2.status_code == 200
+        assert len(notifier.edits) == 1
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+
+
+def test_butler_live_edit_skips_within_interval_same_hash(
+    worker_client: TestClient,
+    worker_services: tuple[WorkerRegistryService, WorkerSchedulerService],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from autoresearch.api.dependencies import get_telegram_notifier_service
+    from autoresearch.api.main import app
+    import autoresearch.api.routers.workers as workers_mod
+
+    registry, scheduler = worker_services
+    _register_worker(registry, worker_id="mac-mini-01")
+    run_id = _enqueue_and_claim_claude_runtime(scheduler)
+
+    notifier = _StubNotifier()
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+    clock = {"t": 2000.0}
+
+    def fake_time() -> float:
+        return float(clock["t"])
+
+    monkeypatch.setattr(workers_mod.time, "time", fake_time)
+    body = {
+        "status": "running",
+        "message": "Hermes 运行中（0s）· running",
+        "metrics": {
+            "telegram_live_phase": "running",
+            "telegram_live_elapsed_s": 0,
+            "hermes_status": "running",
+            "hermes_runtime_run_id": "run-h",
+        },
+    }
+    try:
+        assert worker_client.post(
+            f"/api/v1/workers/mac-mini-01/runs/{run_id}/report",
+            json=body,
+        ).status_code == 200
+        assert len(notifier.edits) == 1
+        clock["t"] = 2005.0
+        assert worker_client.post(
+            f"/api/v1/workers/mac-mini-01/runs/{run_id}/report",
+            json=body,
+        ).status_code == 200
+        assert len(notifier.edits) == 1
+        clock["t"] = 2040.0
+        assert worker_client.post(
+            f"/api/v1/workers/mac-mini-01/runs/{run_id}/report",
+            json=body,
+        ).status_code == 200
+        assert len(notifier.edits) == 2
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+
+
+def test_butler_live_edit_disabled_by_setting(
+    worker_client: TestClient,
+    worker_services: tuple[WorkerRegistryService, WorkerSchedulerService],
+) -> None:
+    from autoresearch.api.dependencies import get_telegram_notifier_service, get_telegram_settings
+    from autoresearch.api.main import app
+
+    registry, scheduler = worker_services
+    _register_worker(registry, worker_id="mac-mini-01")
+    run_id = _enqueue_and_claim_claude_runtime(scheduler)
+
+    notifier = _StubNotifier()
+    s = get_telegram_settings().model_copy(update={"butler_live_updates_enabled": False})
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+    app.dependency_overrides[get_telegram_settings] = lambda: s
+    try:
+        r = worker_client.post(
+            f"/api/v1/workers/mac-mini-01/runs/{run_id}/report",
+            json={
+                "status": "running",
+                "message": "x",
+                "metrics": {"telegram_live_phase": "running", "telegram_live_elapsed_s": 1},
+            },
+        )
+        assert r.status_code == 200
+        assert notifier.edits == []
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+        app.dependency_overrides.pop(get_telegram_settings, None)

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import logging
+import time
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, status
@@ -13,7 +15,10 @@ from autoresearch.api.dependencies import (
     get_worker_scheduler_service,
 )
 from autoresearch.api.settings import TelegramSettings
-from autoresearch.core.services.telegram_completion_format import polish_butler_completion_card
+from autoresearch.core.services.telegram_completion_format import (
+    format_butler_live_status_message,
+    polish_butler_completion_card,
+)
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
 from autoresearch.core.services.worker_inventory import WorkerInventoryService
 from autoresearch.core.services.worker_scheduler import (
@@ -157,7 +162,104 @@ def report_worker_run(
             except Exception:
                 # Fallback is a best-effort safety net; never let it break /report.
                 logger.exception("butler completion fallback raised for run=%s", stored.run_id)
+    elif stored.status == JobStatus.RUNNING:
+        if telegram_settings.butler_live_updates_enabled:
+            try:
+                _try_deliver_butler_live_edit(
+                    stored,
+                    notifier=notifier,
+                    scheduler=service,
+                    settings=telegram_settings,
+                )
+            except Exception:
+                logger.exception("butler live edit raised for run=%s", stored.run_id)
     return stored
+
+
+def _try_deliver_butler_live_edit(
+    run: WorkerQueueItemRead,
+    *,
+    notifier: TelegramNotifierService,
+    scheduler: WorkerSchedulerService,
+    settings: TelegramSettings,
+) -> None:
+    """Throttle-edit the queue-ack bubble while the worker reports RUNNING (Hermes ticks)."""
+    if not notifier.enabled:
+        return
+    metadata: dict[str, Any] = run.metadata or {}
+    if not metadata.get("telegram_completion_via_api"):
+        return
+    if metadata.get("telegram_butler_primary_sent"):
+        return
+    metrics: dict[str, Any] = run.metrics or {}
+    if str(metrics.get("telegram_live_phase") or "").strip().lower() != "running":
+        return
+
+    payload: dict[str, Any] = run.payload or {}
+    chat_id = str(payload.get("chat_id") or "").strip()
+    if not chat_id:
+        return
+
+    ack_raw = metadata.get("telegram_queue_ack_message_id")
+    ack_message_id: int | None = None
+    if ack_raw is not None and str(ack_raw).strip() != "":
+        try:
+            ack_message_id = int(ack_raw)
+        except (TypeError, ValueError):
+            ack_message_id = None
+    if ack_message_id is None:
+        return
+
+    thread_raw = payload.get("message_thread_id")
+    thread_id: int | None = None
+    if thread_raw is not None and str(thread_raw).strip() != "":
+        try:
+            thread_id = int(thread_raw)
+        except (TypeError, ValueError):
+            thread_id = None
+
+    brand = (settings.telegram_worker_display_name or "").strip()
+    text = format_butler_live_status_message(
+        brand=brand,
+        message=run.message,
+        metrics=metrics,
+    )
+    if not text.strip():
+        return
+
+    body_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()[:24]
+    now = time.time()
+    last_raw = metadata.get("telegram_live_last_edit_at")
+    last_hash = str(metadata.get("telegram_live_last_body_hash") or "")
+    if last_raw is not None:
+        try:
+            last_ts = float(last_raw)
+        except (TypeError, ValueError):
+            last_ts = 0.0
+        if (now - last_ts) < float(settings.butler_live_interval_seconds) and body_hash == last_hash:
+            return
+
+    ok = notifier.edit_message_text(
+        chat_id=chat_id,
+        message_id=ack_message_id,
+        text=text,
+        message_thread_id=thread_id,
+    )
+    if ok:
+        try:
+            scheduler.merge_queue_metadata(
+                run.run_id,
+                {
+                    "telegram_live_last_edit_at": str(now),
+                    "telegram_live_last_body_hash": body_hash,
+                },
+            )
+        except Exception:
+            logger.warning(
+                "butler live edit ok but metadata write failed run=%s",
+                run.run_id,
+                exc_info=True,
+            )
 
 
 def _try_deliver_butler_completion_primary(

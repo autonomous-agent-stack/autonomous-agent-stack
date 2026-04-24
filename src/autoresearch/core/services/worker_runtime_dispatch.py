@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 from typing import Any
 
 from autoresearch.agent_protocol.runtime_models import RuntimeRunRead, RuntimeRunRequest, RuntimeStatusRequest
@@ -23,6 +24,8 @@ _TERMINAL_RUNTIME_STATUSES = {
     JobStatus.INTERRUPTED,
     JobStatus.CANCELLED,
 }
+
+HermesLiveProgressCallback = Callable[[RuntimeRunRead, int], None]
 
 
 def build_runtime_run_request_for_telegram_hermes(payload: dict[str, Any]) -> RuntimeRunRequest:
@@ -134,6 +137,9 @@ class WorkerRuntimeDispatchService:
         *,
         worker_id: str | None = None,
         queue_metadata: dict[str, Any] | None = None,
+        hermes_live_progress: HermesLiveProgressCallback | None = None,
+        hermes_live_report_interval_seconds: float = 30.0,
+        hermes_live_report_on_newline: bool = False,
     ) -> ClaudeRuntimeExecutionResult:
         runtime_id = str(payload.get("runtime_id") or "claude").strip().lower()
         if runtime_id == "claude":
@@ -150,7 +156,14 @@ class WorkerRuntimeDispatchService:
             )
 
         if runtime_id == "hermes":
-            return self._execute_hermes(payload, worker_id=worker_id, queue_metadata=queue_metadata)
+            return self._execute_hermes(
+                payload,
+                worker_id=worker_id,
+                queue_metadata=queue_metadata,
+                live_progress=hermes_live_progress,
+                live_report_interval_seconds=hermes_live_report_interval_seconds,
+                live_report_on_newline=hermes_live_report_on_newline,
+            )
 
         return ClaudeRuntimeExecutionResult(
             message=f"unsupported runtime_id {runtime_id}",
@@ -164,6 +177,9 @@ class WorkerRuntimeDispatchService:
         *,
         worker_id: str | None,
         queue_metadata: dict[str, Any] | None,
+        live_progress: HermesLiveProgressCallback | None,
+        live_report_interval_seconds: float,
+        live_report_on_newline: bool,
     ) -> ClaudeRuntimeExecutionResult:
         if self._registry is None:
             return ClaudeRuntimeExecutionResult(
@@ -236,6 +252,9 @@ class WorkerRuntimeDispatchService:
             adapter=adapter,
             initial_read=read,
             timeout_seconds=request.timeout_seconds,
+            live_progress=live_progress,
+            live_report_interval_seconds=live_report_interval_seconds,
+            live_report_on_newline=live_report_on_newline,
         )
         if not reached_terminal:
             error = (
@@ -289,12 +308,44 @@ class WorkerRuntimeDispatchService:
         adapter: RuntimeAdapterContract,
         initial_read: RuntimeRunRead,
         timeout_seconds: int,
+        live_progress: HermesLiveProgressCallback | None,
+        live_report_interval_seconds: float,
+        live_report_on_newline: bool,
     ) -> tuple[RuntimeRunRead, bool]:
         latest = initial_read
         if latest.status in _TERMINAL_RUNTIME_STATUSES:
             return latest, True
 
+        wait_started = time.monotonic()
+        min_gap = max(float(live_report_interval_seconds), 1.0)
+        last_live_report_at = wait_started - min_gap
+        preview_snapshot = str(latest.stdout_preview or "")
+        newline_min_gap = 3.0
+
+        def _maybe_emit_live() -> None:
+            nonlocal last_live_report_at, preview_snapshot
+            if live_progress is None:
+                return
+            now = time.monotonic()
+            elapsed = max(0, int(now - wait_started))
+            out = str(latest.stdout_preview or "")
+            due_interval = (now - last_live_report_at) >= min_gap
+            newline_hit = False
+            if live_report_on_newline and out and out != preview_snapshot:
+                if len(out) > len(preview_snapshot) and "\n" in out[len(preview_snapshot) :]:
+                    newline_hit = True
+            due_newline = newline_hit and (now - last_live_report_at) >= newline_min_gap
+            if not due_interval and not due_newline:
+                return
+            try:
+                live_progress(latest, elapsed)
+            except Exception:
+                logger.warning("Hermes live progress callback failed", exc_info=True)
+            last_live_report_at = now
+            preview_snapshot = out
+
         deadline = time.monotonic() + max(timeout_seconds, 1) + self._RUNTIME_STATUS_GRACE_SECONDS
+        _maybe_emit_live()
         while time.monotonic() < deadline:
             time.sleep(self._RUNTIME_STATUS_POLL_SECONDS)
             status = adapter.status(
@@ -307,6 +358,7 @@ class WorkerRuntimeDispatchService:
             if status.run is None:
                 continue
             latest = status.run
+            _maybe_emit_live()
             if latest.status in _TERMINAL_RUNTIME_STATUSES:
                 return latest, True
 

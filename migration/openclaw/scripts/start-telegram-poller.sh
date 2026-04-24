@@ -40,8 +40,8 @@ API_PORT="${AUTORESEARCH_API_PORT:-8001}"
 AUTORESEARCH_API_HOST="${API_HOST}"
 AUTORESEARCH_API_PORT="${API_PORT}"
 print_effective_env_values AUTORESEARCH_API_HOST AUTORESEARCH_API_PORT AUTORESEARCH_TELEGRAM_BOT_TOKEN TELEGRAM_BOT_TOKEN
-if ! curl -fsS "http://${API_HOST}:${API_PORT}/health" >/dev/null 2>&1; then
-  echo "api not healthy on http://${API_HOST}:${API_PORT}/health"
+if ! curl -fsS "http://${API_HOST}:${API_PORT}/healthz" >/dev/null 2>&1; then
+  echo "api not healthy on http://${API_HOST}:${API_PORT}/healthz"
   echo "run: make start  (or start API daemon with the same port)"
   exit 1
 fi

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 import shlex
@@ -30,6 +31,9 @@ from autoresearch.shared.models import (
     utc_now,
 )
 from autoresearch.shared.store import Repository, create_resource_id
+
+
+logger = logging.getLogger(__name__)
 
 
 class ClaudeAgentService:
@@ -266,17 +270,90 @@ class ClaudeAgentService:
                 text=True,
             )
             self._register_process(agent_run_id, process)
+            chunks_out: list[str] = []
+            chunks_err: list[str] = []
+            buf_lock = threading.Lock()
+            timed_out_wall = False
+
+            def _drain_pipe(pipe: Any, acc: list[str], label: str) -> None:
+                try:
+                    while True:
+                        piece = pipe.read(8192)
+                        if not piece:
+                            break
+                        with buf_lock:
+                            acc.append(piece)
+                except Exception:
+                    logger.debug("agent %s %s reader stopped", agent_run_id, label, exc_info=True)
+
+            if process.stdout is None or process.stderr is None:
+                raise OSError("subprocess missing stdout/stderr pipes")
+
+            t_out = threading.Thread(
+                target=_drain_pipe,
+                args=(process.stdout, chunks_out, "stdout"),
+                daemon=True,
+                name=f"agent-stdout-{agent_run_id}",
+            )
+            t_err = threading.Thread(
+                target=_drain_pipe,
+                args=(process.stderr, chunks_err, "stderr"),
+                daemon=True,
+                name=f"agent-stderr-{agent_run_id}",
+            )
+            t_out.start()
+            t_err.start()
+
+            deadline_wall = time.time() + float(request.timeout_seconds)
+            persist_raw = os.getenv("AUTORESEARCH_AGENT_LIVE_PERSIST_INTERVAL_SEC", "1.0")
             try:
-                stdout_text, stderr_text = process.communicate(timeout=request.timeout_seconds)
-            except subprocess.TimeoutExpired as exc:
-                process.kill()
-                stdout_text, stderr_text = process.communicate()
-                if exc.stdout:
-                    stdout_text = f"{exc.stdout}{stdout_text}"
-                if exc.stderr:
-                    stderr_text = f"{exc.stderr}{stderr_text}"
-                duration_seconds = time.perf_counter() - started
-                timed_out = running.model_copy(
+                persist_every = max(0.3, min(float(persist_raw.strip()), 10.0))
+            except ValueError:
+                persist_every = 1.0
+            last_persist = 0.0
+
+            try:
+                while True:
+                    rc = process.poll()
+                    if rc is not None:
+                        break
+                    if time.time() >= deadline_wall:
+                        timed_out_wall = True
+                        try:
+                            process.kill()
+                        except ProcessLookupError:
+                            pass
+                        break
+                    now = time.time()
+                    if now - last_persist >= persist_every:
+                        self._persist_running_stdout_preview(
+                            agent_run_id,
+                            started_perf=started,
+                            request=request,
+                            work_dir=work_dir,
+                            chunks_out=chunks_out,
+                            chunks_err=chunks_err,
+                            buf_lock=buf_lock,
+                        )
+                        last_persist = now
+                    time.sleep(0.12)
+            finally:
+                t_out.join(timeout=60.0)
+                t_err.join(timeout=60.0)
+                for pipe in (process.stdout, process.stderr):
+                    if pipe is not None:
+                        try:
+                            pipe.close()
+                        except Exception:
+                            pass
+
+            with buf_lock:
+                stdout_text = "".join(chunks_out)
+                stderr_text = "".join(chunks_err)
+
+            duration_seconds = time.perf_counter() - started
+            if timed_out_wall:
+                timeout_run = running.model_copy(
                     update={
                         "status": JobStatus.FAILED,
                         "returncode": -1,
@@ -293,11 +370,10 @@ class ClaudeAgentService:
                         },
                     }
                 )
-                self._repository.save(timed_out.agent_run_id, timed_out)
-                self._finalize_openclaw_session(timed_out)
+                self._repository.save(timeout_run.agent_run_id, timeout_run)
+                self._finalize_openclaw_session(timeout_run)
                 return
 
-            duration_seconds = time.perf_counter() - started
             returncode = int(process.returncode or 0)
             latest = self.get(agent_run_id)
             base_metadata = dict(latest.metadata if latest is not None else running.metadata)
@@ -388,13 +464,6 @@ class ClaudeAgentService:
         finally:
             self._clear_cancel_requested(agent_run_id)
             if process is not None:
-                try:
-                    if process.stdout is not None:
-                        process.stdout.close()
-                    if process.stderr is not None:
-                        process.stderr.close()
-                except Exception:
-                    pass
                 self._unregister_process(agent_run_id)
 
     def fail_preflight(
@@ -451,15 +520,15 @@ class ClaudeAgentService:
                 "cancel_requested_at": utc_now().isoformat(),
             }
         )
-        cancelled = current.model_copy(
+        # Do not persist CANCELLED yet: the worker thread may not have entered ``execute``; an early
+        # terminal row would make ``execute`` return immediately and lose partial stdout/stderr.
+        flagged = current.model_copy(
             update={
-                "status": JobStatus.CANCELLED,
                 "updated_at": utc_now(),
-                "error": reason,
                 "metadata": metadata,
             }
         )
-        self._repository.save(cancelled.agent_run_id, cancelled)
+        self._repository.save(flagged.agent_run_id, flagged)
         self._set_cancel_requested(agent_run_id)
 
         process = self._get_process(agent_run_id)
@@ -473,28 +542,42 @@ class ClaudeAgentService:
             except ProcessLookupError:
                 pass
 
-        if cancelled.session_id is not None:
-            self._openclaw_service.append_event(
-                session_id=cancelled.session_id,
-                request=OpenClawSessionEventAppendRequest(
-                    role="status",
-                    content=f"agent cancelled: {cancelled.agent_run_id}",
-                    metadata={
-                        "agent_run_id": cancelled.agent_run_id,
-                        "reason": reason,
-                    },
-                ),
+        deadline = time.monotonic() + 35.0
+        final: ClaudeAgentRunRead | None = None
+        while time.monotonic() < deadline:
+            latest = self.get(agent_run_id)
+            if latest is not None and latest.status in self.TERMINAL_STATUSES:
+                final = latest
+                break
+            time.sleep(0.05)
+
+        if final is None:
+            latest = self.get(agent_run_id)
+            if latest is not None and latest.status not in self.TERMINAL_STATUSES:
+                merged_meta = dict(latest.metadata)
+                merged_meta.update(metadata)
+                forced = latest.model_copy(
+                    update={
+                        "status": JobStatus.CANCELLED,
+                        "updated_at": utc_now(),
+                        "error": reason,
+                        "metadata": merged_meta,
+                    }
+                )
+                self._repository.save(forced.agent_run_id, forced)
+                self._finalize_openclaw_session(forced)
+                return forced
+            final = latest
+
+        if final is None:
+            return flagged.model_copy(
+                update={
+                    "status": JobStatus.CANCELLED,
+                    "error": reason,
+                    "metadata": metadata,
+                }
             )
-            self._openclaw_service.set_status(
-                session_id=cancelled.session_id,
-                status=JobStatus.CANCELLED,
-                error=reason,
-                metadata_updates={
-                    "latest_agent_run_id": cancelled.agent_run_id,
-                    "latest_status": JobStatus.CANCELLED.value,
-                },
-            )
-        return cancelled
+        return final
 
     def retry(
         self,
@@ -749,6 +832,46 @@ class ClaudeAgentService:
         if path.is_absolute():
             return path.resolve()
         return (self._repo_root / path).resolve()
+
+    def _stdout_live_preview_limit(self) -> int:
+        raw = os.getenv("AUTORESEARCH_AGENT_STDOUT_LIVE_PREVIEW_LIMIT", "8000")
+        try:
+            return max(1000, min(int(raw.strip()), 32000))
+        except ValueError:
+            return 8000
+
+    def _persist_running_stdout_preview(
+        self,
+        agent_run_id: str,
+        *,
+        started_perf: float,
+        request: ClaudeAgentCreateRequest,
+        work_dir: Path,
+        chunks_out: list[str],
+        chunks_err: list[str],
+        buf_lock: threading.Lock,
+    ) -> None:
+        with buf_lock:
+            raw_out = "".join(chunks_out)
+            raw_err = "".join(chunks_err)
+        live_lim = self._stdout_live_preview_limit()
+        preview_out = self._preview_output(raw_out, limit=live_lim)
+        preview_err = self._preview_output(raw_err, limit=min(live_lim, 8000))
+        current = self.get(agent_run_id)
+        if current is None or current.status not in self.ACTIVE_STATUSES:
+            return
+        meta = dict(current.metadata)
+        meta.update({"work_dir": str(work_dir), "env_overrides": request.env})
+        updated = current.model_copy(
+            update={
+                "stdout_preview": preview_out,
+                "stderr_preview": preview_err,
+                "duration_seconds": time.perf_counter() - started_perf,
+                "updated_at": utc_now(),
+                "metadata": meta,
+            }
+        )
+        self._repository.save(updated.agent_run_id, updated)
 
     def _preview_output(self, text: str, limit: int | None = None) -> str | None:
         """Truncate captured stdout/stderr for persistence and Telegram payloads.

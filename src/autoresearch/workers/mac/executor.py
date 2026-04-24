@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -14,6 +15,7 @@ from autoresearch.core.services.standby_youtube_bridge import (
     StandbyYouTubeBridgeService,
     build_default_standby_youtube_bridge_service,
 )
+from autoresearch.agent_protocol.runtime_models import RuntimeRunRead
 from autoresearch.shared.models import JobStatus, WorkerQueueItemRead, WorkerTaskType, utc_now
 from autoresearch.workers.mac.config import MacWorkerConfig
 from autoresearch.core.services.worker_runtime_dispatch import WorkerRuntimeDispatchService
@@ -36,11 +38,13 @@ class MacWorkerExecutor:
         youtube_bridge: StandbyYouTubeBridgeService | None = None,
         youtube_autoflow: StandbyYouTubeAutoflowService | None = None,
         runtime_dispatch: WorkerRuntimeDispatchService | None = None,
+        hermes_live_report: Callable[[WorkerQueueItemRead, RuntimeRunRead, int], None] | None = None,
     ) -> None:
         self._config = config
         self._youtube_bridge = youtube_bridge
         self._youtube_autoflow = youtube_autoflow
         self._runtime_dispatch = runtime_dispatch
+        self._hermes_live_report = hermes_live_report
 
     def execute(self, run: WorkerQueueItemRead) -> MacWorkerExecutionResult:
         if run.task_type == WorkerTaskType.NOOP:
@@ -163,10 +167,26 @@ class MacWorkerExecutor:
                 status=JobStatus.FAILED,
                 error="WorkerRuntimeDispatchService not configured on this worker",
             )
+        meta = run.metadata or {}
+        live_cb = None
+        if (
+            self._hermes_live_report is not None
+            and meta.get("telegram_completion_via_api")
+            and str(run.payload.get("runtime_id") or "claude").strip().lower() == "hermes"
+        ):
+
+            def live_cb_impl(latest: RuntimeRunRead, elapsed_s: int) -> None:
+                self._hermes_live_report(run, latest, elapsed_s)  # type: ignore[misc]
+
+            live_cb = live_cb_impl
+
         outcome = dispatch.execute_payload(
             run.payload,
             worker_id=run.assigned_worker_id,
             queue_metadata=run.metadata,
+            hermes_live_progress=live_cb,
+            hermes_live_report_interval_seconds=self._config.hermes_live_report_interval_seconds,
+            hermes_live_report_on_newline=self._config.hermes_live_report_on_newline,
         )
         return MacWorkerExecutionResult(
             message=outcome.message,

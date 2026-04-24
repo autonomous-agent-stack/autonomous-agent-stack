@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from autoresearch.core.services.telegram_completion_format import polish_butler_completion_card
+from autoresearch.core.services.telegram_completion_format import (
+    polish_butler_completion_card,
+    strip_trailing_eof_marker,
+)
 
 
 def test_polish_collapses_excessive_blank_lines() -> None:
@@ -9,6 +12,18 @@ def test_polish_collapses_excessive_blank_lines() -> None:
     assert "A" in out
     assert "B" in out
     assert "\n\n\n\n" not in out
+
+
+def test_strip_trailing_eof_marker() -> None:
+    assert strip_trailing_eof_marker("line1\nEOF") == "line1"
+    assert strip_trailing_eof_marker("EOF") == ""
+
+
+def test_polish_strips_eof_then_collapses() -> None:
+    raw = "A\n\nEOF\n"
+    out = polish_butler_completion_card(raw)
+    assert not out.rstrip().endswith("EOF")
+    assert "A" in out
 
 
 def test_polish_truncates_long_text() -> None:

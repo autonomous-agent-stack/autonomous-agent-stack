@@ -11,6 +11,7 @@ from typing import Any, Callable
 from urllib import error as urllib_error
 import urllib.request as urllib_req
 
+from autoresearch.agent_protocol.runtime_models import RuntimeRunRead
 from autoresearch.build_label import get_build_label
 from autoresearch.core.runtime_identity import get_runtime_identity
 from autoresearch.core.services.claude_runtime_service import ClaudeRuntimeService
@@ -173,7 +174,36 @@ class MacWorkerDaemon:
         config = MacWorkerConfig.from_env()
         client = MacWorkerApiClient(config)
         runtime_dispatch = _build_worker_runtime_dispatch(config)
-        executor = MacWorkerExecutor(config, runtime_dispatch=runtime_dispatch)
+
+        def hermes_live_report(run: WorkerQueueItemRead, latest: RuntimeRunRead, elapsed_s: int) -> None:
+            try:
+                client.report_run(
+                    config.worker_id,
+                    run.run_id,
+                    WorkerRunReportRequest(
+                        status=JobStatus.RUNNING,
+                        message=f"Hermes 运行中（{elapsed_s}s）· {latest.status.value}",
+                        metrics={
+                            "telegram_live_phase": "running",
+                            "telegram_live_elapsed_s": elapsed_s,
+                            "hermes_runtime_run_id": latest.run_id,
+                            "hermes_status": latest.status.value,
+                            "telegram_live_stdout_tail": (latest.stdout_preview or "")[-1200:],
+                        },
+                    ),
+                )
+            except Exception:
+                logger.debug(
+                    "Hermes live RUNNING report failed run_id=%s",
+                    getattr(run, "run_id", "?"),
+                    exc_info=True,
+                )
+
+        executor = MacWorkerExecutor(
+            config,
+            runtime_dispatch=runtime_dispatch,
+            hermes_live_report=hermes_live_report,
+        )
         bridge = _build_content_kb_bridge(config)
         return cls(config=config, client=client, executor=executor, content_kb_promotion_bridge=bridge)
 
