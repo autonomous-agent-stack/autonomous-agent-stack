@@ -447,7 +447,7 @@ def telegram_client(tmp_path: Path) -> TestClient:
 
 @pytest.fixture(autouse=True)
 def clear_gateway_guards() -> None:
-    gateway_telegram._CHAT_RATE_WINDOWS.clear()
+    gateway_telegram._CHAT_RATE_WINDOWS.clear()  # type: ignore[attr-defined]
 
 
 def test_telegram_webhook_routes_to_openclaw_and_agents(

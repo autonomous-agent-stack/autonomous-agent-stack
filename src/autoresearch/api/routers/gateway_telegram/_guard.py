@@ -13,6 +13,8 @@ from ._extract import _safe_int, _safe_str
 
 _RATE_WINDOW_SECONDS = 60
 _RATE_MAX_REQUESTS_PER_CHAT = 30
+_RATE_MAX_TRACKED_CHATS = 10_000
+
 _CHAT_RATE_WINDOWS: dict[str, list[float]] = {}
 _GUARD_LOCK = threading.Lock()
 
@@ -73,6 +75,7 @@ def _guard_webhook_replay_and_rate(update: dict[str, Any]) -> None:
 
 
 def _gc_guard_state(now_ts: float) -> None:
+    """Evict expired rate-limit windows and enforce capacity bounds."""
     empty_chats: list[str] = []
     rate_cutoff = now_ts - _RATE_WINDOW_SECONDS
     for chat_id, timestamps in _CHAT_RATE_WINDOWS.items():
@@ -81,3 +84,13 @@ def _gc_guard_state(now_ts: float) -> None:
             empty_chats.append(chat_id)
     for chat_id in empty_chats:
         _CHAT_RATE_WINDOWS.pop(chat_id, None)
+
+    # Hard cap: if still too many tracked chats, drop the oldest entries.
+    overflow = len(_CHAT_RATE_WINDOWS) - _RATE_MAX_TRACKED_CHATS
+    if overflow > 0:
+        sorted_chats = sorted(
+            _CHAT_RATE_WINDOWS.items(),
+            key=lambda item: item[1][0] if item[1] else 0.0,
+        )
+        for chat_id, _ in sorted_chats[:overflow]:
+            _CHAT_RATE_WINDOWS.pop(chat_id, None)
