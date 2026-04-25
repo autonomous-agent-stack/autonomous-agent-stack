@@ -48,6 +48,7 @@ PROMOTE_OPEN_DRAFT_PR ?= 0
 .PHONY: ai-lab ai-lab-setup ai-lab-check ai-lab-up ai-lab-down ai-lab-status ai-lab-shell ai-lab-run masfactory-flight hygiene-check openhands openhands-dry-run openhands-controlled openhands-controlled-dry-run openhands-demo agent-run promote-run
 .PHONY: review-setup review-gates-local assistant-doctor assistant-triage assistant-execute assistant-review-pr assistant-release-plan assistant-schedule
 .PHONY: telegram-butler-start telegram-butler-status telegram-butler-stop
+.PHONY: worker-start worker-stop worker-status
 
 help:
 	@echo "Autonomous Agent Stack - common commands"
@@ -84,6 +85,9 @@ help:
 	@echo "  make telegram-butler-start Start API daemon + Telegram poller"
 	@echo "  make telegram-butler-status Show API daemon + Telegram poller status"
 	@echo "  make telegram-butler-stop Stop API daemon + Telegram poller"
+	@echo "  make worker-start  Start Mac worker daemon (housekeeper)"
+	@echo "  make worker-status Show Mac worker daemon status"
+	@echo "  make worker-stop   Stop Mac worker daemon"
 	@echo "  make hygiene-check FAIL_ON_FINDINGS=1 Run prompt hygiene audit for src/"
 	@echo "  make review-setup Create .venv-review with mypy/bandit/semgrep"
 	@echo "  make review-gates-local Run mypy/bandit/semgrep on reviewer core modules"
@@ -326,3 +330,12 @@ telegram-butler-status:
 telegram-butler-stop:
 	bash migration/openclaw/scripts/stop-telegram-poller.sh
 	bash migration/openclaw/scripts/stop-api-daemon.sh
+
+worker-start:
+	bash migration/openclaw/scripts/start-mac-worker.sh
+
+worker-status:
+	bash migration/openclaw/scripts/status-mac-worker.sh
+
+worker-stop:
+	bash migration/openclaw/scripts/stop-mac-worker.sh
