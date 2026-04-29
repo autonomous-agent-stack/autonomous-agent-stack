@@ -30,6 +30,11 @@ _kill_pid() {
   fi
 }
 
+# Keep ingress single-consumer: stop poller first, then API.
+if [[ -f "${ROOT_DIR}/scripts/stop-telegram-poller.sh" ]]; then
+  bash "${ROOT_DIR}/scripts/stop-telegram-poller.sh" >/dev/null 2>&1 || true
+fi
+
 if [[ -f "${PID_FILE}" ]]; then
   PID="$(cat "${PID_FILE}")"
   if kill -0 "${PID}" >/dev/null 2>&1; then

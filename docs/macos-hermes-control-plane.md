@@ -222,3 +222,7 @@ Additional note: worker terminal reports now include unified diagnostics; `resul
    In the terminal card, confirm `诊断 | Diagnostics` exists (at least `runtime` and `exit`).
 5. 若失败，优先读 `error_kind` 与 `exit_reason` 再决定是重试、切 runtime，还是查 worker 心跳。
    On failure, read `error_kind` and `exit_reason` first, then decide whether to retry, switch runtime, or inspect worker heartbeat.
+6. 执行 `python3 scripts/telegram_ingress_health.py --minutes 30 --json`，确认存在稳定字段：`mode`、`active_consumer`、`state`、`healthy`。
+   Run `python3 scripts/telegram_ingress_health.py --minutes 30 --json` and confirm stable fields: `mode`, `active_consumer`, `state`, `healthy`.
+7. 若 `state=failover`，等待 `AUTORESEARCH_TELEGRAM_POLLING_RECOVER_AFTER_SECONDS` 后再次检查，确认由 `webhook` 回到 `polling`（或按策略保持 webhook）。
+   If `state=failover`, wait `AUTORESEARCH_TELEGRAM_POLLING_RECOVER_AFTER_SECONDS` and check again to confirm recovery from `webhook` back to `polling` (or remain webhook per policy).

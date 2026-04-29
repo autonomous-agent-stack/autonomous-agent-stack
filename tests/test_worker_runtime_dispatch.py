@@ -271,9 +271,47 @@ def test_telegram_hermes_execution_mode_normalized() -> None:
         owner_uids={"1"},
         partner_uids=set(),
         allowed_uids={"1"},
-        telegram_hermes_execution_mode="INTERACTIVE",
+        AUTORESEARCH_TELEGRAM_HERMES_EXECUTION_MODE="INTERACTIVE",
     )
     assert s.telegram_hermes_execution_mode == "interactive"
+
+
+def test_telegram_ingress_mode_normalized_to_webhook_for_invalid_value() -> None:
+    from autoresearch.api.settings import TelegramIngressMode, TelegramSettings
+
+    s = TelegramSettings(
+        bot_token="t",
+        owner_uids={"1"},
+        partner_uids=set(),
+        allowed_uids={"1"},
+        AUTORESEARCH_TELEGRAM_INGRESS_MODE="invalid-mode",
+    )
+    assert s.ingress_mode == TelegramIngressMode.WEBHOOK
+    assert s.active_ingress_consumer == "webhook"
+
+
+def test_telegram_ingress_mode_uses_polling_consumer_only_when_enabled() -> None:
+    from autoresearch.api.settings import TelegramIngressMode, TelegramSettings
+
+    disabled = TelegramSettings(
+        bot_token="t",
+        owner_uids={"1"},
+        partner_uids=set(),
+        allowed_uids={"1"},
+        AUTORESEARCH_TELEGRAM_INGRESS_MODE="polling",
+        AUTORESEARCH_TELEGRAM_POLLING_ENABLED=False,
+    )
+    enabled = TelegramSettings(
+        bot_token="t",
+        owner_uids={"1"},
+        partner_uids=set(),
+        allowed_uids={"1"},
+        AUTORESEARCH_TELEGRAM_INGRESS_MODE="polling",
+        AUTORESEARCH_TELEGRAM_POLLING_ENABLED=True,
+    )
+    assert disabled.ingress_mode == TelegramIngressMode.POLLING
+    assert disabled.active_ingress_consumer == "webhook"
+    assert enabled.active_ingress_consumer == "polling"
 
 
 def test_dispatch_hermes_invokes_live_progress_while_waiting(

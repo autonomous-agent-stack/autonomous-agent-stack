@@ -6,6 +6,7 @@ import json
 import shlex
 from functools import lru_cache
 from pathlib import Path
+from enum import StrEnum
 from typing import Annotated, Any
 
 from pydantic import AliasChoices, Field, field_validator
@@ -110,6 +111,11 @@ def _parse_string_dict(value: Any) -> dict[str, str]:
 
 class _BaseApiSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="", extra="ignore", env_file=".env", env_file_encoding="utf-8")
+
+
+class TelegramIngressMode(StrEnum):
+    WEBHOOK = "webhook"
+    POLLING = "polling"
 
 
 class RuntimeSettings(_BaseApiSettings):
@@ -287,6 +293,26 @@ class TelegramSettings(_BaseApiSettings):
         default="",
         validation_alias="AUTORESEARCH_TELEGRAM_PROXY_URL",
     )
+    ingress_mode_raw: str = Field(
+        default="webhook",
+        validation_alias="AUTORESEARCH_TELEGRAM_INGRESS_MODE",
+    )
+    polling_failover_enabled: bool = Field(
+        default=True,
+        validation_alias="AUTORESEARCH_TELEGRAM_POLLING_FAILOVER_ENABLED",
+    )
+    polling_failover_threshold: int = Field(
+        default=3,
+        ge=1,
+        le=20,
+        validation_alias="AUTORESEARCH_TELEGRAM_POLLING_FAILOVER_THRESHOLD",
+    )
+    polling_recover_after_seconds: int = Field(
+        default=30,
+        ge=5,
+        le=3600,
+        validation_alias="AUTORESEARCH_TELEGRAM_POLLING_RECOVER_AFTER_SECONDS",
+    )
 
     @field_validator("telegram_worker_display_name", mode="before")
     @classmethod
@@ -308,6 +334,14 @@ class TelegramSettings(_BaseApiSettings):
     def _normalize_telegram_dispatch_runtime_id(cls, value: Any) -> str:
         raw = str(value or "claude").strip().lower()
         return raw if raw in {"claude", "hermes"} else "claude"
+
+    @field_validator("ingress_mode_raw", mode="before")
+    @classmethod
+    def _normalize_ingress_mode_raw(cls, value: Any) -> str:
+        raw = str(value or "webhook").strip().lower()
+        if raw not in {TelegramIngressMode.WEBHOOK.value, TelegramIngressMode.POLLING.value}:
+            return TelegramIngressMode.WEBHOOK.value
+        return raw
 
     @field_validator("telegram_hermes_execution_mode", mode="before")
     @classmethod
@@ -349,6 +383,16 @@ class TelegramSettings(_BaseApiSettings):
         if mode in ("manual", "smart"):
             out["approval_mode"] = mode
         return out
+
+    @property
+    def ingress_mode(self) -> TelegramIngressMode:
+        return TelegramIngressMode(self.ingress_mode_raw)
+
+    @property
+    def active_ingress_consumer(self) -> str:
+        if self.ingress_mode == TelegramIngressMode.POLLING and self.polling_enabled and bool(self.bot_token):
+            return "polling"
+        return "webhook"
 
 
 class PanelSettings(_BaseApiSettings):

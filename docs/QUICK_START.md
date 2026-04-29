@@ -75,6 +75,10 @@ Note: regardless of mode, only one Telegram update consumer should be active at 
 # 观测：日志中的 409/conflict 线索 + 近期入队 Hermes 占比（默认回溯 24 小时）
 # Observability: 409/conflict hints in logs + Hermes share in recent queue rows (default 24h lookback)
 make telegram-ingress-audit
+
+# 机器可读健康契约（建议用于脚本与自动切换）
+# Machine-readable health contract (recommended for scripts and auto-failover)
+python3 scripts/telegram_ingress_health.py --minutes 30 --json
 ```
 
 ### Full 模式（完整功能，实验性）

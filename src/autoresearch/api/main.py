@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import sys
 from contextlib import asynccontextmanager
 from importlib import import_module
@@ -14,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 
 from autoresearch import __version__
 from autoresearch.build_label import get_build_label
-from autoresearch.api.settings import get_runtime_settings
+from autoresearch.api.settings import TelegramIngressMode, get_runtime_settings
 from autoresearch.core.services.panel_access import assert_safe_bind_host
 
 
@@ -85,16 +84,16 @@ async def lifespan(_: FastAPI):
     try:
         from autoresearch.api.settings import get_telegram_settings
         tg_settings = get_telegram_settings()
-        ingress_mode = os.getenv("AUTORESEARCH_TELEGRAM_INGRESS_MODE", "webhook").strip().lower()
-        if tg_settings.polling_enabled and tg_settings.bot_token and ingress_mode == "polling":
+        ingress_mode = tg_settings.ingress_mode
+        if ingress_mode == TelegramIngressMode.POLLING and tg_settings.polling_enabled and tg_settings.bot_token:
             from autoresearch.core.services.telegram_polling import TelegramPollingDaemon
             polling_daemon = TelegramPollingDaemon()
             polling_daemon.start()
-            logger.info("Telegram polling daemon started [ingress_mode=polling]")
-        elif tg_settings.polling_enabled and tg_settings.bot_token and ingress_mode != "polling":
+            logger.info("Telegram polling daemon started [ingress_mode=%s]", ingress_mode.value)
+        elif tg_settings.polling_enabled and tg_settings.bot_token and ingress_mode != TelegramIngressMode.POLLING:
             logger.info(
                 "Telegram polling daemon skipped [ingress_mode=%s, expected=polling]",
-                ingress_mode or "webhook",
+                ingress_mode.value,
             )
     except Exception:
         logger.exception("Failed to start Telegram polling daemon")
