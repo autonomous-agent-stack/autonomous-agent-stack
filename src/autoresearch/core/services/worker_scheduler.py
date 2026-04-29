@@ -133,7 +133,12 @@ class WorkerSchedulerService:
             if preferred_wid and preferred_wid != worker_id:
                 # Check if the preferred worker is still active; if stale, allow fallback
                 preferred_worker = self._worker_registry.get_worker(preferred_wid, as_of=current)
-                if preferred_worker and not preferred_worker.is_stale and preferred_worker.accepting_work:
+                if (
+                    preferred_worker
+                    and not preferred_worker.is_stale
+                    and preferred_worker.accepting_work
+                    and not self._sticky_preference_expired(run, now=current)
+                ):
                     continue  # Preferred worker is still healthy, let it claim
             return self._finalize_claim(run, worker, request.queue_name, current)
 
@@ -163,7 +168,7 @@ class WorkerSchedulerService:
             run_id=run.run_id,
             worker_id=worker.worker_id,
             queue_name=queue_name,
-            lease_expires_at=current + timedelta(seconds=self._lease_ttl_seconds),
+            lease_expires_at=current + timedelta(seconds=self._lease_ttl_for_run(run)),
             active=True,
             created_at=current,
             updated_at=current,
@@ -234,7 +239,7 @@ class WorkerSchedulerService:
             if lease is not None:
                 lease = lease.model_copy(
                     update={
-                        "lease_expires_at": current + timedelta(seconds=self._lease_ttl_seconds),
+                        "lease_expires_at": current + timedelta(seconds=self._lease_ttl_for_run(run)),
                         "updated_at": current,
                     }
                 )
@@ -401,6 +406,34 @@ class WorkerSchedulerService:
             and (item.next_attempt_at is None or item.next_attempt_at <= now)
         ]
         return sorted(items, key=lambda item: (-item.priority, item.created_at, item.run_id))
+
+    def _lease_ttl_for_run(self, run: WorkerQueueItemRead) -> int:
+        raw = (run.metadata or {}).get("interactive_lease_ttl_seconds")
+        if raw is None:
+            raw = (run.payload or {}).get("interactive_lease_ttl_seconds")
+        try:
+            ttl = int(raw) if raw is not None else self._lease_ttl_seconds
+        except (TypeError, ValueError):
+            ttl = self._lease_ttl_seconds
+        return max(self._lease_ttl_seconds, min(ttl, 24 * 60 * 60))
+
+    @staticmethod
+    def _sticky_preference_expired(run: WorkerQueueItemRead, *, now: datetime) -> bool:
+        raw = (run.metadata or {}).get("sticky_deadline_at")
+        if raw is None:
+            raw = (run.payload or {}).get("sticky_deadline_at")
+        if raw is None:
+            return False
+        if isinstance(raw, datetime):
+            deadline = raw
+        else:
+            try:
+                deadline = datetime.fromisoformat(str(raw))
+            except ValueError:
+                return False
+        if deadline.tzinfo is None and now.tzinfo is not None:
+            deadline = deadline.replace(tzinfo=now.tzinfo)
+        return deadline <= now
 
     @staticmethod
     def _lease_id_for_run(run_id: str) -> str:

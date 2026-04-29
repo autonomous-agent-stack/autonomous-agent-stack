@@ -55,6 +55,10 @@ class MacWorkerConfig:
     hermes_live_report_interval_seconds: float = 30.0
     #: When true, also report when stdout_preview grows past a newline (still API-throttled).
     hermes_live_report_on_newline: bool = False
+    hermes_interactive_enabled: bool = False
+    hermes_gateway_base_url: str | None = None
+    hermes_gateway_health_path: str = "/health"
+    hermes_gateway_timeout_seconds: float = 10.0
 
     @classmethod
     def from_env(cls) -> MacWorkerConfig:
@@ -81,6 +85,13 @@ class MacWorkerConfig:
             os.getenv("AUTORESEARCH_HERMES_INTERACTIVE_ENABLED"),
             default=False,
         )
+        gateway_base_url = (os.getenv("AUTORESEARCH_HERMES_GATEWAY_BASE_URL") or "").strip()
+        gateway_health_path = (os.getenv("AUTORESEARCH_HERMES_GATEWAY_HEALTH_PATH") or "/health").strip() or "/health"
+        try:
+            gateway_timeout_seconds = float(os.getenv("AUTORESEARCH_HERMES_GATEWAY_TIMEOUT_SECONDS", "10"))
+        except ValueError:
+            gateway_timeout_seconds = 10.0
+        gateway_timeout_seconds = max(1.0, min(gateway_timeout_seconds, 120.0))
         capabilities = list(cls.capabilities)
         if hermes_interactive_enabled and "hermes_interactive" not in capabilities:
             capabilities.append("hermes_interactive")
@@ -99,6 +110,10 @@ class MacWorkerConfig:
             telegram_reply_brand=telegram_reply_brand,
             hermes_live_report_interval_seconds=hermes_live_report_interval_seconds,
             hermes_live_report_on_newline=hermes_live_report_on_newline,
+            hermes_interactive_enabled=hermes_interactive_enabled,
+            hermes_gateway_base_url=gateway_base_url or None,
+            hermes_gateway_health_path=gateway_health_path,
+            hermes_gateway_timeout_seconds=gateway_timeout_seconds,
         )
 
     def build_register_request(self) -> WorkerRegisterRequest:
@@ -117,5 +132,7 @@ class MacWorkerConfig:
                 "lease_ttl_seconds": self.lease_ttl_seconds,
                 "housekeeping_root": str(self.housekeeping_root),
                 "dry_run": self.dry_run,
+                "hermes_interactive_enabled": self.hermes_interactive_enabled,
+                "hermes_gateway_configured": bool(self.hermes_gateway_base_url),
             },
         )

@@ -175,6 +175,63 @@ def test_existing_active_lease_blocks_other_worker_and_is_idempotent_for_same_wo
     assert blocked.reason == "no_work_available"
 
 
+def test_sticky_preferred_worker_deadline_allows_fallback(
+    worker_services: tuple[WorkerRegistryService, WorkerSchedulerService],
+) -> None:
+    registry, scheduler = worker_services
+    current = utc_now()
+    _register_mac_worker(registry, worker_id="mac-mini-01", now=current)
+    _register_mac_worker(registry, worker_id="mac-mini-02", now=current)
+    queued = scheduler.enqueue(
+        WorkerQueueItemCreateRequest(
+            task_name="sticky-expired",
+            metadata={
+                "preferred_worker_id": "mac-mini-01",
+                "sticky_deadline_at": (current + timedelta(seconds=10)).isoformat(),
+            },
+        ),
+        now=current,
+    )
+
+    claimed = scheduler.claim(
+        "mac-mini-02",
+        WorkerClaimRequest(),
+        now=current + timedelta(seconds=11),
+    )
+
+    assert claimed.claimed is True
+    assert claimed.run is not None
+    assert claimed.run.run_id == queued.run_id
+    assert claimed.run.assigned_worker_id == "mac-mini-02"
+
+
+def test_interactive_metadata_extends_initial_lease_ttl(
+    worker_services: tuple[WorkerRegistryService, WorkerSchedulerService],
+) -> None:
+    registry, scheduler = worker_services
+    current = utc_now()
+    _register_mac_worker(registry, worker_id="mac-mini-01", now=current)
+    scheduler.enqueue(
+        WorkerQueueItemCreateRequest(
+            task_name="interactive",
+            task_type="claude_runtime",
+            payload={"runtime_id": "hermes", "execution_mode": "interactive"},
+            metadata={"interactive_lease_ttl_seconds": 900},
+        ),
+        now=current,
+    )
+
+    claimed = scheduler.claim(
+        "mac-mini-01",
+        WorkerClaimRequest(),
+        now=current + timedelta(seconds=1),
+    )
+
+    assert claimed.claimed is True
+    assert claimed.lease is not None
+    assert claimed.lease.lease_expires_at == current + timedelta(seconds=901)
+
+
 def test_expired_lease_allows_reclaim_by_another_worker(
     worker_services: tuple[WorkerRegistryService, WorkerSchedulerService],
 ) -> None:

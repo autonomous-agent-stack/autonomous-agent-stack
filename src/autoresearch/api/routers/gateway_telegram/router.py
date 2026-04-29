@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Request, status
@@ -87,6 +88,7 @@ _X_BOOKMARK_KEYWORDS = (
     "推特书签",
     "x 书签",
 )
+_GITHUB_REPO_RE = re.compile(r"https?://github\.com/([^/\s]+)/([^/\s#?]+)", re.IGNORECASE)
 
 
 @router.get("/health", tags=["gateway"])
@@ -434,6 +436,12 @@ def _handle_telegram_webhook(
     if hermes_fragment:
         metadata["hermes"] = hermes_fragment
     metadata["channel_route"] = channel_route
+    agent_contract = _build_butler_worker_contract(
+        text=text,
+        butler_task_type=str(getattr(butler_result.task_type, "value", butler_result.task_type)),
+        execution_mode=telegram_settings.telegram_hermes_execution_mode if dispatch_runtime == "hermes" else "oneshot",
+    )
+    metadata.update(agent_contract)
     image_urls = [] if dispatch_runtime == "hermes" else list(extracted.get("images") or [])
 
     prompt_for_worker = resolved_prompt
@@ -475,16 +483,25 @@ def _handle_telegram_webhook(
     if metadata:
         runtime_payload["metadata"] = metadata
 
+    queue_priority = int(agent_contract.get("priority", 0))
+    queue_max_retries = int(agent_contract.get("max_retries", 2))
+    queue_metadata = {
+        "session_key": session_identity.session_key,
+        "preferred_worker_id": preferred_worker_id,
+        "chat_id": chat_id,
+        "channel_route": channel_route,
+        **agent_contract,
+    }
+    if dispatch_runtime == "hermes" and telegram_settings.telegram_hermes_execution_mode == "interactive":
+        queue_metadata.setdefault("interactive_lease_ttl_seconds", 900)
+
     queue_item = worker_scheduler.enqueue(WorkerQueueItemCreateRequest(
         task_type=WorkerTaskType.CLAUDE_RUNTIME,
         payload=runtime_payload,
         requested_by=session_identity.actor.user_id,
-        metadata={
-            "session_key": session_identity.session_key,
-            "preferred_worker_id": preferred_worker_id,
-            "chat_id": chat_id,
-            "channel_route": channel_route,
-        },
+        priority=queue_priority,
+        max_retries=queue_max_retries,
+        metadata=queue_metadata,
     ))
 
     # Notify user that task is queued (sync so we capture message_id for worker editMessageText)
@@ -536,6 +553,53 @@ def _should_force_hermes_for_bookmark_task(*, text: str, butler_task_type: str) 
     if not normalized:
         return False
     return any(keyword in normalized for keyword in _X_BOOKMARK_KEYWORDS)
+
+
+def _build_butler_worker_contract(*, text: str, butler_task_type: str, execution_mode: str) -> dict[str, Any]:
+    repo = _extract_github_repo(text)
+    target_agent = "butler_orchestrator"
+    action = butler_task_type
+    priority = 1
+    max_retries = 2
+    if butler_task_type == "github_admin" or repo:
+        target_agent = _select_github_target_agent(repo)
+        action = "github_ops.pr_ops" if "pr" in text.lower() else "github_ops.issue_ops"
+        priority = 8
+    elif butler_task_type == "youtube":
+        target_agent = "youtube_ops"
+        action = "youtube_ops.build_digest"
+        priority = 5
+    elif butler_task_type == "content_kb":
+        target_agent = "content_kb"
+        action = "content_kb.ingest"
+        priority = 4
+    if execution_mode == "interactive":
+        max_retries = 1
+    out: dict[str, Any] = {
+        "target_agent": target_agent,
+        "detected_task_type": butler_task_type,
+        "action": action,
+        "priority": priority,
+        "max_retries": max_retries,
+        "execution_mode": execution_mode,
+    }
+    if repo:
+        out["repo"] = repo
+    return out
+
+
+def _extract_github_repo(text: str) -> str | None:
+    match = _GITHUB_REPO_RE.search(text)
+    if not match:
+        return None
+    owner = match.group(1).strip()
+    repo = match.group(2).strip().removesuffix(".git")
+    return f"{owner}/{repo}" if owner and repo else None
+
+
+def _select_github_target_agent(repo: str | None) -> str:
+    # Empty allowlists mean account A is the default operational profile.
+    return "github_ops_accountA"
 
 
 def _resolve_channel_route(*, extracted: dict[str, Any]) -> str:

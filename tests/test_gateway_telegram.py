@@ -492,6 +492,46 @@ def test_telegram_webhook_routes_to_openclaw_and_agents(
     assert any(event["role"] == "user" for event in session_payload["events"])
 
 
+def test_telegram_worker_queue_metadata_includes_butler_agent_contract(
+    telegram_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_ALLOWED_UIDS", "9527")
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_OWNER_UIDS", "9527")
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_SECRET_TOKEN", "")
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_RUNTIME_ID", "hermes")
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_HERMES_EXECUTION_MODE", "interactive")
+    clear_settings_caches()
+
+    response = telegram_client.post(
+        "/api/v1/gateway/telegram/webhook",
+        json={
+            "update_id": 1002,
+            "message": {
+                "message_id": 78,
+                "text": "请处理 https://github.com/example/repo 的 PR",
+                "chat": {"id": 9527, "type": "private"},
+                "from": {"id": 9527, "username": "alice"},
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    run_id = payload["metadata"]["run_id"]
+    scheduler = getattr(telegram_client, "_worker_scheduler")
+    run = scheduler.get_run(run_id)
+    assert run is not None
+    assert run.priority > 0
+    assert run.max_retries == 1
+    assert run.metadata["target_agent"] == "github_ops_accountA"
+    assert run.metadata["detected_task_type"] == "github_admin"
+    assert run.metadata["execution_mode"] == "interactive"
+    assert run.metadata["interactive_lease_ttl_seconds"] >= 300
+    assert run.payload["metadata"]["target_agent"] == "github_ops_accountA"
+    assert run.payload["metadata"]["repo"] == "example/repo"
+
+
 def test_legacy_telegram_webhook_uses_same_processing_path(
     telegram_client: TestClient,
     monkeypatch: pytest.MonkeyPatch,

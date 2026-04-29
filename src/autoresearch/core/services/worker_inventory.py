@@ -98,9 +98,12 @@ class WorkerInventoryService:
             capability_tags=list(worker.capabilities),
         )
         latest_task_summary = self._build_latest_task_summary(latest_run)
+        active_metadata = self._active_run_metadata(runs)
 
+        worker_data = worker.model_dump(mode="python")
+        worker_data["metadata"] = {**dict(worker.metadata), **active_metadata}
         return WorkerInventoryRead(
-            **worker.model_dump(mode="python"),
+            **worker_data,
             active_tasks=active_tasks,
             latest_task_summary=latest_task_summary,
             location=location,
@@ -134,6 +137,30 @@ class WorkerInventoryService:
             return None
         text = str(value).strip()
         return text or None
+
+    @staticmethod
+    def _active_run_metadata(runs) -> dict[str, dict[str, int]]:
+        target_agents: dict[str, int] = {}
+        execution_modes: dict[str, int] = {}
+        for run in runs:
+            if run.status not in {JobStatus.QUEUED, JobStatus.RUNNING}:
+                continue
+            target_agent = str((run.metadata or {}).get("target_agent") or "").strip()
+            if target_agent:
+                target_agents[target_agent] = target_agents.get(target_agent, 0) + 1
+            execution_mode = str(
+                (run.metadata or {}).get("execution_mode")
+                or (run.payload or {}).get("execution_mode")
+                or ""
+            ).strip()
+            if execution_mode:
+                execution_modes[execution_mode] = execution_modes.get(execution_mode, 0) + 1
+        out: dict[str, dict[str, int]] = {}
+        if target_agents:
+            out["active_target_agents"] = target_agents
+        if execution_modes:
+            out["active_execution_modes"] = execution_modes
+        return out
 
     @staticmethod
     def _display_status(*, worker, active_tasks: int, as_of: datetime) -> str:

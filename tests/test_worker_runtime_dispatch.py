@@ -11,12 +11,18 @@ from autoresearch.core.services.claude_runtime_service import (
     ClaudeRuntimeExecutionResult,
     ClaudeRuntimeService,
 )
+from autoresearch.core.services.hermes_gateway_bridge import (
+    HermesGatewayEvent,
+    InMemoryHermesGatewayTransport,
+    PersistedHermesGatewayBridge,
+)
 from autoresearch.core.services.worker_runtime_dispatch import (
     WorkerRuntimeDispatchService,
     build_runtime_run_request_for_telegram_hermes,
     runtime_run_read_to_claude_execution_result,
 )
-from autoresearch.shared.models import JobStatus
+from autoresearch.shared.models import HermesInteractiveSessionRead, JobStatus
+from autoresearch.shared.store import InMemoryRepository
 
 
 def test_build_runtime_run_request_for_telegram_hermes_minimal() -> None:
@@ -238,6 +244,95 @@ def test_dispatch_hermes_interactive_uses_bridge() -> None:
     out = dispatch.execute_payload(payload, worker_id=None, queue_metadata=None)
     assert out.status == JobStatus.COMPLETED
     bridge.execute_interactive.assert_called_once_with(payload)
+
+
+def test_persisted_hermes_interactive_bridge_saves_cursor_and_session() -> None:
+    now = datetime.now(timezone.utc)
+    repository = InMemoryRepository[HermesInteractiveSessionRead]()
+    transport = InMemoryHermesGatewayTransport(
+        gateway_session_id="gw-1",
+        events=[
+            HermesGatewayEvent(
+                event_id="evt-1",
+                event_type="interactive.progress",
+                timestamp=now,
+                payload={"summary": "working"},
+            ),
+            HermesGatewayEvent(
+                event_id="evt-2",
+                event_type="interactive.completed",
+                timestamp=now,
+                payload={"summary": "done", "stdout_preview": "ok"},
+            ),
+        ],
+    )
+    bridge = PersistedHermesGatewayBridge(repository=repository, transport=transport)
+
+    out = bridge.execute_interactive(
+        {
+            "runtime_id": "hermes",
+            "execution_mode": "interactive",
+            "session_id": "aas-1",
+            "prompt": "hello",
+            "task_name": "demo",
+            "worker_id": "w1",
+        }
+    )
+
+    assert out.status == JobStatus.COMPLETED
+    assert out.stdout_preview == "ok"
+    assert out.result["hermes_gateway_session_id"] == "gw-1"
+    assert out.result["gateway_stream_cursor"] == "evt-2"
+    saved = repository.get("aas-1")
+    assert saved is not None
+    assert saved.gateway_stream_cursor == "evt-2"
+    assert saved.last_event is not None
+    assert saved.last_event["event_type"] == "interactive.completed"
+
+
+def test_persisted_hermes_interactive_bridge_resumes_from_saved_cursor() -> None:
+    now = datetime.now(timezone.utc)
+    repository = InMemoryRepository[HermesInteractiveSessionRead]()
+    repository.save(
+        "aas-1",
+        HermesInteractiveSessionRead(
+            aas_session_id="aas-1",
+            hermes_gateway_session_id="gw-existing",
+            run_id="run-old",
+            gateway_stream_cursor="evt-1",
+            created_at=now,
+            updated_at=now,
+        ),
+    )
+    transport = InMemoryHermesGatewayTransport(
+        gateway_session_id="gw-new",
+        events=[
+            HermesGatewayEvent(
+                event_id="evt-2",
+                event_type="interactive.completed",
+                timestamp=now,
+                payload={"summary": "resumed"},
+            )
+        ],
+    )
+    bridge = PersistedHermesGatewayBridge(repository=repository, transport=transport)
+
+    out = bridge.execute_interactive(
+        {
+            "runtime_id": "hermes",
+            "execution_mode": "interactive",
+            "session_id": "aas-1",
+            "prompt": "continue",
+            "task_name": "demo",
+        }
+    )
+
+    assert out.status == JobStatus.COMPLETED
+    assert transport.open_calls[0]["gateway_session_id"] == "gw-existing"
+    assert transport.stream_calls[0]["cursor"] == "evt-1"
+    saved = repository.get("aas-1")
+    assert saved is not None
+    assert saved.gateway_stream_cursor == "evt-2"
 
 
 def test_telegram_hermes_metadata_default_profile_is_default() -> None:
