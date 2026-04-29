@@ -2,7 +2,7 @@
 玛露遮瑕膏落地页 - 数据模型
 """
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import Optional
 from datetime import datetime
 
@@ -13,17 +13,19 @@ class ReservationBase(BaseModel):
     email: Optional[str] = None
     shade: str
     message: Optional[str] = None
-    
-    @validator('phone')
-    def validate_phone(cls, v):
+
+    @field_validator('phone')
+    @classmethod
+    def validate_phone(cls, v: str) -> str:
         if not v or len(v) != 11:
             raise ValueError('手机号码必须是11位')
         if not v.startswith('1'):
             raise ValueError('手机号码必须以1开头')
         return v
-    
-    @validator('shade')
-    def validate_shade(cls, v):
+
+    @field_validator('shade')
+    @classmethod
+    def validate_shade(cls, v: str) -> str:
         if v not in ['light', 'medium', 'dark']:
             raise ValueError('色号必须是 light/medium/dark 之一')
         return v
@@ -37,6 +39,5 @@ class Reservation(ReservationBase):
     id: str
     created_at: datetime
     status: str = "pending"
-    
-    class Config:
-        orm_mode = True
+
+    model_config = ConfigDict(from_attributes=True)
