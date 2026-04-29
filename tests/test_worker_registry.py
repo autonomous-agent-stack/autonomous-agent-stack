@@ -345,6 +345,45 @@ def test_worker_inventory_projects_active_tasks_and_latest_summary(
     assert detail2.json()["display_status"] == "busy"
 
 
+def test_worker_inventory_projects_agent_and_execution_mode_counts(
+    worker_client: TestClient,
+    worker_service: WorkerRegistryService,
+) -> None:
+    worker_service.register(
+        WorkerRegisterRequest(
+            worker_id="mac-mini-01",
+            worker_type=WorkerType.MAC,
+            mode=WorkerMode.ACTIVE,
+            role="housekeeper",
+            capabilities=["claude_runtime", "hermes_interactive"],
+        ),
+    )
+    scheduler = getattr(worker_client, "_worker_scheduler")
+    queued = scheduler.enqueue(
+        WorkerQueueItemCreateRequest(
+            task_type="claude_runtime",
+            task_name="interactive hermes",
+            payload={"runtime_id": "hermes", "execution_mode": "interactive"},
+            metadata={"target_agent": "github_ops_accountA"},
+        ),
+        now=utc_now(),
+    )
+    scheduler.claim("mac-mini-01", WorkerClaimRequest(), now=utc_now())
+    scheduler.report(
+        "mac-mini-01",
+        queued.run_id,
+        WorkerRunReportRequest(status="running", message="interactive running"),
+        now=utc_now(),
+    )
+
+    detail = worker_client.get("/api/v1/workers/mac-mini-01")
+
+    assert detail.status_code == 200
+    metadata = detail.json()["metadata"]
+    assert metadata["active_target_agents"] == {"github_ops_accountA": 1}
+    assert metadata["active_execution_modes"] == {"interactive": 1}
+
+
 def test_worker_inventory_projects_offline_mode_and_recovers(
     worker_client: TestClient,
     worker_service: WorkerRegistryService,

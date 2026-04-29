@@ -39,7 +39,8 @@ _KEYWORD_MAP: dict[str, list[str]] = {
     ],
     ButlerTaskType.GITHUB_ADMIN: [
         "仓库迁移", "盘点", "transfer", "collaborator", "仓库管理",
-        "repo transfer", "协作者同步", "邀请接受",
+        "repo transfer", "协作者同步", "邀请接受", "github", "pull request", "pr",
+        "issue", "checks", "review",
     ],
     ButlerTaskType.CONTENT_KB: [
         "字幕入库", "知识库", "字幕分类", "索引", "subtitle",

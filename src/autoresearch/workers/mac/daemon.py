@@ -15,6 +15,10 @@ from autoresearch.agent_protocol.runtime_models import RuntimeRunRead
 from autoresearch.build_label import get_build_label
 from autoresearch.core.runtime_identity import get_runtime_identity
 from autoresearch.core.services.claude_runtime_service import ClaudeRuntimeService
+from autoresearch.core.services.hermes_gateway_bridge import (
+    HttpHermesGatewayTransport,
+    PersistedHermesGatewayBridge,
+)
 from autoresearch.core.services.worker_runtime_dispatch import WorkerRuntimeDispatchService
 from autoresearch.core.services.claude_session_records import ClaudeSessionRecordService
 from autoresearch.core.services.telegram_completion_format import (
@@ -23,6 +27,7 @@ from autoresearch.core.services.telegram_completion_format import (
 )
 from autoresearch.shared.models import (
     ClaudeRuntimeSessionRecordRead,
+    HermesInteractiveSessionRead,
     JobStatus,
     WorkerClaimRequest,
     WorkerHeartbeatRequest,
@@ -723,13 +728,38 @@ def _build_worker_runtime_dispatch(config: MacWorkerConfig) -> WorkerRuntimeDisp
             repo_root=config.housekeeping_root,
             claude_runtime=claude_runtime,
         )
-        return WorkerRuntimeDispatchService(claude_runtime=claude_runtime, registry=registry)
+        return WorkerRuntimeDispatchService(
+            claude_runtime=claude_runtime,
+            registry=registry,
+            hermes_gateway_bridge=_build_hermes_gateway_bridge(config),
+        )
     except Exception:
         logger.warning(
             "Failed to wire runtime adapter registry on worker; Hermes lane disabled",
             exc_info=True,
         )
-        return WorkerRuntimeDispatchService(claude_runtime=claude_runtime, registry=None)
+        return WorkerRuntimeDispatchService(
+            claude_runtime=claude_runtime,
+            registry=None,
+            hermes_gateway_bridge=_build_hermes_gateway_bridge(config),
+        )
+
+
+def _build_hermes_gateway_bridge(config: MacWorkerConfig) -> PersistedHermesGatewayBridge | None:
+    if not config.hermes_interactive_enabled or not config.hermes_gateway_base_url:
+        return None
+    db_path = _resolve_worker_api_db_path(config)
+    repository = SQLiteModelRepository(
+        db_path=db_path,
+        table_name="hermes_interactive_sessions",
+        model_cls=HermesInteractiveSessionRead,
+    )
+    transport = HttpHermesGatewayTransport(
+        base_url=config.hermes_gateway_base_url,
+        health_path=config.hermes_gateway_health_path,
+        timeout_seconds=config.hermes_gateway_timeout_seconds,
+    )
+    return PersistedHermesGatewayBridge(repository=repository, transport=transport)
 
 
 def _resolve_worker_api_db_path(config: MacWorkerConfig) -> Path:

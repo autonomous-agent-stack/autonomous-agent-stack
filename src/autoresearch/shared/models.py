@@ -1472,6 +1472,18 @@ class WorkerInventoryRead(StrictModel):
     display_status: str = "online"
 
 
+class HermesInteractiveSessionRead(StrictModel):
+    aas_session_id: str = Field(..., min_length=1)
+    hermes_gateway_session_id: str = Field(..., min_length=1)
+    run_id: str | None = None
+    gateway_stream_cursor: str | None = None
+    worker_id: str | None = None
+    last_event: dict[str, Any] | None = None
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class WorkerInventorySummaryRead(StrictModel):
     total_workers: int = 0
     online_workers: int = 0
