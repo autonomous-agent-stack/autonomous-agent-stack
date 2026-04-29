@@ -39,12 +39,16 @@ class MacWorkerExecutor:
         youtube_autoflow: StandbyYouTubeAutoflowService | None = None,
         runtime_dispatch: WorkerRuntimeDispatchService | None = None,
         hermes_live_report: Callable[[WorkerQueueItemRead, RuntimeRunRead, int], None] | None = None,
+        youtube_live_report: Callable[[WorkerQueueItemRead, str, str, dict[str, Any]], None] | None = None,
+        cancel_requested: Callable[[str], bool] | None = None,
     ) -> None:
         self._config = config
         self._youtube_bridge = youtube_bridge
         self._youtube_autoflow = youtube_autoflow
         self._runtime_dispatch = runtime_dispatch
         self._hermes_live_report = hermes_live_report
+        self._youtube_live_report = youtube_live_report
+        self._cancel_requested = cancel_requested
 
     def execute(self, run: WorkerQueueItemRead) -> MacWorkerExecutionResult:
         if run.task_type == WorkerTaskType.NOOP:
@@ -201,17 +205,44 @@ class MacWorkerExecutor:
         )
 
     def _execute_youtube_autoflow(self, run: WorkerQueueItemRead) -> MacWorkerExecutionResult:
+        def progress(stage: str, message: str, metadata: dict[str, Any]) -> None:
+            if self._youtube_live_report is not None:
+                self._youtube_live_report(run, stage, message, metadata)
+
+        def cancel_requested() -> bool:
+            if self._cancel_requested is not None:
+                return bool(self._cancel_requested(run.run_id))
+            return bool((run.metadata or {}).get("cancel_requested"))
+
         outcome = self._get_youtube_autoflow().execute_payload(
             run.payload,
             queue_requested_by=run.requested_by,
             queue_metadata=run.metadata,
+            progress_callback=progress,
+            cancel_requested=cancel_requested,
         )
+        result = outcome.model_dump(mode="json")
+        result["telegram_completion_card_text"] = _youtube_autoflow_completion_card(
+            run=run,
+            result=result,
+            status=outcome.status,
+            message=outcome.reason or f"youtube autoflow {outcome.status.value}",
+        )
+        metrics = {
+            "success": int(outcome.success),
+            "telegram_notify_status": "delegated_api",
+            "exit_reason": outcome.status.value,
+        }
+        if outcome.failed_stage:
+            metrics["youtube_failed_stage"] = outcome.failed_stage
+        if outcome.error_kind:
+            metrics["error_kind"] = outcome.error_kind
         return MacWorkerExecutionResult(
             message=outcome.reason or f"youtube autoflow {outcome.status.value}",
             status=outcome.status,
             error=outcome.reason if outcome.status == JobStatus.FAILED else None,
-            result=outcome.model_dump(mode="json"),
-            metrics={"success": int(outcome.success)},
+            result=result,
+            metrics=metrics,
         )
 
     def _execute_excel_audit(self, run: WorkerQueueItemRead) -> MacWorkerExecutionResult:
@@ -432,3 +463,50 @@ class MacWorkerExecutor:
             return
         if not resolved.is_dir():
             raise ValueError(f"Cleanup root must be a directory: {resolved}")
+
+
+def _youtube_autoflow_completion_card(
+    *,
+    run: WorkerQueueItemRead,
+    result: dict[str, Any],
+    status: JobStatus,
+    message: str,
+) -> str:
+    rows = [
+        ("任务", run.task_name or run.task_type.value),
+        ("run_id", run.run_id),
+        ("状态", status.value),
+    ]
+    for key, label in (
+        ("source_url", "url"),
+        ("video_id", "video_id"),
+        ("transcript_id", "transcript_id"),
+        ("digest_id", "digest_id"),
+        ("repo", "repo"),
+        ("pr_url", "pr"),
+        ("failed_stage", "failed_stage"),
+        ("error_kind", "error_kind"),
+    ):
+        value = result.get(key)
+        if value:
+            rows.append((label, str(value)))
+    reason = str(result.get("reason") or message or "").strip()
+    if reason:
+        rows.append(("原因 | Reason", reason[:600]))
+
+    table = ["| 项 | 值 |", "| --- | --- |"]
+    for key, value in rows:
+        cell = str(value).replace("|", "/").replace("\n", " ").strip()
+        table.append(f"| {key} | {cell[:900]} |")
+
+    if status == JobStatus.COMPLETED:
+        heading = "YouTube 自动流已完成。 / YouTube autoflow completed."
+    elif status == JobStatus.CANCELLED:
+        heading = "YouTube 自动流已取消。 / YouTube autoflow cancelled."
+    else:
+        heading = "YouTube 自动流失败。 / YouTube autoflow failed."
+
+    retry_hint = ""
+    if status == JobStatus.FAILED:
+        retry_hint = f"\n\n可重试：/retry {run.run_id}\nRetry: /retry {run.run_id}"
+    return (heading + "\n\n" + "\n".join(table) + retry_hint)[:3900]

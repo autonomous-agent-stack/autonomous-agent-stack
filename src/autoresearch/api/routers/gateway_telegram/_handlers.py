@@ -21,7 +21,7 @@ from autoresearch.shared.models import (
 )
 
 from ._extract import _safe_int, _safe_str
-from ._messages import _truncate_telegram_text, _utc_now
+from ._messages import _telegram_queue_ack_message, _truncate_telegram_text, _utc_now
 from ._session import (
     _append_user_event,
     _build_task_name,
@@ -154,6 +154,8 @@ def _handle_telegram_youtube_autoflow(
                 metadata={
                     **metadata,
                     "source_url": source_url,
+                    "message_thread_id": extracted.get("message_thread_id"),
+                    "telegram_completion_via_api": True,
                 },
             )
         )
@@ -206,15 +208,28 @@ def _handle_telegram_youtube_autoflow(
         },
     )
     if notifier.enabled:
-        background_tasks.add_task(
-            notifier.send_message,
-            chat_id=chat_id,
-            text=_build_telegram_youtube_autoflow_message(
-                status="accepted",
-                run_id=queued_run.run_id,
-                source_url=source_url,
-            ),
+        ack_text = _telegram_queue_ack_message(
+            task_name="telegram_youtube_autoflow",
+            run_id=queued_run.run_id,
+            worker_brand="YouTube Ops",
+            runtime_id="youtube_autoflow",
+            agent_name="youtube_ops",
         )
+        ack_message_id = notifier.send_message_get_message_id(
+            chat_id=chat_id,
+            text=ack_text,
+            message_thread_id=_safe_int(extracted.get("message_thread_id")),
+        )
+        if ack_message_id is not None:
+            worker_scheduler.merge_queue_metadata(
+                queued_run.run_id,
+                {
+                    "telegram_queue_ack_message_id": ack_message_id,
+                    "telegram_completion_via_api": True,
+                    "chat_id": chat_id,
+                    "message_thread_id": extracted.get("message_thread_id"),
+                },
+            )
     return TelegramWebhookAck(
         accepted=True,
         update_id=_safe_int(update.get("update_id")),

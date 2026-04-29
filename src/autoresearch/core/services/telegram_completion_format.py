@@ -41,7 +41,11 @@ def format_butler_live_status_message(
     metrics: dict[str, Any],
     max_chars: int = 3800,
 ) -> str:
-    """Short running card for editMessageText while Hermes is in-flight."""
+    """Short running card for editMessageText while a worker reports RUNNING.
+
+    Hermes ticks use the default title. Other tasks (e.g. YouTube autoflow) may set
+    ``metrics["telegram_live_card_title"]`` so the bubble does not read like a Hermes run.
+    """
     m = metrics or {}
     elapsed = m.get("telegram_live_elapsed_s")
     hs = str(m.get("hermes_status") or "").strip()
@@ -53,7 +57,11 @@ def format_butler_live_status_message(
     b = (brand or "").strip()
     if b:
         parts.append(f"【{b}】")
-    parts.append("Hermes 运行中… / still running")
+    custom_title = str(m.get("telegram_live_card_title") or "").strip()
+    if custom_title:
+        parts.append(custom_title)
+    else:
+        parts.append("Hermes 运行中… / still running")
     if elapsed is not None:
         parts.append(f"- elapsed: {elapsed}s")
     if hs:

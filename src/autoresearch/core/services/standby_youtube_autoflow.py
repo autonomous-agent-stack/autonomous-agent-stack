@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
-from typing import Any
+from typing import Any, Callable
 
 from pydantic import ValidationError
 
@@ -25,8 +25,13 @@ from autoresearch.shared.models import (
 
 _REQUEST_VALIDATION_STAGE = "request_validation"
 _DISCOVERY_STAGE = "source_discovery"
+_SUBSCRIPTION_STAGE = "subscription_check"
+_TRANSCRIPT_STAGE = "transcript_fetch"
+_DIGEST_STAGE = "digest_generate"
 _GITHUB_PUBLISH_STAGE = "github_publish"
 _URL_RE = re.compile(r"https?://[^\s<>()]+")
+YouTubeAutoflowProgressCallback = Callable[[str, str, dict[str, Any]], None]
+YouTubeAutoflowCancelCheck = Callable[[], bool]
 
 
 def extract_urls_from_text(text: str) -> list[str]:
@@ -63,6 +68,8 @@ class StandbyYouTubeAutoflowService:
         *,
         queue_requested_by: str | None = None,
         queue_metadata: dict[str, Any] | None = None,
+        progress_callback: YouTubeAutoflowProgressCallback | None = None,
+        cancel_requested: YouTubeAutoflowCancelCheck | None = None,
     ) -> StandbyYouTubeAutoflowResult:
         try:
             request = StandbyYouTubeAutoflowRequest.model_validate(payload)
@@ -79,6 +86,8 @@ class StandbyYouTubeAutoflowService:
             request,
             queue_requested_by=queue_requested_by,
             queue_metadata=queue_metadata,
+            progress_callback=progress_callback,
+            cancel_requested=cancel_requested,
         )
 
     def execute(
@@ -87,12 +96,17 @@ class StandbyYouTubeAutoflowService:
         *,
         queue_requested_by: str | None = None,
         queue_metadata: dict[str, Any] | None = None,
+        progress_callback: YouTubeAutoflowProgressCallback | None = None,
+        cancel_requested: YouTubeAutoflowCancelCheck | None = None,
     ) -> StandbyYouTubeAutoflowResult:
         metadata = self._build_metadata(
             request=request,
             queue_requested_by=queue_requested_by,
             queue_metadata=queue_metadata,
         )
+        self._emit_progress(progress_callback, _DISCOVERY_STAGE, "resolving YouTube source URL", metadata)
+        if self._is_cancel_requested(cancel_requested):
+            return self._cancelled_result(stage=_DISCOVERY_STAGE, metadata=metadata)
         try:
             source_url = self._resolve_source_url(request)
         except ValueError as exc:
@@ -106,6 +120,14 @@ class StandbyYouTubeAutoflowService:
             )
 
         try:
+            self._emit_progress(
+                progress_callback,
+                _SUBSCRIPTION_STAGE,
+                "checking YouTube subscription source",
+                {**metadata, "source_url": source_url},
+            )
+            if self._is_cancel_requested(cancel_requested):
+                return self._cancelled_result(stage=_SUBSCRIPTION_STAGE, source_url=source_url, metadata=metadata)
             subscription = self._youtube_service.subscribe(
                 YouTubeSubscriptionCreateRequest(
                     source_url=source_url,
@@ -122,6 +144,25 @@ class StandbyYouTubeAutoflowService:
                 ),
             )
             video_id = self._resolve_video_id(subscription_id=subscription.subscription_id, fallback_video_id=subscription.external_id, check=check)
+            self._emit_progress(
+                progress_callback,
+                _TRANSCRIPT_STAGE,
+                "fetching transcript",
+                {
+                    **metadata,
+                    "source_url": source_url,
+                    "subscription_id": subscription.subscription_id,
+                    "video_id": video_id,
+                },
+            )
+            if self._is_cancel_requested(cancel_requested):
+                return self._cancelled_result(
+                    stage=_TRANSCRIPT_STAGE,
+                    source_url=source_url,
+                    subscription_id=subscription.subscription_id,
+                    video_id=video_id,
+                    metadata=metadata,
+                )
             transcript = self._youtube_service.fetch_transcript(
                 video_id,
                 YouTubeTranscriptCreateRequest(
@@ -131,6 +172,27 @@ class StandbyYouTubeAutoflowService:
                     metadata=metadata,
                 ),
             )
+            self._emit_progress(
+                progress_callback,
+                _DIGEST_STAGE,
+                "building digest",
+                {
+                    **metadata,
+                    "source_url": source_url,
+                    "subscription_id": subscription.subscription_id,
+                    "video_id": video_id,
+                    "transcript_id": transcript.transcript_id,
+                },
+            )
+            if self._is_cancel_requested(cancel_requested):
+                return self._cancelled_result(
+                    stage=_DIGEST_STAGE,
+                    source_url=source_url,
+                    subscription_id=subscription.subscription_id,
+                    video_id=video_id,
+                    transcript_id=transcript.transcript_id,
+                    metadata=metadata,
+                )
             digest = self._youtube_service.generate_digest(
                 video_id,
                 YouTubeDigestCreateRequest(
@@ -143,6 +205,29 @@ class StandbyYouTubeAutoflowService:
             if video is None:
                 raise KeyError(video_id)
 
+            self._emit_progress(
+                progress_callback,
+                _GITHUB_PUBLISH_STAGE,
+                "publishing digest through GitHub assistant",
+                {
+                    **metadata,
+                    "source_url": source_url,
+                    "subscription_id": subscription.subscription_id,
+                    "video_id": video_id,
+                    "transcript_id": transcript.transcript_id,
+                    "digest_id": digest.digest_id,
+                },
+            )
+            if self._is_cancel_requested(cancel_requested):
+                return self._cancelled_result(
+                    stage=_GITHUB_PUBLISH_STAGE,
+                    source_url=source_url,
+                    subscription_id=subscription.subscription_id,
+                    video_id=video_id,
+                    transcript_id=transcript.transcript_id,
+                    digest_id=digest.digest_id,
+                    metadata=metadata,
+                )
             run_dir, publish = self._github_service.publish_youtube(
                 GitHubAssistantYouTubePublishRequest(
                     video_id=video.video_id,
@@ -274,6 +359,55 @@ class StandbyYouTubeAutoflowService:
         if request.input_text and request.input_text.strip():
             metadata.setdefault("input_text", request.input_text.strip())
         return metadata
+
+    @staticmethod
+    def _emit_progress(
+        callback: YouTubeAutoflowProgressCallback | None,
+        stage: str,
+        message: str,
+        metadata: dict[str, Any],
+    ) -> None:
+        if callback is None:
+            return
+        callback(stage, message, dict(metadata))
+
+    @staticmethod
+    def _is_cancel_requested(cancel_requested: YouTubeAutoflowCancelCheck | None) -> bool:
+        if cancel_requested is None:
+            return False
+        try:
+            return bool(cancel_requested())
+        except Exception:
+            return False
+
+    @staticmethod
+    def _cancelled_result(
+        *,
+        stage: str,
+        metadata: dict[str, Any],
+        source_url: str | None = None,
+        subscription_id: str | None = None,
+        video_id: str | None = None,
+        transcript_id: str | None = None,
+        digest_id: str | None = None,
+    ) -> StandbyYouTubeAutoflowResult:
+        return StandbyYouTubeAutoflowResult(
+            success=False,
+            status=JobStatus.CANCELLED,
+            source_url=source_url,
+            subscription_id=subscription_id,
+            video_id=video_id,
+            transcript_id=transcript_id,
+            digest_id=digest_id,
+            error_kind="cancelled",
+            failed_stage=stage,
+            reason="cancelled by user",
+            metadata={
+                **metadata,
+                "cancelled": True,
+                "cancelled_stage": stage,
+            },
+        )
 
 
 def build_default_standby_youtube_autoflow_service() -> StandbyYouTubeAutoflowService:

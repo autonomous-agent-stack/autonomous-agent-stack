@@ -1609,8 +1609,8 @@ class WorkerRunReportRequest(StrictModel):
     @field_validator("status")
     @classmethod
     def _validate_status(cls, value: JobStatus) -> JobStatus:
-        if value not in {JobStatus.RUNNING, JobStatus.COMPLETED, JobStatus.FAILED}:
-            raise ValueError("status must be running, completed, failed, or succeeded")
+        if value not in {JobStatus.RUNNING, JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED}:
+            raise ValueError("status must be running, completed, failed, cancelled, or succeeded")
         return value
 
 

@@ -320,6 +320,60 @@ class WorkerSchedulerService:
             )
         return self._queue_repository.save(run_id, updated)
 
+    def cancel_run(
+        self,
+        run_id: str,
+        *,
+        reason: str,
+        now: datetime | None = None,
+    ) -> WorkerQueueItemRead:
+        current = now or utc_now()
+        run = self._queue_repository.get(run_id)
+        if run is None:
+            raise KeyError(run_id)
+        if run.status in {JobStatus.COMPLETED, JobStatus.CANCELLED, JobStatus.INTERRUPTED, JobStatus.FAILED}:
+            raise WorkerReportError("Terminal run cannot be cancelled")
+
+        cancel_metadata = {
+            **run.metadata,
+            "cancel_requested": True,
+            "cancel_reason": reason,
+            "cancel_requested_at": current.isoformat(),
+        }
+        if run.status == JobStatus.QUEUED:
+            updated = run.model_copy(
+                update={
+                    "status": JobStatus.CANCELLED,
+                    "message": "cancelled before worker claim",
+                    "error": reason,
+                    "result": _cancelled_result_card(run, reason=reason),
+                    "metrics": {
+                        **run.metrics,
+                        "telegram_notify_status": "delegated_api",
+                        "exit_reason": "cancelled",
+                    },
+                    "metadata": cancel_metadata,
+                    "completed_at": current,
+                    "updated_at": current,
+                }
+            )
+            lease = self._lease_repository.get(self._lease_id_for_run(run_id))
+            if lease is not None and lease.active:
+                self._lease_repository.save(
+                    lease.lease_id,
+                    lease.model_copy(update={"active": False, "updated_at": current}),
+                )
+            return self._queue_repository.save(run_id, updated)
+
+        updated = run.model_copy(
+            update={
+                "message": "cancel requested",
+                "metadata": cancel_metadata,
+                "updated_at": current,
+            }
+        )
+        return self._queue_repository.save(run_id, updated)
+
     def recover_stale_runs(self, *, now: datetime | None = None) -> list[WorkerQueueItemRead]:
         current = now or utc_now()
         recovered: list[WorkerQueueItemRead] = []
@@ -438,3 +492,22 @@ class WorkerSchedulerService:
     @staticmethod
     def _lease_id_for_run(run_id: str) -> str:
         return f"wlease_{run_id}"
+
+
+def _cancelled_result_card(run: WorkerQueueItemRead, *, reason: str) -> dict[str, Any]:
+    text = "\n".join(
+        [
+            "任务已取消。 / Task cancelled.",
+            "",
+            "| 项 | 值 |",
+            "| --- | --- |",
+            f"| run_id | {run.run_id} |",
+            f"| 状态 | {JobStatus.CANCELLED.value} |",
+            f"| 原因 | {reason[:500]} |",
+        ]
+    )
+    return {
+        **(run.result or {}),
+        "summary": reason,
+        "telegram_completion_card_text": text[:3900],
+    }

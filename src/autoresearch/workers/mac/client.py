@@ -29,6 +29,8 @@ class MacWorkerClient(Protocol):
 
     def claim_run(self, worker_id: str, payload: WorkerClaimRequest) -> WorkerClaimRead: ...
 
+    def get_run(self, run_id: str) -> WorkerQueueItemRead | None: ...
+
     def report_run(self, worker_id: str, run_id: str, payload: WorkerRunReportRequest) -> WorkerQueueItemRead: ...
 
 
@@ -57,6 +59,13 @@ class MacWorkerApiClient:
         )
         return WorkerClaimRead.model_validate(body)
 
+    def get_run(self, run_id: str) -> WorkerQueueItemRead | None:
+        try:
+            body = self._request_json("GET", f"/api/v1/worker-runs/{run_id}", {})
+        except MacWorkerClientError:
+            return None
+        return WorkerQueueItemRead.model_validate(body)
+
     def report_run(self, worker_id: str, run_id: str, payload: WorkerRunReportRequest) -> WorkerQueueItemRead:
         body = self._request_json(
             "POST",
@@ -66,7 +75,7 @@ class MacWorkerApiClient:
         return WorkerQueueItemRead.model_validate(body)
 
     def _request_json(self, method: str, path: str, payload: dict[str, object]) -> dict[str, object]:
-        raw = json.dumps(payload).encode("utf-8")
+        raw = json.dumps(payload).encode("utf-8") if method != "GET" else None
         req = request.Request(
             url=f"{self._base_url}{path}",
             method=method,
@@ -101,6 +110,9 @@ class InProcessMacWorkerClient:
 
     def claim_run(self, worker_id: str, payload: WorkerClaimRequest) -> WorkerClaimRead:
         return self._worker_scheduler.claim(worker_id, payload)
+
+    def get_run(self, run_id: str) -> WorkerQueueItemRead | None:
+        return self._worker_scheduler.get_run(run_id)
 
     def report_run(self, worker_id: str, run_id: str, payload: WorkerRunReportRequest) -> WorkerQueueItemRead:
         return self._worker_scheduler.report(worker_id, run_id, payload)

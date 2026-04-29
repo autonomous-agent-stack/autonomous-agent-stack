@@ -8,6 +8,21 @@ from autoresearch.core.services.butler_router import (
     ButlerIntentRouter,
     ButlerTaskType,
 )
+from autoresearch.core.services.butler_dispatch import (
+    ButlerDispatchCenter,
+    ButlerModelFillService,
+    ButlerRoute,
+)
+
+
+class _FakeModelBackend:
+    def __init__(self, response: str) -> None:
+        self.response = response
+        self.calls = 0
+
+    async def generate(self, **kwargs) -> str:
+        self.calls += 1
+        return self.response
 
 
 class TestButlerIntentClassification:
@@ -191,3 +206,59 @@ class TestButlerExcelAuditDispatch:
         record = svc.create_and_execute(req)
         assert record.audit_id.startswith("ea_")
         assert record.status.value in ("completed", "failed")
+
+
+class TestButlerDispatchCenter:
+    def test_rule_match_does_not_call_model_fill(self) -> None:
+        backend = _FakeModelBackend(
+            '{"task_type":"unknown","route":"hermes","target_agent":"butler_orchestrator","runtime_id":"hermes","confidence":1,"reason":"x","action":"butler_orchestrator.dispatch"}'
+        )
+        center = ButlerDispatchCenter(
+            model_fill=ButlerModelFillService(backend=backend, enabled=True),
+        )
+        decision = center.dispatch("帮我核对3月提成表")
+        assert decision.task_type == ButlerTaskType.EXCEL_AUDIT
+        assert decision.route == ButlerRoute.DIRECT
+        assert decision.source == "rule"
+        assert backend.calls == 0
+
+    def test_unknown_uses_valid_model_fill_decision(self) -> None:
+        backend = _FakeModelBackend(
+            '{"task_type":"github_admin","route":"worker","target_agent":"github_ops_accountA","runtime_id":"claude","confidence":0.91,"reason":"repo ops","action":"github_ops.issue_ops"}'
+        )
+        center = ButlerDispatchCenter(
+            model_fill=ButlerModelFillService(backend=backend, enabled=True),
+        )
+        decision = center.dispatch("帮我看一下这个仓库后续该怎么管")
+        assert decision.source == "model"
+        assert decision.task_type == ButlerTaskType.GITHUB_ADMIN
+        assert decision.target_agent == "github_ops_accountA"
+        assert decision.runtime_id == "claude"
+        assert backend.calls == 1
+
+    def test_model_fill_invalid_json_escalates_to_hermes(self) -> None:
+        backend = _FakeModelBackend("not json")
+        center = ButlerDispatchCenter(
+            model_fill=ButlerModelFillService(backend=backend, enabled=True),
+        )
+        decision = center.dispatch("这个很含糊")
+        assert decision.source == "escalation"
+        assert decision.route == ButlerRoute.HERMES
+        assert decision.runtime_id == "hermes"
+        assert decision.model_fill_error
+
+    def test_model_fill_low_confidence_escalates_to_hermes(self) -> None:
+        backend = _FakeModelBackend(
+            '{"task_type":"youtube","route":"worker","target_agent":"youtube_ops","runtime_id":"claude","confidence":0.2,"reason":"weak","action":"youtube_ops.build_digest"}'
+        )
+        center = ButlerDispatchCenter(
+            model_fill=ButlerModelFillService(backend=backend, enabled=True, min_confidence=0.7),
+        )
+        decision = center.dispatch("也许该稍后再处理这个事情")
+        assert decision.source == "escalation"
+        assert decision.route == ButlerRoute.HERMES
+
+    def test_doctor_reports_model_fill_degraded_when_disabled(self) -> None:
+        center = ButlerDispatchCenter(model_fill=ButlerModelFillService(enabled=False))
+        checks = center.doctor_checks()
+        assert any(item.name == "model fill" and item.status == "degraded" for item in checks)

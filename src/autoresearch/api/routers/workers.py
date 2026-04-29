@@ -198,7 +198,7 @@ def _try_deliver_butler_live_edit(
         return
 
     payload: dict[str, Any] = run.payload or {}
-    chat_id = str(payload.get("chat_id") or "").strip()
+    chat_id = str(payload.get("chat_id") or metadata.get("chat_id") or "").strip()
     if not chat_id:
         return
 
@@ -212,7 +212,7 @@ def _try_deliver_butler_live_edit(
     if ack_message_id is None:
         return
 
-    thread_raw = payload.get("message_thread_id")
+    thread_raw = payload.get("message_thread_id") or metadata.get("message_thread_id")
     thread_id: int | None = None
     if thread_raw is not None and str(thread_raw).strip() != "":
         try:
@@ -283,7 +283,7 @@ def _try_deliver_butler_completion_primary(
     if not card:
         return
     payload: dict[str, Any] = run.payload or {}
-    chat_id = str(payload.get("chat_id") or "").strip()
+    chat_id = str(payload.get("chat_id") or metadata.get("chat_id") or "").strip()
     if not chat_id:
         return
 
@@ -295,7 +295,7 @@ def _try_deliver_butler_completion_primary(
         except (TypeError, ValueError):
             ack_message_id = None
 
-    thread_raw = payload.get("message_thread_id")
+    thread_raw = payload.get("message_thread_id") or metadata.get("message_thread_id")
     thread_id: int | None = None
     if thread_raw is not None and str(thread_raw).strip() != "":
         try:
@@ -362,7 +362,7 @@ def _maybe_send_butler_completion_fallback(
     if metadata.get("telegram_butler_fallback_sent"):
         return
     payload: dict[str, Any] = run.payload or {}
-    chat_id = str(payload.get("chat_id") or "").strip()
+    chat_id = str(payload.get("chat_id") or metadata.get("chat_id") or "").strip()
     if not chat_id:
         return
 
@@ -374,7 +374,7 @@ def _maybe_send_butler_completion_fallback(
         except (TypeError, ValueError):
             ack_message_id = None
 
-    thread_raw = payload.get("message_thread_id")
+    thread_raw = payload.get("message_thread_id") or metadata.get("message_thread_id")
     thread_id: int | None = None
     if thread_raw is not None and str(thread_raw).strip() != "":
         try:

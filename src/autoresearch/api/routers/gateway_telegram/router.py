@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Request, status
@@ -8,6 +7,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Request, status
 from autoresearch.api.dependencies import (
     get_admin_config_service,
     get_approval_store_service,
+    get_butler_dispatch_center,
     get_capability_provider_registry,
     get_claude_agent_service,
     get_claude_session_record_service,
@@ -24,6 +24,8 @@ from autoresearch.api.dependencies import (
 from autoresearch.api.settings import load_telegram_settings
 from autoresearch.core.services.admin_config import AdminConfigService
 from autoresearch.core.services.approval_store import ApprovalStoreService
+from autoresearch.core.services.butler_dispatch import ButlerDispatchCenter
+from autoresearch.core.services.butler_router import ButlerClassification, ButlerTaskType
 from autoresearch.core.services.claude_agents import ClaudeAgentService
 from autoresearch.core.services.claude_session_records import ClaudeSessionRecordService
 from autoresearch.agents.manager_agent import ManagerAgentService
@@ -43,20 +45,24 @@ from autoresearch.shared.models import (
 
 from ._commands import (
     _handle_approve_command,
+    _handle_cancel_command,
     _handle_help_command,
     _handle_memory_command,
     _handle_mode_command,
     _handle_reset_command,
+    _handle_retry_command,
     _handle_skills_command,
     _handle_status_query,
     _handle_task_command,
 )
 from ._extract import (
     _is_approve_command,
+    _is_cancel_command,
     _is_help_command,
     _is_memory_command,
     _is_mode_command,
     _is_reset_command,
+    _is_retry_command,
     _is_skills_command,
     _is_status_query,
     _is_task_command,
@@ -80,15 +86,6 @@ from ._session import (
 
 router = APIRouter(prefix="/api/v1/gateway/telegram", tags=["gateway", "telegram"])
 compat_router = APIRouter(tags=["gateway", "telegram", "compat"])
-_X_BOOKMARK_KEYWORDS = (
-    "书签",
-    "bookmark",
-    "twitter bookmark",
-    "x bookmark",
-    "推特书签",
-    "x 书签",
-)
-_GITHUB_REPO_RE = re.compile(r"https?://github\.com/([^/\s]+)/([^/\s#?]+)", re.IGNORECASE)
 
 
 @router.get("/health", tags=["gateway"])
@@ -119,6 +116,7 @@ def telegram_webhook(
     worker_inventory: WorkerInventoryService = Depends(get_worker_inventory_service),
     worker_scheduler: WorkerSchedulerService = Depends(get_worker_scheduler_service),
     session_record_service: ClaudeSessionRecordService = Depends(get_claude_session_record_service),
+    dispatch_center: ButlerDispatchCenter = Depends(get_butler_dispatch_center),
 ) -> TelegramWebhookAck:
     return _handle_telegram_webhook(
         update=update,
@@ -138,6 +136,7 @@ def telegram_webhook(
         worker_inventory=worker_inventory,
         worker_scheduler=worker_scheduler,
         session_record_service=session_record_service,
+        dispatch_center=dispatch_center,
     )
 
 
@@ -164,6 +163,7 @@ def legacy_telegram_webhook(
     worker_inventory: WorkerInventoryService = Depends(get_worker_inventory_service),
     worker_scheduler: WorkerSchedulerService = Depends(get_worker_scheduler_service),
     session_record_service: ClaudeSessionRecordService = Depends(get_claude_session_record_service),
+    dispatch_center: ButlerDispatchCenter = Depends(get_butler_dispatch_center),
 ) -> TelegramWebhookAck:
     return _handle_telegram_webhook(
         update=update,
@@ -183,6 +183,7 @@ def legacy_telegram_webhook(
         worker_inventory=worker_inventory,
         worker_scheduler=worker_scheduler,
         session_record_service=session_record_service,
+        dispatch_center=dispatch_center,
     )
 
 
@@ -205,6 +206,7 @@ def _handle_telegram_webhook(
     worker_inventory: WorkerInventoryService,
     worker_scheduler: WorkerSchedulerService,
     session_record_service: ClaudeSessionRecordService,
+    dispatch_center: ButlerDispatchCenter,
 ) -> TelegramWebhookAck:
     from ._extract import _extract_telegram_message, _safe_str
 
@@ -349,6 +351,28 @@ def _handle_telegram_webhook(
             session_identity=session_identity,
         )
 
+    if _is_cancel_command(text):
+        return _handle_cancel_command(
+            chat_id=chat_id,
+            update=update,
+            extracted=extracted,
+            background_tasks=background_tasks,
+            worker_scheduler=worker_scheduler,
+            notifier=notifier,
+            session_identity=session_identity,
+        )
+
+    if _is_retry_command(text):
+        return _handle_retry_command(
+            chat_id=chat_id,
+            update=update,
+            extracted=extracted,
+            background_tasks=background_tasks,
+            worker_scheduler=worker_scheduler,
+            notifier=notifier,
+            session_identity=session_identity,
+        )
+
     if _is_memory_command(text):
         return _handle_memory_command(
             chat_id=chat_id,
@@ -378,13 +402,12 @@ def _handle_telegram_webhook(
             rejection_reason=youtube_rejection_reason,
         )
 
-    # --- Butler intent router: check if message should go to a specialist agent ---
-    from autoresearch.core.services.butler_router import ButlerTaskType
-    from autoresearch.api.dependencies import get_butler_router, get_excel_audit_service
-
-    butler = get_butler_router()
-    butler_result = butler.classify(text)
-    if butler_result.task_type == ButlerTaskType.EXCEL_AUDIT:
+    dispatch_decision = dispatch_center.dispatch(
+        text,
+        default_runtime_id=telegram_settings.telegram_dispatch_runtime_id,
+        hermes_execution_mode=telegram_settings.telegram_hermes_execution_mode,
+    )
+    if dispatch_decision.task_type == ButlerTaskType.EXCEL_AUDIT and dispatch_decision.route.value == "direct":
         return _handle_butler_excel_audit(
             chat_id=chat_id,
             update=update,
@@ -393,7 +416,11 @@ def _handle_telegram_webhook(
             background_tasks=background_tasks,
             notifier=notifier,
             session_identity=session_identity,
-            butler_classification=butler_result,
+            butler_classification=ButlerClassification(
+                task_type=dispatch_decision.task_type,
+                confidence=dispatch_decision.confidence,
+                extracted_params=dispatch_decision.extracted_params,
+            ),
         )
 
     session = _find_or_create_telegram_session(
@@ -423,24 +450,15 @@ def _handle_telegram_webhook(
     if sticky_record and sticky_record.worker_id:
         preferred_worker_id = sticky_record.worker_id
 
-    # Build claude_runtime task payload (optionally routed to Hermes via runtime_id)
-    dispatch_runtime = telegram_settings.telegram_dispatch_runtime_id
+    # Build claude_runtime task payload from the dispatch center decision.
+    dispatch_runtime = dispatch_decision.runtime_id
     channel_route = _resolve_channel_route(extracted=extracted)
-    if _should_force_hermes_for_bookmark_task(
-        text=text,
-        butler_task_type=str(getattr(butler_result.task_type, "value", butler_result.task_type)),
-    ):
-        dispatch_runtime = "hermes"
     hermes_fragment = telegram_settings.hermes_metadata_fragment_for_worker()
     metadata: dict[str, Any] = {}
     if hermes_fragment:
         metadata["hermes"] = hermes_fragment
     metadata["channel_route"] = channel_route
-    agent_contract = _build_butler_worker_contract(
-        text=text,
-        butler_task_type=str(getattr(butler_result.task_type, "value", butler_result.task_type)),
-        execution_mode=telegram_settings.telegram_hermes_execution_mode if dispatch_runtime == "hermes" else "oneshot",
-    )
+    agent_contract = _build_butler_worker_contract_from_decision(dispatch_decision)
     metadata.update(agent_contract)
     image_urls = [] if dispatch_runtime == "hermes" else list(extracted.get("images") or [])
 
@@ -479,7 +497,7 @@ def _handle_telegram_webhook(
         "runtime_id": dispatch_runtime,
     }
     if dispatch_runtime == "hermes":
-        runtime_payload["execution_mode"] = telegram_settings.telegram_hermes_execution_mode
+        runtime_payload["execution_mode"] = dispatch_decision.execution_mode
     if metadata:
         runtime_payload["metadata"] = metadata
 
@@ -492,7 +510,7 @@ def _handle_telegram_webhook(
         "channel_route": channel_route,
         **agent_contract,
     }
-    if dispatch_runtime == "hermes" and telegram_settings.telegram_hermes_execution_mode == "interactive":
+    if dispatch_runtime == "hermes" and dispatch_decision.execution_mode == "interactive":
         queue_metadata.setdefault("interactive_lease_ttl_seconds", 900)
 
     queue_item = worker_scheduler.enqueue(WorkerQueueItemCreateRequest(
@@ -542,64 +560,31 @@ def _handle_telegram_webhook(
             "routed_to": "worker_queue",
             "preferred_worker_id": preferred_worker_id,
             "channel_route": channel_route,
+            "butler_dispatch_source": dispatch_decision.source.value,
+            "butler_dispatch_route": dispatch_decision.route.value,
         },
     )
 
 
-def _should_force_hermes_for_bookmark_task(*, text: str, butler_task_type: str) -> bool:
-    if butler_task_type != "content_kb":
-        return False
-    normalized = text.strip().lower()
-    if not normalized:
-        return False
-    return any(keyword in normalized for keyword in _X_BOOKMARK_KEYWORDS)
-
-
-def _build_butler_worker_contract(*, text: str, butler_task_type: str, execution_mode: str) -> dict[str, Any]:
-    repo = _extract_github_repo(text)
-    target_agent = "butler_orchestrator"
-    action = butler_task_type
-    priority = 1
-    max_retries = 2
-    if butler_task_type == "github_admin" or repo:
-        target_agent = _select_github_target_agent(repo)
-        action = "github_ops.pr_ops" if "pr" in text.lower() else "github_ops.issue_ops"
-        priority = 8
-    elif butler_task_type == "youtube":
-        target_agent = "youtube_ops"
-        action = "youtube_ops.build_digest"
-        priority = 5
-    elif butler_task_type == "content_kb":
-        target_agent = "content_kb"
-        action = "content_kb.ingest"
-        priority = 4
-    if execution_mode == "interactive":
-        max_retries = 1
+def _build_butler_worker_contract_from_decision(dispatch_decision) -> dict[str, Any]:
+    task_type_str = str(getattr(dispatch_decision, "task_type", "") or "").strip().lower()
     out: dict[str, Any] = {
-        "target_agent": target_agent,
-        "detected_task_type": butler_task_type,
-        "action": action,
-        "priority": priority,
-        "max_retries": max_retries,
-        "execution_mode": execution_mode,
+        "target_agent": dispatch_decision.target_agent,
+        "detected_task_type": task_type_str,
+        "butler_task_type": task_type_str,
+        "action": dispatch_decision.action,
+        "priority": dispatch_decision.priority,
+        "max_retries": dispatch_decision.max_retries,
+        "execution_mode": dispatch_decision.execution_mode,
+        "butler_dispatch_source": dispatch_decision.source.value,
+        "butler_dispatch_route": dispatch_decision.route.value,
+        "butler_dispatch_reason": dispatch_decision.reason,
+        "butler_dispatch_confidence": dispatch_decision.confidence,
     }
-    if repo:
-        out["repo"] = repo
+    out.update(dispatch_decision.extracted_params)
+    if dispatch_decision.model_fill_error:
+        out["model_fill_error"] = dispatch_decision.model_fill_error
     return out
-
-
-def _extract_github_repo(text: str) -> str | None:
-    match = _GITHUB_REPO_RE.search(text)
-    if not match:
-        return None
-    owner = match.group(1).strip()
-    repo = match.group(2).strip().removesuffix(".git")
-    return f"{owner}/{repo}" if owner and repo else None
-
-
-def _select_github_target_agent(repo: str | None) -> str:
-    # Empty allowlists mean account A is the default operational profile.
-    return "github_ops_accountA"
 
 
 def _resolve_channel_route(*, extracted: dict[str, Any]) -> str:
