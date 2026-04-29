@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from autoresearch.api.dependencies import get_worker_scheduler_service
 from autoresearch.core.services.worker_scheduler import WorkerSchedulerService
+from autoresearch.core.services.worker_scheduler import WorkerReportError
 from autoresearch.shared.models import (
     StandbyYouTubeAutoflowRequest,
     WorkerQueueItemCreateRequest,
@@ -40,12 +41,56 @@ class ContentKBIngestRequest(BaseModel):
     metadata: dict = Field(default_factory=dict)
 
 
+class WorkerRunOpsRequest(BaseModel):
+    reason: str = Field(default="manual operation")
+    backoff_seconds: int | None = Field(default=None, ge=1, le=3600)
+
+
 @router.post("", response_model=WorkerQueueItemRead, status_code=status.HTTP_201_CREATED)
 def enqueue_worker_run(
     payload: WorkerQueueItemCreateRequest,
     service: WorkerSchedulerService = Depends(get_worker_scheduler_service),
 ) -> WorkerQueueItemRead:
     return service.enqueue(payload)
+
+
+@router.get("", response_model=list[WorkerQueueItemRead], status_code=status.HTTP_200_OK)
+def list_worker_runs(
+    service: WorkerSchedulerService = Depends(get_worker_scheduler_service),
+) -> list[WorkerQueueItemRead]:
+    return service.list_queue()
+
+
+@router.post("/{run_id}/requeue", response_model=WorkerQueueItemRead, status_code=status.HTTP_200_OK)
+def requeue_worker_run(
+    run_id: str,
+    payload: WorkerRunOpsRequest,
+    service: WorkerSchedulerService = Depends(get_worker_scheduler_service),
+) -> WorkerQueueItemRead:
+    try:
+        return service.requeue_run(
+            run_id,
+            reason=payload.reason,
+            backoff_seconds=payload.backoff_seconds,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found") from exc
+    except WorkerReportError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.detail) from exc
+
+
+@router.post("/{run_id}/force-fail", response_model=WorkerQueueItemRead, status_code=status.HTTP_200_OK)
+def force_fail_worker_run(
+    run_id: str,
+    payload: WorkerRunOpsRequest,
+    service: WorkerSchedulerService = Depends(get_worker_scheduler_service),
+) -> WorkerQueueItemRead:
+    try:
+        return service.force_fail_run(run_id, reason=payload.reason)
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found") from exc
+    except WorkerReportError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.detail) from exc
 
 
 @router.post("/youtube-autoflow", response_model=WorkerQueueItemRead, status_code=status.HTTP_201_CREATED)

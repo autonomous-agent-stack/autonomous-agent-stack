@@ -89,6 +89,8 @@ def test_trigger_due_interval_schedule_enqueues_run_and_rolls_forward(
         WorkerRunScheduleCreateRequest(
             schedule_name="nightly noop",
             task_type=WorkerTaskType.NOOP,
+            priority=7,
+            max_retries=4,
             schedule_mode=WorkerScheduleMode.INTERVAL,
             interval_seconds=300,
             first_run_at=current,
@@ -103,6 +105,8 @@ def test_trigger_due_interval_schedule_enqueues_run_and_rolls_forward(
     assert len(tick.dispatches) == 1
     queued = scheduler.list_queue()
     assert len(queued) == 1
+    assert queued[0].priority == 7
+    assert queued[0].max_retries == 4
     assert queued[0].metadata["schedule_id"] == created.schedule_id
     assert queued[0].metadata["scheduled_trigger_source"] == "due"
     refreshed = schedules.get_schedule(created.schedule_id)

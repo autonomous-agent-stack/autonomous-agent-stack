@@ -1513,6 +1513,8 @@ class WorkerQueueItemCreateRequest(StrictModel):
     task_type: WorkerTaskType = WorkerTaskType.NOOP
     payload: dict[str, Any] = Field(default_factory=dict)
     requested_by: str | None = None
+    priority: int = Field(default=0, ge=0, le=100)
+    max_retries: int = Field(default=2, ge=0, le=20)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
@@ -1531,6 +1533,11 @@ class WorkerQueueItemRead(StrictModel):
     task_type: WorkerTaskType = WorkerTaskType.NOOP
     payload: dict[str, Any] = Field(default_factory=dict)
     requested_by: str | None = None
+    priority: int = 0
+    retry_count: int = 0
+    max_retries: int = 2
+    next_attempt_at: datetime | None = None
+    recovery_reason: str | None = None
     status: JobStatus = JobStatus.QUEUED
     assigned_worker_id: str | None = None
     message: str | None = None
@@ -1607,6 +1614,8 @@ class WorkerRunScheduleCreateRequest(StrictModel):
     task_type: WorkerTaskType = WorkerTaskType.NOOP
     payload: dict[str, Any] = Field(default_factory=dict)
     requested_by: str | None = None
+    priority: int = Field(default=0, ge=0, le=100)
+    max_retries: int = Field(default=2, ge=0, le=20)
     metadata: dict[str, Any] = Field(default_factory=dict)
     schedule_mode: WorkerScheduleMode = WorkerScheduleMode.INTERVAL
     first_run_at: datetime | None = None
@@ -1642,6 +1651,8 @@ class WorkerRunScheduleRead(StrictModel):
     task_type: WorkerTaskType = WorkerTaskType.NOOP
     payload: dict[str, Any] = Field(default_factory=dict)
     requested_by: str | None = None
+    priority: int = 0
+    max_retries: int = 2
     metadata: dict[str, Any] = Field(default_factory=dict)
     schedule_mode: WorkerScheduleMode = WorkerScheduleMode.INTERVAL
     interval_seconds: int | None = None

@@ -17,6 +17,7 @@ from autoresearch.shared.models import (
     WorkerQueueItemRead,
     WorkerRegistrationRead,
     WorkerRegisterRequest,
+    WorkerRunReportRequest,
     WorkerType,
     WorkerMode,
     utc_now,
@@ -193,6 +194,100 @@ def test_report_rejects_other_worker_for_active_lease(
     )
     assert response.status_code == 409
     assert response.json()["detail"] == "Run is leased to another worker"
+
+
+def test_report_rejects_original_worker_after_lease_expired_until_reclaimed(
+    worker_services: tuple[WorkerRegistryService, WorkerSchedulerService],
+) -> None:
+    registry, scheduler = worker_services
+    now = utc_now()
+    _register_worker(registry, worker_id="mac-mini-01")
+    queued = scheduler.enqueue(
+        WorkerQueueItemCreateRequest(task_type="noop", payload={"message": "hello"}),
+        now=now,
+    )
+    scheduler.claim("mac-mini-01", WorkerClaimRequest(), now=now + timedelta(seconds=1))
+    scheduler.report(
+        "mac-mini-01",
+        queued.run_id,
+        WorkerRunReportRequest(
+            status="running",
+            message="started",
+        ),
+        now=now + timedelta(seconds=2),
+    )
+    with pytest.raises(Exception) as exc:
+        scheduler.report(
+            "mac-mini-01",
+            queued.run_id,
+            WorkerRunReportRequest(status="running", message="late heartbeat"),
+            now=now + timedelta(seconds=70),
+        )
+    assert "lease expired" in str(exc.value)
+
+
+def test_worker_run_ops_requeue_and_force_fail(
+    worker_client: TestClient,
+    worker_services: tuple[WorkerRegistryService, WorkerSchedulerService],
+) -> None:
+    registry, scheduler = worker_services
+    _register_worker(registry, worker_id="mac-mini-01")
+    queued = scheduler.enqueue(
+        WorkerQueueItemCreateRequest(task_type="noop", payload={"message": "hello"}, max_retries=3),
+        now=utc_now(),
+    )
+    scheduler.claim("mac-mini-01", WorkerClaimRequest(), now=utc_now() + timedelta(seconds=1))
+    scheduler.report(
+        "mac-mini-01",
+        queued.run_id,
+        WorkerRunReportRequest(
+            status="running",
+            message="started",
+        ),
+        now=utc_now() + timedelta(seconds=2),
+    )
+    requeued = worker_client.post(
+        f"/api/v1/worker-runs/{queued.run_id}/requeue",
+        json={"reason": "manual recovery", "backoff_seconds": 5},
+    )
+    assert requeued.status_code == 200
+    rbody = requeued.json()
+    assert rbody["status"] == "queued"
+    assert rbody["retry_count"] == 1
+    assert rbody["recovery_reason"] == "manual recovery"
+
+    failed = worker_client.post(
+        f"/api/v1/worker-runs/{queued.run_id}/force-fail",
+        json={"reason": "operator abort"},
+    )
+    assert failed.status_code == 200
+    fbody = failed.json()
+    assert fbody["status"] == "failed"
+    assert fbody["error"] == "operator abort"
+
+    second_force = worker_client.post(
+        f"/api/v1/worker-runs/{queued.run_id}/force-fail",
+        json={"reason": "again"},
+    )
+    assert second_force.status_code == 409
+
+
+def test_worker_run_list_endpoint_exposes_priority_and_retry_fields(
+    worker_client: TestClient,
+    worker_services: tuple[WorkerRegistryService, WorkerSchedulerService],
+) -> None:
+    _, scheduler = worker_services
+    scheduler.enqueue(
+        WorkerQueueItemCreateRequest(task_type="noop", priority=6, max_retries=5),
+        now=utc_now(),
+    )
+    response = worker_client.get("/api/v1/worker-runs")
+    assert response.status_code == 200
+    items = response.json()
+    assert len(items) >= 1
+    assert "priority" in items[0]
+    assert "retry_count" in items[0]
+    assert "max_retries" in items[0]
 
 
 def test_enqueue_youtube_autoflow_via_api(

@@ -147,11 +147,27 @@ class RuntimeSettings(_BaseApiSettings):
         default=False,
         validation_alias="AUTORESEARCH_ENABLE_WORKER_SCHEDULE_DAEMON",
     )
+    enable_worker_recovery_daemon: bool = Field(
+        default=False,
+        validation_alias="AUTORESEARCH_ENABLE_WORKER_RECOVERY_DAEMON",
+    )
     worker_schedule_poll_seconds: int = Field(
         default=30,
         ge=1,
         le=3600,
         validation_alias="AUTORESEARCH_WORKER_SCHEDULE_POLL_SECONDS",
+    )
+    worker_recovery_poll_seconds: int = Field(
+        default=20,
+        ge=1,
+        le=3600,
+        validation_alias="AUTORESEARCH_WORKER_RECOVERY_POLL_SECONDS",
+    )
+    worker_retry_backoff_seconds: int = Field(
+        default=30,
+        ge=1,
+        le=3600,
+        validation_alias="AUTORESEARCH_WORKER_RETRY_BACKOFF_SECONDS",
     )
     enable_legacy_telegram_webhook: bool = Field(
         default=False,

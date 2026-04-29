@@ -72,3 +72,29 @@ The reply includes overall counts and a short card-style summary for up to 4 wor
    Use diagnostic `runtime` and `phase` to separate dispatch issues from in-flight execution issues.
 3. 若任务已终态，优先看 `exit` 与终态卡的 `error_kind`。
    For terminal tasks, prioritize `exit` and the terminal card `error_kind`.
+
+## 运行时编排升级字段
+## Runtime Orchestration Upgrade Fields
+
+- `priority`
+  队列优先级，值越大越优先；同优先级保持 FIFO。
+  Queue priority; higher values are claimed first, FIFO is preserved within the same priority.
+- `retry_count` / `max_retries`
+  当前重试次数与预算上限，用于自动恢复策略判断。
+  Current retry count and retry budget used by auto-recovery policy.
+- `next_attempt_at`
+  回退后的下一次可领取时间（防止抖动重试）。
+  Next eligible claim time after backoff (prevents retry flapping).
+- `recovery_reason`
+  最近一次恢复/强制终态的原因。
+  Reason of the latest recovery action or forced terminalization.
+
+## 运维动作接口
+## Operational Action Endpoints
+
+- `POST /api/v1/worker-runs/{run_id}/requeue`
+  手工重排入队，可带 `reason` 与 `backoff_seconds`。
+  Manual requeue, accepts `reason` and optional `backoff_seconds`.
+- `POST /api/v1/worker-runs/{run_id}/force-fail`
+  直接终止为失败并写入原因，适用于不可恢复任务。
+  Force terminal failure with reason for non-recoverable runs.

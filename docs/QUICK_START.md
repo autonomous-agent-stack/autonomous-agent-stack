@@ -212,4 +212,22 @@ AUTORESEARCH_MODE=minimal make start
 - schedule 只负责按时间 enqueue
 - 真正执行仍走现有 worker claim/execute/report 链路
 - 当前支持 `once` 和 `interval` 两种单机 schedule
+
+## 运行时编排升级（priority + recovery）
+
+默认兼容旧行为（priority=0、max_retries=2），启用恢复守护后可自动处理 lease 过期导致的 RUNNING 卡死。
+Default behavior remains backward compatible (`priority=0`, `max_retries=2`). With recovery daemon enabled, stale RUNNING jobs caused by expired leases are reconciled automatically.
+
+```bash
+# 可选：开启恢复守护（建议生产）
+# Optional: enable recovery daemon (recommended in production)
+export AUTORESEARCH_ENABLE_WORKER_RECOVERY_DAEMON=true
+export AUTORESEARCH_WORKER_RECOVERY_POLL_SECONDS=20
+```
+
+```bash
+# 查看队列项扩展字段
+# Inspect upgraded queue fields
+curl -s http://127.0.0.1:8001/api/v1/worker-runs | jq '.[] | {run_id,status,priority,retry_count,max_retries,next_attempt_at,recovery_reason}'
+```
 - 时间触发引擎基于 APScheduler

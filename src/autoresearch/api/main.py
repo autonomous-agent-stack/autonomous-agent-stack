@@ -86,6 +86,20 @@ async def lifespan(_: FastAPI):
             settings.worker_schedule_poll_seconds,
         )
     polling_daemon = None
+    recovery_daemon = None
+    if settings.enable_worker_recovery_daemon:
+        from autoresearch.api.dependencies import get_worker_scheduler_service
+        from autoresearch.core.services.worker_recovery_service import WorkerRecoveryDaemon
+
+        recovery_daemon = WorkerRecoveryDaemon(
+            scheduler=get_worker_scheduler_service(),
+            poll_seconds=settings.worker_recovery_poll_seconds,
+        )
+        await recovery_daemon.start()
+        logger.info(
+            "Worker recovery daemon started [poll_seconds=%s]",
+            settings.worker_recovery_poll_seconds,
+        )
     try:
         from autoresearch.api.settings import get_telegram_settings
         tg_settings = get_telegram_settings()
@@ -120,6 +134,9 @@ async def lifespan(_: FastAPI):
         yield
     finally:
         logger.info("Lifespan teardown: cleaning up resources...")
+        if recovery_daemon is not None:
+            await recovery_daemon.stop()
+            logger.info("Worker recovery daemon stopped")
         if polling_daemon is not None:
             polling_daemon.stop()
             logger.info("Telegram polling daemon stopped")

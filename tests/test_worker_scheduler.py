@@ -13,6 +13,7 @@ from autoresearch.core.services.worker_scheduler import WorkerClaimError, Worker
 from autoresearch.shared.models import (
     WorkerClaimRequest,
     WorkerHeartbeatRequest,
+    WorkerRunReportRequest,
     WorkerMode,
     WorkerQueueItemCreateRequest,
     WorkerRegistrationRead,
@@ -237,3 +238,99 @@ def test_merge_queue_metadata_merges_into_existing(
     assert updated.metadata["telegram_queue_ack_message_id"] == 4242
     assert updated.metadata["chat_id"] == "999"
     assert updated.metadata["session_key"] == "telegram:personal:user:1"
+
+
+def test_claim_prefers_higher_priority_before_fifo(
+    worker_services: tuple[WorkerRegistryService, WorkerSchedulerService],
+) -> None:
+    registry, scheduler = worker_services
+    current = utc_now()
+    _register_mac_worker(registry, worker_id="mac-mini-01", now=current)
+    low = scheduler.enqueue(
+        WorkerQueueItemCreateRequest(task_name="low", priority=1),
+        now=current,
+    )
+    high = scheduler.enqueue(
+        WorkerQueueItemCreateRequest(task_name="high", priority=10),
+        now=current + timedelta(milliseconds=10),
+    )
+    claimed = scheduler.claim("mac-mini-01", WorkerClaimRequest(), now=current + timedelta(seconds=1))
+    assert claimed.claimed is True
+    assert claimed.run is not None
+    assert claimed.run.run_id == high.run_id
+    assert claimed.run.run_id != low.run_id
+
+
+def test_same_priority_keeps_fifo_order(
+    worker_services: tuple[WorkerRegistryService, WorkerSchedulerService],
+) -> None:
+    registry, scheduler = worker_services
+    current = utc_now()
+    _register_mac_worker(registry, worker_id="mac-mini-01", now=current)
+    first = scheduler.enqueue(
+        WorkerQueueItemCreateRequest(task_name="first", priority=4),
+        now=current,
+    )
+    second = scheduler.enqueue(
+        WorkerQueueItemCreateRequest(task_name="second", priority=4),
+        now=current + timedelta(milliseconds=10),
+    )
+    claimed = scheduler.claim("mac-mini-01", WorkerClaimRequest(), now=current + timedelta(seconds=1))
+    assert claimed.claimed is True
+    assert claimed.run is not None
+    assert claimed.run.run_id == first.run_id
+    assert claimed.run.run_id != second.run_id
+
+
+def test_recover_stale_runs_requeues_until_retry_budget_exhausted(
+    worker_services: tuple[WorkerRegistryService, WorkerSchedulerService],
+) -> None:
+    registry, scheduler = worker_services
+    current = utc_now()
+    _register_mac_worker(registry, worker_id="mac-mini-01", now=current)
+    queued = scheduler.enqueue(
+        WorkerQueueItemCreateRequest(task_name="recover-me", max_retries=1),
+        now=current,
+    )
+    claim = scheduler.claim("mac-mini-01", WorkerClaimRequest(), now=current + timedelta(seconds=1))
+    assert claim.claimed is True
+    running = scheduler.report(
+        "mac-mini-01",
+        queued.run_id,
+        WorkerRunReportRequest(
+            status="running",
+            message="in-flight",
+        ),
+        now=current + timedelta(seconds=2),
+    )
+    assert running.status.value == "running"
+    first_recovery = scheduler.recover_stale_runs(now=current + timedelta(seconds=70))
+    assert len(first_recovery) == 1
+    assert first_recovery[0].status.value == "queued"
+    assert first_recovery[0].retry_count == 1
+    # Reclaim and mark running again, then recovery should fail due to exhausted retries.
+    registry.heartbeat(
+        "mac-mini-01",
+        WorkerHeartbeatRequest(
+            health="ok",
+            load=0.0,
+            queue_depth=0,
+            disk_free_gb=128.0,
+            accepting_work=True,
+        ),
+        now=current + timedelta(seconds=109),
+    )
+    scheduler.claim("mac-mini-01", WorkerClaimRequest(), now=current + timedelta(seconds=110))
+    scheduler.report(
+        "mac-mini-01",
+        queued.run_id,
+        WorkerRunReportRequest(
+            status="running",
+            message="in-flight-again",
+        ),
+        now=current + timedelta(seconds=111),
+    )
+    second_recovery = scheduler.recover_stale_runs(now=current + timedelta(seconds=190))
+    assert len(second_recovery) == 1
+    assert second_recovery[0].status.value == "failed"
+    assert second_recovery[0].error == "retry_budget_exhausted"

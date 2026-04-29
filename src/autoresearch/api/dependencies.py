@@ -262,6 +262,7 @@ def get_worker_registry_service() -> WorkerRegistryService:
 
 @lru_cache(maxsize=1)
 def get_worker_scheduler_service() -> WorkerSchedulerService:
+    settings = get_runtime_settings()
     return WorkerSchedulerService(
         worker_registry=get_worker_registry_service(),
         queue_repository=SQLiteModelRepository(
@@ -274,6 +275,7 @@ def get_worker_scheduler_service() -> WorkerSchedulerService:
             table_name="worker_leases",
             model_cls=WorkerLeaseRead,
         ),
+        retry_backoff_seconds=settings.worker_retry_backoff_seconds,
     )
 
 

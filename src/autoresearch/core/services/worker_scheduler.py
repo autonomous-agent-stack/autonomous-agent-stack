@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -18,6 +19,8 @@ from autoresearch.shared.models import (
     utc_now,
 )
 from autoresearch.shared.store import Repository, create_resource_id
+
+logger = logging.getLogger(__name__)
 
 
 class WorkerClaimError(RuntimeError):
@@ -42,11 +45,13 @@ class WorkerSchedulerService:
         queue_repository: Repository[WorkerQueueItemRead],
         lease_repository: Repository[WorkerLeaseRead],
         lease_ttl_seconds: int = 60,
+        retry_backoff_seconds: int = 30,
     ) -> None:
         self._worker_registry = worker_registry
         self._queue_repository = queue_repository
         self._lease_repository = lease_repository
         self._lease_ttl_seconds = max(1, lease_ttl_seconds)
+        self._retry_backoff_seconds = max(1, retry_backoff_seconds)
 
     def enqueue(
         self,
@@ -62,6 +67,11 @@ class WorkerSchedulerService:
             task_type=request.task_type,
             payload=dict(request.payload),
             requested_by=request.requested_by,
+            priority=request.priority,
+            retry_count=0,
+            max_retries=request.max_retries,
+            next_attempt_at=None,
+            recovery_reason=None,
             status=JobStatus.QUEUED,
             assigned_worker_id=None,
             message=None,
@@ -105,7 +115,7 @@ class WorkerSchedulerService:
                 created_at=current,
             )
 
-        queued = self._queued_runs(queue_name=request.queue_name)
+        queued = self._queued_runs(queue_name=request.queue_name, now=current)
         # First pass: try to claim a run that matches this worker's sticky preference
         for run in queued:
             if run.run_id in active_leases:
@@ -191,6 +201,8 @@ class WorkerSchedulerService:
         lease = active_leases.get(run_id)
         if lease is not None and lease.worker_id != worker_id:
             raise WorkerReportError("Run is leased to another worker")
+        if lease is None and run.status == JobStatus.RUNNING:
+            raise WorkerReportError("Run lease expired and must be reclaimed before reporting")
         if lease is None and run.assigned_worker_id != worker_id:
             raise WorkerReportError("Run is not assigned to this worker")
 
@@ -214,6 +226,7 @@ class WorkerSchedulerService:
                 "status": request.status.value,
                 "summary": request.message if request.message is not None else run.message,
             },
+            "recovery_reason": run.recovery_reason,
         }
 
         if request.status == JobStatus.RUNNING:
@@ -237,6 +250,96 @@ class WorkerSchedulerService:
 
         updated = run.model_copy(update=update_fields)
         return self._queue_repository.save(run_id, updated)
+
+    def requeue_run(
+        self,
+        run_id: str,
+        *,
+        reason: str,
+        now: datetime | None = None,
+        backoff_seconds: int | None = None,
+    ) -> WorkerQueueItemRead:
+        current = now or utc_now()
+        run = self._queue_repository.get(run_id)
+        if run is None:
+            raise KeyError(run_id)
+        if run.status in {JobStatus.COMPLETED, JobStatus.CANCELLED, JobStatus.INTERRUPTED}:
+            raise WorkerReportError("Terminal run cannot be requeued")
+        next_retry = current + timedelta(seconds=max(1, backoff_seconds or self._retry_backoff_seconds))
+        updated = run.model_copy(
+            update={
+                "status": JobStatus.QUEUED,
+                "assigned_worker_id": None,
+                "retry_count": run.retry_count + 1,
+                "next_attempt_at": next_retry,
+                "recovery_reason": reason,
+                "updated_at": current,
+                "completed_at": None,
+            }
+        )
+        lease = self._lease_repository.get(self._lease_id_for_run(run_id))
+        if lease is not None and lease.active:
+            self._lease_repository.save(
+                lease.lease_id,
+                lease.model_copy(update={"active": False, "updated_at": current}),
+            )
+        return self._queue_repository.save(run_id, updated)
+
+    def force_fail_run(
+        self,
+        run_id: str,
+        *,
+        reason: str,
+        now: datetime | None = None,
+    ) -> WorkerQueueItemRead:
+        current = now or utc_now()
+        run = self._queue_repository.get(run_id)
+        if run is None:
+            raise KeyError(run_id)
+        if run.status in {JobStatus.COMPLETED, JobStatus.CANCELLED, JobStatus.INTERRUPTED, JobStatus.FAILED}:
+            raise WorkerReportError("Terminal run cannot be force-failed")
+        updated = run.model_copy(
+            update={
+                "status": JobStatus.FAILED,
+                "error": reason,
+                "recovery_reason": reason,
+                "completed_at": current,
+                "updated_at": current,
+            }
+        )
+        lease = self._lease_repository.get(self._lease_id_for_run(run_id))
+        if lease is not None and lease.active:
+            self._lease_repository.save(
+                lease.lease_id,
+                lease.model_copy(update={"active": False, "updated_at": current}),
+            )
+        return self._queue_repository.save(run_id, updated)
+
+    def recover_stale_runs(self, *, now: datetime | None = None) -> list[WorkerQueueItemRead]:
+        current = now or utc_now()
+        recovered: list[WorkerQueueItemRead] = []
+        for run in self._queue_repository.list():
+            if run.status != JobStatus.RUNNING:
+                continue
+            lease = self._lease_repository.get(self._lease_id_for_run(run.run_id))
+            if lease is None:
+                logger.warning(
+                    "recover_stale_runs observed RUNNING run without lease record run_id=%s",
+                    run.run_id,
+                )
+            if lease is not None and lease.active and lease.lease_expires_at > current:
+                continue
+            if run.retry_count >= run.max_retries:
+                recovered.append(self.force_fail_run(run.run_id, reason="retry_budget_exhausted", now=current))
+                continue
+            recovered.append(
+                self.requeue_run(
+                    run.run_id,
+                    reason="lease_expired_or_worker_stale",
+                    now=current,
+                )
+            )
+        return recovered
 
     def get_run(self, run_id: str) -> WorkerQueueItemRead | None:
         return self._queue_repository.get(run_id)
@@ -289,13 +392,15 @@ class WorkerSchedulerService:
                 self._lease_repository.save(expired.lease_id, expired)
         return active
 
-    def _queued_runs(self, *, queue_name: WorkerQueueName) -> list[WorkerQueueItemRead]:
+    def _queued_runs(self, *, queue_name: WorkerQueueName, now: datetime) -> list[WorkerQueueItemRead]:
         items = [
             item
             for item in self._queue_repository.list()
-            if item.queue_name == queue_name and item.status == JobStatus.QUEUED
+            if item.queue_name == queue_name
+            and item.status == JobStatus.QUEUED
+            and (item.next_attempt_at is None or item.next_attempt_at <= now)
         ]
-        return sorted(items, key=lambda item: (item.created_at, item.run_id))
+        return sorted(items, key=lambda item: (-item.priority, item.created_at, item.run_id))
 
     @staticmethod
     def _lease_id_for_run(run_id: str) -> str:
