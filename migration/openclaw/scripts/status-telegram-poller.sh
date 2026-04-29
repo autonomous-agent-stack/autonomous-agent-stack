@@ -4,6 +4,12 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PID_FILE="${ROOT_DIR}/logs/telegram-poller.pid"
 LOG_FILE="${ROOT_DIR}/logs/telegram-poller.log"
+INGRESS_MODE="${AUTORESEARCH_TELEGRAM_INGRESS_MODE:-webhook}"
+
+if [[ "${INGRESS_MODE}" != "polling" ]]; then
+  echo "telegram poller disabled by ingress mode (AUTORESEARCH_TELEGRAM_INGRESS_MODE=${INGRESS_MODE})"
+  exit 0
+fi
 
 if [[ -f "${PID_FILE}" ]]; then
   PID="$(cat "${PID_FILE}")"

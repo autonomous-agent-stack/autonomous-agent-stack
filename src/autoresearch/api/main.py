@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from contextlib import asynccontextmanager
 from importlib import import_module
@@ -80,9 +81,29 @@ async def lifespan(_: FastAPI):
             "Worker schedule daemon started [poll_seconds=%s]",
             settings.worker_schedule_poll_seconds,
         )
+    polling_daemon = None
+    try:
+        from autoresearch.api.settings import get_telegram_settings
+        tg_settings = get_telegram_settings()
+        ingress_mode = os.getenv("AUTORESEARCH_TELEGRAM_INGRESS_MODE", "webhook").strip().lower()
+        if tg_settings.polling_enabled and tg_settings.bot_token and ingress_mode == "polling":
+            from autoresearch.core.services.telegram_polling import TelegramPollingDaemon
+            polling_daemon = TelegramPollingDaemon()
+            polling_daemon.start()
+            logger.info("Telegram polling daemon started [ingress_mode=polling]")
+        elif tg_settings.polling_enabled and tg_settings.bot_token and ingress_mode != "polling":
+            logger.info(
+                "Telegram polling daemon skipped [ingress_mode=%s, expected=polling]",
+                ingress_mode or "webhook",
+            )
+    except Exception:
+        logger.exception("Failed to start Telegram polling daemon")
     try:
         yield
     finally:
+        if polling_daemon is not None:
+            polling_daemon.stop()
+            logger.info("Telegram polling daemon stopped")
         if schedule_daemon is not None:
             await schedule_daemon.stop()
             logger.info("Worker schedule daemon stopped")
@@ -260,12 +281,55 @@ def create_app() -> FastAPI:
         }
 
     @app.get("/health", tags=["meta"])
-    async def healthcheck() -> dict[str, str]:
-        return {"status": "ok"}
+    async def healthcheck() -> dict[str, Any]:
+        from datetime import datetime, timezone
+
+        checks: dict[str, Any] = {}
+        overall = "ok"
+
+        # DB reachability
+        try:
+            import sqlite3
+
+            db_path = str(get_runtime_settings().api_db_path)
+            with sqlite3.connect(db_path, timeout=2) as conn:
+                conn.execute("SELECT 1")
+            checks["db"] = {"status": "ok", "path": db_path}
+        except Exception as exc:
+            overall = "degraded"
+            checks["db"] = {"status": "error", "error": str(exc)}
+
+        # Worker inventory (optional — may not be available in minimal mode)
+        try:
+            from autoresearch.api.dependencies import get_worker_inventory_service
+
+            inventory_svc = get_worker_inventory_service()
+            summary = inventory_svc.summary()
+            checks["workers"] = {
+                "status": "ok",
+                "total": summary.total_workers,
+                "online": summary.online_workers,
+                "busy": summary.busy_workers,
+                "degraded": summary.degraded_workers,
+                "offline": summary.offline_workers,
+            }
+            if summary.online_workers == 0 and summary.total_workers > 0:
+                overall = "degraded"
+        except Exception:
+            checks["workers"] = {"status": "unavailable"}
+
+        return {
+            "status": overall,
+            "version": __version__,
+            "build": get_build_label(),
+            "mode": "minimal" if is_minimal else "full",
+            "checks": checks,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
 
     @app.get("/healthz", tags=["meta"])
-    async def healthcheck_alias() -> dict[str, str]:
-        return {"status": "ok"}
+    async def healthcheck_alias() -> dict[str, Any]:
+        return await healthcheck()
 
     return app
 

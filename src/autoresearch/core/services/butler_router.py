@@ -42,6 +42,8 @@ _KEYWORD_MAP: dict[str, list[str]] = {
     ButlerTaskType.CONTENT_KB: [
         "字幕入库", "知识库", "字幕分类", "索引", "subtitle",
         "知识整理", "内容分类",
+        # X / Twitter bookmarks curation (管家口语：「整理X书签」)
+        "书签", "bookmark", "推特书签", "twitter bookmark",
     ],
 }
 

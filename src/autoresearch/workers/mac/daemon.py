@@ -17,6 +17,10 @@ from autoresearch.core.runtime_identity import get_runtime_identity
 from autoresearch.core.services.claude_runtime_service import ClaudeRuntimeService
 from autoresearch.core.services.worker_runtime_dispatch import WorkerRuntimeDispatchService
 from autoresearch.core.services.claude_session_records import ClaudeSessionRecordService
+from autoresearch.core.services.telegram_completion_format import (
+    telegram_agent_attribution_row,
+    telegram_runtime_attribution_row,
+)
 from autoresearch.shared.models import (
     ClaudeRuntimeSessionRecordRead,
     JobStatus,
@@ -130,6 +134,22 @@ def _truncate_worker_telegram_body(text: str, limit: int = _WORKER_TELEGRAM_TEXT
     return normalized[: max(1, limit - 24)] + "\n...[已截断]"
 
 
+def _first_diag_value(
+    *,
+    keys: tuple[str, ...],
+    sources: tuple[dict[str, Any], ...],
+) -> str:
+    for key in keys:
+        for source in sources:
+            value = source.get(key)
+            if value is None:
+                continue
+            text = str(value).strip()
+            if text:
+                return text
+    return ""
+
+
 def _is_fd_exhaustion(exc: BaseException) -> bool:
     """True when errno 24 / EMFILE appears on this exception or its chain."""
     seen: set[int] = set()
@@ -189,6 +209,8 @@ class MacWorkerDaemon:
                             "hermes_runtime_run_id": latest.run_id,
                             "hermes_status": latest.status.value,
                             "telegram_live_stdout_tail": (latest.stdout_preview or "")[-1200:],
+                            "telegram_display_runtime_id": str(run.payload.get("runtime_id") or "hermes"),
+                            "telegram_display_agent_name": str(run.payload.get("agent_name") or ""),
                         },
                     ),
                 )
@@ -404,7 +426,25 @@ class MacWorkerDaemon:
             ("任务", task_name),
             ("run_id", str(run.run_id)),
             ("状态", status_label),
+            telegram_runtime_attribution_row(str(payload.get("runtime_id") or "claude")),
+            telegram_agent_attribution_row(str(payload.get("agent_name") or "")),
         ]
+        diag_runtime = _first_diag_value(
+            keys=("dispatch_runtime", "runtime_id"),
+            sources=(outcome.metrics or {}, res, payload),
+        )
+        diag_exit = _first_diag_value(
+            keys=("exit_reason",),
+            sources=(outcome.metrics or {}, res),
+        ) or status_label
+        diag_error_kind = _first_diag_value(
+            keys=("error_kind",),
+            sources=(outcome.metrics or {}, res),
+        )
+        diag_items = [f"runtime={diag_runtime or 'claude'}", f"exit={diag_exit}"]
+        if diag_error_kind:
+            diag_items.append(f"error_kind={diag_error_kind}")
+        table_rows.append(("诊断 | Diagnostics", ", ".join(diag_items)))
         summary_for_cell = (summary_clean or summary_raw).strip()
         if _is_vacuous_hermes_summary(summary_for_cell) and stdout_clean:
             fl = _first_nonempty_line(stdout_clean, limit=600)

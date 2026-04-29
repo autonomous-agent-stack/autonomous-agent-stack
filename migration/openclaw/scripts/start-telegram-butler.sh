@@ -13,7 +13,13 @@ echo "[telegram-butler] resolved startup config"
 print_effective_env_values AUTORESEARCH_API_HOST AUTORESEARCH_API_PORT AUTORESEARCH_TELEGRAM_BOT_TOKEN TELEGRAM_BOT_TOKEN
 
 bash "${SCRIPT_DIR}/start-api-daemon.sh"
-bash "${SCRIPT_DIR}/start-telegram-poller.sh"
+INGRESS_MODE="${AUTORESEARCH_TELEGRAM_INGRESS_MODE:-webhook}"
+if [[ "${INGRESS_MODE}" == "polling" ]]; then
+  echo "[telegram-butler] polling ingress enabled; starting telegram poller"
+  bash "${SCRIPT_DIR}/start-telegram-poller.sh"
+else
+  echo "[telegram-butler] webhook ingress mode; skipping telegram poller startup"
+fi
 
 echo
 echo "[telegram-butler] current status"

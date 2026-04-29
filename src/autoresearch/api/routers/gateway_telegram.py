@@ -87,6 +87,14 @@ _CHAT_RATE_WINDOWS: dict[str, list[float]] = {}
 _GUARD_LOCK = threading.Lock()
 _SHORT_AFFIRMATIVE_RE = re.compile(r"^(好|好的|好啊|好呀|行|行啊|行呀|可以|可以啊|可以呀|开始|开始吧|来吧|继续|确认|是|是的|嗯|嗯嗯)\s*[.!。！？~～]*$")
 _YOUTUBE_PROCESS_CONFIRM_RE = re.compile(r"(现在)?触发(?:一次)?(?:视频)?(?:字幕)?处理")
+_X_BOOKMARK_KEYWORDS = (
+    "书签",
+    "bookmark",
+    "twitter bookmark",
+    "x bookmark",
+    "推特书签",
+    "x 书签",
+)
 
 
 @router.get("/health", tags=["gateway"])
@@ -421,10 +429,17 @@ def _handle_telegram_webhook(
 
     # Build claude_runtime task payload (optionally routed to Hermes via runtime_id)
     dispatch_runtime = telegram_settings.telegram_dispatch_runtime_id
+    channel_route = _resolve_channel_route(extracted=extracted)
+    if _should_force_hermes_for_bookmark_task(
+        text=text,
+        butler_task_type=butler_result.task_type,
+    ):
+        dispatch_runtime = "hermes"
     hermes_fragment = telegram_settings.hermes_metadata_fragment_for_worker()
     metadata: dict[str, Any] = {}
     if hermes_fragment:
         metadata["hermes"] = hermes_fragment
+    metadata["channel_route"] = channel_route
     image_urls = [] if dispatch_runtime == "hermes" else list(extracted.get("images") or [])
 
     prompt_for_worker = resolved_prompt
@@ -461,6 +476,8 @@ def _handle_telegram_webhook(
         "chat_type": session_identity.chat_context.chat_type.value,
         "runtime_id": dispatch_runtime,
     }
+    if dispatch_runtime == "hermes":
+        runtime_payload["execution_mode"] = telegram_settings.telegram_hermes_execution_mode
     if metadata:
         runtime_payload["metadata"] = metadata
 
@@ -472,6 +489,7 @@ def _handle_telegram_webhook(
             "session_key": session_identity.session_key,
             "preferred_worker_id": preferred_worker_id,
             "chat_id": chat_id,
+            "channel_route": channel_route,
         },
     ))
 
@@ -482,6 +500,8 @@ def _handle_telegram_webhook(
             task_name=str(runtime_payload["task_name"]),
             run_id=str(queue_item.run_id),
             worker_brand=telegram_settings.telegram_worker_display_name,
+            runtime_id=str(runtime_payload.get("runtime_id") or "claude"),
+            agent_name=str(runtime_payload.get("agent_name") or ""),
         )
         ack_message_id = notifier.send_message_get_message_id(
             chat_id=chat_id,
@@ -510,8 +530,25 @@ def _handle_telegram_webhook(
             "task_name": runtime_payload["task_name"],
             "routed_to": "worker_queue",
             "preferred_worker_id": preferred_worker_id,
+            "channel_route": channel_route,
         },
     )
+
+
+def _should_force_hermes_for_bookmark_task(*, text: str, butler_task_type: str) -> bool:
+    if butler_task_type != "content_kb":
+        return False
+    normalized = text.strip().lower()
+    if not normalized:
+        return False
+    return any(keyword in normalized for keyword in _X_BOOKMARK_KEYWORDS)
+
+
+def _resolve_channel_route(*, extracted: dict[str, Any]) -> str:
+    chat_type_raw = str(extracted.get("chat_type") or "").strip().lower()
+    if chat_type_raw in {"group", "supergroup", "channel"}:
+        return "group_channel"
+    return "private_channel"
 
 
 def _validate_secret_token(raw_request: Request) -> None:
@@ -2276,7 +2313,14 @@ def _telegram_two_column_table(rows: list[tuple[str, str]]) -> list[str]:
     return lines
 
 
-def _telegram_queue_ack_message(*, task_name: str, run_id: str, worker_brand: str) -> str:
+def _telegram_queue_ack_message(
+    *,
+    task_name: str,
+    run_id: str,
+    worker_brand: str,
+    runtime_id: str | None = None,
+    agent_name: str | None = None,
+) -> str:
     brand = (worker_brand or "").strip()
     opener = f"收到，任务已进队（由【{brand}】执行）。" if brand else "收到，任务已进队。"
     tail = (
@@ -2288,6 +2332,8 @@ def _telegram_queue_ack_message(*, task_name: str, run_id: str, worker_brand: st
         [
             ("任务", task_name),
             ("run_id", run_id),
+            ("执行面 | Runtime", (runtime_id or "claude").strip().lower() or "claude"),
+            ("Agent 名称 | Agent name", (agent_name or "").strip() or "（未命名）| (unnamed)"),
         ]
     )
     body = "\n".join(
@@ -2874,6 +2920,34 @@ def _append_worker_inventory_lines(lines: list[str], inventory) -> None:
         lines.append(
             f"- {worker.worker_id}：{worker.display_status}，队列 {worker.queue_depth}，活跃任务 {worker.active_tasks}，最近任务 {last_task}"
         )
+        if latest is None:
+            continue
+        runtime_hint = _status_diag_value(latest, ("dispatch_runtime", "runtime_id"), default="unknown")
+        phase_hint = _status_diag_value(latest, ("telegram_live_phase", "status"), default=latest.status.value)
+        exit_hint = _status_diag_value(latest, ("exit_reason", "error_kind"), default="n/a")
+        lines.append(
+            f"  诊断: runtime={runtime_hint}, phase={phase_hint}, exit={exit_hint}"
+        )
+
+
+def _status_diag_value(
+    latest: Any,
+    keys: tuple[str, ...],
+    *,
+    default: str,
+) -> str:
+    metrics = latest.metrics if isinstance(getattr(latest, "metrics", None), dict) else {}
+    metadata = latest.metadata if isinstance(getattr(latest, "metadata", None), dict) else {}
+    result = latest.result if isinstance(getattr(latest, "result", None), dict) else {}
+    for key in keys:
+        for bag in (metrics, metadata, result):
+            value = bag.get(key)
+            if value is None:
+                continue
+            text = str(value).strip()
+            if text:
+                return text
+    return default
 
 
 def _build_help_message(*, session_identity: TelegramSessionIdentityRead) -> str:

@@ -530,6 +530,7 @@ def get_telegram_notifier_service() -> TelegramNotifierService:
         bot_token=telegram_settings.bot_token,
         api_base=telegram_settings.api_base,
         timeout_seconds=max(1.0, min(telegram_settings.notify_timeout_seconds, 120.0)),
+        proxy_url=telegram_settings.proxy_url,
     )
 
 

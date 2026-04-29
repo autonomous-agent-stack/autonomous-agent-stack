@@ -109,7 +109,7 @@ def _parse_string_dict(value: Any) -> dict[str, str]:
 
 
 class _BaseApiSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="", extra="ignore")
+    model_config = SettingsConfigDict(env_prefix="", extra="ignore", env_file=".env", env_file_encoding="utf-8")
 
 
 class RuntimeSettings(_BaseApiSettings):
@@ -243,6 +243,10 @@ class TelegramSettings(_BaseApiSettings):
         default="",
         validation_alias="AUTORESEARCH_TELEGRAM_HERMES_APPROVAL_MODE",
     )
+    telegram_hermes_execution_mode: str = Field(
+        default="oneshot",
+        validation_alias="AUTORESEARCH_TELEGRAM_HERMES_EXECUTION_MODE",
+    )
     butler_completion_fallback_enabled: bool = Field(
         default=True,
         validation_alias="AUTORESEARCH_TELEGRAM_BUTLER_FALLBACK_ENABLED",
@@ -269,6 +273,20 @@ class TelegramSettings(_BaseApiSettings):
         default=False,
         validation_alias="AUTORESEARCH_TELEGRAM_HERMES_APPEND_EOF_INSTRUCTION",
     )
+    polling_enabled: bool = Field(
+        default=False,
+        validation_alias="AUTORESEARCH_TELEGRAM_POLLING_ENABLED",
+    )
+    polling_timeout: int = Field(
+        default=30,
+        ge=5,
+        le=120,
+        validation_alias="AUTORESEARCH_TELEGRAM_POLLING_TIMEOUT",
+    )
+    proxy_url: str = Field(
+        default="",
+        validation_alias="AUTORESEARCH_TELEGRAM_PROXY_URL",
+    )
 
     @field_validator("telegram_worker_display_name", mode="before")
     @classmethod
@@ -290,6 +308,12 @@ class TelegramSettings(_BaseApiSettings):
     def _normalize_telegram_dispatch_runtime_id(cls, value: Any) -> str:
         raw = str(value or "claude").strip().lower()
         return raw if raw in {"claude", "hermes"} else "claude"
+
+    @field_validator("telegram_hermes_execution_mode", mode="before")
+    @classmethod
+    def _normalize_telegram_hermes_execution_mode(cls, value: Any) -> str:
+        raw = str(value or "oneshot").strip().lower()
+        return raw if raw in {"oneshot", "interactive"} else "oneshot"
 
     @field_validator("allowed_uids", "owner_uids", "partner_uids", "internal_groups", "bot_usernames", mode="before")
     @classmethod

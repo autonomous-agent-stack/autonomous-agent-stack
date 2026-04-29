@@ -65,6 +65,8 @@ def test_runtime_run_read_maps_to_execution_result() -> None:
     assert out.status == JobStatus.COMPLETED
     assert out.stdout_preview == "out"
     assert out.result["runtime_run_id"] == "run-1"
+    assert out.metrics["dispatch_runtime"] == "hermes"
+    assert out.metrics["exit_reason"] == "completed"
 
 
 def test_dispatch_claude_delegates_to_claude_runtime() -> None:
@@ -195,6 +197,47 @@ def test_dispatch_unknown_runtime() -> None:
     out = dispatch.execute_payload({"runtime_id": "unknown", "prompt": "x"}, worker_id=None, queue_metadata=None)
     assert out.status == JobStatus.FAILED
     assert "unsupported" in (out.error or "").lower()
+    assert out.result["error_kind"] == "unsupported_runtime"
+    assert out.metrics["exit_reason"] == "unsupported_runtime"
+
+
+def test_dispatch_hermes_interactive_fails_without_bridge() -> None:
+    dispatch = WorkerRuntimeDispatchService(
+        claude_runtime=MagicMock(spec=ClaudeRuntimeService),
+        registry=MagicMock(),
+        hermes_gateway_bridge=None,
+    )
+    out = dispatch.execute_payload(
+        {
+            "runtime_id": "hermes",
+            "execution_mode": "interactive",
+            "prompt": "hello",
+        },
+        worker_id=None,
+        queue_metadata=None,
+    )
+    assert out.status == JobStatus.FAILED
+    assert out.result is not None
+    assert out.result.get("error_kind") == "interactive_bridge_unavailable"
+    assert out.metrics.get("exit_reason") == "interactive_bridge_unavailable"
+
+
+def test_dispatch_hermes_interactive_uses_bridge() -> None:
+    bridge = MagicMock()
+    bridge.execute_interactive.return_value = ClaudeRuntimeExecutionResult(
+        message="ok",
+        status=JobStatus.COMPLETED,
+        result={"execution_mode": "interactive"},
+    )
+    dispatch = WorkerRuntimeDispatchService(
+        claude_runtime=MagicMock(spec=ClaudeRuntimeService),
+        registry=MagicMock(),
+        hermes_gateway_bridge=bridge,
+    )
+    payload = {"runtime_id": "hermes", "execution_mode": "interactive", "prompt": "hello"}
+    out = dispatch.execute_payload(payload, worker_id=None, queue_metadata=None)
+    assert out.status == JobStatus.COMPLETED
+    bridge.execute_interactive.assert_called_once_with(payload)
 
 
 def test_telegram_hermes_metadata_default_profile_is_default() -> None:
@@ -218,3 +261,156 @@ def test_telegram_hermes_profile_legacy_butler_maps_to_default() -> None:
     )
     assert s.telegram_hermes_profile == "default"
     assert s.hermes_metadata_fragment_for_worker()["profile"] == "default"
+
+
+def test_telegram_hermes_execution_mode_normalized() -> None:
+    from autoresearch.api.settings import TelegramSettings
+
+    s = TelegramSettings(
+        bot_token="t",
+        owner_uids={"1"},
+        partner_uids=set(),
+        allowed_uids={"1"},
+        telegram_hermes_execution_mode="INTERACTIVE",
+    )
+    assert s.telegram_hermes_execution_mode == "interactive"
+
+
+def test_dispatch_hermes_invokes_live_progress_while_waiting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        WorkerRuntimeDispatchService,
+        "_RUNTIME_STATUS_POLL_SECONDS",
+        0.01,
+    )
+    claude_rt = MagicMock(spec=ClaudeRuntimeService)
+    claude_rt.session_record_service = MagicMock()
+    adapter = MagicMock()
+    now = datetime.now(timezone.utc)
+    adapter.run.return_value = RuntimeRunRead(
+        runtime_id="hermes",
+        run_id="run-h",
+        session_id="sess-h",
+        task_name="tg",
+        status=JobStatus.RUNNING,
+        summary="go",
+        timeout_seconds=60,
+        created_at=now,
+        updated_at=now,
+        metadata={},
+    )
+    clock = {"t": 0.0}
+
+    def mono() -> float:
+        clock["t"] += 0.7
+        return float(clock["t"])
+
+    monkeypatch.setattr(
+        "autoresearch.core.services.worker_runtime_dispatch.time.monotonic",
+        mono,
+    )
+    adapter.status.side_effect = [
+        MagicMock(
+            run=RuntimeRunRead(
+                runtime_id="hermes",
+                run_id="run-h",
+                session_id="sess-h",
+                task_name="tg",
+                status=JobStatus.RUNNING,
+                summary="still",
+                stdout_preview="a\n",
+                timeout_seconds=60,
+                created_at=now,
+                updated_at=now,
+                metadata={},
+            )
+        ),
+        MagicMock(
+            run=RuntimeRunRead(
+                runtime_id="hermes",
+                run_id="run-h",
+                session_id="sess-h",
+                task_name="tg",
+                status=JobStatus.COMPLETED,
+                summary="done",
+                stdout_preview="a\nb",
+                timeout_seconds=60,
+                created_at=now,
+                updated_at=now,
+                metadata={},
+            )
+        ),
+    ]
+    registry = MagicMock()
+    registry.get.return_value = adapter
+
+    ticks: list[tuple[str, int]] = []
+
+    def live_cb(read: RuntimeRunRead, elapsed: int) -> None:
+        ticks.append((read.status.value, elapsed))
+
+    dispatch = WorkerRuntimeDispatchService(claude_runtime=claude_rt, registry=registry)
+    payload: dict[str, Any] = {
+        "runtime_id": "hermes",
+        "prompt": "ping",
+        "task_name": "tg",
+        "session_key": "sk1",
+        "timeout_seconds": 60,
+        "metadata": {"hermes": {"session_mode": "oneshot"}},
+    }
+    out = dispatch.execute_payload(
+        payload,
+        worker_id="w1",
+        queue_metadata=None,
+        hermes_live_progress=live_cb,
+        hermes_live_report_interval_seconds=1.0,
+        hermes_live_report_on_newline=False,
+    )
+    assert out.status == JobStatus.COMPLETED
+    assert len(ticks) >= 1
+
+
+def test_dispatch_hermes_timeout_sets_terminal_timeout_diagnostics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    claude_rt = MagicMock(spec=ClaudeRuntimeService)
+    claude_rt.session_record_service = MagicMock()
+    adapter = MagicMock()
+    now = datetime.now(timezone.utc)
+    adapter.run.return_value = RuntimeRunRead(
+        runtime_id="hermes",
+        run_id="run-timeout",
+        session_id="sess-timeout",
+        task_name="tg",
+        status=JobStatus.RUNNING,
+        summary="running",
+        timeout_seconds=30,
+        stdout_preview="partial",
+        created_at=now,
+        updated_at=now,
+        metadata={},
+    )
+    registry = MagicMock()
+    registry.get.return_value = adapter
+
+    dispatch = WorkerRuntimeDispatchService(claude_runtime=claude_rt, registry=registry)
+    monkeypatch.setattr(
+        dispatch,
+        "_wait_for_terminal_run",
+        lambda **kwargs: (adapter.run.return_value, False),
+    )
+    out = dispatch.execute_payload(
+        {
+            "runtime_id": "hermes",
+            "prompt": "ping",
+            "task_name": "tg",
+            "session_key": "sk-timeout",
+            "timeout_seconds": 30,
+        },
+        worker_id="w-timeout",
+        queue_metadata=None,
+    )
+    assert out.status == JobStatus.FAILED
+    assert out.result.get("error_kind") == "terminal_timeout"
+    assert out.metrics.get("exit_reason") == "terminal_timeout"

@@ -12,6 +12,7 @@ from autoresearch.core.services.claude_runtime_service import (
     ClaudeRuntimeExecutionResult,
     ClaudeRuntimeService,
 )
+from autoresearch.core.services.hermes_gateway_bridge import HermesGatewayBridge
 from autoresearch.core.services.runtime_adapter_contract import RuntimeAdapterContract
 from autoresearch.core.services.runtime_adapter_registry import RuntimeAdapterServiceRegistry
 from autoresearch.shared.models import JobStatus
@@ -26,6 +27,35 @@ _TERMINAL_RUNTIME_STATUSES = {
 }
 
 HermesLiveProgressCallback = Callable[[RuntimeRunRead, int], None]
+
+
+def _merge_dispatch_diagnostics(
+    *,
+    result: dict[str, Any] | None,
+    metrics: dict[str, Any] | None,
+    runtime_id: str,
+    worker_id: str | None,
+    error_kind: str | None = None,
+    exit_reason: str | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Attach stable dispatch diagnostics for Telegram/worker status surfaces."""
+    result_out = dict(result or {})
+    metrics_out = dict(metrics or {})
+    result_out.setdefault("runtime_id", runtime_id)
+    if worker_id:
+        result_out.setdefault("worker_id", worker_id)
+    if error_kind:
+        result_out["error_kind"] = error_kind
+    if exit_reason:
+        result_out["exit_reason"] = exit_reason
+    metrics_out.setdefault("dispatch_runtime", runtime_id)
+    if worker_id:
+        metrics_out.setdefault("dispatch_worker_id", worker_id)
+    if error_kind:
+        metrics_out["error_kind"] = error_kind
+    if exit_reason:
+        metrics_out["exit_reason"] = exit_reason
+    return result_out, metrics_out
 
 
 def build_runtime_run_request_for_telegram_hermes(payload: dict[str, Any]) -> RuntimeRunRequest:
@@ -93,6 +123,8 @@ def runtime_run_read_to_claude_execution_result(read: RuntimeRunRead) -> ClaudeR
 
     metrics = dict(read.metrics.model_dump(mode="json"))
     metrics.setdefault("duration_seconds", (read.metrics.duration_ms or 0) / 1000.0)
+    metrics.setdefault("dispatch_runtime", read.runtime_id)
+    metrics.setdefault("exit_reason", read.status.value)
 
     return ClaudeRuntimeExecutionResult(
         message=f"hermes_runtime {read.status.value}",
@@ -127,9 +159,11 @@ class WorkerRuntimeDispatchService:
         *,
         claude_runtime: ClaudeRuntimeService | None,
         registry: RuntimeAdapterServiceRegistry | None,
+        hermes_gateway_bridge: HermesGatewayBridge | None = None,
     ) -> None:
         self._claude_runtime = claude_runtime
         self._registry = registry
+        self._hermes_gateway_bridge = hermes_gateway_bridge
 
     def execute_payload(
         self,
@@ -144,10 +178,20 @@ class WorkerRuntimeDispatchService:
         runtime_id = str(payload.get("runtime_id") or "claude").strip().lower()
         if runtime_id == "claude":
             if self._claude_runtime is None:
+                result, metrics = _merge_dispatch_diagnostics(
+                    result={},
+                    metrics={},
+                    runtime_id="claude",
+                    worker_id=worker_id,
+                    error_kind="runtime_unavailable",
+                    exit_reason="claude_runtime_unavailable",
+                )
                 return ClaudeRuntimeExecutionResult(
                     message="claude_runtime not available",
                     status=JobStatus.FAILED,
                     error="ClaudeRuntimeService not configured on this worker",
+                    result=result,
+                    metrics=metrics,
                 )
             return self._claude_runtime.execute_payload(
                 payload,
@@ -156,6 +200,28 @@ class WorkerRuntimeDispatchService:
             )
 
         if runtime_id == "hermes":
+            execution_mode = str(payload.get("execution_mode") or "oneshot").strip().lower()
+            if execution_mode == "interactive":
+                if self._hermes_gateway_bridge is None:
+                    result, metrics = _merge_dispatch_diagnostics(
+                        result={
+                            "runtime_id": "hermes",
+                            "execution_mode": "interactive",
+                        },
+                        metrics={},
+                        runtime_id="hermes",
+                        worker_id=worker_id,
+                        error_kind="interactive_bridge_unavailable",
+                        exit_reason="interactive_bridge_unavailable",
+                    )
+                    return ClaudeRuntimeExecutionResult(
+                        message="hermes_interactive unavailable",
+                        status=JobStatus.FAILED,
+                        error="Hermes interactive bridge is not configured on this worker",
+                        result=result,
+                        metrics=metrics,
+                    )
+                return self._hermes_gateway_bridge.execute_interactive(payload)
             return self._execute_hermes(
                 payload,
                 worker_id=worker_id,
@@ -165,10 +231,20 @@ class WorkerRuntimeDispatchService:
                 live_report_on_newline=hermes_live_report_on_newline,
             )
 
+        result, metrics = _merge_dispatch_diagnostics(
+            result={},
+            metrics={},
+            runtime_id=runtime_id,
+            worker_id=worker_id,
+            error_kind="unsupported_runtime",
+            exit_reason="unsupported_runtime",
+        )
         return ClaudeRuntimeExecutionResult(
             message=f"unsupported runtime_id {runtime_id}",
             status=JobStatus.FAILED,
             error=f"unsupported runtime_id: {runtime_id}",
+            result=result,
+            metrics=metrics,
         )
 
     def _execute_hermes(
@@ -182,16 +258,36 @@ class WorkerRuntimeDispatchService:
         live_report_on_newline: bool,
     ) -> ClaudeRuntimeExecutionResult:
         if self._registry is None:
+            result, metrics = _merge_dispatch_diagnostics(
+                result={},
+                metrics={},
+                runtime_id="hermes",
+                worker_id=worker_id,
+                error_kind="runtime_registry_unavailable",
+                exit_reason="runtime_registry_unavailable",
+            )
             return ClaudeRuntimeExecutionResult(
                 message="hermes_runtime not available",
                 status=JobStatus.FAILED,
                 error="RuntimeAdapterServiceRegistry not configured on this worker",
+                result=result,
+                metrics=metrics,
             )
         if self._claude_runtime is None:
+            result, metrics = _merge_dispatch_diagnostics(
+                result={},
+                metrics={},
+                runtime_id="hermes",
+                worker_id=worker_id,
+                error_kind="claude_runtime_unavailable",
+                exit_reason="claude_runtime_unavailable",
+            )
             return ClaudeRuntimeExecutionResult(
                 message="hermes_runtime not available",
                 status=JobStatus.FAILED,
                 error="ClaudeRuntimeService not configured on this worker",
+                result=result,
+                metrics=metrics,
             )
 
         session_key = str(payload.get("session_key") or "")
@@ -211,11 +307,20 @@ class WorkerRuntimeDispatchService:
             request = build_runtime_run_request_for_telegram_hermes(payload)
         except ValueError as exc:
             self._update_sticky_hermes(session_key, JobStatus.FAILED, str(exc))
+            result, metrics = _merge_dispatch_diagnostics(
+                result={"telegram_hint": _telegram_hint_for_value_error()},
+                metrics={},
+                runtime_id="hermes",
+                worker_id=worker_id,
+                error_kind="invalid_request",
+                exit_reason="invalid_request",
+            )
             return ClaudeRuntimeExecutionResult(
                 message="hermes_runtime invalid request",
                 status=JobStatus.FAILED,
                 error=str(exc),
-                result={"error_kind": "invalid_request", "telegram_hint": _telegram_hint_for_value_error()},
+                result=result,
+                metrics=metrics,
             )
 
         adapter = self._registry.get("hermes")
@@ -225,27 +330,56 @@ class WorkerRuntimeDispatchService:
         except KeyError as exc:
             logger.warning("Hermes adapter missing: %s", exc)
             self._update_sticky_hermes(session_key, JobStatus.FAILED, str(exc))
+            result, metrics = _merge_dispatch_diagnostics(
+                result={},
+                metrics={},
+                runtime_id="hermes",
+                worker_id=worker_id,
+                error_kind="adapter_missing",
+                exit_reason="adapter_missing",
+            )
             return ClaudeRuntimeExecutionResult(
                 message="hermes_runtime not wired",
                 status=JobStatus.FAILED,
                 error=str(exc),
+                result=result,
+                metrics=metrics,
             )
         except ValueError as exc:
             logger.info("Hermes runtime rejected request: %s", exc)
             self._update_sticky_hermes(session_key, JobStatus.FAILED, str(exc))
+            result, metrics = _merge_dispatch_diagnostics(
+                result={"telegram_hint": _telegram_hint_for_value_error()},
+                metrics={},
+                runtime_id="hermes",
+                worker_id=worker_id,
+                error_kind="invalid_request",
+                exit_reason="invalid_request",
+            )
             return ClaudeRuntimeExecutionResult(
                 message="hermes_runtime invalid request",
                 status=JobStatus.FAILED,
                 error=str(exc),
-                result={"error_kind": "invalid_request", "telegram_hint": _telegram_hint_for_value_error()},
+                result=result,
+                metrics=metrics,
             )
         except Exception as exc:
             logger.exception("Hermes runtime execute failed")
             self._update_sticky_hermes(session_key, JobStatus.FAILED, str(exc))
+            result, metrics = _merge_dispatch_diagnostics(
+                result={},
+                metrics={},
+                runtime_id="hermes",
+                worker_id=worker_id,
+                error_kind="runtime_execute_failed",
+                exit_reason="runtime_execute_failed",
+            )
             return ClaudeRuntimeExecutionResult(
                 message="hermes_runtime failed",
                 status=JobStatus.FAILED,
                 error=str(exc),
+                result=result,
+                metrics=metrics,
             )
 
         final_read, reached_terminal = self._wait_for_terminal_run(
@@ -267,10 +401,7 @@ class WorkerRuntimeDispatchService:
                 final_read.status.value,
             )
             self._update_sticky_hermes(session_key, JobStatus.FAILED, error)
-            return ClaudeRuntimeExecutionResult(
-                message="hermes_runtime timed out waiting for completion",
-                status=JobStatus.FAILED,
-                error=error,
+            result, metrics = _merge_dispatch_diagnostics(
                 result={
                     "runtime_run_id": final_read.run_id,
                     "session_id": final_read.session_id,
@@ -282,9 +413,29 @@ class WorkerRuntimeDispatchService:
                 metrics={
                     "duration_seconds": (final_read.metrics.duration_ms or 0) / 1000.0,
                 },
+                runtime_id="hermes",
+                worker_id=worker_id,
+                error_kind="terminal_timeout",
+                exit_reason="terminal_timeout",
+            )
+            return ClaudeRuntimeExecutionResult(
+                message="hermes_runtime timed out waiting for completion",
+                status=JobStatus.FAILED,
+                error=error,
+                result=result,
+                metrics=metrics,
             )
 
         outcome = runtime_run_read_to_claude_execution_result(final_read)
+        result, metrics = _merge_dispatch_diagnostics(
+            result=outcome.result,
+            metrics=outcome.metrics,
+            runtime_id="hermes",
+            worker_id=worker_id,
+            exit_reason=final_read.status.value,
+        )
+        outcome.result = result
+        outcome.metrics = metrics
         summary = (final_read.summary or final_read.stdout_preview or "")[:500]
         if final_read.status != JobStatus.COMPLETED:
             summary = (final_read.error or final_read.summary or "unknown")[:500]

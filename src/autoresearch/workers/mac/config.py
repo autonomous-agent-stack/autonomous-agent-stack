@@ -77,6 +77,13 @@ class MacWorkerConfig:
             os.getenv("AUTORESEARCH_TELEGRAM_BUTLER_LIVE_ON_NEWLINE"),
             default=False,
         )
+        hermes_interactive_enabled = _parse_bool(
+            os.getenv("AUTORESEARCH_HERMES_INTERACTIVE_ENABLED"),
+            default=False,
+        )
+        capabilities = list(cls.capabilities)
+        if hermes_interactive_enabled and "hermes_interactive" not in capabilities:
+            capabilities.append("hermes_interactive")
         return cls(
             worker_id=_sanitize_worker_id(os.getenv("WORKER_ID", default_worker_id)),
             control_plane_base_url=base_url,
@@ -88,6 +95,7 @@ class MacWorkerConfig:
             housekeeping_root=housekeeping_root,
             dry_run=_parse_bool(os.getenv("WORKER_DRY_RUN"), default=True),
             role=os.getenv("WORKER_ROLE", "housekeeper").strip() or "housekeeper",
+            capabilities=tuple(capabilities),
             telegram_reply_brand=telegram_reply_brand,
             hermes_live_report_interval_seconds=hermes_live_report_interval_seconds,
             hermes_live_report_on_newline=hermes_live_report_on_newline,

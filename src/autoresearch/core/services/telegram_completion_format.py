@@ -6,6 +6,22 @@ import re
 from typing import Any
 
 
+def telegram_runtime_attribution_row(runtime_id: str | None) -> tuple[str, str]:
+    """Bilingual table key + normalized runtime value for Telegram butler cards."""
+    key = "执行面 | Runtime"
+    rid = (runtime_id or "claude").strip().lower()
+    return key, rid if rid else "claude"
+
+
+def telegram_agent_attribution_row(agent_name: str | None) -> tuple[str, str]:
+    """Bilingual table key + agent display value (placeholder when unset)."""
+    key = "Agent 名称 | Agent name"
+    name = (agent_name or "").strip()
+    if not name:
+        return key, "（未命名）| (unnamed)"
+    return key, name[:200]
+
+
 def strip_trailing_eof_marker(text: str) -> str:
     """Remove a final line that is only ``EOF`` (Hermes soft end marker)."""
     lines = (text or "").replace("\r\n", "\n").split("\n")
@@ -46,6 +62,17 @@ def format_butler_live_status_message(
         parts.append(f"- runtime_run: `{rid}`")
     if msg:
         parts.append(f"- worker: {msg[:200]}")
+    r_disp = str(metrics.get("telegram_display_runtime_id") or "").strip().lower()
+    a_disp = str(metrics.get("telegram_display_agent_name") or "").strip()
+    if r_disp or a_disp:
+        parts.append("")
+        r_show = r_disp or "?"
+        if a_disp:
+            parts.append(f"- 执行面 runtime: {r_show}")
+            parts.append(f"- Agent 名称 | Agent name: {a_disp[:500]}")
+        else:
+            parts.append(f"- 执行面 runtime: {r_show}")
+            parts.append("- Agent 名称 | Agent name: （未命名）| (unnamed)")
     if tail:
         parts.append("")
         parts.append("```")

@@ -141,10 +141,12 @@ class WorkerInventoryService:
             return "offline"
         if worker.health in {WorkerHealth.DEGRADED, WorkerHealth.ERROR}:
             return "degraded"
-        if not worker.accepting_work or worker.mode == WorkerMode.DRAINING:
-            return "degraded"
+        # Heartbeat sets accepting_work=False while a run is executing; that must still
+        # project as busy (not degraded), otherwise Telegram/status reads "异常/离线".
         if active_tasks > 0 or worker.queue_depth > 0:
             return "busy"
+        if worker.mode == WorkerMode.DRAINING or not worker.accepting_work:
+            return "degraded"
         return "online"
 
     @staticmethod

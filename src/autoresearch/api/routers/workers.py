@@ -18,6 +18,8 @@ from autoresearch.api.settings import TelegramSettings
 from autoresearch.core.services.telegram_completion_format import (
     format_butler_live_status_message,
     polish_butler_completion_card,
+    telegram_agent_attribution_row,
+    telegram_runtime_attribution_row,
 )
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
 from autoresearch.core.services.worker_inventory import WorkerInventoryService
@@ -423,18 +425,27 @@ def _compose_butler_fallback_text(
     """Same brand + KV-table layout as the worker-side card so the chat reads consistently."""
     brand = (settings.telegram_worker_display_name or "").strip()
     task_name = (run.task_name or run.task_type.value or "(unnamed)").strip() or "(unnamed)"
+    payload = run.payload if isinstance(run.payload, dict) else {}
     summary = ""
     result = run.result if isinstance(run.result, dict) else {}
+    metrics = run.metrics if isinstance(run.metrics, dict) else {}
     summary = str(result.get("summary") or run.message or "").strip()
+    phase = str(metrics.get("telegram_live_phase") or run.status.value).strip().lower() or run.status.value
+    exit_reason = str(metrics.get("exit_reason") or result.get("exit_reason") or "").strip()
 
     rows = [
         ("任务", task_name),
         ("run_id", str(run.run_id)),
         ("状态", run.status.value),
+        ("阶段 | Phase", phase),
+        telegram_runtime_attribution_row(str(payload.get("runtime_id") or "claude")),
+        telegram_agent_attribution_row(str(payload.get("agent_name") or "")),
         ("通知", "管家兜底（worker 未送达）"),
     ]
     if notify_state:
         rows.append(("worker 投递", notify_state))
+    if exit_reason:
+        rows.append(("退出原因 | Exit reason", exit_reason[:300]))
     if summary:
         rows.append(("摘要", summary[:600]))
 
