@@ -13,6 +13,9 @@ routing:
   accepts:
     - "excel_audit"
     - "github_admin"
+    - "github_ops_accountA"
+    - "github_ops_accountB"
+    - "youtube_ops"
     - "content_kb"
   keywords:
     - "管家"
@@ -66,6 +69,9 @@ gates:
 downstream_agents:
   - "excel_audit"
   - "github_admin"
+  - "github_ops_accountA"
+  - "github_ops_accountB"
+  - "youtube_ops"
   - "content_kb"
 
 prompts:

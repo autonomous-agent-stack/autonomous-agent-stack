@@ -1,0 +1,17 @@
+profile_id: "github_accountA"
+description: "GitHub account A execution profile"
+
+auth:
+  token_env: "GITHUB_TOKEN_ACCOUNT_A"
+  fallback_token_env: "GITHUB_TOKEN"
+
+defaults:
+  base_branch: "main"
+  allowed_owners: []
+  allowed_repos: []
+  dry_run_default: false
+
+safety:
+  require_explicit_repo: true
+  block_force_push: true
+  block_delete_branch: true

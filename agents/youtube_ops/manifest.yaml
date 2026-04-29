@@ -1,0 +1,70 @@
+version: "1"
+
+agent:
+  id: "youtube_ops"
+  name: "YouTube Ops Agent"
+  description: "负责 YouTube 巡检、转录、摘要和问答产物整理（固定使用 yt-dlp 工具链）"
+  role: "specialist"
+
+routing:
+  task_types:
+    - "youtube_ops.subscription_check"
+    - "youtube_ops.fetch_transcript"
+    - "youtube_ops.build_digest"
+    - "youtube_ops.qa"
+  keywords:
+    - "YouTube"
+    - "yt-dlp"
+    - "字幕"
+    - "转录"
+    - "摘要"
+
+execution:
+  default_driver: "claude_code"
+  fallback_drivers:
+    - "codex"
+  workspace_mode: "isolated"
+  allow_code_change: false
+  require_patch_gate: false
+
+inputs:
+  required:
+    - "action"
+  optional:
+    - "source_url"
+    - "video_id"
+    - "subscription_id"
+    - "preferred_languages"
+    - "metadata"
+
+outputs:
+  schema:
+    type: "object"
+    required:
+      - "status"
+      - "action"
+  artifacts:
+    - "youtube_ops_result.json"
+    - "youtube_ops_summary.md"
+
+permissions:
+  filesystem:
+    read:
+      - "configs/tool_profiles/"
+      - "docs/"
+    write:
+      - "artifacts/youtube_ops/"
+  network: "allow"
+  git:
+    commit: false
+    push: false
+
+runtime:
+  deterministic_execution_required: true
+  tools_profile: "youtube_yt_dlp_tools"
+
+gates:
+  validators:
+    - "yt-dlp-required"
+  approvals:
+    human_required_for: []

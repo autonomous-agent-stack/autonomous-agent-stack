@@ -1,0 +1,24 @@
+profile_id: "github_shared_tools"
+description: "Shared GitHub toolchain for multi-account ops agents"
+
+tools:
+  required:
+    - "gh"
+  optional:
+    - "jq"
+    - "python3"
+
+gh_policy:
+  required_auth_check: true
+  allow_issue_ops: true
+  allow_pr_ops: true
+  allow_checks_read: true
+  allow_comment_write: true
+  allow_label_write: true
+  allow_release_write: false
+
+execution:
+  timeout_seconds: 120
+  retry:
+    max_attempts: 2
+    backoff_seconds: 2

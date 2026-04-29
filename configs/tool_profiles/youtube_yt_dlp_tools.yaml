@@ -1,0 +1,24 @@
+profile_id: "youtube_yt_dlp_tools"
+description: "YouTube ops toolchain with mandatory yt-dlp"
+
+tools:
+  required:
+    - "yt-dlp"
+    - "python3"
+  optional:
+    - "ffmpeg"
+    - "jq"
+
+yt_dlp_policy:
+  enabled: true
+  require_binary_present: true
+  allow_subtitles_download: true
+  allow_metadata_extract: true
+  allow_playlist_scan: true
+  default_timeout_seconds: 180
+
+execution:
+  timeout_seconds: 300
+  retry:
+    max_attempts: 2
+    backoff_seconds: 3

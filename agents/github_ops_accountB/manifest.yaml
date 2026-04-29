@@ -1,0 +1,76 @@
+version: "1"
+
+agent:
+  id: "github_ops_accountB"
+  name: "GitHub Ops Account B"
+  description: "使用账号B执行 GitHub 日常运维（issue/PR/checks/comment/labels）"
+  role: "specialist"
+
+routing:
+  task_types:
+    - "github_ops.accountB"
+    - "github_ops.issue_ops"
+    - "github_ops.pr_ops"
+    - "github_ops.checks"
+  keywords:
+    - "GitHub B"
+    - "accountB"
+    - "B账号"
+    - "PR处理"
+    - "issue处理"
+
+execution:
+  default_driver: "claude_code"
+  fallback_drivers:
+    - "codex"
+  workspace_mode: "isolated"
+  allow_code_change: false
+  require_patch_gate: false
+
+inputs:
+  required:
+    - "action"
+    - "repo"
+  optional:
+    - "issue_number"
+    - "pr_number"
+    - "comment"
+    - "labels"
+    - "metadata"
+
+outputs:
+  schema:
+    type: "object"
+    required:
+      - "status"
+      - "account_profile"
+      - "action"
+  artifacts:
+    - "github_ops_result.json"
+    - "github_ops_summary.md"
+
+permissions:
+  filesystem:
+    read:
+      - "configs/github_accounts/"
+      - "configs/tool_profiles/"
+      - "docs/"
+    write:
+      - "artifacts/github_ops/"
+  network: "allow"
+  git:
+    commit: false
+    push: false
+
+runtime:
+  deterministic_execution_required: true
+  env_profile: "github_accountB"
+  tools_profile: "github_shared_tools"
+
+gates:
+  validators:
+    - "repo-allowlist-accountB"
+  approvals:
+    human_required_for:
+      - "merge_pr"
+      - "close_issue"
