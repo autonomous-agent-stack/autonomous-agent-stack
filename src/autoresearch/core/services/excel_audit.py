@@ -120,6 +120,17 @@ class ExcelAuditService:
             findings_count=len(report.result.findings),
         )
 
+    def store_metadata(self, audit_id: str, metadata: dict[str, Any]) -> ExcelAuditRead:
+        """Update metadata on an existing audit record without changing status."""
+        record = self._repository.get(audit_id)
+        if record is None:
+            raise ValueError(f"Audit {audit_id} not found")
+        record = record.model_copy(update={
+            "metadata": metadata,
+            "updated_at": utc_now(),
+        })
+        return self._repository.save(audit_id, record)
+
     def create_and_execute(self, request: ExcelAuditCreateRequest) -> ExcelAuditRead:
         """Create and immediately execute an audit."""
         record = self.create(request)

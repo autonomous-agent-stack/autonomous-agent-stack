@@ -65,12 +65,12 @@ class EnvironmentDefender:
         result = subprocess.run(find_cmd, capture_output=True, text=True)
         
         if result.returncode != 0:
-            logger.error(f"[Env Defender] 查找失败: {result.stderr}")
+            logger.error("[Env Defender] 查找失败: %s", result.stderr)
             return {"status": "error", "error": result.stderr}
             
         files = [f for f in result.stdout.strip().split("\n") if f]
         
-        logger.info(f"[Env Defender] 发现 {len(files)} 个 AppleDouble 文件")
+        logger.info("[Env Defender] 发现 %s 个 AppleDouble 文件", len(files))
         
         if dry_run:
             return {
@@ -90,10 +90,10 @@ class EnvironmentDefender:
             except Exception as e:
                 errors.append(f"{file_path}: {str(e)}")
                 
-        logger.info(f"[Env Defender] 已删除 {deleted} 个文件")
+        logger.info("[Env Defender] 已删除 %s 个文件", deleted)
         
         if errors:
-            logger.warning(f"[Env Defender] {len(errors)} 个文件删除失败")
+            logger.warning("[Env Defender] %s 个文件删除失败", len(errors))
             
         return {
             "status": "cleaned",
@@ -103,7 +103,7 @@ class EnvironmentDefender:
         
     def purge_old_logs(self, days: int = 90) -> Dict[str, Any]:
         """清理旧审计日志"""
-        logger.info(f"[Env Defender] 清理 {days} 天前的审计日志")
+        logger.info("[Env Defender] 清理 %s 天前的审计日志", days)
         
         if not self.db_path.exists():
             logger.info("[Env Defender] 数据库不存在，跳过")
@@ -129,7 +129,7 @@ class EnvironmentDefender:
         conn.commit()
         conn.close()
         
-        logger.info(f"[Env Defender] 已清理 {deleted_metrics} 条性能记录, {deleted_reports} 条审计报告")
+        logger.info("[Env Defender] 已清理 %s 条性能记录, %s 条审计报告", deleted_metrics, deleted_reports)
         
         return {
             "status": "purged",
@@ -166,7 +166,7 @@ class EnvironmentDefender:
                 logger.info("[Env Defender] Docker 镜像清理完成")
                 return {"status": "cleaned", "output": result.stdout}
             else:
-                logger.error(f"[Env Defender] Docker 清理失败: {result.stderr}")
+                logger.error("[Env Defender] Docker 清理失败: %s", result.stderr)
                 return {"status": "error", "error": result.stderr}
                 
         except subprocess.TimeoutExpired:
@@ -176,7 +176,7 @@ class EnvironmentDefender:
             logger.info("[Env Defender] Docker 未安装，跳过")
             return {"status": "skipped", "reason": "Docker 未安装"}
         except Exception as e:
-            logger.error(f"[Env Defender] Docker 操作失败: {e}")
+            logger.error("[Env Defender] Docker 操作失败: %s", e)
             return {"status": "error", "error": str(e)}
             
     def run_cleanup(self, dry_run: bool = False):

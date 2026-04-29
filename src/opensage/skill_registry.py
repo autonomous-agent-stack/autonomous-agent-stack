@@ -61,10 +61,10 @@ class SkillRegistry:
                         enabled=True
                     )
 
-                    logger.info(f"[SkillRegistry] 📦 已加载本地技能: {skill_id}")
+                    logger.info("[SkillRegistry] 📦 已加载本地技能: %s", skill_id)
 
                 except Exception as e:
-                    logger.error(f"[SkillRegistry] ❌ 加载失败 {skill_dir}: {e}")
+                    logger.error("[SkillRegistry] ❌ 加载失败 %s: %s", skill_dir, e)
 
     async def fetch_skill_manifest(self, url: str) -> Optional[Dict[str, Any]]:
         """获取技能清单"""
@@ -76,14 +76,14 @@ class SkillRegistry:
                 async with session.get(manifest_url, timeout=10) as response:
                     if response.status == 200:
                         manifest = await response.json()
-                        logger.info(f"[SkillRegistry] 📋 获取清单成功: {url}")
+                        logger.info("[SkillRegistry] 📋 获取清单成功: %s", url)
                         return manifest
                     else:
-                        logger.warning(f"[SkillRegistry] ⚠️ 清单不存在: {url}")
+                        logger.warning("[SkillRegistry] ⚠️ 清单不存在: %s", url)
                         return None
 
         except Exception as e:
-            logger.error(f"[SkillRegistry] ❌ 获取清单失败: {e}")
+            logger.error("[SkillRegistry] ❌ 获取清单失败: %s", e)
             return None
 
     async def download_skill(self, url: str) -> Optional[str]:
@@ -100,7 +100,7 @@ class SkillRegistry:
                 return await self._download_zip(zip_url)
 
         except Exception as e:
-            logger.error(f"[SkillRegistry] ❌ 下载失败: {e}")
+            logger.error("[SkillRegistry] ❌ 下载失败: %s", e)
             return None
 
     async def _download_zip(self, url: str) -> Optional[str]:
@@ -109,7 +109,7 @@ class SkillRegistry:
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, timeout=30) as response:
                     if response.status != 200:
-                        logger.error(f"[SkillRegistry] ❌ 下载失败: HTTP {response.status}")
+                        logger.error("[SkillRegistry] ❌ 下载失败: HTTP %s", response.status)
                         return None
 
                     # 保存到临时文件
@@ -127,11 +127,11 @@ class SkillRegistry:
                     # 清理临时文件
                     Path(tmp_path).unlink()
 
-                    logger.info(f"[SkillRegistry] ✅ ZIP 已解压: {skill_id}")
+                    logger.info("[SkillRegistry] ✅ ZIP 已解压: %s", skill_id)
                     return skill_id
 
         except Exception as e:
-            logger.error(f"[SkillRegistry] ❌ ZIP 下载失败: {e}")
+            logger.error("[SkillRegistry] ❌ ZIP 下载失败: %s", e)
             return None
 
     async def _download_py(self, url: str) -> Optional[str]:
@@ -140,7 +140,7 @@ class SkillRegistry:
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, timeout=10) as response:
                     if response.status != 200:
-                        logger.error(f"[SkillRegistry] ❌ 下载失败: HTTP {response.status}")
+                        logger.error("[SkillRegistry] ❌ 下载失败: HTTP %s", response.status)
                         return None
 
                     # 保存文件
@@ -151,11 +151,11 @@ class SkillRegistry:
                     skill_file = skill_dir / f"{skill_id}.py"
                     skill_file.write_bytes(await response.read())
 
-                    logger.info(f"[SkillRegistry] ✅ Python 已下载: {skill_id}")
+                    logger.info("[SkillRegistry] ✅ Python 已下载: %s", skill_id)
                     return skill_id
 
         except Exception as e:
-            logger.error(f"[SkillRegistry] ❌ Python 下载失败: {e}")
+            logger.error("[SkillRegistry] ❌ Python 下载失败: %s", e)
             return None
 
     async def validate_skill(self, skill_id: str) -> bool:
@@ -164,20 +164,20 @@ class SkillRegistry:
             skill_dir = self.skills_dir / skill_id
 
             if not skill_dir.exists():
-                logger.error(f"[SkillRegistry] ❌ 技能不存在: {skill_id}")
+                logger.error("[SkillRegistry] ❌ 技能不存在: %s", skill_id)
                 return False
 
             # 扫描所有 Python 文件
             for py_file in skill_dir.rglob("*.py"):
                 if not await self._validate_py_file(py_file):
-                    logger.error(f"[SkillRegistry] ❌ 验证失败: {py_file}")
+                    logger.error("[SkillRegistry] ❌ 验证失败: %s", py_file)
                     return False
 
-            logger.info(f"[SkillRegistry] ✅ 技能验证通过: {skill_id}")
+            logger.info("[SkillRegistry] ✅ 技能验证通过: %s", skill_id)
             return True
 
         except Exception as e:
-            logger.error(f"[SkillRegistry] ❌ 验证异常: {e}")
+            logger.error("[SkillRegistry] ❌ 验证异常: %s", e)
             return False
 
     async def _validate_py_file(self, py_file: Path) -> bool:
@@ -197,13 +197,13 @@ class SkillRegistry:
             for node in ast.walk(tree):
                 if isinstance(node, ast.Name):
                     if node.id in blacklist:
-                        logger.warning(f"[SkillRegistry] ⚠️ 危险函数: {node.id}")
+                        logger.warning("[SkillRegistry] ⚠️ 危险函数: %s", node.id)
                         return False
 
             return True
 
         except Exception as e:
-            logger.error(f"[SkillRegistry] ❌ AST 扫描失败: {e}")
+            logger.error("[SkillRegistry] ❌ AST 扫描失败: %s", e)
             return False
 
     async def install_skill(self, url: str) -> Optional[str]:
@@ -219,7 +219,7 @@ class SkillRegistry:
 
             # 验证技能
             if not await self.validate_skill(skill_id):
-                logger.error(f"[SkillRegistry] ❌ 安装失败（验证不通过）: {skill_id}")
+                logger.error("[SkillRegistry] ❌ 安装失败（验证不通过）: %s", skill_id)
                 return None
 
             # 动态挂载
@@ -236,11 +236,11 @@ class SkillRegistry:
                 enabled=True
             )
 
-            logger.info(f"[SkillRegistry] 🎉 技能已安装: {skill_id}")
+            logger.info("[SkillRegistry] 🎉 技能已安装: %s", skill_id)
             return skill_id
 
         except Exception as e:
-            logger.error(f"[SkillRegistry] ❌ 安装失败: {e}")
+            logger.error("[SkillRegistry] ❌ 安装失败: %s", e)
             return None
 
     async def _mount_skill(self, skill_id: str):
@@ -255,7 +255,7 @@ class SkillRegistry:
                 if py_files:
                     skill_file = py_files[0]
                 else:
-                    logger.error(f"[SkillRegistry] ❌ 无 Python 文件: {skill_id}")
+                    logger.error("[SkillRegistry] ❌ 无 Python 文件: %s", skill_id)
                     return
 
             # 动态加载
@@ -267,10 +267,10 @@ class SkillRegistry:
             if skill_id in self.registry:
                 self.registry[skill_id].module = module
 
-            logger.info(f"[SkillRegistry] 🔌 已挂载: {skill_id}")
+            logger.info("[SkillRegistry] 🔌 已挂载: %s", skill_id)
 
         except Exception as e:
-            logger.error(f"[SkillRegistry] ❌ 挂载失败: {e}")
+            logger.error("[SkillRegistry] ❌ 挂载失败: %s", e)
 
     def list_skills(self) -> List[Skill]:
         """列出所有技能"""
@@ -293,13 +293,13 @@ class SkillRegistry:
             # 调用 execute 函数
             if hasattr(skill.module, "execute"):
                 result = await skill.module.execute(*args, **kwargs)
-                logger.info(f"[SkillRegistry] ✅ 执行成功: {skill_id}")
+                logger.info("[SkillRegistry] ✅ 执行成功: %s", skill_id)
                 return result
             else:
                 raise ValueError(f"技能缺少 execute 函数: {skill_id}")
 
         except Exception as e:
-            logger.error(f"[SkillRegistry] ❌ 执行失败: {e}")
+            logger.error("[SkillRegistry] ❌ 执行失败: %s", e)
             raise
 
 

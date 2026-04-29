@@ -56,7 +56,7 @@ class AppleDoubleCleaner:
         dir_path = Path(directory).resolve()
         
         if not dir_path.exists():
-            logger.warning(f"目录不存在: {dir_path}")
+            logger.warning("目录不存在: %s", dir_path)
             return deleted_files
         
         # 使用 find 命令清理（M1 Mac 优化）
@@ -94,13 +94,13 @@ class AppleDoubleCleaner:
                                 if not dry_run:
                                     try:
                                         file_path.unlink()
-                                        logger.info(f"已删除: {file_path}")
+                                        logger.info("已删除: %s", file_path)
                                     except Exception as e:
-                                        logger.warning(f"删除失败: {file_path} - {e}")
+                                        logger.warning("删除失败: %s - %s", file_path, e)
                                     else:
                                         deleted_files.append(str(file_path))
                                 else:
-                                    logger.info(f"[DRY-RUN] 将删除: {file_path}")
+                                    logger.info("[DRY-RUN] 将删除: %s", file_path)
                                     deleted_files.append(str(file_path))
                 
                 else:
@@ -117,19 +117,19 @@ class AppleDoubleCleaner:
                                     file_path.unlink()
                                 elif file_path.is_dir():
                                     file_path.rmdir()
-                                logger.info(f"已删除: {file_path}")
+                                logger.info("已删除: %s", file_path)
                             except Exception as e:
-                                logger.warning(f"删除失败: {file_path} - {e}")
+                                logger.warning("删除失败: %s - %s", file_path, e)
                             else:
                                 deleted_files.append(str(file_path))
                         else:
-                            logger.info(f"[DRY-RUN] 将删除: {file_path}")
+                            logger.info("[DRY-RUN] 将删除: %s", file_path)
                             deleted_files.append(str(file_path))
         
         except Exception as e:
-            logger.error(f"清理失败: {e}", exc_info=True)
+            logger.error("清理失败: %s", e, exc_info=True)
         
-        logger.info(f"[环境防御] 清理完成，共删除 {len(deleted_files)} 个文件")
+        logger.info("[环境防御] 清理完成，共删除 %s 个文件", len(deleted_files))
         
         return deleted_files
     
@@ -141,12 +141,12 @@ class AppleDoubleCleaner:
             task_name: 任务名称
             work_dir: 工作目录
         """
-        logger.info(f"[环境防御] 任务 '{task_name}' 启动前清理")
+        logger.info("[环境防御] 任务 '%s' 启动前清理", task_name)
         
         deleted = cls.clean(directory=work_dir, recursive=True)
         
         if deleted:
-            logger.info(f"[环境防御] 已清理 {len(deleted)} 个 AppleDouble 文件")
+            logger.info("[环境防御] 已清理 %s 个 AppleDouble 文件", len(deleted))
         else:
             logger.info("[环境防御] 环境干净，无需清理")
 

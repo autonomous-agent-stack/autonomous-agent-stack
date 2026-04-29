@@ -1,9 +1,8 @@
-"""Topic Router - Telegram Topics 分流路由器
+"""Topic intent classifier — keyword-based Telegram Topics intent routing.
 
-功能：
-1. 路由映射表（MARKET, CREATIVE, AUDIT）
-2. 镜像转发（主群组简报 + Topic 深度数据）
-3. 意图识别与分流
+NOTE: This module is not wired into the mainline webhook handler.
+Production intent routing uses ButlerIntentRouter (butler_router.py).
+This classifier remains available for Topic-specific thread routing.
 """
 
 from __future__ import annotations
@@ -23,8 +22,12 @@ class TopicCategory(str, Enum):
     BUSINESS = "business"  # 业务咨询
 
 
-class TopicRouter:
-    """Telegram Topics 分流路由器"""
+class TopicIntentClassifier:
+    """Keyword-based Telegram Topics intent classifier.
+
+    Maps user text to a TopicCategory and resolves the target thread_id.
+    Complements ButlerIntentRouter for Topic-specific routing.
+    """
     
     # 路由映射表（可在环境变量中配置）
     DEFAULT_TOPIC_MAPPING = {
@@ -208,7 +211,7 @@ class TopicRouter:
 # ========================================================================
 
 if __name__ == "__main__":
-    router = TopicRouter()
+    router = TopicIntentClassifier()
     
     # 测试意图分类
     test_cases = [

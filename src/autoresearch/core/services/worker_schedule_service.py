@@ -307,9 +307,11 @@ class WorkerScheduleDaemon:
     async def stop(self) -> None:
         if not self._started:
             return
-        self._scheduler.shutdown(wait=False)
+        logger.info("Worker schedule daemon stopping, waiting for in-flight jobs...")
+        self._scheduler.shutdown(wait=True)
         self._started = False
         self._service.bind_daemon(None)
+        logger.info("Worker schedule daemon stopped cleanly")
 
     def sync_schedule(self, schedule: WorkerRunScheduleRead) -> None:
         if self._started and self._job_exists(schedule.schedule_id):

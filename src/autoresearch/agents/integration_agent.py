@@ -48,7 +48,7 @@ class IntegrationAgent:
     
     async def execute(self, command: str) -> str:
         """执行命令"""
-        logger.info(f"🔧 执行命令: {command}")
+        logger.info("🔧 执行命令: %s", command)
         
         try:
             result = subprocess.run(
@@ -61,7 +61,7 @@ class IntegrationAgent:
             )
             
             if result.returncode != 0:
-                logger.error(f"❌ 命令失败: {result.stderr}")
+                logger.error("❌ 命令失败: %s", result.stderr)
                 raise RuntimeError(f"命令执行失败: {result.stderr}")
             
             return result.stdout
@@ -72,7 +72,7 @@ class IntegrationAgent:
     
     async def clone_repo(self, repo_url: str) -> Path:
         """克隆仓库"""
-        logger.info(f"📥 克隆仓库: {repo_url}")
+        logger.info("📥 克隆仓库: %s", repo_url)
         
         # 提取仓库名
         repo_name = repo_url.split("/")[-1].replace(".git", "")
@@ -81,12 +81,12 @@ class IntegrationAgent:
         # 克隆仓库
         await self.execute(f"git clone {repo_url} {repo_path}")
         
-        logger.info(f"✅ 仓库已克隆: {repo_path}")
+        logger.info("✅ 仓库已克隆: %s", repo_path)
         return repo_path
     
     async def analyze_protocol(self, repo_path: Path) -> ProtocolSpec:
         """分析协议"""
-        logger.info(f"🔍 分析协议: {repo_path}")
+        logger.info("🔍 分析协议: %s", repo_path)
 
         py_files = [path for path in repo_path.rglob("*.py") if ".git" not in path.parts]
         text_files = [path for path in repo_path.rglob("*") if path.is_file()]
@@ -199,7 +199,7 @@ class TriggerAndParse:
         Returns:
             ProtocolSpec
         """
-        logger.info(f"🚀 开始解析: {repo_url}")
+        logger.info("🚀 开始解析: %s", repo_url)
         
         # 1. 克隆仓库
         repo_path = await self.agent.clone_repo(repo_url)
@@ -207,7 +207,7 @@ class TriggerAndParse:
         # 2. 分析协议
         spec = await self.agent.analyze_protocol(repo_path)
         
-        logger.info(f"✅ 协议解析完成: {spec.name}")
+        logger.info("✅ 协议解析完成: %s", spec.name)
         return spec
 
 

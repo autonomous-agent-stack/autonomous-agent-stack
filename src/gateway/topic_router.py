@@ -1,10 +1,17 @@
-"""
-话题路由器 - 实现动态路由选择和消息分发
+"""Topic message router — route_table-based message delivery and mirroring.
+
+Routes messages by type to specific Telegram Topics via a configurable
+route table, with optional message mirroring to backup threads.
+
+NOTE: For keyword-based intent *classification*, see
+autoresearch.core.services.topic_intent_classifier.TopicIntentClassifier.
+This module handles message *delivery*, not intent detection.
 """
 
+import itertools
 import logging
 import os
-from typing import Dict, Optional
+from typing import ClassVar, Dict, Optional
 
 import httpx
 from .route_table import RouteTable
@@ -71,7 +78,7 @@ class TopicRouter:
             if not route:
                 return {
                     "status": "error",
-                    "error": f"No route found for message type: {message_type}",
+                    "error": "No route found for message type: %s" % message_type,
                     "message_type": message_type
                 }
             
@@ -253,11 +260,11 @@ class TopicRouter:
         )
         return mock_id
 
-    @staticmethod
-    def _generate_mock_message_id() -> int:
-        import random
+    _mock_id_counter: ClassVar[itertools.count] = itertools.count(1000)
 
-        return random.randint(1000, 9999)
+    @classmethod
+    def _generate_mock_message_id(cls) -> int:
+        return next(cls._mock_id_counter)
     
     async def broadcast_message(
         self,

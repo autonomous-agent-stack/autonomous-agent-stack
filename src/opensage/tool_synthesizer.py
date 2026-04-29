@@ -58,7 +58,7 @@ class ToolSynthesizer:
             tool_hash = hashlib.md5(task_description.encode()).hexdigest()[:8]
             tool_name = f"synth_tool_{tool_hash}"
             
-        logger.info(f"[Tool Synthesizer] 合成工具: {tool_name}")
+        logger.info("[Tool Synthesizer] 合成工具: %s", tool_name)
         
         # 创建工具对象
         tool = SynthesizedTool(
@@ -70,7 +70,7 @@ class ToolSynthesizer:
         # 1. AST 安全审计
         if not await self._validate_code(code_snippet):
             tool.error = "代码未通过安全审计"
-            logger.error(f"[Tool Synthesizer] {tool.error}")
+            logger.error("[Tool Synthesizer] %s", tool.error)
             return tool
             
         # 2. 封装为完整模块
@@ -98,14 +98,14 @@ class ToolSynthesizer:
                     tool.module = module
                     tool.is_valid = True
                     
-                    logger.info(f"[Tool Synthesizer] 工具合成成功: {tool_name}")
+                    logger.info("[Tool Synthesizer] 工具合成成功: %s", tool_name)
                 else:
                     tool.error = "模块缺少 execute 函数"
-                    logger.error(f"[Tool Synthesizer] {tool.error}")
+                    logger.error("[Tool Synthesizer] %s", tool.error)
                     
         except Exception as e:
             tool.error = f"模块加载失败: {str(e)}"
-            logger.error(f"[Tool Synthesizer] {tool.error}")
+            logger.error("[Tool Synthesizer] %s", tool.error)
             
         # 注册工具
         self.tools[tool_name] = tool
@@ -130,26 +130,26 @@ class ToolSynthesizer:
                 if isinstance(node, ast.Import):
                     for alias in node.names:
                         if alias.name in dangerous_modules:
-                            logger.warning(f"[Tool Synthesizer] 危险导入: {alias.name}")
+                            logger.warning("[Tool Synthesizer] 危险导入: %s", alias.name)
                             return False
                             
                 elif isinstance(node, ast.ImportFrom):
                     if node.module and node.module.split('.')[0] in dangerous_modules:
-                        logger.warning(f"[Tool Synthesizer] 危险导入: {node.module}")
+                        logger.warning("[Tool Synthesizer] 危险导入: %s", node.module)
                         return False
                         
                 # 检查危险函数调用
                 elif isinstance(node, ast.Call):
                     if isinstance(node.func, ast.Name):
                         if node.func.id in {'eval', 'exec', 'compile'}:
-                            logger.warning(f"[Tool Synthesizer] 危险函数: {node.func.id}")
+                            logger.warning("[Tool Synthesizer] 危险函数: %s", node.func.id)
                             return False
                             
             logger.info("[Tool Synthesizer] 代码安全审计通过")
             return True
             
         except SyntaxError as e:
-            logger.error(f"[Tool Synthesizer] 语法错误: {e}")
+            logger.error("[Tool Synthesizer] 语法错误: %s", e)
             return False
             
     def _wrap_as_module(self, code: str, tool_name: str) -> str:
@@ -199,14 +199,14 @@ def execute(*args, **kwargs):
         if not tool.is_valid or not tool.function:
             raise ValueError(f"工具无效: {tool_name}")
             
-        logger.info(f"[Tool Synthesizer] 执行工具: {tool_name}")
+        logger.info("[Tool Synthesizer] 执行工具: %s", tool_name)
         
         try:
             result = tool.function(*args, **kwargs)
-            logger.info(f"[Tool Synthesizer] 工具执行成功: {tool_name}")
+            logger.info("[Tool Synthesizer] 工具执行成功: %s", tool_name)
             return result
         except Exception as e:
-            logger.error(f"[Tool Synthesizer] 工具执行失败: {e}")
+            logger.error("[Tool Synthesizer] 工具执行失败: %s", e)
             raise
 
 

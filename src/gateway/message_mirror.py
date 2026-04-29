@@ -4,6 +4,7 @@
 实现话题间的消息备份和同步
 """
 
+import itertools
 import logging
 import os
 from typing import Dict, Optional
@@ -118,10 +119,10 @@ class MessageMirror:
         source_thread = original_message.get("thread_id", "Main")
         
         # 构建镜像头部
-        header = f"📋 镜像消息 #{msg_id}\n"
-        header += f"👤 发送者: {sender_id}\n"
-        header += f"💬 来源话题: {source_thread}\n"
-        header += f"⏰ {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}\n"
+        header = "📋 镜像消息 #%s\n" % msg_id
+        header += "👤 发送者: %s\n" % sender_id
+        header += "💬 来源话题: %s\n" % source_thread
+        header += "⏰ %s\n" % datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
         header += "-" * 40 + "\n\n"
         
         return header + text
@@ -175,15 +176,10 @@ class MessageMirror:
         logger.warning("[Router-Gate] Bot not configured, using mock mode")
         return self._generate_mock_message_id()
     
+    _mock_id_counter = itertools.count(10000)
+
     def _generate_mock_message_id(self) -> int:
-        """
-        生成模拟消息 ID（用于测试）
-        
-        Returns:
-            模拟的消息 ID
-        """
-        import random
-        return random.randint(10000, 99999)
+        return next(self._mock_id_counter)
     
     async def batch_mirror(
         self,

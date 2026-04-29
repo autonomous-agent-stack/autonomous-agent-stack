@@ -57,6 +57,9 @@ _PANEL_NOT_READY_HTML = """
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    import asyncio
+    import signal
+
     settings = get_runtime_settings()
     assert_safe_bind_host(host=settings.api_host, allow_unsafe=settings.api_allow_unsafe_bind)
     mode_label = "MINIMAL (stable)" if settings.is_minimal_mode else "FULL (experimental)"
@@ -67,6 +70,8 @@ async def lifespan(_: FastAPI):
         mode_label,
     )
     schedule_daemon = None
+    shutdown_event = asyncio.Event()
+
     if settings.enable_worker_schedule_daemon:
         from autoresearch.api.dependencies import get_worker_schedule_service
         from autoresearch.core.services.worker_schedule_service import WorkerScheduleDaemon
@@ -97,15 +102,29 @@ async def lifespan(_: FastAPI):
             )
     except Exception:
         logger.exception("Failed to start Telegram polling daemon")
+
+    def _handle_shutdown(signum: int, _frame: object) -> None:
+        sig_name = signal.Signals(signum).name
+        logger.info("Received %s, initiating graceful shutdown...", sig_name)
+        shutdown_event.set()
+
+    # Register signal handlers for graceful shutdown (may fail in non-main threads)
+    try:
+        loop = asyncio.get_running_loop()
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            loop.add_signal_handler(sig, _handle_shutdown, sig, None)
+    except (ValueError, RuntimeError):
+        logger.debug("Signal handlers not registered (non-main thread or unsupported)")
+
     try:
         yield
     finally:
+        logger.info("Lifespan teardown: cleaning up resources...")
         if polling_daemon is not None:
             polling_daemon.stop()
             logger.info("Telegram polling daemon stopped")
         if schedule_daemon is not None:
             await schedule_daemon.stop()
-            logger.info("Worker schedule daemon stopped")
         logger.info("Autonomous Agent Stack shutdown complete")
 
 
@@ -340,7 +359,13 @@ def run() -> None:
     import uvicorn
 
     settings = get_runtime_settings()
-    uvicorn.run("autoresearch.api.main:app", host=settings.api_host, port=settings.api_port, reload=False)
+    uvicorn.run(
+        "autoresearch.api.main:app",
+        host=settings.api_host,
+        port=settings.api_port,
+        reload=False,
+        timeout_graceful_shutdown=30,
+    )
 
 
 if __name__ == "__main__":
