@@ -1326,6 +1326,22 @@ def test_telegram_worker_inventory_query_returns_inventory_card(
         app.dependency_overrides.pop(get_capability_provider_registry, None)
 
 
+def test_status_diag_value_prefers_metrics_then_metadata_then_result() -> None:
+    from types import SimpleNamespace
+
+    latest = SimpleNamespace(
+        metrics={"dispatch_runtime": "hermes"},
+        metadata={"dispatch_runtime": "claude"},
+        result={"runtime_id": "fallback"},
+    )
+    value = gateway_telegram._status_diag_value(
+        latest,
+        ("dispatch_runtime", "runtime_id"),
+        default="unknown",
+    )
+    assert value == "hermes"
+
+
 def test_telegram_runtime_switch_sends_notification(
     telegram_client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
@@ -2063,6 +2079,12 @@ def test_telegram_queue_ack_message_includes_table_and_status_hint() -> None:
     assert "run_0b88e9edbe3e" in text
     assert "/status" in text
     assert "| 项 | 值 |" in text
+    assert "执行面 | Runtime" in text
+    assert "Agent 名称 | Agent name" in text
+    assert "claude" in text
+    assert "执行面 / Runtime" in text or "执行面 | Runtime" in text
+    assert "Agent 名称 / Agent name" in text or "Agent 名称 | Agent name" in text
+    assert "claude" in text
 
 
 def test_telegram_two_column_table_escapes_pipes() -> None:

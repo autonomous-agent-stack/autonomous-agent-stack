@@ -13,6 +13,8 @@ warn_env_conflicts ENV_FILES AUTORESEARCH_API_HOST AUTORESEARCH_API_PORT
 AUTORESEARCH_API_HOST="${AUTORESEARCH_API_HOST:-127.0.0.1}"
 AUTORESEARCH_API_PORT="${AUTORESEARCH_API_PORT:-8001}"
 HEALTH_URL="http://${AUTORESEARCH_API_HOST}:${AUTORESEARCH_API_PORT}/healthz"
+# Bound wait: a hung listener (TCP up, HTTP never completes) must not block `make telegram-butler-stop`.
+CURL_HEALTH=(curl -fsS --connect-timeout 2 --max-time 4)
 
 LISTENER_PID=""
 if command -v lsof >/dev/null 2>&1; then
@@ -28,6 +30,11 @@ _kill_pid() {
   fi
 }
 
+# Keep ingress single-consumer: stop poller first, then API.
+if [[ -f "${ROOT_DIR}/scripts/stop-telegram-poller.sh" ]]; then
+  bash "${ROOT_DIR}/scripts/stop-telegram-poller.sh" >/dev/null 2>&1 || true
+fi
+
 if [[ -f "${PID_FILE}" ]]; then
   PID="$(cat "${PID_FILE}")"
   if kill -0 "${PID}" >/dev/null 2>&1; then
@@ -35,7 +42,7 @@ if [[ -f "${PID_FILE}" ]]; then
     echo "api stopped (pid=${PID})"
   else
     echo "api not running (stale pid file pid=${PID})"
-    if curl -fsS "${HEALTH_URL}" >/dev/null 2>&1 && [[ -n "${LISTENER_PID}" ]]; then
+    if "${CURL_HEALTH[@]}" "${HEALTH_URL}" >/dev/null 2>&1 && [[ -n "${LISTENER_PID}" ]]; then
       echo "stopping stray listener pid=${LISTENER_PID} (pid file was stale)"
       _kill_pid "${LISTENER_PID}"
     fi

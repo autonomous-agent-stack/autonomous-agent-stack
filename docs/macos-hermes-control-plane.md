@@ -146,9 +146,18 @@ curl -sS "http://127.0.0.1:8001/api/v1/runtime/hermes/sessions/<session_id>/even
 Recommended startup order:
 
 ```bash
-make telegram-butler-start
+export AUTORESEARCH_TELEGRAM_INGRESS_MODE=webhook
+make start
 bash scripts/start-mac-worker.sh
 ```
+
+说明（双渠道保留，单入口）：
+Notes (dual-channel retained, single ingress):
+
+- 默认 `AUTORESEARCH_TELEGRAM_INGRESS_MODE=webhook`，只允许 Webhook 消费 Telegram updates，避免多 poller 抢消息。
+  Default `AUTORESEARCH_TELEGRAM_INGRESS_MODE=webhook` allows Webhook-only Telegram update consumption to avoid multi-poller conflicts.
+- 如需临时回滚到单 poller，请显式设置 `AUTORESEARCH_TELEGRAM_INGRESS_MODE=polling`，并保证系统里只运行一个 poller。
+  To temporarily roll back to single poller mode, explicitly set `AUTORESEARCH_TELEGRAM_INGRESS_MODE=polling` and ensure only one poller process is running.
 
 启动后再查：
 Then query:
@@ -174,3 +183,46 @@ The boundary is important:
   Running `hermes gateway` by itself does not automatically appear in worker inventory.
 - 如果以后要把 `hermes gateway` 本体做成一等 worker，需要额外实现一个 Hermes gateway -> AAS worker registry bridge。
   If you later want the `hermes gateway` process itself to become a first-class worker, you need an extra Hermes gateway -> AAS worker registry bridge.
+
+## 8. 管家归因可见性 / Butler Attribution Visibility
+
+- 管家 ack、RUNNING 与终态卡默认会展示：
+  Butler ack, RUNNING, and terminal cards now display:
+  - `执行面 | Runtime`（`hermes` 或 `claude`）
+    `Execution plane | Runtime` (`hermes` or `claude`)
+  - `Agent 名称 | Agent name`（未配置时显示 `（未命名）| (unnamed)`）
+    `Agent name` (falls back to `（未命名）| (unnamed)` when unset)
+- `runtime_id` 来源于 Telegram 入队 payload；
+  `runtime_id` comes from Telegram queue payload.
+- `agent_name` 来源于 `AUTORESEARCH_TELEGRAM_AGENT_NAME`（若为空则展示占位）。
+  `agent_name` comes from `AUTORESEARCH_TELEGRAM_AGENT_NAME` (placeholder is used when empty).
+
+快速检查：
+Quick check:
+
+1. 设定 `AUTORESEARCH_TELEGRAM_RUNTIME_ID=hermes`，发一条普通文本任务；
+   Set `AUTORESEARCH_TELEGRAM_RUNTIME_ID=hermes` and send a normal text task.
+2. 再设定 `AUTORESEARCH_TELEGRAM_RUNTIME_ID=claude`，发另一条任务；
+   Then set `AUTORESEARCH_TELEGRAM_RUNTIME_ID=claude` and send another task.
+3. 两条卡片都应包含 `执行面 | Runtime` 与 `Agent 名称 | Agent name`。
+   Both cards should include `执行面 | Runtime` and `Agent 名称 | Agent name`.
+
+补充：worker 终态回报现在会附带统一诊断字段，`result/metrics` 中可见 `error_kind`、`exit_reason`、`dispatch_runtime` 等键，便于在 `/status` 和 worker 盘点里做快速故障定位。
+Additional note: worker terminal reports now include unified diagnostics; `result/metrics` expose keys such as `error_kind`, `exit_reason`, and `dispatch_runtime`, which helps fast triage in `/status` and worker inventory views.
+
+## 9. 十分钟健康检查 / Ten-Minute Health Check
+
+1. 先看控制面与 worker 是否在线：`/health`、`/api/v1/workers`。
+   Start with control-plane and worker liveness: `/health`, `/api/v1/workers`.
+2. 发一条 Telegram 任务并确认 ack 卡里有 `run_id`。
+   Send one Telegram task and confirm the ack card includes `run_id`.
+3. 在 `/status` 查看 worker 诊断行：`runtime/phase/exit`。
+   Inspect `/status` worker diagnostics: `runtime/phase/exit`.
+4. 终态卡里确认 `诊断 | Diagnostics` 是否出现（至少 `runtime` 与 `exit`）。
+   In the terminal card, confirm `诊断 | Diagnostics` exists (at least `runtime` and `exit`).
+5. 若失败，优先读 `error_kind` 与 `exit_reason` 再决定是重试、切 runtime，还是查 worker 心跳。
+   On failure, read `error_kind` and `exit_reason` first, then decide whether to retry, switch runtime, or inspect worker heartbeat.
+6. 执行 `python3 scripts/telegram_ingress_health.py --minutes 30 --json`，确认存在稳定字段：`mode`、`active_consumer`、`state`、`healthy`。
+   Run `python3 scripts/telegram_ingress_health.py --minutes 30 --json` and confirm stable fields: `mode`, `active_consumer`, `state`, `healthy`.
+7. 若 `state=failover`，等待 `AUTORESEARCH_TELEGRAM_POLLING_RECOVER_AFTER_SECONDS` 后再次检查，确认由 `webhook` 回到 `polling`（或按策略保持 webhook）。
+   If `state=failover`, wait `AUTORESEARCH_TELEGRAM_POLLING_RECOVER_AFTER_SECONDS` and check again to confirm recovery from `webhook` back to `polling` (or remain webhook per policy).

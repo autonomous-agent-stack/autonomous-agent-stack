@@ -51,6 +51,36 @@ AUTORESEARCH_MODE=minimal make start
 - ✅ 默认禁用实验性功能
 - ✅ 适合本地开发和测试
 
+## Telegram 入口模式（避免漏消息）
+
+默认建议使用单一 Webhook 入口，避免多个 poller 抢同一 Bot updates。
+Default recommendation is a single Webhook ingress to avoid multiple pollers competing for the same Bot updates.
+
+```bash
+# 推荐：Webhook 单入口（双渠道逻辑在网关内部分流）
+export AUTORESEARCH_TELEGRAM_INGRESS_MODE=webhook
+make start
+```
+
+```bash
+# 回滚：Polling 单入口（仅故障应急）
+export AUTORESEARCH_TELEGRAM_INGRESS_MODE=polling
+make start
+```
+
+注意：无论哪种模式，同一时刻都只能有一个 Telegram update 消费者。
+Note: regardless of mode, only one Telegram update consumer should be active at a time.
+
+```bash
+# 观测：日志中的 409/conflict 线索 + 近期入队 Hermes 占比（默认回溯 24 小时）
+# Observability: 409/conflict hints in logs + Hermes share in recent queue rows (default 24h lookback)
+make telegram-ingress-audit
+
+# 机器可读健康契约（建议用于脚本与自动切换）
+# Machine-readable health contract (recommended for scripts and auto-failover)
+python3 scripts/telegram_ingress_health.py --minutes 30 --json
+```
+
 ### Full 模式（完整功能，实验性）
 
 ```bash

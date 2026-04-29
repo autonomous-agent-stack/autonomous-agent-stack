@@ -79,6 +79,14 @@ from ._session import (
 
 router = APIRouter(prefix="/api/v1/gateway/telegram", tags=["gateway", "telegram"])
 compat_router = APIRouter(tags=["gateway", "telegram", "compat"])
+_X_BOOKMARK_KEYWORDS = (
+    "书签",
+    "bookmark",
+    "twitter bookmark",
+    "x bookmark",
+    "推特书签",
+    "x 书签",
+)
 
 
 @router.get("/health", tags=["gateway"])
@@ -415,10 +423,17 @@ def _handle_telegram_webhook(
 
     # Build claude_runtime task payload (optionally routed to Hermes via runtime_id)
     dispatch_runtime = telegram_settings.telegram_dispatch_runtime_id
+    channel_route = _resolve_channel_route(extracted=extracted)
+    if _should_force_hermes_for_bookmark_task(
+        text=text,
+        butler_task_type=str(getattr(butler_result.task_type, "value", butler_result.task_type)),
+    ):
+        dispatch_runtime = "hermes"
     hermes_fragment = telegram_settings.hermes_metadata_fragment_for_worker()
     metadata: dict[str, Any] = {}
     if hermes_fragment:
         metadata["hermes"] = hermes_fragment
+    metadata["channel_route"] = channel_route
     image_urls = [] if dispatch_runtime == "hermes" else list(extracted.get("images") or [])
 
     prompt_for_worker = resolved_prompt
@@ -455,6 +470,8 @@ def _handle_telegram_webhook(
         "chat_type": session_identity.chat_context.chat_type.value,
         "runtime_id": dispatch_runtime,
     }
+    if dispatch_runtime == "hermes":
+        runtime_payload["execution_mode"] = telegram_settings.telegram_hermes_execution_mode
     if metadata:
         runtime_payload["metadata"] = metadata
 
@@ -466,6 +483,7 @@ def _handle_telegram_webhook(
             "session_key": session_identity.session_key,
             "preferred_worker_id": preferred_worker_id,
             "chat_id": chat_id,
+            "channel_route": channel_route,
         },
     ))
 
@@ -476,6 +494,8 @@ def _handle_telegram_webhook(
             task_name=str(runtime_payload["task_name"]),
             run_id=str(queue_item.run_id),
             worker_brand=telegram_settings.telegram_worker_display_name,
+            runtime_id=str(runtime_payload.get("runtime_id") or "claude"),
+            agent_name=str(runtime_payload.get("agent_name") or ""),
         )
         ack_message_id = notifier.send_message_get_message_id(
             chat_id=chat_id,
@@ -504,5 +524,22 @@ def _handle_telegram_webhook(
             "task_name": runtime_payload["task_name"],
             "routed_to": "worker_queue",
             "preferred_worker_id": preferred_worker_id,
+            "channel_route": channel_route,
         },
     )
+
+
+def _should_force_hermes_for_bookmark_task(*, text: str, butler_task_type: str) -> bool:
+    if butler_task_type != "content_kb":
+        return False
+    normalized = text.strip().lower()
+    if not normalized:
+        return False
+    return any(keyword in normalized for keyword in _X_BOOKMARK_KEYWORDS)
+
+
+def _resolve_channel_route(*, extracted: dict[str, Any]) -> str:
+    chat_type_raw = str(extracted.get("chat_type") or "").strip().lower()
+    if chat_type_raw in {"group", "supergroup", "channel"}:
+        return "group_channel"
+    return "private_channel"

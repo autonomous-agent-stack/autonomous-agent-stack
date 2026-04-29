@@ -39,6 +39,19 @@ class TestButlerIntentClassification:
         result = router.classify("把这个字幕入库知识库")
         assert result.task_type == ButlerTaskType.CONTENT_KB
 
+    def test_content_kb_x_bookmarks_curation_phrase(self) -> None:
+        """管家口语：整理 X 书签 → content_kb（与字幕/知识库同类意图）。"""
+        router = ButlerIntentRouter()
+        for phrase in (
+            "整理X书签",
+            "帮我整理一下 X 书签",
+            "把推特书签整理进知识库",
+            "organize my twitter bookmarks for kb",
+        ):
+            result = router.classify(phrase)
+            assert result.task_type == ButlerTaskType.CONTENT_KB, phrase
+            assert result.confidence > 0, phrase
+
     def test_unknown_returns_default(self) -> None:
         router = ButlerIntentRouter()
         result = router.classify("今天天气怎么样")

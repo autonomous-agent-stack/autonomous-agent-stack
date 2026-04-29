@@ -320,9 +320,9 @@ def _handle_status_query(
     worker_registry: WorkerRegistryService,
     worker_inventory: WorkerInventoryService,
 ) -> TelegramWebhookAck:
-    from autoresearch.core.runtime_identity import get_runtime_identity
+    from autoresearch.api.routers import gateway_telegram
 
-    runtime_identity = get_runtime_identity()
+    runtime_identity = gateway_telegram.get_runtime_identity()
     session = _find_existing_telegram_session(
         openclaw_service=openclaw_service,
         chat_id=chat_id,

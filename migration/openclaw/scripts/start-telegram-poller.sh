@@ -28,6 +28,16 @@ ENV_FILES=()
 load_shared_env_files "${PROJECT_ROOT}" "${ROOT_DIR}" ENV_FILES
 warn_env_conflicts ENV_FILES AUTORESEARCH_API_HOST AUTORESEARCH_API_PORT AUTORESEARCH_TELEGRAM_BOT_TOKEN TELEGRAM_BOT_TOKEN
 
+INGRESS_MODE="$(echo "${AUTORESEARCH_TELEGRAM_INGRESS_MODE:-webhook}" | tr '[:upper:]' '[:lower:]')"
+if [[ "${INGRESS_MODE}" != "webhook" && "${INGRESS_MODE}" != "polling" ]]; then
+  INGRESS_MODE="webhook"
+fi
+if [[ "${INGRESS_MODE}" != "polling" ]]; then
+  echo "telegram poller disabled (AUTORESEARCH_TELEGRAM_INGRESS_MODE=${INGRESS_MODE})"
+  echo "set AUTORESEARCH_TELEGRAM_INGRESS_MODE=polling to enable getUpdates consumer"
+  exit 0
+fi
+
 if [[ -n "${AUTORESEARCH_TELEGRAM_BOT_TOKEN:-}" && -z "${TELEGRAM_BOT_TOKEN:-}" ]]; then
   export TELEGRAM_BOT_TOKEN="${AUTORESEARCH_TELEGRAM_BOT_TOKEN}"
 fi

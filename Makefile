@@ -47,7 +47,7 @@ PROMOTE_OPEN_DRAFT_PR ?= 0
 .PHONY: help setup doctor doctor-linux start test-quick smoke-local validate-req4 clean
 .PHONY: ai-lab ai-lab-setup ai-lab-check ai-lab-up ai-lab-down ai-lab-status ai-lab-shell ai-lab-run masfactory-flight hygiene-check openhands openhands-dry-run openhands-controlled openhands-controlled-dry-run openhands-demo agent-run promote-run
 .PHONY: review-setup review-gates-local assistant-doctor assistant-triage assistant-execute assistant-review-pr assistant-release-plan assistant-schedule
-.PHONY: telegram-butler-start telegram-butler-status telegram-butler-stop
+.PHONY: telegram-butler-start telegram-butler-status telegram-butler-stop telegram-ingress-audit
 
 help:
 	@echo "Autonomous Agent Stack - common commands"
@@ -326,3 +326,8 @@ telegram-butler-status:
 telegram-butler-stop:
 	bash migration/openclaw/scripts/stop-telegram-poller.sh
 	bash migration/openclaw/scripts/stop-api-daemon.sh
+
+# 最近日志中的 409 / conflict 线索 + worker_run_queue 里 Hermes runtime 占比（默认 24h）
+# Recent log hints for 409/conflict + Hermes runtime share in worker_run_queue (default 24h)
+telegram-ingress-audit:
+	$(PYTHON) scripts/telegram_ingress_health.py

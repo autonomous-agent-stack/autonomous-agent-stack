@@ -328,3 +328,55 @@ def test_worker_inventory_projects_active_tasks_and_latest_summary(
     assert payload["display_status"] == "busy"
     assert payload["latest_task_summary"]["task_name"] == "ingest kb"
     assert payload["latest_task_summary"]["status"] == "running"
+
+    # Mac daemon heartbeats accepting_work=False while executing; inventory must stay "busy".
+    hb = worker_client.post(
+        "/api/v1/workers/mac-mini-01/heartbeat",
+        json=WorkerHeartbeatRequest(
+            health=WorkerHealth.OK,
+            load=1.0,
+            queue_depth=1,
+            accepting_work=False,
+        ).model_dump(mode="json"),
+    )
+    assert hb.status_code == 200
+    detail2 = worker_client.get("/api/v1/workers/mac-mini-01")
+    assert detail2.status_code == 200
+    assert detail2.json()["display_status"] == "busy"
+
+
+def test_worker_inventory_projects_offline_mode_and_recovers(
+    worker_client: TestClient,
+    worker_service: WorkerRegistryService,
+) -> None:
+    started = utc_now()
+    worker_service.register(
+        WorkerRegisterRequest(
+            worker_id="mac-mini-offline",
+            worker_type=WorkerType.MAC,
+            mode=WorkerMode.OFFLINE,
+            role="housekeeper",
+            capabilities=["claude_runtime"],
+        ),
+        now=started,
+    )
+
+    detail_stale = worker_client.get("/api/v1/workers/mac-mini-offline")
+    assert detail_stale.status_code == 200
+    assert detail_stale.json()["display_status"] == "offline"
+
+    re_register = worker_client.post(
+        "/api/v1/workers/register",
+        json=WorkerRegisterRequest(
+            worker_id="mac-mini-offline",
+            worker_type=WorkerType.MAC,
+            mode=WorkerMode.STANDBY,
+            role="housekeeper",
+            capabilities=["claude_runtime"],
+        ).model_dump(mode="json"),
+    )
+    assert re_register.status_code == 200
+
+    detail_recovered = worker_client.get("/api/v1/workers/mac-mini-offline")
+    assert detail_recovered.status_code == 200
+    assert detail_recovered.json()["display_status"] in {"online", "busy"}

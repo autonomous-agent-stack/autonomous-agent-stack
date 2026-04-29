@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from typing import Any
 from urllib import error, request
@@ -14,6 +15,14 @@ from autoresearch.shared.models import PanelAuditLogRead
 logger = logging.getLogger(__name__)
 
 
+def _build_opener(proxy_url: str = "") -> request.OpenerDirector:
+    if proxy_url:
+        handler = request.ProxyHandler({"https": proxy_url, "http": proxy_url})
+    else:
+        handler = request.ProxyHandler({})
+    return request.build_opener(handler)
+
+
 class TelegramNotifierService:
     """Thin Telegram Bot API client for operational notifications."""
 
@@ -24,11 +33,13 @@ class TelegramNotifierService:
         api_base: str = "https://api.telegram.org",
         timeout_seconds: float = 10.0,
         max_attempts: int = 2,
+        proxy_url: str = "",
     ) -> None:
         self._bot_token = (bot_token or "").strip()
         self._api_base = api_base.rstrip("/")
         self._timeout_seconds = timeout_seconds
         self._max_attempts = max(1, max_attempts)
+        self._opener = _build_opener(proxy_url)
 
     @property
     def enabled(self) -> bool:
@@ -307,7 +318,7 @@ class TelegramNotifierService:
         last_error: Exception | None = None
         for attempt in range(1, self._max_attempts + 1):
             try:
-                with request.urlopen(req, timeout=self._timeout_seconds) as response:
+                with self._opener.open(req, timeout=self._timeout_seconds) as response:
                     response_payload = json.loads(response.read().decode("utf-8"))
                 ok = bool(response_payload.get("ok"))
                 if not ok:
@@ -350,7 +361,7 @@ class TelegramNotifierService:
         last_error: Exception | None = None
         for attempt in range(1, self._max_attempts + 1):
             try:
-                with request.urlopen(req, timeout=self._timeout_seconds) as response:
+                with self._opener.open(req, timeout=self._timeout_seconds) as response:
                     response_payload = json.loads(response.read().decode("utf-8"))
                 if not bool(response_payload.get("ok")):
                     logger.warning(

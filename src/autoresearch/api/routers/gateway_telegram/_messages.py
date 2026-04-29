@@ -236,7 +236,14 @@ def _telegram_two_column_table(rows: list[tuple[str, str]]) -> list[str]:
     return lines
 
 
-def _telegram_queue_ack_message(*, task_name: str, run_id: str, worker_brand: str) -> str:
+def _telegram_queue_ack_message(
+    *,
+    task_name: str,
+    run_id: str,
+    worker_brand: str,
+    runtime_id: str | None = None,
+    agent_name: str | None = None,
+) -> str:
     brand = (worker_brand or "").strip()
     opener = f"收到，任务已进队（由【{brand}】执行）。" if brand else "收到，任务已进队。"
     tail = (
@@ -248,11 +255,18 @@ def _telegram_queue_ack_message(*, task_name: str, run_id: str, worker_brand: st
         [
             ("任务", task_name),
             ("run_id", run_id),
+            ("执行面 | Runtime", (runtime_id or "claude").strip().lower() or "claude"),
+            ("Agent 名称 | Agent name", (agent_name or "").strip() or "（未命名）| (unnamed)"),
         ]
     )
+    runtime_hint = (runtime_id or "claude").strip().lower() or "claude"
+    agent_hint = (agent_name or "").strip() or "（未命名）| (unnamed)"
     body = "\n".join(
         [
             opener,
+            "",
+            f"执行面 | Runtime: {runtime_hint}",
+            f"Agent 名称 | Agent name: {agent_hint}",
             "",
             *table,
             "",
@@ -374,6 +388,34 @@ def _append_worker_inventory_lines(lines: list[str], inventory) -> None:
         lines.append(
             f"- {worker.worker_id}：{worker.display_status}，队列 {worker.queue_depth}，活跃任务 {worker.active_tasks}，最近任务 {last_task}"
         )
+        if latest is None:
+            continue
+        runtime_hint = _status_diag_value(latest, ("dispatch_runtime", "runtime_id"), default="unknown")
+        phase_hint = _status_diag_value(latest, ("telegram_live_phase", "status"), default=latest.status.value)
+        exit_hint = _status_diag_value(latest, ("exit_reason", "error_kind"), default="n/a")
+        lines.append(
+            f"  诊断: runtime={runtime_hint}, phase={phase_hint}, exit={exit_hint}"
+        )
+
+
+def _status_diag_value(
+    latest: Any,
+    keys: tuple[str, ...],
+    *,
+    default: str,
+) -> str:
+    metrics = latest.metrics if isinstance(getattr(latest, "metrics", None), dict) else {}
+    metadata = latest.metadata if isinstance(getattr(latest, "metadata", None), dict) else {}
+    result = latest.result if isinstance(getattr(latest, "result", None), dict) else {}
+    for key in keys:
+        for bag in (metrics, metadata, result):
+            value = bag.get(key)
+            if value is None:
+                continue
+            text = str(value).strip()
+            if text:
+                return text
+    return default
 
 
 def _list_skill_providers(

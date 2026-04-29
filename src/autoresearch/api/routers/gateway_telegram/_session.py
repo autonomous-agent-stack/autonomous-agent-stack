@@ -7,7 +7,6 @@ from fastapi import BackgroundTasks
 
 from autoresearch.api.settings import load_telegram_settings
 from autoresearch.core.adapters import CapabilityDomain, CapabilityProviderRegistry, SkillProvider
-from autoresearch.core.runtime_identity import get_runtime_identity
 from autoresearch.core.services.admin_config import AdminConfigService
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.telegram_identity import (
@@ -112,7 +111,9 @@ def _sync_session_runtime_identity(
     notifier: TelegramNotifierService,
     chat_id: str,
 ) -> OpenClawSessionRead:
-    runtime = get_runtime_identity()
+    from autoresearch.api.routers import gateway_telegram
+
+    runtime = gateway_telegram.get_runtime_identity()
     current_fingerprint = runtime["runtime_fingerprint"]
     current_display = runtime["runtime_display"]
     previous_fingerprint = str(session.metadata.get("runtime_fingerprint") or "").strip()

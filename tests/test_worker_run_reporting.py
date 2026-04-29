@@ -295,6 +295,7 @@ def test_butler_fallback_fires_when_worker_notify_failed(
                     "telegram_notify_status": "failed",
                     "telegram_notify_attempts": 3,
                     "telegram_notify_error": "URLError(timeout)",
+                    "exit_reason": "terminal_timeout",
                 },
             },
         )
@@ -306,6 +307,8 @@ def test_butler_fallback_fires_when_worker_notify_failed(
         text = str(edit["text"])
         assert "【初代worker】" in text
         assert "管家兜底" in text
+        assert "阶段 | Phase" in text
+        assert "terminal_timeout" in text
         assert run_id in text
         # Dedup marker should be persisted on the run.
         stored = scheduler.get_run(run_id)
@@ -419,6 +422,7 @@ def test_butler_fallback_falls_back_to_send_when_edit_fails(
         assert len(notifier.sends) == 1
         send_text = str(notifier.sends[0]["text"])
         assert "【初代worker】" in send_text
+        assert "阶段 | Phase" in send_text
         assert "boom" in send_text
         stored = scheduler.get_run(run_id)
         assert stored is not None
@@ -591,6 +595,8 @@ def test_butler_live_edit_on_running_report(
                 "telegram_live_elapsed_s": 0,
                 "hermes_status": "running",
                 "hermes_runtime_run_id": "run-h",
+                "telegram_display_runtime_id": "hermes",
+                "telegram_display_agent_name": "assistant-main",
             },
         }
         r1 = worker_client.post(
@@ -600,6 +606,8 @@ def test_butler_live_edit_on_running_report(
         assert r1.status_code == 200
         assert len(notifier.edits) == 1
         assert "Hermes 运行中" in str(notifier.edits[0]["text"])
+        assert "hermes" in str(notifier.edits[0]["text"])
+        assert "assistant-main" in str(notifier.edits[0]["text"])
 
         clock["t"] = 1002.0
         r2 = worker_client.post(
@@ -641,6 +649,8 @@ def test_butler_live_edit_skips_within_interval_same_hash(
             "telegram_live_elapsed_s": 0,
             "hermes_status": "running",
             "hermes_runtime_run_id": "run-h",
+            "telegram_display_runtime_id": "hermes",
+            "telegram_display_agent_name": "assistant-main",
         },
     }
     try:

@@ -59,3 +59,16 @@ The Telegram butler now routes the following kinds of questions to the worker in
 
 返回内容会包含总体统计和最多 4 个 worker 的简短卡片摘要。
 The reply includes overall counts and a short card-style summary for up to 4 workers.
+
+- 每个 worker 卡片会额外附带一行轻量诊断：`runtime`、`phase`、`exit`，用于快速定位卡在“调度层、执行中、还是终态失败”。
+  Each worker card also includes a lightweight diagnostic row (`runtime`, `phase`, `exit`) to quickly identify whether a problem is in dispatch, mid-execution, or terminal failure.
+
+## 快速排障顺序
+## Fast Triage Order
+
+1. 看 `display_status`：`offline` 先查 heartbeat，`busy` 先看最近任务。
+   Read `display_status` first: for `offline` check heartbeat, for `busy` inspect latest task.
+2. 看诊断行里的 `runtime` 与 `phase`，判断是调度问题还是执行中问题。
+   Use diagnostic `runtime` and `phase` to separate dispatch issues from in-flight execution issues.
+3. 若任务已终态，优先看 `exit` 与终态卡的 `error_kind`。
+   For terminal tasks, prioritize `exit` and the terminal card `error_kind`.

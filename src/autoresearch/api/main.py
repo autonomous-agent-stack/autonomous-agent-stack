@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 
 from autoresearch import __version__
 from autoresearch.build_label import get_build_label
-from autoresearch.api.settings import get_runtime_settings
+from autoresearch.api.settings import TelegramIngressMode, get_runtime_settings
 from autoresearch.core.services.panel_access import assert_safe_bind_host
 
 
@@ -85,6 +85,23 @@ async def lifespan(_: FastAPI):
             "Worker schedule daemon started [poll_seconds=%s]",
             settings.worker_schedule_poll_seconds,
         )
+    polling_daemon = None
+    try:
+        from autoresearch.api.settings import get_telegram_settings
+        tg_settings = get_telegram_settings()
+        ingress_mode = tg_settings.ingress_mode
+        if ingress_mode == TelegramIngressMode.POLLING and tg_settings.polling_enabled and tg_settings.bot_token:
+            from autoresearch.core.services.telegram_polling import TelegramPollingDaemon
+            polling_daemon = TelegramPollingDaemon()
+            polling_daemon.start()
+            logger.info("Telegram polling daemon started [ingress_mode=%s]", ingress_mode.value)
+        elif tg_settings.polling_enabled and tg_settings.bot_token and ingress_mode != TelegramIngressMode.POLLING:
+            logger.info(
+                "Telegram polling daemon skipped [ingress_mode=%s, expected=polling]",
+                ingress_mode.value,
+            )
+    except Exception:
+        logger.exception("Failed to start Telegram polling daemon")
 
     def _handle_shutdown(signum: int, _frame: object) -> None:
         sig_name = signal.Signals(signum).name
@@ -103,6 +120,9 @@ async def lifespan(_: FastAPI):
         yield
     finally:
         logger.info("Lifespan teardown: cleaning up resources...")
+        if polling_daemon is not None:
+            polling_daemon.stop()
+            logger.info("Telegram polling daemon stopped")
         if schedule_daemon is not None:
             await schedule_daemon.stop()
         logger.info("Autonomous Agent Stack shutdown complete")
@@ -290,9 +310,8 @@ def create_app() -> FastAPI:
             import sqlite3
 
             db_path = str(get_runtime_settings().api_db_path)
-            conn = sqlite3.connect(db_path, timeout=2)
-            conn.execute("SELECT 1")
-            conn.close()
+            with sqlite3.connect(db_path, timeout=2) as conn:
+                conn.execute("SELECT 1")
             checks["db"] = {"status": "ok", "path": db_path}
         except Exception as exc:
             overall = "degraded"
