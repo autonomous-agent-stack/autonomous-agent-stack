@@ -8,6 +8,7 @@ import pytest
 import sys
 import os
 import asyncio
+from unittest.mock import AsyncMock, MagicMock
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 sys.path.insert(0, project_root)
@@ -200,3 +201,70 @@ class TestMessageMirror:
         stats = mirror.get_mirror_stats()
         
         assert stats["bot_configured"] is True
+
+    def test_build_mirror_text_missing_fields_use_defaults(self):
+        """测试缺少字段时使用默认镜像文本"""
+        mirror = MessageMirror()
+
+        text = mirror._build_mirror_text({})
+
+        assert "Unknown" in text
+        assert "N/A" in text
+        assert "Main" in text
+
+    @pytest.mark.asyncio
+    async def test_mirror_to_backup_with_bot(self):
+        """测试配置 bot 时调用实际发送接口"""
+        mock_msg = MagicMock()
+        mock_msg.message_id = 888
+        bot = MagicMock()
+        bot.send_message = AsyncMock(return_value=mock_msg)
+        mirror = MessageMirror(bot=bot)
+
+        result = await mirror.mirror_to_backup(
+            {
+                "chat_id": -1001234567890,
+                "thread_id": 10,
+                "message_id": 7,
+                "text": "测试",
+                "sender_id": "user_123",
+            },
+            -1001234567890,
+            110,
+        )
+
+        assert result["status"] == "success"
+        assert result["backup_message_id"] == 888
+        bot.send_message.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_batch_mirror_partial_failure(self):
+        """测试批量镜像部分失败时返回 partial"""
+        mirror = MessageMirror()
+        original_build = mirror._build_mirror_text
+        call_count = 0
+
+        def flaky_build(msg):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 2:
+                raise RuntimeError("forced error")
+            return original_build(msg)
+
+        mirror._build_mirror_text = flaky_build
+        messages = [
+            {
+                "chat_id": -1001234567890,
+                "thread_id": 10,
+                "message_id": i,
+                "text": f"消息 {i}",
+                "sender_id": "user_123",
+            }
+            for i in range(3)
+        ]
+
+        result = await mirror.batch_mirror(messages, -1001234567890, 110)
+
+        assert result["status"] == "partial"
+        assert result["success_count"] == 2
+        assert result["failed_count"] == 1

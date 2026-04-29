@@ -11,8 +11,12 @@ import os
 # 添加项目根目录到 Python 路径
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 sys.path.insert(0, project_root)
+os.environ.setdefault("AUTORESEARCH_TG_CHAT_ID", "-1001234567890")
 
 from src.gateway.route_table import RouteTable
+
+for _route in RouteTable.DEFAULT_ROUTES.values():
+    _route["chat_id"] = -1001234567890
 
 
 class TestRouteTable:
@@ -22,10 +26,11 @@ class TestRouteTable:
         """测试使用默认路由初始化"""
         route_table = RouteTable()
         
-        assert len(route_table.routes) == 3
+        assert len(route_table.routes) == 4
         assert "intelligence" in route_table.routes
         assert "content" in route_table.routes
         assert "security" in route_table.routes
+        assert "user_input" in route_table.routes
     
     def test_initialization_with_custom_routes(self):
         """测试使用自定义路由初始化"""
@@ -51,7 +56,7 @@ class TestRouteTable:
         
         assert route is not None
         assert route["chat_id"] == -1001234567890
-        assert route["thread_id"] == 10
+        assert route["thread_id"] == 4
         assert route["description"] == "市场情报话题"
     
     def test_get_route_unknown_type(self):
@@ -143,7 +148,7 @@ class TestRouteTable:
         
         routes = route_table.list_routes()
         
-        assert len(routes) == 3
+        assert len(routes) == 4
         assert all("type" in r for r in routes)
         assert all("chat_id" in r for r in routes)
     
@@ -155,13 +160,20 @@ class TestRouteTable:
         
         assert backup is not None
         assert backup["chat_id"] == -1001234567890
-        assert backup["thread_id"] == 110  # 10 + 100
+        assert backup["thread_id"] == 104  # 4 + 100
     
     def test_get_backup_route_without_thread(self):
         """测试获取无话题 ID 的路由的备份路由"""
-        route_table = RouteTable()
+        route_table = RouteTable(routes={
+            "group_only": {
+                "chat_id": -1001234567890,
+                "thread_id": None,
+                "description": "群组消息",
+                "enabled": True,
+            }
+        })
         
-        backup = route_table.get_backup_route("security")
+        backup = route_table.get_backup_route("group_only")
         
         assert backup is None  # 无 thread_id 的路由没有备份
     
@@ -196,4 +208,68 @@ class TestRouteTable:
         }
         
         with pytest.raises(ValueError, match="chat_id must be integer"):
+            RouteTable(routes=invalid_routes)
+
+    def test_add_route_with_none_thread_id(self):
+        """测试新增无话题 ID 的群组路由"""
+        route_table = RouteTable(routes={})
+
+        result = route_table.add_route("group_only", -1002222222222, None)
+
+        assert result is True
+        assert route_table.get_route("group_only")["thread_id"] is None
+
+    def test_update_route_multiple_fields(self):
+        """测试同时更新多个路由字段"""
+        route_table = RouteTable(routes={
+            "test": {
+                "chat_id": -1001234567890,
+                "thread_id": 10,
+                "description": "测试",
+                "enabled": True,
+            }
+        })
+
+        result = route_table.update_route("test", chat_id=-1009999999999, thread_id=99)
+
+        assert result is True
+        assert route_table.get_route("test")["chat_id"] == -1009999999999
+        assert route_table.get_route("test")["thread_id"] == 99
+
+    def test_disable_nonexistent_route_returns_false(self):
+        """测试禁用不存在的路由返回 False"""
+        route_table = RouteTable(routes={})
+
+        assert route_table.disable_route("missing") is False
+
+    def test_enable_nonexistent_route_returns_false(self):
+        """测试启用不存在的路由返回 False"""
+        route_table = RouteTable(routes={})
+
+        assert route_table.enable_route("missing") is False
+
+    def test_get_backup_route_disabled_returns_none(self):
+        """测试已禁用路由不生成备份路由"""
+        route_table = RouteTable(routes={
+            "test": {
+                "chat_id": -1001234567890,
+                "thread_id": 10,
+                "description": "测试",
+                "enabled": False,
+            }
+        })
+
+        assert route_table.get_backup_route("test") is None
+
+    def test_validate_routes_invalid_thread_id_type(self):
+        """测试路由验证失败（thread_id 类型错误）"""
+        invalid_routes = {
+            "test": {
+                "chat_id": -1001234567890,
+                "thread_id": "not_an_int",
+                "description": "无效路由",
+            }
+        }
+
+        with pytest.raises(ValueError, match="thread_id must be integer"):
             RouteTable(routes=invalid_routes)
