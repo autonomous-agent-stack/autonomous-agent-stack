@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from autoresearch.api.dependencies import get_youtube_agent_service
 from autoresearch.core.services.youtube_agent import YouTubeAgentService
 from autoresearch.core.services.youtube_errors import YouTubeAgentError
+from autoresearch.core.services.youtube_subtitle_summary import YouTubeSubtitleSummaryService
 from autoresearch.shared.models import (
     YouTubeCheckResultRead,
     YouTubeDigestCreateRequest,
@@ -23,9 +24,17 @@ from autoresearch.shared.models import (
     YouTubeTranscriptRead,
     YouTubeVideoRead,
 )
+from autoresearch.shared.youtube_subtitle_summary_contract import (
+    YouTubeSubtitleSummaryRequest,
+    YouTubeSubtitleSummaryResult,
+)
 
 
 router = APIRouter(prefix="/api/v1/youtube", tags=["youtube"])
+
+
+def get_youtube_subtitle_summary_service() -> YouTubeSubtitleSummaryService:
+    return YouTubeSubtitleSummaryService()
 
 
 def _youtube_http_exception(exc: YouTubeAgentError) -> HTTPException:
@@ -41,6 +50,14 @@ def _youtube_http_exception(exc: YouTubeAgentError) -> HTTPException:
     elif exc.failure_kind.value == "yt_dlp_extractor_failure":
         status_code = status.HTTP_502_BAD_GATEWAY
     return HTTPException(status_code=status_code, detail=exc.to_api_detail())
+
+
+@router.post("/subtitle-summary", response_model=YouTubeSubtitleSummaryResult)
+def create_subtitle_summary(
+    payload: YouTubeSubtitleSummaryRequest,
+    service: YouTubeSubtitleSummaryService = Depends(get_youtube_subtitle_summary_service),
+) -> YouTubeSubtitleSummaryResult:
+    return service.summarize(payload)
 
 
 @router.post(
