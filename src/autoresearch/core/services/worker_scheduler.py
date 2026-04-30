@@ -237,12 +237,15 @@ class WorkerSchedulerService:
         if request.status == JobStatus.RUNNING:
             update_fields["started_at"] = run.started_at or current
             if lease is not None:
-                lease = lease.model_copy(
-                    update={
-                        "lease_expires_at": current + timedelta(seconds=self._lease_ttl_for_run(run)),
-                        "updated_at": current,
-                    }
-                )
+                if _is_waiting_for_external_resume(request):
+                    lease = lease.model_copy(update={"active": False, "updated_at": current})
+                else:
+                    lease = lease.model_copy(
+                        update={
+                            "lease_expires_at": current + timedelta(seconds=self._lease_ttl_for_run(run)),
+                            "updated_at": current,
+                        }
+                    )
                 self._lease_repository.save(lease.lease_id, lease)
         else:
             update_fields["started_at"] = run.started_at or current
@@ -263,6 +266,7 @@ class WorkerSchedulerService:
         reason: str,
         now: datetime | None = None,
         backoff_seconds: int | None = None,
+        increment_retry: bool = True,
     ) -> WorkerQueueItemRead:
         current = now or utc_now()
         run = self._queue_repository.get(run_id)
@@ -275,7 +279,7 @@ class WorkerSchedulerService:
             update={
                 "status": JobStatus.QUEUED,
                 "assigned_worker_id": None,
-                "retry_count": run.retry_count + 1,
+                "retry_count": run.retry_count + (1 if increment_retry else 0),
                 "next_attempt_at": next_retry,
                 "recovery_reason": reason,
                 "updated_at": current,
@@ -379,6 +383,8 @@ class WorkerSchedulerService:
         recovered: list[WorkerQueueItemRead] = []
         for run in self._queue_repository.list():
             if run.status != JobStatus.RUNNING:
+                continue
+            if _run_waiting_for_external_resume(run):
                 continue
             lease = self._lease_repository.get(self._lease_id_for_run(run.run_id))
             if lease is None:
@@ -511,3 +517,15 @@ def _cancelled_result_card(run: WorkerQueueItemRead, *, reason: str) -> dict[str
         "summary": reason,
         "telegram_completion_card_text": text[:3900],
     }
+
+
+def _is_waiting_for_external_resume(request: WorkerRunReportRequest) -> bool:
+    if request.metrics.get("hermes_interactive_waiting_for_approval") is True:
+        return True
+    return str(request.metrics.get("worker_pause_reason") or "").strip() == "hermes_interactive_approval"
+
+
+def _run_waiting_for_external_resume(run: WorkerQueueItemRead) -> bool:
+    if run.metrics.get("hermes_interactive_waiting_for_approval") is True:
+        return True
+    return str(run.metrics.get("worker_pause_reason") or "").strip() == "hermes_interactive_approval"

@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
-from autoresearch.api.dependencies import get_admin_auth_service, get_approval_store_service
+from autoresearch.api.dependencies import get_admin_auth_service, get_approval_decision_service, get_approval_store_service
 from autoresearch.core.services.admin_auth import AdminAccessClaims, AdminAuthService
+from autoresearch.core.services.approval_decisions import ApprovalDecisionDeliveryError, ApprovalDecisionService
 from autoresearch.core.services.approval_store import ApprovalStoreService
 from autoresearch.shared.models import ApprovalDecisionRequest, ApprovalRequestRead, ApprovalStatus
 
@@ -88,12 +89,14 @@ def resolve_approval(
     approval_id: str,
     payload: ApprovalDecisionRequest,
     access: AdminAccessClaims = Depends(_require_approval_write),
-    approval_service: ApprovalStoreService = Depends(get_approval_store_service),
+    decision_service: ApprovalDecisionService = Depends(get_approval_decision_service),
 ) -> ApprovalRequestRead:
     _ = access
     try:
-        return approval_service.resolve_request(approval_id, payload)
+        return decision_service.resolve_request(approval_id, payload)
     except KeyError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="approval not found") from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except ApprovalDecisionDeliveryError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc

@@ -6,6 +6,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, R
 from fastapi.responses import HTMLResponse
 
 from autoresearch.api.dependencies import (
+    get_approval_decision_service,
     get_approval_store_service,
     get_autoresearch_planner_service,
     get_capability_provider_registry,
@@ -16,6 +17,7 @@ from autoresearch.api.dependencies import (
     get_telegram_notifier_service,
 )
 from autoresearch.core.adapters import CapabilityProviderRegistry
+from autoresearch.core.services.approval_decisions import ApprovalDecisionDeliveryError, ApprovalDecisionService
 from autoresearch.core.services.approval_store import ApprovalStoreService
 from autoresearch.core.services.autoresearch_planner import AutoResearchPlannerService
 from autoresearch.core.services.claude_agents import ClaudeAgentService
@@ -192,6 +194,7 @@ def approve_panel_approval(
     background_tasks: BackgroundTasks,
     access: PanelAccessContext = Depends(_require_panel_access),
     approval_service: ApprovalStoreService = Depends(get_approval_store_service),
+    decision_service: ApprovalDecisionService = Depends(get_approval_decision_service),
     audit_service: PanelAuditService = Depends(get_panel_audit_service),
     notifier: TelegramNotifierService = Depends(get_telegram_notifier_service),
 ) -> ApprovalRequestRead:
@@ -200,9 +203,10 @@ def approve_panel_approval(
         telegram_uid=access.telegram_uid,
         approval_service=approval_service,
     )
-    resolved = approval_service.resolve_request(
-        approval_id,
-        ApprovalDecisionRequest(
+    resolved = _resolve_panel_approval_decision(
+        approval_id=approval_id,
+        decision_service=decision_service,
+        payload=ApprovalDecisionRequest(
             decision="approved",
             decided_by=access.telegram_uid,
             note=payload.note,
@@ -248,6 +252,7 @@ def reject_panel_approval(
     background_tasks: BackgroundTasks,
     access: PanelAccessContext = Depends(_require_panel_access),
     approval_service: ApprovalStoreService = Depends(get_approval_store_service),
+    decision_service: ApprovalDecisionService = Depends(get_approval_decision_service),
     audit_service: PanelAuditService = Depends(get_panel_audit_service),
     notifier: TelegramNotifierService = Depends(get_telegram_notifier_service),
 ) -> ApprovalRequestRead:
@@ -256,9 +261,10 @@ def reject_panel_approval(
         telegram_uid=access.telegram_uid,
         approval_service=approval_service,
     )
-    resolved = approval_service.resolve_request(
-        approval_id,
-        ApprovalDecisionRequest(
+    resolved = _resolve_panel_approval_decision(
+        approval_id=approval_id,
+        decision_service=decision_service,
+        payload=ApprovalDecisionRequest(
             decision="rejected",
             decided_by=access.telegram_uid,
             note=payload.note,
@@ -498,6 +504,22 @@ def _authorized_approval(
     if approval.telegram_uid != telegram_uid:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="forbidden")
     return approval
+
+
+def _resolve_panel_approval_decision(
+    *,
+    approval_id: str,
+    decision_service: ApprovalDecisionService,
+    payload: ApprovalDecisionRequest,
+) -> ApprovalRequestRead:
+    try:
+        return decision_service.resolve_request(approval_id, payload)
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="approval not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except ApprovalDecisionDeliveryError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
 
 def _authorized_plan(

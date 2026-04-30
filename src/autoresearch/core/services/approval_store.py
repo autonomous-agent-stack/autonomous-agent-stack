@@ -81,6 +81,30 @@ class ApprovalStoreService:
         items.sort(key=lambda item: item.updated_at, reverse=True)
         return items[: max(1, limit)]
 
+    def find_by_metadata(
+        self,
+        expected: dict[str, object],
+        *,
+        status: ApprovalStatus | None = None,
+        limit: int = 100,
+    ) -> list[ApprovalRequestRead]:
+        normalized_expected = {
+            str(key): value
+            for key, value in expected.items()
+            if str(key).strip()
+        }
+        if not normalized_expected:
+            return []
+        matches: list[ApprovalRequestRead] = []
+        for item in self._repository.list():
+            normalized = self._normalize_expiration(item)
+            if status is not None and normalized.status != status:
+                continue
+            if all(normalized.metadata.get(key) == value for key, value in normalized_expected.items()):
+                matches.append(normalized)
+        matches.sort(key=lambda item: item.updated_at, reverse=True)
+        return matches[: max(1, limit)]
+
     def resolve_request(
         self,
         approval_id: str,

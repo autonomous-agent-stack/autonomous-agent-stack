@@ -1,8 +1,8 @@
 # Hermes Interactive Bridge v2 落地子集
 # Hermes Interactive Bridge v2 Implemented Subset
 
-本文档定义在 AAS 中把 `hermes gateway` 接成一等执行面的最小契约。当前代码已落地持久化会话映射、游标保存、可插拔 transport 和 worker 注入；审批回流仍作为后续增强。
-This document defines the minimum contract for integrating `hermes gateway` as a first-class execution plane in AAS. The current code implements persistent session mapping, cursor storage, pluggable transport, and worker injection; approval callbacks remain a follow-up enhancement.
+本文档定义在 AAS 中把 `hermes gateway` 接成一等执行面的最小契约。当前代码已落地持久化会话映射、游标保存、可插拔 transport、worker 注入，以及 `interactive.approval_required` 的审批回流。
+This document defines the minimum contract for integrating `hermes gateway` as a first-class execution plane in AAS. The current code implements persistent session mapping, cursor storage, pluggable transport, worker injection, and approval callbacks for `interactive.approval_required`.
 
 ## 目标 / Goals
 
@@ -23,6 +23,8 @@ This document defines the minimum contract for integrating `hermes gateway` as a
   The Mac worker injects the real bridge only when `AUTORESEARCH_HERMES_INTERACTIVE_ENABLED=true` and `AUTORESEARCH_HERMES_GATEWAY_BASE_URL` are configured.
 - 未配置 bridge 时，仍返回稳定的 `error_kind=interactive_bridge_unavailable`。
   Without a configured bridge, the system still returns stable `error_kind=interactive_bridge_unavailable`.
+- `interactive.approval_required` 会创建普通 AAS approval；Telegram、Panel、Admin 或 approvals API 决策后，AAS 将结果回调到 gateway，并把暂停的 worker run 重新入队继续读取 cursor 后续事件。
+  `interactive.approval_required` creates a normal AAS approval; after Telegram, Panel, Admin, or approvals API decides it, AAS sends the result back to the gateway and requeues the paused worker run to continue reading events after the cursor.
 
 ## 路由契约 / Routing Contract
 
@@ -92,3 +94,8 @@ export AUTORESEARCH_HERMES_GATEWAY_TIMEOUT_SECONDS=10
 这些变量只影响 Mac worker 的 interactive bridge 注入；`oneshot` v1 lane 不依赖这些变量。
 These variables only affect interactive bridge injection in the Mac worker; the `oneshot` v1 lane does not depend on them.
 
+审批回流还要求 API 进程也配置同一组 Hermes gateway 变量，因为 approval 决策由 API 侧发送回调。
+Approval callbacks also require the API process to configure the same Hermes gateway variables because approval decisions are delivered from the API side.
+
+API 与 Mac worker 必须共享同一个 `AUTORESEARCH_API_DB_PATH`，否则 worker 创建的 approval 与 API 决策入口不会看到同一条记录。
+The API and Mac worker must share the same `AUTORESEARCH_API_DB_PATH`; otherwise, approvals created by the worker and decisions made through the API will not see the same record.

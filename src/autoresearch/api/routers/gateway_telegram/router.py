@@ -6,6 +6,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Request, status
 
 from autoresearch.api.dependencies import (
     get_admin_config_service,
+    get_approval_decision_service,
     get_approval_store_service,
     get_butler_dispatch_center,
     get_capability_provider_registry,
@@ -23,6 +24,7 @@ from autoresearch.api.dependencies import (
 )
 from autoresearch.api.settings import load_telegram_settings
 from autoresearch.core.services.admin_config import AdminConfigService
+from autoresearch.core.services.approval_decisions import ApprovalDecisionService
 from autoresearch.core.services.approval_store import ApprovalStoreService
 from autoresearch.core.services.butler_dispatch import ButlerDispatchCenter
 from autoresearch.core.services.butler_router import ButlerClassification, ButlerTaskType
@@ -105,6 +107,7 @@ def telegram_webhook(
     openclaw_service: OpenClawCompatService = Depends(get_openclaw_compat_service),
     memory_service: OpenClawMemoryService = Depends(get_openclaw_memory_service),
     approval_service: ApprovalStoreService = Depends(get_approval_store_service),
+    approval_decision_service: ApprovalDecisionService = Depends(get_approval_decision_service),
     agent_service: ClaudeAgentService = Depends(get_claude_agent_service),
     manager_service: ManagerAgentService = Depends(get_manager_agent_service),
     github_issue_service: GitHubIssueService = Depends(get_github_issue_service),
@@ -125,6 +128,7 @@ def telegram_webhook(
         openclaw_service=openclaw_service,
         memory_service=memory_service,
         approval_service=approval_service,
+        approval_decision_service=approval_decision_service,
         agent_service=agent_service,
         manager_service=manager_service,
         github_issue_service=github_issue_service,
@@ -152,6 +156,7 @@ def legacy_telegram_webhook(
     openclaw_service: OpenClawCompatService = Depends(get_openclaw_compat_service),
     memory_service: OpenClawMemoryService = Depends(get_openclaw_memory_service),
     approval_service: ApprovalStoreService = Depends(get_approval_store_service),
+    approval_decision_service: ApprovalDecisionService = Depends(get_approval_decision_service),
     agent_service: ClaudeAgentService = Depends(get_claude_agent_service),
     manager_service: ManagerAgentService = Depends(get_manager_agent_service),
     github_issue_service: GitHubIssueService = Depends(get_github_issue_service),
@@ -172,6 +177,7 @@ def legacy_telegram_webhook(
         openclaw_service=openclaw_service,
         memory_service=memory_service,
         approval_service=approval_service,
+        approval_decision_service=approval_decision_service,
         agent_service=agent_service,
         manager_service=manager_service,
         github_issue_service=github_issue_service,
@@ -195,6 +201,7 @@ def _handle_telegram_webhook(
     openclaw_service: OpenClawCompatService,
     memory_service: OpenClawMemoryService,
     approval_service: ApprovalStoreService,
+    approval_decision_service: ApprovalDecisionService,
     agent_service: ClaudeAgentService,
     manager_service: ManagerAgentService,
     github_issue_service: GitHubIssueService,
@@ -314,6 +321,7 @@ def _handle_telegram_webhook(
             extracted=extracted,
             background_tasks=background_tasks,
             approval_service=approval_service,
+            approval_decision_service=approval_decision_service,
             github_issue_service=github_issue_service,
             notifier=notifier,
             session_identity=session_identity,

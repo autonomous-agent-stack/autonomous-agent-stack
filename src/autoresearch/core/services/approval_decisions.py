@@ -1,0 +1,127 @@
+from __future__ import annotations
+
+from typing import Any
+
+from autoresearch.core.services.approval_actions import HERMES_INTERACTIVE_APPROVAL_ACTION
+from autoresearch.core.services.approval_store import ApprovalStoreService
+from autoresearch.core.services.hermes_gateway_bridge import HermesGatewayTransport, HermesGatewayTransportError
+from autoresearch.core.services.worker_scheduler import WorkerReportError, WorkerSchedulerService
+from autoresearch.shared.models import ApprovalDecisionRequest, ApprovalRequestRead, ApprovalStatus
+
+
+class ApprovalDecisionDeliveryError(RuntimeError):
+    """Raised when an approval decision cannot be delivered to its runtime."""
+
+
+class ApprovalDecisionService:
+    """Resolve approval decisions and run action-specific side effects."""
+
+    def __init__(
+        self,
+        *,
+        approval_store: ApprovalStoreService,
+        worker_scheduler: WorkerSchedulerService | None = None,
+        hermes_transport: HermesGatewayTransport | None = None,
+    ) -> None:
+        self._approval_store = approval_store
+        self._worker_scheduler = worker_scheduler
+        self._hermes_transport = hermes_transport
+
+    def resolve_request(
+        self,
+        approval_id: str,
+        request: ApprovalDecisionRequest,
+    ) -> ApprovalRequestRead:
+        approval = self._approval_store.get_request(approval_id)
+        if approval is None:
+            raise KeyError(f"approval not found: {approval_id}")
+        if approval.metadata.get("action_type") != HERMES_INTERACTIVE_APPROVAL_ACTION:
+            return self._approval_store.resolve_request(approval_id, request)
+        return self._resolve_hermes_interactive_approval(approval, request)
+
+    def _resolve_hermes_interactive_approval(
+        self,
+        approval: ApprovalRequestRead,
+        request: ApprovalDecisionRequest,
+    ) -> ApprovalRequestRead:
+        if approval.status != ApprovalStatus.PENDING:
+            raise ValueError(f"approval is not pending: {approval.approval_id}")
+        if self._hermes_transport is None:
+            raise ApprovalDecisionDeliveryError("Hermes gateway callback transport is not configured")
+
+        metadata = dict(approval.metadata)
+        gateway_session_id = str(metadata.get("gateway_session_id") or "").strip()
+        gateway_event_id = str(metadata.get("gateway_event_id") or "").strip()
+        if not gateway_session_id or not gateway_event_id:
+            raise ApprovalDecisionDeliveryError("Hermes approval is missing gateway session or event id")
+
+        callback_metadata: dict[str, Any] = {
+            "approval_id": approval.approval_id,
+            "action_type": HERMES_INTERACTIVE_APPROVAL_ACTION,
+            "aas_session_id": metadata.get("aas_session_id"),
+            "run_id": metadata.get("run_id"),
+            "source": "aas_approval_decision",
+            **dict(request.metadata),
+        }
+        try:
+            self._hermes_transport.submit_approval_decision(
+                gateway_session_id=gateway_session_id,
+                event_id=gateway_event_id,
+                decision=request.decision,
+                decided_by=request.decided_by,
+                note=request.note,
+                metadata=callback_metadata,
+            )
+        except HermesGatewayTransportError as exc:
+            raise ApprovalDecisionDeliveryError(str(exc)) from exc
+
+        resolved = self._approval_store.resolve_request(
+            approval.approval_id,
+            request.model_copy(
+                update={
+                    "metadata": {
+                        **dict(request.metadata),
+                        "hermes_gateway_decision_delivered": True,
+                        "hermes_gateway_decision_delivered_to": gateway_session_id,
+                        "hermes_gateway_event_id": gateway_event_id,
+                    }
+                }
+            ),
+        )
+        self._requeue_hermes_run_after_decision(resolved)
+        return resolved
+
+    def _requeue_hermes_run_after_decision(self, approval: ApprovalRequestRead) -> None:
+        if self._worker_scheduler is None:
+            self._approval_store.update_request_metadata(
+                approval.approval_id,
+                {"hermes_requeue_status": "skipped_no_scheduler"},
+            )
+            return
+        run_id = str(approval.metadata.get("run_id") or "").strip()
+        if not run_id:
+            self._approval_store.update_request_metadata(
+                approval.approval_id,
+                {"hermes_requeue_status": "skipped_no_run_id"},
+            )
+            return
+        try:
+            self._worker_scheduler.requeue_run(
+                run_id,
+                reason=f"Hermes interactive approval {approval.status.value}",
+                backoff_seconds=1,
+                increment_retry=False,
+            )
+        except (KeyError, WorkerReportError) as exc:
+            self._approval_store.update_request_metadata(
+                approval.approval_id,
+                {
+                    "hermes_requeue_status": "failed",
+                    "hermes_requeue_error": str(exc),
+                },
+            )
+            return
+        self._approval_store.update_request_metadata(
+            approval.approval_id,
+            {"hermes_requeue_status": "requeued"},
+        )

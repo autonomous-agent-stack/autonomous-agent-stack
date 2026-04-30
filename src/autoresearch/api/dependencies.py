@@ -30,6 +30,7 @@ from autoresearch.core.services.admin_auth import AdminAuthService
 from autoresearch.core.services.admin_config import AdminConfigService
 from autoresearch.core.services.admin_secrets import AdminSecretCipher
 from autoresearch.core.services.agent_audit_trail import AgentAuditTrailService
+from autoresearch.core.services.approval_decisions import ApprovalDecisionService
 from autoresearch.core.services.approval_store import ApprovalStoreService
 from autoresearch.core.services.autoresearch_planner import AutoResearchPlannerService
 from autoresearch.core.services.claude_agents import ClaudeAgentService
@@ -39,6 +40,7 @@ from autoresearch.core.services.evaluations import EvaluationService
 from autoresearch.core.services.executions import ExecutionService
 from autoresearch.core.services.github_admin import GitHubAdminService
 from autoresearch.core.services.github_issue_service import GitHubIssueService
+from autoresearch.core.services.hermes_gateway_bridge import HttpHermesGatewayTransport
 from autoresearch.core.services.mirofish_prediction import MiroFishPredictionService
 from autoresearch.core.services.managed_skill_registry import ManagedSkillRegistryService
 from autoresearch.core.services.hermes_runtime_adapter import HermesRuntimeAdapterService
@@ -449,6 +451,35 @@ def get_approval_store_service() -> ApprovalStoreService:
 
 
 @lru_cache(maxsize=1)
+def get_hermes_gateway_transport() -> HttpHermesGatewayTransport | None:
+    base_url = (os.getenv("AUTORESEARCH_HERMES_GATEWAY_BASE_URL") or "").strip()
+    if not base_url:
+        return None
+    timeout_raw = os.getenv("AUTORESEARCH_HERMES_GATEWAY_TIMEOUT_SECONDS", "10")
+    try:
+        timeout_seconds = float(timeout_raw)
+    except ValueError:
+        timeout_seconds = 10.0
+    return HttpHermesGatewayTransport(
+        base_url=base_url,
+        health_path=(os.getenv("AUTORESEARCH_HERMES_GATEWAY_HEALTH_PATH") or "/health").strip() or "/health",
+        timeout_seconds=max(1.0, min(timeout_seconds, 120.0)),
+    )
+
+
+def get_approval_decision_service(
+    approval_store: ApprovalStoreService = Depends(get_approval_store_service),
+    worker_scheduler: WorkerSchedulerService = Depends(get_worker_scheduler_service),
+    hermes_transport: HttpHermesGatewayTransport | None = Depends(get_hermes_gateway_transport),
+) -> ApprovalDecisionService:
+    return ApprovalDecisionService(
+        approval_store=approval_store,
+        worker_scheduler=worker_scheduler,
+        hermes_transport=hermes_transport,
+    )
+
+
+@lru_cache(maxsize=1)
 def get_capability_provider_registry() -> CapabilityProviderRegistry:
     registry = CapabilityProviderRegistry()
     registry.register_many(
@@ -634,6 +665,8 @@ def clear_dependency_caches() -> None:
     _safe_cache_clear(get_butler_router)
     _safe_cache_clear(get_butler_model_fill_service)
     _safe_cache_clear(get_butler_dispatch_center)
+    _safe_cache_clear(get_hermes_gateway_transport)
+    _safe_cache_clear(get_approval_decision_service)
 
 
 @lru_cache(maxsize=1)

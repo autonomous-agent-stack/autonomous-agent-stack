@@ -312,9 +312,10 @@ class ButlerDispatchCenter:
             execution_mode = hermes_execution_mode
             max_retries = 1 if execution_mode == "interactive" else 2
 
-        if route == ButlerRoute.HERMES:
+        if route == ButlerRoute.HERMES or runtime_id == "hermes":
             runtime_id = "hermes"
             execution_mode = hermes_execution_mode
+            max_retries = 1 if execution_mode == "interactive" else max_retries
 
         return ButlerDispatchDecision(
             task_type=task_type,

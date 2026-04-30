@@ -171,12 +171,18 @@ class MacWorkerExecutor:
                 status=JobStatus.FAILED,
                 error="WorkerRuntimeDispatchService not configured on this worker",
             )
+        payload = {
+            **dict(run.payload or {}),
+            "run_id": run.run_id,
+        }
+        if run.assigned_worker_id:
+            payload["worker_id"] = run.assigned_worker_id
         meta = run.metadata or {}
         live_cb = None
         if (
             self._hermes_live_report is not None
             and meta.get("telegram_completion_via_api")
-            and str(run.payload.get("runtime_id") or "claude").strip().lower() == "hermes"
+            and str(payload.get("runtime_id") or "claude").strip().lower() == "hermes"
         ):
 
             def live_cb_impl(latest: RuntimeRunRead, elapsed_s: int) -> None:
@@ -185,7 +191,7 @@ class MacWorkerExecutor:
             live_cb = live_cb_impl
 
         outcome = dispatch.execute_payload(
-            run.payload,
+            payload,
             worker_id=run.assigned_worker_id,
             queue_metadata=run.metadata,
             hermes_live_progress=live_cb,

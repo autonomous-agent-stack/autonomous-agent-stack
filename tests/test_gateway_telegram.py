@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import sqlite3
 import sys
 import time
@@ -13,6 +12,7 @@ from fastapi.testclient import TestClient
 from autoresearch.api import dependencies as api_dependencies
 from autoresearch.api.dependencies import (
     get_admin_config_service,
+    get_approval_decision_service,
     get_approval_store_service,
     get_capability_provider_registry,
     get_claude_agent_service,
@@ -35,9 +35,11 @@ from autoresearch.agents.manager_agent import ManagerAgentService
 from autoresearch.core.adapters import CapabilityProviderDescriptorRead, CapabilityProviderRegistry
 from autoresearch.core.adapters.contracts import CapabilityDomain, SkillCatalogRead
 from autoresearch.core.services.admin_config import AdminConfigService
+from autoresearch.core.services.approval_decisions import ApprovalDecisionService
 from autoresearch.core.services.approval_store import ApprovalStoreService
 from autoresearch.core.services.claude_agents import ClaudeAgentService
 from autoresearch.core.services.github_issue_service import GitHubIssueCommentRead, GitHubIssueRead, GitHubIssueReference
+from autoresearch.core.services.hermes_gateway_bridge import InMemoryHermesGatewayTransport
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.openclaw_memory import OpenClawMemoryService
 from autoresearch.core.services.panel_access import PanelAccessService
@@ -54,13 +56,16 @@ from autoresearch.shared.models import (
     ClaudeRuntimeSessionRecordRead,
     ApprovalRequestRead,
     ApprovalRequestCreateRequest,
+    JobStatus,
     OpenClawMemoryRecordRead,
     OpenClawSessionRead,
     PromotionDiffStats,
     PromotionResult,
     WorkerLeaseRead,
+    WorkerQueueItemCreateRequest,
     WorkerQueueItemRead,
     WorkerRegistrationRead,
+    WorkerTaskType,
     utc_now,
 )
 from autoresearch.shared.store import SQLiteModelRepository
@@ -336,9 +341,27 @@ def _build_manager_service(db_path: Path) -> ManagerAgentService:
 
 
 @pytest.fixture
-def telegram_client(tmp_path: Path) -> TestClient:
+def telegram_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     db_path = tmp_path / "telegram-gateway.sqlite3"
-    os.environ["AUTORESEARCH_API_DB_PATH"] = str(db_path)
+    monkeypatch.setenv("AUTORESEARCH_API_DB_PATH", str(db_path))
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_BOT_TOKEN", "")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "")
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_SECRET_TOKEN", "")
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_ALLOWED_UIDS", "[]")
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_OWNER_UIDS", "[]")
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_PARTNER_UIDS", "[]")
+    monkeypatch.setenv("AUTORESEARCH_INTERNAL_GROUPS", "[]")
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_BOT_USERNAMES", "")
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_SHARED_ASSISTANT_ID", "telegram-shared")
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_RUNTIME_ID", "claude")
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_HERMES_EXECUTION_MODE", "oneshot")
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_HERMES_APPEND_EOF_INSTRUCTION", "false")
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_CLAUDE_COMMAND_OVERRIDE", "")
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_CLAUDE_ARGS", "")
+    monkeypatch.setenv("AUTORESEARCH_BUTLER_MODEL_FILL_ENABLED", "")
+    monkeypatch.delenv("AUTORESEARCH_ENV", raising=False)
+    monkeypatch.delenv("AUTORESEARCH_ENVIRONMENT", raising=False)
+    monkeypatch.setenv("ENVIRONMENT", "development")
     clear_settings_caches()
     with sqlite3.connect(db_path) as conn:
         conn.execute("DROP TABLE IF EXISTS telegram_inbound_update_ids")
@@ -439,7 +462,6 @@ def telegram_client(tmp_path: Path) -> TestClient:
         try:
             yield client
         finally:
-            os.environ.pop("AUTORESEARCH_API_DB_PATH", None)
             clear_settings_caches()
 
     app.dependency_overrides.clear()
@@ -811,7 +833,7 @@ def test_telegram_youtube_link_enqueues_existing_autoflow_and_tracks_session(
         assert session_payload["metadata"]["latest_telegram_youtube_autoflow_run_id"] == run_id
 
         assert len(notifier.messages) == 1
-        assert "status: accepted" in notifier.messages[0]["text"]
+        assert "Runtime: youtube_autoflow" in notifier.messages[0]["text"]
         assert run_id in notifier.messages[0]["text"]
     finally:
         app.dependency_overrides.pop(get_telegram_notifier_service, None)
@@ -1129,7 +1151,7 @@ def test_telegram_webhook_secret_required_in_production(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("ENVIRONMENT", "production")
-    monkeypatch.delenv("AUTORESEARCH_TELEGRAM_SECRET_TOKEN", raising=False)
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_SECRET_TOKEN", "")
     response = telegram_client.post(
         "/api/v1/gateway/telegram/webhook",
         json={
@@ -1843,7 +1865,12 @@ def test_telegram_approve_command_lists_and_reads_pending_approvals(
 
 def test_telegram_approve_command_can_resolve_pending_approval(
     telegram_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_SECRET_TOKEN", "")
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_ALLOWED_UIDS", "9536")
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_OWNER_UIDS", "9536")
+    clear_settings_caches()
     notifier = _StubTelegramNotifier()
     approval_service = getattr(telegram_client, "_approval_store")
     approval = approval_service.create_request(
@@ -1891,6 +1918,84 @@ def test_telegram_approve_command_can_resolve_pending_approval(
         assert "note: looks good" in notifier.messages[0]["text"]
     finally:
         app.dependency_overrides.pop(get_telegram_notifier_service, None)
+
+
+def test_telegram_approve_command_delivers_hermes_decision_and_requeues(
+    telegram_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_SECRET_TOKEN", "")
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_ALLOWED_UIDS", "9536")
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_OWNER_UIDS", "9536")
+    clear_settings_caches()
+    notifier = _StubTelegramNotifier()
+    approval_service = getattr(telegram_client, "_approval_store")
+    worker_scheduler = getattr(telegram_client, "_worker_scheduler")
+    queued = worker_scheduler.enqueue(
+        WorkerQueueItemCreateRequest(
+            task_name="hermes interactive",
+            task_type=WorkerTaskType.CLAUDE_RUNTIME,
+            payload={"runtime_id": "hermes", "execution_mode": "interactive", "chat_id": "9536"},
+        )
+    )
+    approval = approval_service.create_request(
+        ApprovalRequestCreateRequest(
+            title="Approve Hermes action",
+            summary="Hermes requested approval.",
+            source="hermes_interactive_approval",
+            telegram_uid="9536",
+            session_id="oc_hermes_approval",
+            agent_run_id=queued.run_id,
+            metadata={
+                "action_type": "hermes_interactive_approval",
+                "run_id": queued.run_id,
+                "aas_session_id": "oc_hermes_approval",
+                "gateway_session_id": "gw-telegram",
+                "gateway_event_id": "evt-telegram-approval",
+            },
+        )
+    )
+    transport = InMemoryHermesGatewayTransport(gateway_session_id="gw-telegram", events=[])
+    decision_service = ApprovalDecisionService(
+        approval_store=approval_service,
+        worker_scheduler=worker_scheduler,
+        hermes_transport=transport,
+    )
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+    app.dependency_overrides[get_approval_decision_service] = lambda: decision_service
+
+    try:
+        approve_response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 3174,
+                "message": {
+                    "message_id": 154,
+                    "text": f"/approve {approval.approval_id} approve ok",
+                    "chat": {"id": 9536, "type": "private"},
+                    "from": {"id": 9536, "username": "approve-user"},
+                },
+            },
+        )
+        assert approve_response.status_code == 200
+        payload = approve_response.json()
+        assert payload["accepted"] is True
+        assert payload["metadata"]["source"] == "telegram_approve_decision"
+
+        resolved = approval_service.get_request(approval.approval_id)
+        assert resolved is not None
+        assert resolved.status.value == "approved"
+        assert resolved.metadata["hermes_gateway_decision_delivered"] is True
+        assert resolved.metadata["hermes_requeue_status"] == "requeued"
+        assert transport.approval_decisions[0]["decision"] == "approved"
+        assert transport.approval_decisions[0]["event_id"] == "evt-telegram-approval"
+        run = worker_scheduler.get_run(queued.run_id)
+        assert run is not None
+        assert run.status == JobStatus.QUEUED
+        assert run.retry_count == 0
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+        app.dependency_overrides.pop(get_approval_decision_service, None)
 
 
 def test_telegram_reset_command_rotates_active_session(
