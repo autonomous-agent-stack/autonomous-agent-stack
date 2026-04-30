@@ -836,12 +836,7 @@ def _build_hermes_gateway_bridge(config: MacWorkerConfig) -> PersistedHermesGate
 
 def _resolve_worker_api_db_path(config: MacWorkerConfig) -> Path:
     """Same DB file the API uses (`AUTORESEARCH_API_DB_PATH` or repo default)."""
-    raw = (os.environ.get("AUTORESEARCH_API_DB_PATH") or "").strip()
-    if raw:
-        db_path = Path(raw).expanduser()
-    else:
-        db_path = config.housekeeping_root / "artifacts" / "api" / "evaluations.sqlite3"
-    db_path = db_path.resolve()
+    db_path = config.resolved_api_db_path()
     db_path.parent.mkdir(parents=True, exist_ok=True)
     return db_path
 

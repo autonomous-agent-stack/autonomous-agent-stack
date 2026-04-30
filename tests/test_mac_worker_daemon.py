@@ -171,12 +171,16 @@ class _FakeStandbyYouTubeAutoflow:
         *,
         queue_requested_by: str | None = None,
         queue_metadata: dict[str, object] | None = None,
+        progress_callback=None,
+        cancel_requested=None,
     ) -> StandbyYouTubeAutoflowResult:
         self.calls.append(
             {
                 "payload": payload,
                 "queue_requested_by": queue_requested_by,
                 "queue_metadata": queue_metadata,
+                "progress_callback": progress_callback,
+                "cancel_requested": cancel_requested,
             }
         )
         return self.result

@@ -5,13 +5,18 @@ from fastapi import APIRouter, Depends
 from autoresearch.api.dependencies import (
     get_butler_dispatch_center,
     get_github_assistant_service,
+    get_hermes_gateway_transport,
+    get_runtime_settings,
     get_runtime_adapter_registry_service,
     get_telegram_notifier_service,
     get_worker_inventory_service,
     get_worker_scheduler_service,
     get_youtube_agent_service,
 )
+from autoresearch.api.settings import RuntimeSettings
 from autoresearch.core.services.butler_dispatch import ButlerDoctorCheck, ButlerDoctorRead, ButlerDispatchCenter
+from autoresearch.core.services.hermes_gateway_bridge import HttpHermesGatewayTransport
+from autoresearch.core.services.hermes_readiness import build_hermes_interactive_callback_check
 from autoresearch.core.services.runtime_adapter_registry import RuntimeAdapterServiceRegistry
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
 from autoresearch.core.services.worker_inventory import WorkerInventoryService
@@ -27,6 +32,8 @@ router = APIRouter(prefix="/api/v1/butler", tags=["butler"])
 def butler_doctor(
     dispatch_center: ButlerDispatchCenter = Depends(get_butler_dispatch_center),
     runtime_registry: RuntimeAdapterServiceRegistry = Depends(get_runtime_adapter_registry_service),
+    runtime_settings: RuntimeSettings = Depends(get_runtime_settings),
+    hermes_transport: HttpHermesGatewayTransport | None = Depends(get_hermes_gateway_transport),
     worker_inventory: WorkerInventoryService = Depends(get_worker_inventory_service),
     worker_scheduler: WorkerSchedulerService = Depends(get_worker_scheduler_service),
     notifier: TelegramNotifierService = Depends(get_telegram_notifier_service),
@@ -36,6 +43,13 @@ def butler_doctor(
     checks: list[ButlerDoctorCheck] = []
     checks.extend(dispatch_center.doctor_checks())
     checks.append(_check_hermes(runtime_registry))
+    checks.append(
+        _check_hermes_interactive_callbacks(
+            runtime_settings=runtime_settings,
+            hermes_transport=hermes_transport,
+            worker_inventory=worker_inventory,
+        )
+    )
     checks.append(_check_worker_queue(worker_scheduler=worker_scheduler, worker_inventory=worker_inventory))
     checks.append(
         ButlerDoctorCheck(
@@ -59,6 +73,35 @@ def _check_hermes(runtime_registry: RuntimeAdapterServiceRegistry) -> ButlerDoct
             detail=str(exc).strip() or exc.__class__.__name__,
         )
     return ButlerDoctorCheck(name="Hermes runtime", status="ok", detail="Hermes runtime adapter is wired")
+
+
+def _check_hermes_interactive_callbacks(
+    *,
+    runtime_settings: RuntimeSettings,
+    hermes_transport: HttpHermesGatewayTransport | None,
+    worker_inventory: WorkerInventoryService,
+) -> ButlerDoctorCheck:
+    try:
+        inventory = worker_inventory.list_workers()
+    except Exception as exc:
+        return ButlerDoctorCheck(
+            name="Hermes interactive callbacks",
+            status="fail",
+            detail=str(exc).strip() or exc.__class__.__name__,
+            metadata={
+                "api_gateway_configured": hermes_transport is not None,
+                "api_gateway_health_ok": None,
+                "interactive_worker_count": 0,
+                "matching_db_worker_count": 0,
+                "api_db_path": str(runtime_settings.api_db_path),
+            },
+        )
+    return build_hermes_interactive_callback_check(
+        api_db_path=runtime_settings.api_db_path,
+        hermes_transport=hermes_transport,
+        workers=list(inventory.workers),
+        probe_gateway=True,
+    )
 
 
 def _check_worker_queue(
