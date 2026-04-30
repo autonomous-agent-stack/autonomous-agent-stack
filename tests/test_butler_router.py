@@ -1,8 +1,12 @@
 """Tests for ButlerIntentRouter — intent classification and dispatch."""
 from __future__ import annotations
 
+from pathlib import Path
+from types import SimpleNamespace
+
 import pytest
 
+from autoresearch.api.routers.butler import _check_hermes_interactive_callbacks
 from autoresearch.core.services.butler_router import (
     ButlerClassification,
     ButlerIntentRouter,
@@ -13,6 +17,22 @@ from autoresearch.core.services.butler_dispatch import (
     ButlerModelFillService,
     ButlerRoute,
 )
+
+
+class _FakeHermesTransport:
+    def __init__(self, health_ok: bool) -> None:
+        self.health_ok = health_ok
+
+    def health_check(self) -> bool:
+        return self.health_ok
+
+
+class _FakeWorkerInventory:
+    def __init__(self, workers: list[SimpleNamespace]) -> None:
+        self.workers = workers
+
+    def list_workers(self) -> SimpleNamespace:
+        return SimpleNamespace(workers=self.workers)
 
 
 class _FakeModelBackend:
@@ -262,3 +282,71 @@ class TestButlerDispatchCenter:
         center = ButlerDispatchCenter(model_fill=ButlerModelFillService(enabled=False))
         checks = center.doctor_checks()
         assert any(item.name == "model fill" and item.status == "degraded" for item in checks)
+
+
+class TestHermesInteractiveDoctor:
+    def test_doctor_degrades_when_api_gateway_missing(self, tmp_path: Path) -> None:
+        check = _check_hermes_interactive_callbacks(
+            runtime_settings=SimpleNamespace(api_db_path=tmp_path / "api.sqlite3"),
+            hermes_transport=None,
+            worker_inventory=_FakeWorkerInventory([]),  # type: ignore[arg-type]
+        )
+
+        assert check.name == "Hermes interactive callbacks"
+        assert check.status == "degraded"
+        assert "AUTORESEARCH_HERMES_GATEWAY_BASE_URL" in check.detail
+        assert check.metadata["api_gateway_configured"] is False
+
+    def test_doctor_ok_when_gateway_worker_and_db_match(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "api.sqlite3"
+        worker = SimpleNamespace(
+            capabilities=["hermes_interactive"],
+            display_status="online",
+            metadata={"hermes_gateway_configured": True, "api_db_path": str(db_path)},
+        )
+
+        check = _check_hermes_interactive_callbacks(
+            runtime_settings=SimpleNamespace(api_db_path=db_path),
+            hermes_transport=_FakeHermesTransport(True),  # type: ignore[arg-type]
+            worker_inventory=_FakeWorkerInventory([worker]),  # type: ignore[arg-type]
+        )
+
+        assert check.status == "ok"
+        assert check.metadata["api_gateway_configured"] is True
+        assert check.metadata["api_gateway_health_ok"] is True
+        assert check.metadata["interactive_worker_count"] == 1
+        assert check.metadata["matching_db_worker_count"] == 1
+
+    def test_doctor_degrades_when_worker_db_differs(self, tmp_path: Path) -> None:
+        worker = SimpleNamespace(
+            capabilities=["hermes_interactive"],
+            display_status="busy",
+            metadata={"hermes_gateway_configured": True, "api_db_path": str(tmp_path / "worker.sqlite3")},
+        )
+
+        check = _check_hermes_interactive_callbacks(
+            runtime_settings=SimpleNamespace(api_db_path=tmp_path / "api.sqlite3"),
+            hermes_transport=_FakeHermesTransport(True),  # type: ignore[arg-type]
+            worker_inventory=_FakeWorkerInventory([worker]),  # type: ignore[arg-type]
+        )
+
+        assert check.status == "degraded"
+        assert "AUTORESEARCH_API_DB_PATH" in check.detail
+        assert check.metadata["interactive_worker_count"] == 1
+        assert check.metadata["matching_db_worker_count"] == 0
+
+    def test_doctor_fails_when_gateway_health_probe_fails(self, tmp_path: Path) -> None:
+        worker = SimpleNamespace(
+            capabilities=["hermes_interactive"],
+            display_status="online",
+            metadata={"hermes_gateway_configured": True, "api_db_path": str(tmp_path / "api.sqlite3")},
+        )
+
+        check = _check_hermes_interactive_callbacks(
+            runtime_settings=SimpleNamespace(api_db_path=tmp_path / "api.sqlite3"),
+            hermes_transport=_FakeHermesTransport(False),  # type: ignore[arg-type]
+            worker_inventory=_FakeWorkerInventory([worker]),  # type: ignore[arg-type]
+        )
+
+        assert check.status == "fail"
+        assert check.metadata["api_gateway_health_ok"] is False
