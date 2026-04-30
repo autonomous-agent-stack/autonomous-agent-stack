@@ -5,6 +5,7 @@ from typing import Any
 from autoresearch.core.services.approval_actions import HERMES_INTERACTIVE_APPROVAL_ACTION
 from autoresearch.core.services.approval_store import ApprovalStoreService
 from autoresearch.core.services.hermes_gateway_bridge import HermesGatewayTransport, HermesGatewayTransportError
+from autoresearch.core.services.session_events import SessionEventService
 from autoresearch.core.services.worker_scheduler import WorkerReportError, WorkerSchedulerService
 from autoresearch.shared.models import ApprovalDecisionRequest, ApprovalRequestRead, ApprovalStatus
 
@@ -22,10 +23,12 @@ class ApprovalDecisionService:
         approval_store: ApprovalStoreService,
         worker_scheduler: WorkerSchedulerService | None = None,
         hermes_transport: HermesGatewayTransport | None = None,
+        session_events: SessionEventService | None = None,
     ) -> None:
         self._approval_store = approval_store
         self._worker_scheduler = worker_scheduler
         self._hermes_transport = hermes_transport
+        self._session_events = session_events
 
     def resolve_request(
         self,
@@ -73,6 +76,7 @@ class ApprovalDecisionService:
                 metadata=callback_metadata,
             )
         except HermesGatewayTransportError as exc:
+            self._record_hermes_delivery_failure(approval, request, str(exc))
             raise ApprovalDecisionDeliveryError(str(exc)) from exc
 
         resolved = self._approval_store.resolve_request(
@@ -125,3 +129,27 @@ class ApprovalDecisionService:
             approval.approval_id,
             {"hermes_requeue_status": "requeued"},
         )
+
+    def _record_hermes_delivery_failure(
+        self,
+        approval: ApprovalRequestRead,
+        request: ApprovalDecisionRequest,
+        error: str,
+    ) -> None:
+        if self._session_events is None:
+            return
+        try:
+            self._approval_store.append_pending_side_event(
+                approval,
+                event_type="approval.decision_delivery_failed",
+                content="Hermes approval decision delivery failed",
+                idempotency_key=f"approval:{approval.approval_id}:delivery_failed:{request.decision}",
+                metadata={
+                    "decision": request.decision,
+                    "decided_by": request.decided_by,
+                    "error": error,
+                    "action_type": HERMES_INTERACTIVE_APPROVAL_ACTION,
+                },
+            )
+        except Exception:
+            return

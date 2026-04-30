@@ -4,9 +4,11 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any
 
+from autoresearch.core.services.session_events import SessionEventService, resolve_session_id_from_payload
 from autoresearch.core.services.worker_registry import WorkerRegistryService
 from autoresearch.shared.models import (
     JobStatus,
+    SessionEventCreateRequest,
     WorkerClaimRead,
     WorkerClaimRequest,
     WorkerLeaseRead,
@@ -46,12 +48,14 @@ class WorkerSchedulerService:
         lease_repository: Repository[WorkerLeaseRead],
         lease_ttl_seconds: int = 60,
         retry_backoff_seconds: int = 30,
+        session_events: SessionEventService | None = None,
     ) -> None:
         self._worker_registry = worker_registry
         self._queue_repository = queue_repository
         self._lease_repository = lease_repository
         self._lease_ttl_seconds = max(1, lease_ttl_seconds)
         self._retry_backoff_seconds = max(1, retry_backoff_seconds)
+        self._session_events = session_events
 
     def enqueue(
         self,
@@ -85,7 +89,15 @@ class WorkerSchedulerService:
             updated_at=current,
             metadata=dict(request.metadata),
         )
-        return self._queue_repository.save(item.run_id, item)
+        saved = self._queue_repository.save(item.run_id, item)
+        self._append_run_event(
+            saved,
+            event_type="worker.run.queued",
+            content=f"worker run queued: {saved.run_id}",
+            idempotency_key=f"worker:{saved.run_id}:queued",
+            metadata={"queue_name": saved.queue_name.value, "task_type": saved.task_type.value},
+        )
+        return saved
 
     def claim(
         self,
@@ -176,6 +188,14 @@ class WorkerSchedulerService:
         )
         self._queue_repository.save(claimed_run.run_id, claimed_run)
         self._lease_repository.save(lease.lease_id, lease)
+        self._append_run_event(
+            claimed_run,
+            event_type="worker.run.claimed",
+            content=f"worker run claimed: {claimed_run.run_id}",
+            worker_id=worker.worker_id,
+            idempotency_key=f"worker:{claimed_run.run_id}:claimed:{worker.worker_id}:{lease.lease_id}",
+            metadata={"lease_id": lease.lease_id, "queue_name": queue_name.value},
+        )
         is_sticky = bool(run.metadata and run.metadata.get("preferred_worker_id"))
         return WorkerClaimRead(
             claimed=True,
@@ -257,7 +277,19 @@ class WorkerSchedulerService:
                 self._lease_repository.save(finished_lease.lease_id, finished_lease)
 
         updated = run.model_copy(update=update_fields)
-        return self._queue_repository.save(run_id, updated)
+        saved = self._queue_repository.save(run_id, updated)
+        self._append_run_event(
+            saved,
+            event_type="worker.run.paused" if _is_waiting_for_external_resume(request) else f"worker.run.{request.status.value}",
+            content=request.message or f"worker run {request.status.value}: {run_id}",
+            worker_id=worker_id,
+            metadata={
+                "metrics": dict(request.metrics),
+                "has_result": request.result is not None,
+                "error": request.error,
+            },
+        )
+        return saved
 
     def requeue_run(
         self,
@@ -292,7 +324,18 @@ class WorkerSchedulerService:
                 lease.lease_id,
                 lease.model_copy(update={"active": False, "updated_at": current}),
             )
-        return self._queue_repository.save(run_id, updated)
+        saved = self._queue_repository.save(run_id, updated)
+        self._append_run_event(
+            saved,
+            event_type="worker.run.requeued",
+            content=f"worker run requeued: {reason}",
+            metadata={
+                "reason": reason,
+                "backoff_seconds": max(1, backoff_seconds or self._retry_backoff_seconds),
+                "increment_retry": increment_retry,
+            },
+        )
+        return saved
 
     def force_fail_run(
         self,
@@ -322,7 +365,14 @@ class WorkerSchedulerService:
                 lease.lease_id,
                 lease.model_copy(update={"active": False, "updated_at": current}),
             )
-        return self._queue_repository.save(run_id, updated)
+        saved = self._queue_repository.save(run_id, updated)
+        self._append_run_event(
+            saved,
+            event_type="worker.run.failed",
+            content=f"worker run force failed: {reason}",
+            metadata={"reason": reason, "forced": True},
+        )
+        return saved
 
     def cancel_run(
         self,
@@ -367,7 +417,14 @@ class WorkerSchedulerService:
                     lease.lease_id,
                     lease.model_copy(update={"active": False, "updated_at": current}),
                 )
-            return self._queue_repository.save(run_id, updated)
+            saved = self._queue_repository.save(run_id, updated)
+            self._append_run_event(
+                saved,
+                event_type="worker.run.cancelled",
+                content=f"worker run cancelled: {reason}",
+                metadata={"reason": reason},
+            )
+            return saved
 
         updated = run.model_copy(
             update={
@@ -376,7 +433,14 @@ class WorkerSchedulerService:
                 "updated_at": current,
             }
         )
-        return self._queue_repository.save(run_id, updated)
+        saved = self._queue_repository.save(run_id, updated)
+        self._append_run_event(
+            saved,
+            event_type="worker.run.cancel_requested",
+            content=f"worker run cancel requested: {reason}",
+            metadata={"reason": reason},
+        )
+        return saved
 
     def recover_stale_runs(self, *, now: datetime | None = None) -> list[WorkerQueueItemRead]:
         current = now or utc_now()
@@ -499,6 +563,44 @@ class WorkerSchedulerService:
     def _lease_id_for_run(run_id: str) -> str:
         return f"wlease_{run_id}"
 
+    def _append_run_event(
+        self,
+        run: WorkerQueueItemRead,
+        *,
+        event_type: str,
+        content: str,
+        worker_id: str | None = None,
+        idempotency_key: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        if self._session_events is None:
+            return
+        session_id = resolve_session_id_from_payload(run.metadata, run.payload)
+        if not session_id:
+            return
+        try:
+            self._session_events.append(
+                SessionEventCreateRequest(
+                    session_id=session_id,
+                    source="worker_scheduler",
+                    event_type=event_type,
+                    role="status",
+                    content=content,
+                    status=run.status.value,
+                    runtime_id=_optional_string(run.payload.get("runtime_id")),
+                    run_id=run.run_id,
+                    worker_id=worker_id or run.assigned_worker_id,
+                    idempotency_key=idempotency_key,
+                    metadata={
+                        "task_name": run.task_name,
+                        "task_type": run.task_type.value,
+                        **dict(metadata or {}),
+                    },
+                )
+            )
+        except Exception:
+            logger.warning("Failed to append worker session event for %s", run.run_id, exc_info=True)
+
 
 def _cancelled_result_card(run: WorkerQueueItemRead, *, reason: str) -> dict[str, Any]:
     text = "\n".join(
@@ -529,3 +631,10 @@ def _run_waiting_for_external_resume(run: WorkerQueueItemRead) -> bool:
     if run.metrics.get("hermes_interactive_waiting_for_approval") is True:
         return True
     return str(run.metrics.get("worker_pause_reason") or "").strip() == "hermes_interactive_approval"
+
+
+def _optional_string(value: object) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None

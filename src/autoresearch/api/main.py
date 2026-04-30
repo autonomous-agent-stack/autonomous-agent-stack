@@ -202,6 +202,7 @@ def create_app() -> FastAPI:
     core_routers = [
         ("autoresearch.api.routers.capabilities", "router", "capabilities"),
         ("autoresearch.api.routers.approvals", "router", "approvals"),
+        ("autoresearch.api.routers.sessions", "router", "sessions"),
         ("autoresearch.api.routers.workers", "router", "workers"),
         ("autoresearch.api.routers.worker_runs", "router", "worker runs"),
         ("autoresearch.api.routers.worker_schedules", "router", "worker schedules"),

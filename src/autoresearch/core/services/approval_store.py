@@ -1,16 +1,21 @@
 from __future__ import annotations
 
+import logging
 from datetime import timedelta
 
+from autoresearch.core.services.session_events import SessionEventService, resolve_session_id_from_payload
 from autoresearch.core.services.writer_lease import WriterLeaseService
 from autoresearch.shared.models import (
     ApprovalDecisionRequest,
     ApprovalRequestCreateRequest,
     ApprovalRequestRead,
     ApprovalStatus,
+    SessionEventCreateRequest,
     utc_now,
 )
 from autoresearch.shared.store import Repository, create_resource_id
+
+logger = logging.getLogger(__name__)
 
 
 class ApprovalStoreService:
@@ -24,9 +29,11 @@ class ApprovalStoreService:
         self,
         repository: Repository[ApprovalRequestRead],
         writer_lease: WriterLeaseService | None = None,
+        session_events: SessionEventService | None = None,
     ) -> None:
         self._repository = repository
         self._writer_lease = writer_lease or WriterLeaseService()
+        self._session_events = session_events
 
     def create_request(self, request: ApprovalRequestCreateRequest) -> ApprovalRequestRead:
         with self._writer_lease.acquire("approval:create"):
@@ -50,7 +57,15 @@ class ApprovalStoreService:
                 decided_by=None,
                 decision_note=None,
             )
-            return self._repository.save(approval.approval_id, approval)
+            saved = self._repository.save(approval.approval_id, approval)
+            self._append_approval_event(
+                saved,
+                event_type="approval.requested",
+                content=saved.title,
+                idempotency_key=f"approval:{saved.approval_id}:created",
+                metadata={"summary": saved.summary, "risk": saved.risk.value},
+            )
+            return saved
 
     def get_request(self, approval_id: str) -> ApprovalRequestRead | None:
         item = self._repository.get(approval_id)
@@ -132,7 +147,18 @@ class ApprovalStoreService:
                     },
                 }
             )
-            return self._repository.save(updated.approval_id, updated)
+            saved = self._repository.save(updated.approval_id, updated)
+            self._append_approval_event(
+                saved,
+                event_type=f"approval.{status.value}",
+                content=f"approval {status.value}: {saved.title}",
+                idempotency_key=f"approval:{saved.approval_id}:{status.value}",
+                metadata={
+                    "decided_by": saved.decided_by,
+                    "decision_note": saved.decision_note,
+                },
+            )
+            return saved
 
     def update_request_metadata(
         self,
@@ -172,4 +198,72 @@ class ApprovalStoreService:
                 "decision_note": item.decision_note or "approval expired",
             }
         )
-        return self._repository.save(expired.approval_id, expired)
+        saved = self._repository.save(expired.approval_id, expired)
+        self._append_approval_event(
+            saved,
+            event_type="approval.expired",
+            content=f"approval expired: {saved.title}",
+            idempotency_key=f"approval:{saved.approval_id}:expired",
+        )
+        return saved
+
+    def append_pending_side_event(
+        self,
+        approval: ApprovalRequestRead,
+        *,
+        event_type: str,
+        content: str,
+        metadata: dict[str, object] | None = None,
+        idempotency_key: str | None = None,
+    ) -> None:
+        self._append_approval_event(
+            approval,
+            event_type=event_type,
+            content=content,
+            idempotency_key=idempotency_key,
+            metadata=metadata,
+        )
+
+    def _append_approval_event(
+        self,
+        approval: ApprovalRequestRead,
+        *,
+        event_type: str,
+        content: str,
+        idempotency_key: str | None = None,
+        metadata: dict[str, object] | None = None,
+    ) -> None:
+        if self._session_events is None:
+            return
+        session_id = approval.session_id or resolve_session_id_from_payload(approval.metadata, None)
+        if not session_id:
+            return
+        try:
+            self._session_events.append(
+                SessionEventCreateRequest(
+                    session_id=session_id,
+                    source="approval_store",
+                    event_type=event_type,
+                    role="status",
+                    content=content,
+                    status=approval.status.value,
+                    runtime_id=_optional_string(approval.metadata.get("runtime_id")),
+                    run_id=approval.agent_run_id or _optional_string(approval.metadata.get("run_id")),
+                    approval_id=approval.approval_id,
+                    worker_id=_optional_string(approval.metadata.get("worker_id")),
+                    idempotency_key=idempotency_key,
+                    metadata={
+                        "source": approval.source,
+                        **dict(metadata or {}),
+                    },
+                )
+            )
+        except Exception:
+            logger.warning("Failed to append approval session event for %s", approval.approval_id, exc_info=True)
+
+
+def _optional_string(value: object) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None

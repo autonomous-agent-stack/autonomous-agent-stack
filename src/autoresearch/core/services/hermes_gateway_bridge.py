@@ -11,6 +11,7 @@ from typing import Any, Protocol
 from autoresearch.core.services.approval_actions import HERMES_INTERACTIVE_APPROVAL_ACTION
 from autoresearch.core.services.approval_store import ApprovalStoreService
 from autoresearch.core.services.claude_runtime_service import ClaudeRuntimeExecutionResult
+from autoresearch.core.services.session_events import SessionEventService
 from autoresearch.shared.models import (
     ApprovalRequestCreateRequest,
     ApprovalRequestRead,
@@ -18,6 +19,7 @@ from autoresearch.shared.models import (
     AssistantScope,
     HermesInteractiveSessionRead,
     JobStatus,
+    SessionEventCreateRequest,
     utc_now,
 )
 from autoresearch.shared.store import Repository
@@ -265,10 +267,12 @@ class PersistedHermesGatewayBridge:
         repository: Repository[HermesInteractiveSessionRead],
         transport: HermesGatewayTransport,
         approval_store: ApprovalStoreService | None = None,
+        session_events: SessionEventService | None = None,
     ) -> None:
         self._repository = repository
         self._transport = transport
         self._approval_store = approval_store
+        self._session_events = session_events
 
     def execute_interactive(self, payload: dict[str, Any]) -> ClaudeRuntimeExecutionResult:
         runtime_id = str(payload.get("runtime_id") or "hermes").strip().lower() or "hermes"
@@ -310,6 +314,7 @@ class PersistedHermesGatewayBridge:
         cursor_out = cursor
         pending_approval: ApprovalRequestRead | None = None
         for event in events:
+            event_pending_approval: ApprovalRequestRead | None = None
             cursor_out = event.event_id
             if event.payload.get("summary"):
                 summary = str(event.payload["summary"])
@@ -321,12 +326,13 @@ class PersistedHermesGatewayBridge:
                 status = JobStatus.FAILED
                 error = str(event.payload.get("error") or "hermes interactive failed")
             elif event.event_type == "interactive.approval_required":
-                pending_approval = self._create_or_reuse_approval(
+                event_pending_approval = self._create_or_reuse_approval(
                     event=event,
                     payload=payload,
                     session_id=session_id,
                     gateway_session_id=gateway_session.gateway_session_id,
                 )
+                pending_approval = event_pending_approval
                 status = JobStatus.RUNNING
                 summary = _approval_waiting_summary(pending_approval)
             latest = HermesInteractiveSessionRead(
@@ -353,6 +359,14 @@ class PersistedHermesGatewayBridge:
                 },
             )
             self._repository.save(session_id, latest)
+            self._append_gateway_event(
+                event=event,
+                payload=payload,
+                session_id=session_id,
+                gateway_session_id=gateway_session.gateway_session_id,
+                status=status,
+                pending_approval=event_pending_approval,
+            )
 
         if latest is None:
             latest = HermesInteractiveSessionRead(
@@ -458,6 +472,54 @@ class PersistedHermesGatewayBridge:
                 },
             )
         )
+
+    def _append_gateway_event(
+        self,
+        *,
+        event: HermesGatewayEvent,
+        payload: dict[str, Any],
+        session_id: str,
+        gateway_session_id: str,
+        status: JobStatus,
+        pending_approval: ApprovalRequestRead | None,
+    ) -> None:
+        if self._session_events is None:
+            return
+        event_id = event.event_id.strip()
+        if not event_id:
+            return
+        event_payload = dict(event.payload)
+        content = str(
+            event_payload.get("summary")
+            or event_payload.get("message")
+            or event_payload.get("reason")
+            or event.event_type
+        ).strip()
+        try:
+            self._session_events.append(
+                SessionEventCreateRequest(
+                    session_id=session_id,
+                    source="hermes_gateway",
+                    event_type=f"hermes.{event.event_type}",
+                    role="status",
+                    content=content,
+                    status=status.value,
+                    runtime_id=str(payload.get("runtime_id") or "hermes").strip().lower() or "hermes",
+                    run_id=str(payload.get("run_id") or "").strip() or None,
+                    approval_id=pending_approval.approval_id if pending_approval is not None else None,
+                    worker_id=str(payload.get("worker_id") or "").strip() or None,
+                    external_event_id=event_id,
+                    idempotency_key=f"hermes:{gateway_session_id}:{event_id}",
+                    metadata={
+                        "gateway_session_id": gateway_session_id,
+                        "gateway_event_type": event.event_type,
+                        "gateway_timestamp": event.timestamp.isoformat(),
+                        "event_payload": event_payload,
+                    },
+                )
+            )
+        except Exception:
+            return
 
     @staticmethod
     def _failure(

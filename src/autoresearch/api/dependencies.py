@@ -55,6 +55,7 @@ from autoresearch.core.services.panel_access import PanelAccessService
 from autoresearch.core.services.panel_audit import PanelAuditService
 from autoresearch.core.services.reports import ReportService
 from autoresearch.core.services.self_integration import SelfIntegrationService
+from autoresearch.core.services.session_events import SessionEventService
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
 from autoresearch.core.services.upstream_watcher import UpstreamWatcherService
 from autoresearch.core.services.variants import VariantService
@@ -87,6 +88,7 @@ from autoresearch.shared.models import (
     OptimizationRead,
     PanelAuditLogRead,
     ReportRead,
+    SessionEventRead,
     VariantRead,
     WorkerLeaseRead,
     WorkerInventoryListRead,
@@ -280,6 +282,7 @@ def get_worker_scheduler_service() -> WorkerSchedulerService:
             model_cls=WorkerLeaseRead,
         ),
         retry_backoff_seconds=settings.worker_retry_backoff_seconds,
+        session_events=get_session_event_service(),
     )
 
 
@@ -310,7 +313,8 @@ def get_openclaw_compat_service() -> OpenClawCompatService:
             db_path=_api_db_path(),
             table_name="openclaw_sessions",
             model_cls=OpenClawSessionRead,
-        )
+        ),
+        session_events=get_session_event_service(),
     )
 
 
@@ -446,6 +450,18 @@ def get_approval_store_service() -> ApprovalStoreService:
             db_path=_api_db_path(),
             table_name="approval_requests",
             model_cls=ApprovalRequestRead,
+        ),
+        session_events=get_session_event_service(),
+    )
+
+
+@lru_cache(maxsize=1)
+def get_session_event_service() -> SessionEventService:
+    return SessionEventService(
+        repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="session_events",
+            model_cls=SessionEventRead,
         )
     )
 
@@ -476,6 +492,7 @@ def get_approval_decision_service(
         approval_store=approval_store,
         worker_scheduler=worker_scheduler,
         hermes_transport=hermes_transport,
+        session_events=get_session_event_service(),
     )
 
 
@@ -641,6 +658,7 @@ def clear_dependency_caches() -> None:
     _safe_cache_clear(get_worker_schedule_service)
     _safe_cache_clear(get_openclaw_compat_service)
     _safe_cache_clear(get_openclaw_memory_service)
+    _safe_cache_clear(get_session_event_service)
     _safe_cache_clear(get_capability_provider_registry)
     _safe_cache_clear(get_managed_skill_registry_service)
     _safe_cache_clear(get_openclaw_skill_service)

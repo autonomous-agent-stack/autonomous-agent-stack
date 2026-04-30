@@ -26,11 +26,13 @@ from autoresearch.core.services.telegram_completion_format import (
     telegram_runtime_attribution_row,
 )
 from autoresearch.core.services.approval_store import ApprovalStoreService
+from autoresearch.core.services.session_events import SessionEventService
 from autoresearch.shared.models import (
     ApprovalRequestRead,
     ClaudeRuntimeSessionRecordRead,
     HermesInteractiveSessionRead,
     JobStatus,
+    SessionEventRead,
     WorkerClaimRequest,
     WorkerHeartbeatRequest,
     WorkerQueueItemRead,
@@ -820,6 +822,20 @@ def _build_hermes_gateway_bridge(config: MacWorkerConfig) -> PersistedHermesGate
             db_path=db_path,
             table_name="approval_requests",
             model_cls=ApprovalRequestRead,
+        ),
+        session_events=SessionEventService(
+            repository=SQLiteModelRepository(
+                db_path=db_path,
+                table_name="session_events",
+                model_cls=SessionEventRead,
+            )
+        ),
+    )
+    session_events = SessionEventService(
+        repository=SQLiteModelRepository(
+            db_path=db_path,
+            table_name="session_events",
+            model_cls=SessionEventRead,
         )
     )
     transport = HttpHermesGatewayTransport(
@@ -831,6 +847,7 @@ def _build_hermes_gateway_bridge(config: MacWorkerConfig) -> PersistedHermesGate
         repository=repository,
         transport=transport,
         approval_store=approval_store,
+        session_events=session_events,
     )
 
 
@@ -865,7 +882,14 @@ def _build_claude_runtime(config: MacWorkerConfig) -> ClaudeRuntimeService | Non
                 db_path=db_path,
                 table_name="openclaw_sessions",
                 model_cls=OpenClawSessionRead,
-            )
+            ),
+            session_events=SessionEventService(
+                repository=SQLiteModelRepository(
+                    db_path=db_path,
+                    table_name="session_events",
+                    model_cls=SessionEventRead,
+                )
+            ),
         )
         agent_service = ClaudeAgentService(
             repository=SQLiteModelRepository(
