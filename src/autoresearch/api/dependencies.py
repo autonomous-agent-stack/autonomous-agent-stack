@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+import os
 from pathlib import Path
 
 from fastapi import Depends
@@ -60,6 +61,7 @@ from autoresearch.core.services.worker_scheduler import WorkerSchedulerService
 from autoresearch.core.services.worker_inventory import WorkerInventoryService
 from autoresearch.core.services.worker_registry import WorkerRegistryService
 from autoresearch.core.services.youtube_agent import YouTubeAgentService
+from autoresearch.core.services.butler_dispatch import ButlerDispatchCenter, ButlerModelFillService
 from autoresearch.core.services.butler_router import ButlerIntentRouter
 from autoresearch.core.services.excel_audit import ExcelAuditService
 from autoresearch.core.repositories.excel_jobs import ExcelJobsRepository
@@ -630,6 +632,8 @@ def clear_dependency_caches() -> None:
     _safe_cache_clear(get_excel_audit_service)
     _safe_cache_clear(get_excel_ops_service)
     _safe_cache_clear(get_butler_router)
+    _safe_cache_clear(get_butler_model_fill_service)
+    _safe_cache_clear(get_butler_dispatch_center)
 
 
 @lru_cache(maxsize=1)
@@ -661,3 +665,33 @@ def _safe_cache_clear(func: object) -> None:
 @lru_cache(maxsize=1)
 def get_butler_router() -> ButlerIntentRouter:
     return ButlerIntentRouter()
+
+
+@lru_cache(maxsize=1)
+def get_butler_model_fill_service() -> ButlerModelFillService:
+    provider = os.getenv("AUTORESEARCH_BUTLER_MODEL_PROVIDER", "openai").strip().lower()
+    enabled = os.getenv("AUTORESEARCH_BUTLER_MODEL_FILL_ENABLED", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    backend = None
+    if enabled:
+        if provider == "glm":
+            from autoresearch.llm.glm import GLMBackend
+
+            backend = GLMBackend(model=os.getenv("AUTORESEARCH_BUTLER_MODEL_NAME", "glm-5"))
+        else:
+            from autoresearch.llm.openai import OpenAIBackend
+
+            backend = OpenAIBackend(model=os.getenv("AUTORESEARCH_BUTLER_MODEL_NAME", "gpt-4o-mini"))
+    return ButlerModelFillService(backend=backend, enabled=enabled)
+
+
+@lru_cache(maxsize=1)
+def get_butler_dispatch_center() -> ButlerDispatchCenter:
+    return ButlerDispatchCenter(
+        rule_router=get_butler_router(),
+        model_fill=get_butler_model_fill_service(),
+    )

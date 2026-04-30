@@ -226,10 +226,50 @@ class MacWorkerDaemon:
                     exc_info=True,
                 )
 
+        def cancel_requested(run_id: str) -> bool:
+            latest = client.get_run(run_id)
+            return bool(latest and (latest.metadata or {}).get("cancel_requested"))
+
+        def youtube_live_report(run: WorkerQueueItemRead, stage: str, message: str, metadata: dict[str, Any]) -> None:
+            try:
+                stage_label = str(stage or "").strip() or "?"
+                card_title = (
+                    f"YouTube 自动流运行中 · {stage_label} / YouTube autoflow running · {stage_label}"
+                )
+                client.report_run(
+                    config.worker_id,
+                    run.run_id,
+                    WorkerRunReportRequest(
+                        status=JobStatus.RUNNING,
+                        message=f"YouTube 自动流：{stage}",
+                        metrics={
+                            "telegram_live_phase": "running",
+                            "telegram_live_card_title": card_title,
+                            "youtube_stage": stage,
+                            "telegram_live_stdout_tail": message,
+                            "telegram_display_runtime_id": str(run.payload.get("runtime_id") or "youtube_autoflow"),
+                            "telegram_display_agent_name": "youtube_ops",
+                        },
+                        metadata={
+                            "youtube_stage": stage,
+                            **{k: v for k, v in metadata.items() if k in {"video_id", "transcript_id", "digest_id"}},
+                        },
+                    ),
+                )
+            except Exception:
+                logger.debug(
+                    "YouTube autoflow live RUNNING report failed run_id=%s stage=%s",
+                    getattr(run, "run_id", "?"),
+                    stage,
+                    exc_info=True,
+                )
+
         executor = MacWorkerExecutor(
             config,
             runtime_dispatch=runtime_dispatch,
             hermes_live_report=hermes_live_report,
+            youtube_live_report=youtube_live_report,
+            cancel_requested=cancel_requested,
         )
         bridge = _build_content_kb_bridge(config)
         return cls(config=config, client=client, executor=executor, content_kb_promotion_bridge=bridge)
@@ -319,6 +359,19 @@ class MacWorkerDaemon:
                 message=f"started {run.task_type.value}",
             ),
         )
+        if self._is_cancel_requested(run.run_id):
+            self._client.report_run(
+                self._config.worker_id,
+                run.run_id,
+                WorkerRunReportRequest(
+                    status=JobStatus.CANCELLED,
+                    message="cancelled before execution",
+                    error="cancelled by user",
+                    metrics={"exit_reason": "cancelled"},
+                ),
+            )
+            self._current_run_id = None
+            return
         try:
             outcome = self._executor.execute(run)
         except Exception as exc:
@@ -341,6 +394,10 @@ class MacWorkerDaemon:
         self._report_outcome(run=run, outcome=outcome)
         self._maybe_promote_content_kb(run=run, outcome=outcome)
         self._current_run_id = None
+
+    def _is_cancel_requested(self, run_id: str) -> bool:
+        latest = self._client.get_run(run_id)
+        return bool(latest and (latest.metadata or {}).get("cancel_requested"))
 
     def _report_outcome(self, *, run: WorkerQueueItemRead, outcome: MacWorkerExecutionResult) -> None:
         self._client.report_run(

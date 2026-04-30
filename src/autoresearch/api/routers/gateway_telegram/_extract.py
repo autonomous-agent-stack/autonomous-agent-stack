@@ -194,6 +194,49 @@ def _is_reset_command(text: str) -> bool:
     return lowered == "/reset" or normalized == "重置会话"
 
 
+def _is_cancel_command(text: str) -> bool:
+    normalized = text.strip()
+    lowered = normalized.lower()
+    return (
+        lowered == "/cancel"
+        or lowered.startswith("/cancel ")
+        or normalized == "撤回"
+        or normalized.startswith("撤回 ")
+        or normalized == "取消任务"
+        or normalized.startswith("取消任务 ")
+    )
+
+
+def _is_retry_command(text: str) -> bool:
+    normalized = text.strip()
+    lowered = normalized.lower()
+    return lowered == "/retry" or lowered.startswith("/retry ")
+
+
+def _extract_cancel_target(text: str) -> str:
+    normalized = text.strip()
+    lowered = normalized.lower()
+    if lowered == "/cancel" or normalized in {"撤回", "取消任务"}:
+        return ""
+    if lowered.startswith("/cancel "):
+        return normalized.split(" ", 1)[1].strip()
+    if normalized.startswith("撤回 "):
+        return normalized.split(" ", 1)[1].strip()
+    if normalized.startswith("取消任务 "):
+        return normalized.split(" ", 1)[1].strip()
+    return ""
+
+
+def _extract_retry_target(text: str) -> str:
+    normalized = text.strip()
+    lowered = normalized.lower()
+    if lowered == "/retry":
+        return ""
+    if lowered.startswith("/retry "):
+        return normalized.split(" ", 1)[1].strip()
+    return ""
+
+
 def _extract_mode_target(text: str) -> AssistantScope | None:
     normalized = text.strip()
     lowered = normalized.lower()

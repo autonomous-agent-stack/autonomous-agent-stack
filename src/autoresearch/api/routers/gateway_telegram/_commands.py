@@ -24,6 +24,7 @@ from autoresearch.core.services.telegram_identity import (
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
 from autoresearch.core.services.worker_inventory import WorkerInventoryService
 from autoresearch.core.services.worker_registry import WorkerRegistryService
+from autoresearch.core.services.worker_scheduler import WorkerReportError, WorkerSchedulerService
 from autoresearch.core.services.claude_session_records import ClaudeSessionRecordService
 from autoresearch.shared.manager_agent_contract import ManagerDispatchRead, ManagerDispatchRequest
 from autoresearch.shared.models import (
@@ -43,9 +44,11 @@ from autoresearch.shared.models import (
 from ._extract import (
     _can_telegram_task_self_approve,
     _extract_approve_query,
+    _extract_cancel_target,
     _extract_issue_task_parts,
     _extract_memory_content,
     _extract_mode_target,
+    _extract_retry_target,
     _extract_skill_query,
     _is_approve_command,
     _is_help_command,
@@ -872,6 +875,165 @@ def _handle_skills_command(
             "skill_count": total_skills,
         },
     )
+
+
+def _handle_cancel_command(
+    *,
+    chat_id: str,
+    update: dict[str, Any],
+    extracted: dict[str, Any],
+    background_tasks: BackgroundTasks,
+    worker_scheduler: WorkerSchedulerService,
+    notifier: TelegramNotifierService,
+    session_identity: TelegramSessionIdentityRead,
+) -> TelegramWebhookAck:
+    target = _extract_cancel_target(extracted["text"])
+    run_id = target or _latest_run_id_for_chat(
+        worker_scheduler=worker_scheduler,
+        chat_id=chat_id,
+        session_key=session_identity.session_key,
+        statuses={JobStatus.QUEUED, JobStatus.RUNNING},
+    )
+    if not run_id:
+        reason = "没有找到可取消的排队或运行中任务。 / No queued or running task was found to cancel."
+        if notifier.enabled:
+            background_tasks.add_task(notifier.send_message, chat_id=chat_id, text=reason)
+        return TelegramWebhookAck(
+            accepted=False,
+            update_id=_safe_int(update.get("update_id")),
+            chat_id=chat_id,
+            reason=reason,
+            metadata={"source": "telegram_cancel", "status": "not_found"},
+        )
+    try:
+        run = worker_scheduler.cancel_run(run_id, reason="cancelled from Telegram command")
+    except KeyError:
+        reason = f"未找到任务。 / Run not found: {run_id}"
+        if notifier.enabled:
+            background_tasks.add_task(notifier.send_message, chat_id=chat_id, text=reason)
+        return TelegramWebhookAck(
+            accepted=False,
+            update_id=_safe_int(update.get("update_id")),
+            chat_id=chat_id,
+            reason=reason,
+            metadata={"source": "telegram_cancel", "run_id": run_id, "status": "not_found"},
+        )
+    except WorkerReportError as exc:
+        reason = f"无法取消任务。 / Cannot cancel run: {exc.detail}"
+        if notifier.enabled:
+            background_tasks.add_task(notifier.send_message, chat_id=chat_id, text=reason)
+        return TelegramWebhookAck(
+            accepted=False,
+            update_id=_safe_int(update.get("update_id")),
+            chat_id=chat_id,
+            reason=reason,
+            metadata={"source": "telegram_cancel", "run_id": run_id, "status": "rejected"},
+        )
+    if run.status == JobStatus.CANCELLED:
+        from autoresearch.api.routers.workers import _try_deliver_butler_completion_primary
+
+        _try_deliver_butler_completion_primary(run, notifier=notifier, scheduler=worker_scheduler)
+    else:
+        from autoresearch.api.routers.worker_runs import _try_edit_cancel_requested_card
+
+        _try_edit_cancel_requested_card(run, notifier=notifier, scheduler=worker_scheduler)
+    message = (
+        f"已取消任务。 / Task cancelled.\nrun_id: {run.run_id}"
+        if run.status == JobStatus.CANCELLED
+        else f"已请求取消，worker 会在安全检查点停止。 / Cancellation requested; worker will stop at a safe checkpoint.\nrun_id: {run.run_id}"
+    )
+    if notifier.enabled:
+        background_tasks.add_task(notifier.send_message, chat_id=chat_id, text=message)
+    return TelegramWebhookAck(
+        accepted=True,
+        update_id=_safe_int(update.get("update_id")),
+        chat_id=chat_id,
+        metadata={"source": "telegram_cancel", "run_id": run.run_id, "status": run.status.value},
+    )
+
+
+def _handle_retry_command(
+    *,
+    chat_id: str,
+    update: dict[str, Any],
+    extracted: dict[str, Any],
+    background_tasks: BackgroundTasks,
+    worker_scheduler: WorkerSchedulerService,
+    notifier: TelegramNotifierService,
+    session_identity: TelegramSessionIdentityRead,
+) -> TelegramWebhookAck:
+    target = _extract_retry_target(extracted["text"])
+    run_id = target or _latest_run_id_for_chat(
+        worker_scheduler=worker_scheduler,
+        chat_id=chat_id,
+        session_key=session_identity.session_key,
+        statuses={JobStatus.FAILED},
+    )
+    if not run_id:
+        reason = "没有找到可重试的失败任务。 / No failed task was found to retry."
+        if notifier.enabled:
+            background_tasks.add_task(notifier.send_message, chat_id=chat_id, text=reason)
+        return TelegramWebhookAck(
+            accepted=False,
+            update_id=_safe_int(update.get("update_id")),
+            chat_id=chat_id,
+            reason=reason,
+            metadata={"source": "telegram_retry", "status": "not_found"},
+        )
+    try:
+        run = worker_scheduler.requeue_run(run_id, reason="retry from Telegram command", backoff_seconds=1)
+    except KeyError:
+        reason = f"未找到任务。 / Run not found: {run_id}"
+        if notifier.enabled:
+            background_tasks.add_task(notifier.send_message, chat_id=chat_id, text=reason)
+        return TelegramWebhookAck(
+            accepted=False,
+            update_id=_safe_int(update.get("update_id")),
+            chat_id=chat_id,
+            reason=reason,
+            metadata={"source": "telegram_retry", "run_id": run_id, "status": "not_found"},
+        )
+    except WorkerReportError as exc:
+        reason = f"无法重试任务。 / Cannot retry run: {exc.detail}"
+        if notifier.enabled:
+            background_tasks.add_task(notifier.send_message, chat_id=chat_id, text=reason)
+        return TelegramWebhookAck(
+            accepted=False,
+            update_id=_safe_int(update.get("update_id")),
+            chat_id=chat_id,
+            reason=reason,
+            metadata={"source": "telegram_retry", "run_id": run_id, "status": "rejected"},
+        )
+    message = f"已重新入队。 / Requeued.\nrun_id: {run.run_id}"
+    if notifier.enabled:
+        background_tasks.add_task(notifier.send_message, chat_id=chat_id, text=message)
+    return TelegramWebhookAck(
+        accepted=True,
+        update_id=_safe_int(update.get("update_id")),
+        chat_id=chat_id,
+        metadata={"source": "telegram_retry", "run_id": run.run_id, "status": run.status.value},
+    )
+
+
+def _latest_run_id_for_chat(
+    *,
+    worker_scheduler: WorkerSchedulerService,
+    chat_id: str,
+    session_key: str,
+    statuses: set[JobStatus],
+) -> str | None:
+    candidates = []
+    for run in worker_scheduler.list_queue():
+        payload = run.payload if isinstance(run.payload, dict) else {}
+        metadata = run.metadata if isinstance(run.metadata, dict) else {}
+        run_chat_id = str(payload.get("chat_id") or metadata.get("chat_id") or "").strip()
+        run_session_key = str(metadata.get("session_key") or payload.get("session_key") or "").strip()
+        if run.status not in statuses:
+            continue
+        if run_chat_id == chat_id or (session_key and run_session_key == session_key):
+            candidates.append(run)
+    candidates.sort(key=lambda item: (item.updated_at, item.created_at, item.run_id), reverse=True)
+    return candidates[0].run_id if candidates else None
 
 
 def _handle_reset_command(

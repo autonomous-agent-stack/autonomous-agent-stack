@@ -526,6 +526,7 @@ def test_telegram_worker_queue_metadata_includes_butler_agent_contract(
     assert run.max_retries == 1
     assert run.metadata["target_agent"] == "github_ops_accountA"
     assert run.metadata["detected_task_type"] == "github_admin"
+    assert run.metadata.get("butler_task_type") == "github_admin"
     assert run.metadata["execution_mode"] == "interactive"
     assert run.metadata["interactive_lease_ttl_seconds"] >= 300
     assert run.payload["metadata"]["target_agent"] == "github_ops_accountA"

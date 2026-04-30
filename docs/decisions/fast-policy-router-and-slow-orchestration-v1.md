@@ -1,7 +1,7 @@
 # fast-policy-router-and-slow-orchestration-v1
 
 **决策日期 | Decision date:** 2026-04-24  
-**状态 | Status:** Active（文档先行；代码演进分 PR | Doc-first; code evolution in separate PRs）  
+**状态 | Status:** Active（实现已落地；持续迭代 | Implemented in-tree; iterative follow-ups）  
 **适用范围 | Applies to:** Telegram 管家入口、worker 队列、Hermes/OpenClaw 运行时、capability 治理
 
 ---
@@ -21,25 +21,27 @@
 
 **中文：**
 
-- Telegram 入口：[`ButlerIntentRouter`](../../src/autoresearch/core/services/butler_router.py) 为**关键词分类**，文档写明 *no LLM*；`UNKNOWN` 后进入 [`gateway_telegram`](../../src/autoresearch/api/routers/gateway_telegram.py) 的 session + `worker_scheduler.enqueue`，默认由 `telegram_dispatch_runtime_id` 等配置落到 **Hermes worker 队列**（慢编排）。
-- 少数意图（如 Excel audit）在 gateway 内**硬编码**异步路径，不走通用队列。
-- 完成回写：worker `report_run` 终态 → API `report_worker_run` → 在 `telegram_completion_via_api` 下 **`editMessageText` 同一条 ack 气泡**；RUNNING 期间可有**节流** live 编辑（非每条报告一次 Telegram 编辑）。
+- Telegram 入口经 [`ButlerDispatchCenter`](../../src/autoresearch/core/services/butler_dispatch.py)：**[`ButlerIntentRouter`](../../src/autoresearch/core/services/butler_router.py)** 仍为 fast 规则层；规则为 `UNKNOWN` 时由 **`ButlerModelFillService`** 产出**仅路由用**的结构化 JSON（`task_type` / `route` / `runtime_id` 等枚举）；仍不确定则**升级 Hermes**。网关侧不再散落 agent/runtime/priority 选择，由分派决策统一写入队列 metadata（`detected_task_type` / `butler_task_type` 等字段为**字符串**）。
+- 少数意图（如 Excel audit）在 gateway 内保留**直接**异步路径，不走通用队列。
+- 完成回写：worker `report_run` 终态 → API `report_worker_run` → 在 `telegram_completion_via_api` 下 **`editMessageText` 同一条 ack 气泡**；RUNNING 期间**节流** live 编辑。非 Hermes 任务（如 YouTube 自动流）可通过 metrics **`telegram_live_card_title`** 指定 live 卡标题，避免误显示「Hermes 运行中」。
+- 队列级取消：`cancel_requested` + worker 协作停；`/api/v1/butler/doctor` 汇总规则层、模型补位、Hermes、队列、Telegram、YouTube autoflow、GitHub publish 等检查。
 - **自动化未覆盖**：控制面进程「整体重启」后，同一条任务链（ack → 可选节流 RUNNING → 终态卡）的端到端恢复。
 
 **English:**
 
-- Telegram ingress uses **keyword-only** [`ButlerIntentRouter`](../../src/autoresearch/core/services/butler_router.py); on `UNKNOWN`, [`gateway_telegram`](../../src/autoresearch/api/routers/gateway_telegram.py) enqueues to the worker scheduler → **Hermes** by settings (slow orchestration).
-- Some intents (e.g. Excel audit) are **hard-coded** async branches.
-- Completion path: terminal `report_run` → `report_worker_run` → **same ack bubble** via `editMessageText` when `telegram_completion_via_api`; RUNNING updates are **throttled**, not one Telegram edit per report.
+- Telegram ingress goes through [`ButlerDispatchCenter`](../../src/autoresearch/core/services/butler_dispatch.py): **[`ButlerIntentRouter`](../../src/autoresearch/core/services/butler_router.py)** remains the fast rule tier; on `UNKNOWN`, **`ButlerModelFillService`** returns **routing-only** structured JSON (enumerated `task_type` / `route` / `runtime_id`, etc.); if still uncertain, **escalate to Hermes**. The gateway no longer sprinkles agent/runtime/priority selection—one dispatch decision is written into queue metadata (`detected_task_type` / `butler_task_type` as **strings**).
+- Some intents (e.g. Excel audit) keep a **direct** async branch outside the generic queue.
+- Completion path: terminal `report_run` → `report_worker_run` → **same ack bubble** via `editMessageText` when `telegram_completion_via_api`; RUNNING updates are **throttled**. Non-Hermes work (e.g. YouTube autoflow) can set **`telegram_live_card_title`** in metrics so the live card does not read like a Hermes tick.
+- Queue-level cancel: `cancel_requested` with cooperative worker stop; **`/api/v1/butler/doctor`** aggregates checks for rules, model fill, Hermes, queue, Telegram, YouTube autoflow, GitHub publish, etc.
 - **Tests do not** today simulate a **full control-plane process restart** for that chain.
 
 ---
 
 ## 目标架构（演进方向）| Target architecture (evolution)
 
-**中文：** 三层分工；**当前代码 ≈ Fast-only + 默认落 Hermes**，缺少中间的「模型补位」与显式 escalation 策略。
+**中文：** 三层分工；**当前代码已实现** fast 规则 + 可选模型补位（路由 JSON）+ Hermes 升级；模型不可用时 UNKNOWN 仍升级 Hermes，`doctor` 标记 degraded/fail。
 
-**English:** Three layers; **today ≈ fast-only + default Hermes**, missing an explicit **model fill-in** tier and escalation policy.
+**English:** Three layers; **implemented** as fast rules + optional model fill-in (routing JSON) + Hermes escalation; when the model tier is unavailable, `UNKNOWN` still escalates to Hermes and `doctor` reports degraded/fail instead of pretending OK.
 
 ```mermaid
 flowchart LR
@@ -56,13 +58,13 @@ flowchart LR
 | 层 | 职责 | 典型输出 |
 |----|------|----------|
 | **Fast policy router** | 规则、字典、结构化 gate；低延迟、可审计 | 分类标签、是否允许直答、是否必须升级 |
-| **Model 补位** | 规则未覆盖或置信不足时；短输出、强约束 prompt | 短回复、二选一「是否上 Hermes」、摘要 |
+| **Model 补位** | 规则未覆盖或置信不足时；**仅结构化路由**（非用户可见短答） | `task_type` / `route` / `runtime_id` / `confidence` 等枚举 JSON |
 | **Slow orchestration** | Session、队列、Hermes/OpenClaw、工具、完成卡 | `WorkerQueueItem`、runtime run、终态卡片 |
 
 | Layer | Role | Typical output |
 |-------|------|----------------|
 | **Fast policy router** | Rules, lexicon, structured gates; low latency, auditable | Labels, allow direct reply, must escalate |
-| **Model fill-in** | When rules miss or confidence is low; short, constrained outputs | Short answer, escalate yes/no, summary |
+| **Model fill-in** | When rules miss or confidence is low; **structured routing only** (not end-user chat) | Enumerated JSON: `task_type`, `route`, `runtime_id`, `confidence`, etc. |
 | **Slow orchestration** | Session, queue, Hermes/OpenClaw, tools, completion card | Queue items, runtime runs, terminal card |
 
 ---
@@ -128,9 +130,9 @@ flowchart LR
 
 ## 状态 | Status
 
-**中文：** 文档 v1 已落库；代码侧 `ButlerIntentRouter` / gateway 三层路由为后续独立 PR。
+**中文：** 文档与实现对齐：`ButlerDispatchCenter`、`ButlerModelFillService`、`/api/v1/butler/doctor`、Telegram 网关单一分派入口、队列取消与 RUNNING live 卡（含非 Hermes 自定义标题）已合入主干演进。
 
-**English:** Doc v1 landed; code changes for a three-tier butler path are **follow-up PRs**.
+**English:** Doc and code are aligned: `ButlerDispatchCenter`, `ButlerModelFillService`, `/api/v1/butler/doctor`, a single Telegram dispatch ingress, queue cancel semantics, and throttled RUNNING live edits (including non-Hermes titles via `telegram_live_card_title`) ship in the ongoing implementation line.
 
 ---
 
@@ -173,4 +175,4 @@ flowchart LR
 - [mac-standby-worker-v1.md](./mac-standby-worker-v1.md) — worker 控制面基线
 - [distributed-control-plane-architecture-v1.md](./distributed-control-plane-architecture-v1.md) — 多 hands / registry 思想
 - [docs/worker-inventory.md](../worker-inventory.md) — 管家查询与盘点入口
-- [`gateway_telegram.py`](../../src/autoresearch/api/routers/gateway_telegram.py)、[`butler_router.py`](../../src/autoresearch/core/services/butler_router.py)
+- [`gateway_telegram/`](../../src/autoresearch/api/routers/gateway_telegram/)、[`butler_router.py`](../../src/autoresearch/core/services/butler_router.py)、[`butler_dispatch.py`](../../src/autoresearch/core/services/butler_dispatch.py)

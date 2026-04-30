@@ -56,6 +56,8 @@ def _build_help_message(*, session_identity: TelegramSessionIdentityRead) -> str
         "/memory <内容> 写入长期记忆",
         "/skills 查看可用 skills",
         "/skills <skill_key> 查看 skill 详情",
+        "/cancel [run_id] 取消最近或指定任务 / cancel latest or selected task",
+        "/retry [run_id] 重试最近或指定失败任务 / retry latest or selected failed task",
         "/reset 重置当前会话",
     ]
     if chat_type == ChatType.PRIVATE:
