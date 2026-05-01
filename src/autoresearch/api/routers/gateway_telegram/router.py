@@ -18,6 +18,7 @@ from autoresearch.api.dependencies import (
     get_openclaw_memory_service,
     get_panel_access_service,
     get_telegram_notifier_service,
+    get_worker_orchestration_service,
     get_worker_inventory_service,
     get_worker_registry_service,
     get_worker_scheduler_service,
@@ -37,6 +38,7 @@ from autoresearch.core.services.openclaw_memory import OpenClawMemoryService
 from autoresearch.core.services.panel_access import PanelAccessService
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
 from autoresearch.core.services.worker_inventory import WorkerInventoryService
+from autoresearch.core.services.worker_orchestration import WorkerOrchestrationService
 from autoresearch.core.services.worker_registry import WorkerRegistryService
 from autoresearch.core.services.worker_scheduler import WorkerSchedulerService
 from autoresearch.shared.models import (
@@ -118,6 +120,7 @@ def telegram_webhook(
     worker_registry: WorkerRegistryService = Depends(get_worker_registry_service),
     worker_inventory: WorkerInventoryService = Depends(get_worker_inventory_service),
     worker_scheduler: WorkerSchedulerService = Depends(get_worker_scheduler_service),
+    worker_orchestration: WorkerOrchestrationService = Depends(get_worker_orchestration_service),
     session_record_service: ClaudeSessionRecordService = Depends(get_claude_session_record_service),
     dispatch_center: ButlerDispatchCenter = Depends(get_butler_dispatch_center),
 ) -> TelegramWebhookAck:
@@ -139,6 +142,7 @@ def telegram_webhook(
         worker_registry=worker_registry,
         worker_inventory=worker_inventory,
         worker_scheduler=worker_scheduler,
+        worker_orchestration=worker_orchestration,
         session_record_service=session_record_service,
         dispatch_center=dispatch_center,
     )
@@ -167,6 +171,7 @@ def legacy_telegram_webhook(
     worker_registry: WorkerRegistryService = Depends(get_worker_registry_service),
     worker_inventory: WorkerInventoryService = Depends(get_worker_inventory_service),
     worker_scheduler: WorkerSchedulerService = Depends(get_worker_scheduler_service),
+    worker_orchestration: WorkerOrchestrationService = Depends(get_worker_orchestration_service),
     session_record_service: ClaudeSessionRecordService = Depends(get_claude_session_record_service),
     dispatch_center: ButlerDispatchCenter = Depends(get_butler_dispatch_center),
 ) -> TelegramWebhookAck:
@@ -188,6 +193,7 @@ def legacy_telegram_webhook(
         worker_registry=worker_registry,
         worker_inventory=worker_inventory,
         worker_scheduler=worker_scheduler,
+        worker_orchestration=worker_orchestration,
         session_record_service=session_record_service,
         dispatch_center=dispatch_center,
     )
@@ -212,6 +218,7 @@ def _handle_telegram_webhook(
     worker_registry: WorkerRegistryService,
     worker_inventory: WorkerInventoryService,
     worker_scheduler: WorkerSchedulerService,
+    worker_orchestration: WorkerOrchestrationService,
     session_record_service: ClaudeSessionRecordService,
     dispatch_center: ButlerDispatchCenter,
 ) -> TelegramWebhookAck:
@@ -536,14 +543,83 @@ def _handle_telegram_webhook(
     if dispatch_runtime == "hermes" and dispatch_decision.execution_mode == "interactive":
         queue_metadata.setdefault("interactive_lease_ttl_seconds", 900)
 
-    queue_item = worker_scheduler.enqueue(WorkerQueueItemCreateRequest(
+    queue_request = WorkerQueueItemCreateRequest(
         task_type=WorkerTaskType.CLAUDE_RUNTIME,
         payload=runtime_payload,
         requested_by=session_identity.actor.user_id,
         priority=queue_priority,
         max_retries=queue_max_retries,
         metadata=queue_metadata,
-    ))
+    )
+    orchestration_decision = worker_orchestration.decide(
+        prompt=resolved_prompt,
+        selected_worker=str(runtime_payload.get("runtime_id") or WorkerTaskType.CLAUDE_RUNTIME.value),
+        worker_chain=[str(runtime_payload.get("runtime_id") or WorkerTaskType.CLAUDE_RUNTIME.value)],
+        approval_policy=str(agent_contract.get("approval_policy") or "auto"),
+        metadata={
+            "canonical_task_type": agent_contract.get("canonical_task_type"),
+            "worker_task_type": agent_contract.get("worker_task_type"),
+            "action": agent_contract.get("action"),
+        },
+    )
+    try:
+        queue_item, approval = worker_orchestration.queue_or_request_approval(
+            queue_request=queue_request,
+            decision=orchestration_decision,
+            prompt=resolved_prompt,
+            title=str(runtime_payload["task_name"]),
+            telegram_uid=session_identity.actor.user_id,
+            session_id=session.session_id,
+        )
+    except PermissionError as exc:
+        return TelegramWebhookAck(
+            accepted=False,
+            update_id=_safe_int(update.get("update_id")),
+            chat_id=chat_id,
+            session_id=session.session_id,
+            reason=str(exc),
+            metadata={
+                "routed_to": "worker_orchestration",
+                "approval_policy": "blocked",
+            },
+        )
+    if approval is not None:
+        if notifier.enabled:
+            notifier.send_message(
+                chat_id=chat_id,
+                text=(
+                    "该 worker 任务需要审批后执行。\n"
+                    "This worker task requires approval before execution.\n"
+                    f"approval: {approval.approval_id}\n"
+                    f"/approve {approval.approval_id} approve [备注]"
+                ),
+                message_thread_id=_safe_int(extracted.get("message_thread_id")),
+            )
+        return TelegramWebhookAck(
+            accepted=True,
+            update_id=_safe_int(update.get("update_id")),
+            chat_id=chat_id,
+            session_id=session.session_id,
+            agent_run_id=None,
+            metadata={
+                "approval_id": approval.approval_id,
+                "task_name": runtime_payload["task_name"],
+                "routed_to": "worker_orchestration_approval",
+                "preferred_worker_id": preferred_worker_id,
+                "channel_route": channel_route,
+                "butler_dispatch_source": dispatch_decision.source.value,
+                "butler_dispatch_route": dispatch_decision.route.value,
+                "approval_policy": orchestration_decision.approval_policy,
+            },
+        )
+    if queue_item is None:
+        return TelegramWebhookAck(
+            accepted=False,
+            update_id=_safe_int(update.get("update_id")),
+            chat_id=chat_id,
+            session_id=session.session_id,
+            reason="worker orchestration produced no queue item",
+        )
 
     # Notify user that task is queued (sync so we capture message_id for worker editMessageText)
     thread_id_int = _safe_int(extracted.get("message_thread_id"))

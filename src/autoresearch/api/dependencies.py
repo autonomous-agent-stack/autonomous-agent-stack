@@ -61,6 +61,7 @@ from autoresearch.core.services.session_events import SessionEventService
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
 from autoresearch.core.services.upstream_watcher import UpstreamWatcherService
 from autoresearch.core.services.variants import VariantService
+from autoresearch.core.services.worker_orchestration import WorkerOrchestrationService
 from autoresearch.core.services.worker_schedule_service import WorkerScheduleService
 from autoresearch.core.services.worker_scheduler import WorkerSchedulerService
 from autoresearch.core.services.worker_inventory import WorkerInventoryService
@@ -499,17 +500,27 @@ def get_hermes_gateway_transport() -> HttpHermesGatewayTransport | None:
     )
 
 
+@lru_cache(maxsize=1)
+def get_worker_orchestration_service() -> WorkerOrchestrationService:
+    return WorkerOrchestrationService(
+        approval_store=get_approval_store_service(),
+        worker_scheduler=get_worker_scheduler_service(),
+    )
+
+
 def get_approval_decision_service(
     approval_store: ApprovalStoreService = Depends(get_approval_store_service),
     worker_scheduler: WorkerSchedulerService = Depends(get_worker_scheduler_service),
     hermes_transport: HttpHermesGatewayTransport | None = Depends(get_hermes_gateway_transport),
     github_ops_service: GitHubOpsService = Depends(get_github_ops_service),
+    worker_orchestration_service: WorkerOrchestrationService = Depends(get_worker_orchestration_service),
 ) -> ApprovalDecisionService:
     return ApprovalDecisionService(
         approval_store=approval_store,
         worker_scheduler=worker_scheduler,
         hermes_transport=hermes_transport,
         github_ops_service=github_ops_service,
+        worker_orchestration_service=worker_orchestration_service,
         session_events=get_session_event_service(),
     )
 
@@ -675,6 +686,7 @@ def clear_dependency_caches() -> None:
     _safe_cache_clear(get_github_issue_service)
     _safe_cache_clear(get_worker_registry_service)
     _safe_cache_clear(get_worker_scheduler_service)
+    _safe_cache_clear(get_worker_orchestration_service)
     _safe_cache_clear(get_worker_schedule_service)
     _safe_cache_clear(get_openclaw_compat_service)
     _safe_cache_clear(get_openclaw_memory_service)

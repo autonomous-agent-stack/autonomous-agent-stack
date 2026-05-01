@@ -24,6 +24,7 @@ from autoresearch.api.dependencies import (
     get_panel_access_service,
     get_telegram_notifier_service,
     get_worker_inventory_service,
+    get_worker_orchestration_service,
     get_worker_registry_service,
     get_worker_scheduler_service,
 )
@@ -44,6 +45,7 @@ from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.openclaw_memory import OpenClawMemoryService
 from autoresearch.core.services.panel_access import PanelAccessService
 from autoresearch.core.services.worker_inventory import WorkerInventoryService
+from autoresearch.core.services.worker_orchestration import WorkerOrchestrationService
 from autoresearch.core.services.worker_registry import WorkerRegistryService
 from autoresearch.core.services.worker_scheduler import WorkerSchedulerService
 from autoresearch.core.services.claude_session_records import ClaudeSessionRecordService
@@ -436,6 +438,10 @@ def telegram_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClie
             model_cls=ApprovalRequestRead,
         )
     )
+    worker_orchestration = WorkerOrchestrationService(
+        approval_store=approval_service,
+        worker_scheduler=worker_scheduler,
+    )
 
     app.dependency_overrides[get_openclaw_compat_service] = lambda: openclaw_service
     app.dependency_overrides[get_openclaw_memory_service] = lambda: memory_service
@@ -444,6 +450,7 @@ def telegram_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClie
     app.dependency_overrides[get_admin_config_service] = lambda: admin_config_service
     app.dependency_overrides[get_worker_registry_service] = lambda: worker_registry
     app.dependency_overrides[get_worker_scheduler_service] = lambda: worker_scheduler
+    app.dependency_overrides[get_worker_orchestration_service] = lambda: worker_orchestration
     app.dependency_overrides[get_worker_inventory_service] = lambda: WorkerInventoryService(
         worker_registry=worker_registry,
         worker_scheduler=worker_scheduler,
@@ -459,6 +466,7 @@ def telegram_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClie
     with TestClient(app) as client:
         setattr(client, "_approval_store", approval_service)
         setattr(client, "_worker_scheduler", worker_scheduler)
+        setattr(client, "_worker_orchestration", worker_orchestration)
         try:
             yield client
         finally:
@@ -553,6 +561,62 @@ def test_telegram_worker_queue_metadata_includes_butler_agent_contract(
     assert run.metadata["interactive_lease_ttl_seconds"] >= 300
     assert run.payload["metadata"]["target_agent"] == "github_ops_accountA"
     assert run.payload["metadata"]["repo"] == "example/repo"
+
+
+def test_telegram_high_risk_worker_request_waits_for_approval_then_resumes(
+    telegram_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_ALLOWED_UIDS", "9527")
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_OWNER_UIDS", "9527")
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_SECRET_TOKEN", "")
+    clear_settings_caches()
+
+    response = telegram_client.post(
+        "/api/v1/gateway/telegram/webhook",
+        json={
+            "update_id": 1004,
+            "message": {
+                "message_id": 80,
+                "text": "请修复 src/demo_fix.py 并直接合并到 main",
+                "chat": {"id": 9527, "type": "private"},
+                "from": {"id": 9527, "username": "alice"},
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["metadata"]["routed_to"] == "worker_orchestration_approval"
+    approval_id = payload["metadata"]["approval_id"]
+    approval_store = getattr(telegram_client, "_approval_store")
+    scheduler = getattr(telegram_client, "_worker_scheduler")
+    approval = approval_store.get_request(approval_id)
+    assert approval is not None
+    assert approval.metadata["worker_orchestration_replay"]["queue_request"]["task_type"] == "claude_runtime"
+    assert scheduler.list_queue() == []
+
+    approve_response = telegram_client.post(
+        "/api/v1/gateway/telegram/webhook",
+        json={
+            "update_id": 1005,
+            "message": {
+                "message_id": 81,
+                "text": f"/approve {approval_id} approve ok",
+                "chat": {"id": 9527, "type": "private"},
+                "from": {"id": 9527, "username": "alice"},
+            },
+        },
+    )
+
+    assert approve_response.status_code == 200
+    queued = scheduler.list_queue()
+    assert len(queued) == 1
+    assert queued[0].task_type == WorkerTaskType.CLAUDE_RUNTIME
+    assert queued[0].metadata["approval_id"] == approval_id
+    refreshed = approval_store.get_request(approval_id)
+    assert refreshed is not None
+    assert refreshed.metadata["resumed_worker_run_id"] == queued[0].run_id
 
 
 def test_telegram_github_pr_url_enqueues_direct_github_ops(

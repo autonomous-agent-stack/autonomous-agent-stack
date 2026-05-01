@@ -218,6 +218,38 @@ Default policy:
 
 Telegram `/approve <approval_id>`, Telegram `/reject <approval_id>`, and Panel approval buttons continue to use the shared approval service.
 
+## 审批后恢复 worker
+
+高风险 worker 任务不会先入队执行。系统会先创建 `worker_orchestration` approval，并在 approval metadata 里保存 `worker_orchestration_replay`，其中包含原始 `WorkerQueueItemCreateRequest` 与路由决策。审批通过后，共享 `ApprovalDecisionService` 会读取 replay payload，并把原任务重新入队；拒绝审批不会恢复 worker。
+
+示例：
+
+```text
+请修复 src/demo_fix.py 并直接合并到 main
+```
+
+默认行为：
+
+- 创建 approval
+- Telegram / Panel / Admin / API 任一审批入口通过后恢复 worker run
+- 恢复后的队列 metadata 带上 `approval_id`、`approval_status`、`approval_decided_by`
+
+## Worker Resume After Approval
+
+High-risk worker tasks are not queued for execution first. The system creates a `worker_orchestration` approval and stores `worker_orchestration_replay` in approval metadata, including the original `WorkerQueueItemCreateRequest` and routing decision. After approval, the shared `ApprovalDecisionService` reads the replay payload and requeues the original task; rejection does not resume the worker.
+
+Example:
+
+```text
+请修复 src/demo_fix.py 并直接合并到 main
+```
+
+Default behavior:
+
+- Create an approval
+- Resume the worker run after approval through Telegram / Panel / Admin / API
+- Add `approval_id`, `approval_status`, and `approval_decided_by` to the resumed queue metadata
+
 ## 验收命令
 
 ```bash
@@ -226,7 +258,8 @@ pytest --noconftest \
   tests/test_standby_youtube_autoflow.py \
   tests/test_approvals_api.py \
   tests/test_hermes_approval_decisions.py \
-  tests/test_github_ops.py
+  tests/test_github_ops.py \
+  tests/test_worker_orchestration.py
 ```
 
 ## Validation Command
@@ -237,5 +270,6 @@ pytest --noconftest \
   tests/test_standby_youtube_autoflow.py \
   tests/test_approvals_api.py \
   tests/test_hermes_approval_decisions.py \
-  tests/test_github_ops.py
+  tests/test_github_ops.py \
+  tests/test_worker_orchestration.py
 ```

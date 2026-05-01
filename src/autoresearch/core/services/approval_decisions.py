@@ -7,6 +7,10 @@ from autoresearch.core.services.approval_actions import HERMES_INTERACTIVE_APPRO
 from autoresearch.core.services.approval_store import ApprovalStoreService
 from autoresearch.core.services.hermes_gateway_bridge import HermesGatewayTransport, HermesGatewayTransportError
 from autoresearch.core.services.session_events import SessionEventService
+from autoresearch.core.services.worker_orchestration import (
+    WORKER_ORCHESTRATION_APPROVAL_SOURCE,
+    WorkerOrchestrationService,
+)
 from autoresearch.core.services.worker_scheduler import WorkerReportError, WorkerSchedulerService
 from autoresearch.shared.models import ApprovalDecisionRequest, ApprovalRequestRead, ApprovalStatus
 
@@ -25,12 +29,14 @@ class ApprovalDecisionService:
         worker_scheduler: WorkerSchedulerService | None = None,
         hermes_transport: HermesGatewayTransport | None = None,
         github_ops_service: GitHubOpsService | None = None,
+        worker_orchestration_service: WorkerOrchestrationService | None = None,
         session_events: SessionEventService | None = None,
     ) -> None:
         self._approval_store = approval_store
         self._worker_scheduler = worker_scheduler
         self._hermes_transport = hermes_transport
         self._github_ops_service = github_ops_service
+        self._worker_orchestration_service = worker_orchestration_service
         self._session_events = session_events
 
     def resolve_request(
@@ -46,7 +52,13 @@ class ApprovalDecisionService:
             return self._resolve_hermes_interactive_approval(approval, request)
         if action_type == GITHUB_OPS_APPROVAL_ACTION:
             return self._resolve_github_ops_approval(approval, request)
-        return self._approval_store.resolve_request(approval_id, request)
+        resolved = self._approval_store.resolve_request(approval_id, request)
+        if (
+            resolved.status == ApprovalStatus.APPROVED
+            and resolved.source == WORKER_ORCHESTRATION_APPROVAL_SOURCE
+        ):
+            self._resume_worker_orchestration_approval(resolved, request)
+        return resolved
 
     def _resolve_github_ops_approval(
         self,
@@ -130,6 +142,40 @@ class ApprovalDecisionService:
         self._requeue_hermes_run_after_decision(resolved)
         return resolved
 
+    def _resume_worker_orchestration_approval(
+        self,
+        approval: ApprovalRequestRead,
+        request: ApprovalDecisionRequest,
+    ) -> None:
+        if self._worker_orchestration_service is None:
+            self._approval_store.update_request_metadata(
+                approval.approval_id,
+                {
+                    "orchestration": {
+                        **dict(approval.metadata.get("orchestration") or {}),
+                        "resume_state": "skipped_no_orchestrator",
+                    }
+                },
+            )
+            return
+        try:
+            resumed = self._worker_orchestration_service.resume_approved_request(approval.approval_id)
+        except Exception as exc:
+            self._record_worker_orchestration_delivery_failure(approval, request, str(exc))
+            raise ApprovalDecisionDeliveryError(str(exc)) from exc
+        if resumed is None:
+            return
+        self._approval_store.append_pending_side_event(
+            approval,
+            event_type="approval.worker_orchestration_resumed",
+            content=f"worker orchestration resumed: {resumed.run_id}",
+            idempotency_key=f"approval:{approval.approval_id}:worker_orchestration_resumed",
+            metadata={
+                "run_id": resumed.run_id,
+                "selected_worker": resumed.decision.selected_worker,
+            },
+        )
+
     def _requeue_hermes_run_after_decision(self, approval: ApprovalRequestRead) -> None:
         if self._worker_scheduler is None:
             self._approval_store.update_request_metadata(
@@ -208,6 +254,30 @@ class ApprovalDecisionService:
                     "decided_by": request.decided_by,
                     "error": error,
                     "action_type": GITHUB_OPS_APPROVAL_ACTION,
+                },
+            )
+        except Exception:
+            return
+
+    def _record_worker_orchestration_delivery_failure(
+        self,
+        approval: ApprovalRequestRead,
+        request: ApprovalDecisionRequest,
+        error: str,
+    ) -> None:
+        if self._session_events is None:
+            return
+        try:
+            self._approval_store.append_pending_side_event(
+                approval,
+                event_type="approval.decision_delivery_failed",
+                content="Worker orchestration approval resume failed",
+                idempotency_key=f"approval:{approval.approval_id}:worker_orchestration_failed:{request.decision}",
+                metadata={
+                    "decision": request.decision,
+                    "decided_by": request.decided_by,
+                    "error": error,
+                    "action_type": WORKER_ORCHESTRATION_APPROVAL_SOURCE,
                 },
             )
         except Exception:
