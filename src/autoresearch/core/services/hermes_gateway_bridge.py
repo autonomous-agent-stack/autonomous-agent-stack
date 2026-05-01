@@ -8,8 +8,20 @@ import urllib.parse
 import urllib.request
 from typing import Any, Protocol
 
+from autoresearch.core.services.approval_actions import HERMES_INTERACTIVE_APPROVAL_ACTION
+from autoresearch.core.services.approval_store import ApprovalStoreService
 from autoresearch.core.services.claude_runtime_service import ClaudeRuntimeExecutionResult
-from autoresearch.shared.models import HermesInteractiveSessionRead, JobStatus, utc_now
+from autoresearch.core.services.session_events import SessionEventService
+from autoresearch.shared.models import (
+    ApprovalRequestCreateRequest,
+    ApprovalRequestRead,
+    ApprovalRisk,
+    AssistantScope,
+    HermesInteractiveSessionRead,
+    JobStatus,
+    SessionEventCreateRequest,
+    utc_now,
+)
 from autoresearch.shared.store import Repository
 
 
@@ -55,6 +67,18 @@ class HermesGatewayTransport(Protocol):
         cursor: str | None,
     ) -> list[HermesGatewayEvent]:
         """Return events after cursor."""
+
+    def submit_approval_decision(
+        self,
+        *,
+        gateway_session_id: str,
+        event_id: str,
+        decision: str,
+        decided_by: str,
+        note: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Deliver a human approval decision to the gateway."""
 
 
 class HermesGatewayTransportError(RuntimeError):
@@ -113,6 +137,30 @@ class HttpHermesGatewayTransport:
             raise HermesGatewayTransportError("Hermes gateway events response is not a list")
         return [_event_from_mapping(item) for item in raw_events if isinstance(item, dict)]
 
+    def submit_approval_decision(
+        self,
+        *,
+        gateway_session_id: str,
+        event_id: str,
+        decision: str,
+        decided_by: str,
+        note: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        path = (
+            f"/sessions/{urllib.parse.quote(gateway_session_id)}"
+            f"/approvals/{urllib.parse.quote(event_id)}/decision"
+        )
+        self._post_json(
+            path,
+            {
+                "decision": decision,
+                "decided_by": decided_by,
+                "note": note,
+                "metadata": dict(metadata or {}),
+            },
+        )
+
     def _url(self, path: str) -> str:
         base = self.base_url.rstrip("/")
         suffix = path if path.startswith("/") else f"/{path}"
@@ -151,6 +199,8 @@ class InMemoryHermesGatewayTransport:
     events: list[HermesGatewayEvent]
     open_calls: list[dict[str, Any]] = field(default_factory=list, init=False)
     stream_calls: list[dict[str, Any]] = field(default_factory=list, init=False)
+    approval_decisions: list[dict[str, Any]] = field(default_factory=list, init=False)
+    approval_error: str | None = None
 
     def health_check(self) -> bool:
         return True
@@ -184,6 +234,29 @@ class InMemoryHermesGatewayTransport:
             return list(self.events)
         return [event for event in self.events if event.event_id > cursor]
 
+    def submit_approval_decision(
+        self,
+        *,
+        gateway_session_id: str,
+        event_id: str,
+        decision: str,
+        decided_by: str,
+        note: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        if self.approval_error:
+            raise HermesGatewayTransportError(self.approval_error)
+        self.approval_decisions.append(
+            {
+                "gateway_session_id": gateway_session_id,
+                "event_id": event_id,
+                "decision": decision,
+                "decided_by": decided_by,
+                "note": note,
+                "metadata": dict(metadata or {}),
+            }
+        )
+
 
 class PersistedHermesGatewayBridge:
     """Persist Hermes interactive session bindings and stream cursors."""
@@ -193,9 +266,13 @@ class PersistedHermesGatewayBridge:
         *,
         repository: Repository[HermesInteractiveSessionRead],
         transport: HermesGatewayTransport,
+        approval_store: ApprovalStoreService | None = None,
+        session_events: SessionEventService | None = None,
     ) -> None:
         self._repository = repository
         self._transport = transport
+        self._approval_store = approval_store
+        self._session_events = session_events
 
     def execute_interactive(self, payload: dict[str, Any]) -> ClaudeRuntimeExecutionResult:
         runtime_id = str(payload.get("runtime_id") or "hermes").strip().lower() or "hermes"
@@ -235,7 +312,9 @@ class PersistedHermesGatewayBridge:
         stdout_preview: str | None = None
         error: str | None = None
         cursor_out = cursor
+        pending_approval: ApprovalRequestRead | None = None
         for event in events:
+            event_pending_approval: ApprovalRequestRead | None = None
             cursor_out = event.event_id
             if event.payload.get("summary"):
                 summary = str(event.payload["summary"])
@@ -246,6 +325,16 @@ class PersistedHermesGatewayBridge:
             elif event.event_type == "interactive.failed":
                 status = JobStatus.FAILED
                 error = str(event.payload.get("error") or "hermes interactive failed")
+            elif event.event_type == "interactive.approval_required":
+                event_pending_approval = self._create_or_reuse_approval(
+                    event=event,
+                    payload=payload,
+                    session_id=session_id,
+                    gateway_session_id=gateway_session.gateway_session_id,
+                )
+                pending_approval = event_pending_approval
+                status = JobStatus.RUNNING
+                summary = _approval_waiting_summary(pending_approval)
             latest = HermesInteractiveSessionRead(
                 aas_session_id=session_id,
                 hermes_gateway_session_id=gateway_session.gateway_session_id,
@@ -259,9 +348,25 @@ class PersistedHermesGatewayBridge:
                     **(existing.metadata if existing else {}),
                     "runtime_id": runtime_id,
                     "task_name": str(payload.get("task_name") or "hermes_interactive"),
+                    **(
+                        {
+                            "pending_approval_id": pending_approval.approval_id,
+                            "pending_approval_event_id": event.event_id,
+                        }
+                        if pending_approval is not None
+                        else {}
+                    ),
                 },
             )
             self._repository.save(session_id, latest)
+            self._append_gateway_event(
+                event=event,
+                payload=payload,
+                session_id=session_id,
+                gateway_session_id=gateway_session.gateway_session_id,
+                status=status,
+                pending_approval=event_pending_approval,
+            )
 
         if latest is None:
             latest = HermesInteractiveSessionRead(
@@ -285,6 +390,9 @@ class PersistedHermesGatewayBridge:
         }
         if latest.last_event:
             result["last_event"] = latest.last_event
+        if pending_approval is not None:
+            result["approval_id"] = pending_approval.approval_id
+            result["approval_status"] = pending_approval.status.value
         return ClaudeRuntimeExecutionResult(
             message=summary,
             status=status,
@@ -296,8 +404,122 @@ class PersistedHermesGatewayBridge:
                 "execution_mode": "interactive",
                 "events_seen": len(events),
                 "exit_reason": status.value,
+                **(
+                    {
+                        "telegram_live_phase": "running",
+                        "telegram_live_card_title": "Hermes 等待审批 / Hermes waiting for approval",
+                        "telegram_live_stdout_tail": _approval_waiting_body(pending_approval),
+                        "worker_pause_reason": HERMES_INTERACTIVE_APPROVAL_ACTION,
+                        "hermes_interactive_waiting_for_approval": True,
+                    }
+                    if pending_approval is not None
+                    else {}
+                ),
             },
         )
+
+    def _create_or_reuse_approval(
+        self,
+        *,
+        event: HermesGatewayEvent,
+        payload: dict[str, Any],
+        session_id: str,
+        gateway_session_id: str,
+    ) -> ApprovalRequestRead:
+        if self._approval_store is None:
+            raise HermesGatewayTransportError("approval store is not configured")
+        event_id = event.event_id.strip()
+        if not event_id:
+            raise HermesGatewayTransportError("approval_required event is missing event_id")
+        existing = self._approval_store.find_by_metadata(
+            {
+                "action_type": HERMES_INTERACTIVE_APPROVAL_ACTION,
+                "gateway_session_id": gateway_session_id,
+                "gateway_event_id": event_id,
+            },
+            limit=1,
+        )
+        if existing:
+            return existing[0]
+        event_payload = dict(event.payload)
+        title = str(event_payload.get("title") or "Hermes interactive approval required").strip()
+        summary = str(
+            event_payload.get("summary")
+            or event_payload.get("message")
+            or event_payload.get("reason")
+            or "Hermes requested human approval before continuing."
+        ).strip()
+        return self._approval_store.create_request(
+            ApprovalRequestCreateRequest(
+                title=title,
+                summary=summary,
+                risk=_approval_risk_from_event(event_payload),
+                source=HERMES_INTERACTIVE_APPROVAL_ACTION,
+                telegram_uid=_approval_telegram_uid(payload),
+                session_id=session_id,
+                agent_run_id=str(payload.get("run_id") or "").strip() or None,
+                assistant_scope=_assistant_scope_from_payload(payload),
+                metadata={
+                    "action_type": HERMES_INTERACTIVE_APPROVAL_ACTION,
+                    "run_id": str(payload.get("run_id") or "").strip(),
+                    "aas_session_id": session_id,
+                    "gateway_session_id": gateway_session_id,
+                    "gateway_event_id": event_id,
+                    "worker_id": str(payload.get("worker_id") or "").strip(),
+                    "task_name": str(payload.get("task_name") or "hermes_interactive").strip(),
+                    "runtime_id": str(payload.get("runtime_id") or "hermes").strip().lower() or "hermes",
+                    "event_payload": event_payload,
+                },
+            )
+        )
+
+    def _append_gateway_event(
+        self,
+        *,
+        event: HermesGatewayEvent,
+        payload: dict[str, Any],
+        session_id: str,
+        gateway_session_id: str,
+        status: JobStatus,
+        pending_approval: ApprovalRequestRead | None,
+    ) -> None:
+        if self._session_events is None:
+            return
+        event_id = event.event_id.strip()
+        if not event_id:
+            return
+        event_payload = dict(event.payload)
+        content = str(
+            event_payload.get("summary")
+            or event_payload.get("message")
+            or event_payload.get("reason")
+            or event.event_type
+        ).strip()
+        try:
+            self._session_events.append(
+                SessionEventCreateRequest(
+                    session_id=session_id,
+                    source="hermes_gateway",
+                    event_type=f"hermes.{event.event_type}",
+                    role="status",
+                    content=content,
+                    status=status.value,
+                    runtime_id=str(payload.get("runtime_id") or "hermes").strip().lower() or "hermes",
+                    run_id=str(payload.get("run_id") or "").strip() or None,
+                    approval_id=pending_approval.approval_id if pending_approval is not None else None,
+                    worker_id=str(payload.get("worker_id") or "").strip() or None,
+                    external_event_id=event_id,
+                    idempotency_key=f"hermes:{gateway_session_id}:{event_id}",
+                    metadata={
+                        "gateway_session_id": gateway_session_id,
+                        "gateway_event_type": event.event_type,
+                        "gateway_timestamp": event.timestamp.isoformat(),
+                        "event_payload": event_payload,
+                    },
+                )
+            )
+        except Exception:
+            return
 
     @staticmethod
     def _failure(
@@ -383,3 +605,51 @@ def _event_to_mapping(event: HermesGatewayEvent) -> dict[str, Any]:
         "payload": dict(event.payload),
     }
 
+
+def _approval_telegram_uid(payload: dict[str, Any]) -> str | None:
+    for key in ("actor_user_id", "chat_id"):
+        value = str(payload.get(key) or "").strip()
+        if value:
+            return value
+    return None
+
+
+def _assistant_scope_from_payload(payload: dict[str, Any]) -> AssistantScope | None:
+    raw = str(payload.get("scope") or "").strip().lower()
+    if not raw:
+        return None
+    try:
+        return AssistantScope(raw)
+    except ValueError:
+        return None
+
+
+def _approval_risk_from_event(payload: dict[str, Any]) -> ApprovalRisk:
+    raw = str(payload.get("risk") or "").strip().lower()
+    if raw:
+        try:
+            return ApprovalRisk(raw)
+        except ValueError:
+            pass
+    return ApprovalRisk.WRITE
+
+
+def _approval_waiting_summary(approval: ApprovalRequestRead | None) -> str:
+    if approval is None:
+        return "hermes interactive approval required"
+    return f"hermes interactive waiting for approval {approval.approval_id}"
+
+
+def _approval_waiting_body(approval: ApprovalRequestRead | None) -> str:
+    if approval is None:
+        return "Hermes requested approval."
+    return "\n".join(
+        [
+            "Hermes 请求人工审批后继续。 / Hermes requested approval before continuing.",
+            f"approval_id: {approval.approval_id}",
+            f"title: {approval.title}",
+            f"summary: {approval.summary}",
+            f"approve: /approve {approval.approval_id} approve",
+            f"reject: /approve {approval.approval_id} reject",
+        ]
+    )

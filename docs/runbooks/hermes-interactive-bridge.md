@@ -2,15 +2,16 @@
 
 ## 目标
 
-本 runbook 用于启用、探测和演练 Hermes interactive bridge。它只覆盖当前已落地的持久化子集：HTTP transport、SQLite 会话映射、stream cursor 保存，以及 worker 注入。
+本 runbook 用于启用、探测和演练 Hermes interactive bridge。它覆盖当前已落地的持久化子集：HTTP transport、SQLite 会话映射、stream cursor 保存、worker 注入，以及 approval-required 回流。
 
-This runbook is for enabling, probing, and drilling the Hermes interactive bridge. It covers only the implemented persistent subset: HTTP transport, SQLite session mapping, stream cursor storage, and worker injection.
+This runbook is for enabling, probing, and drilling the Hermes interactive bridge. It covers the implemented persistent subset: HTTP transport, SQLite session mapping, stream cursor storage, worker injection, and approval-required callbacks.
 
 ## 启用条件
 
 必须同时满足：
 
 - AAS API 与 Mac worker 使用同一个 `AUTORESEARCH_API_DB_PATH`
+- AAS API 与 Mac worker 都设置同一组 Hermes gateway 变量
 - Mac worker 设置 `AUTORESEARCH_HERMES_INTERACTIVE_ENABLED=true`
 - Mac worker 设置 `AUTORESEARCH_HERMES_GATEWAY_BASE_URL`
 - Hermes gateway 的健康探针可访问
@@ -18,6 +19,7 @@ This runbook is for enabling, probing, and drilling the Hermes interactive bridg
 All of the following must be true:
 
 - The AAS API and Mac worker use the same `AUTORESEARCH_API_DB_PATH`
+- The AAS API and Mac worker both set the same Hermes gateway variables
 - The Mac worker sets `AUTORESEARCH_HERMES_INTERACTIVE_ENABLED=true`
 - The Mac worker sets `AUTORESEARCH_HERMES_GATEWAY_BASE_URL`
 - The Hermes gateway health probe is reachable
@@ -31,6 +33,24 @@ export AUTORESEARCH_HERMES_GATEWAY_BASE_URL=http://127.0.0.1:8765
 export AUTORESEARCH_HERMES_GATEWAY_HEALTH_PATH=/health
 export AUTORESEARCH_HERMES_GATEWAY_TIMEOUT_SECONDS=10
 ```
+
+## 审批回流演练
+
+1. 提交一个显式 `execution_mode=interactive` 的 Hermes worker run。
+2. 让 gateway 返回 `interactive.approval_required` 事件，事件必须包含稳定 `event_id`。
+3. 确认 `approval_requests` 中出现 `metadata.action_type=hermes_interactive_approval`，并记录 `run_id`、`gateway_session_id`、`gateway_event_id`。
+4. 通过 Telegram `/approve <approval_id> approve`、Panel、Admin 或 `/api/v1/approvals/{approval_id}/decision` 批准或拒绝。
+5. 确认 API 向 gateway 发送 `POST /sessions/{gateway_session_id}/approvals/{event_id}/decision`，并把原 run 重新入队。
+6. Mac worker 再次 claim 该 run 后，从已保存 cursor 后继续读取 gateway 事件。
+
+## Approval Callback Drill
+
+1. Submit an explicit `execution_mode=interactive` Hermes worker run.
+2. Make the gateway return an `interactive.approval_required` event; the event must contain a stable `event_id`.
+3. Confirm `approval_requests` contains `metadata.action_type=hermes_interactive_approval`, with `run_id`, `gateway_session_id`, and `gateway_event_id`.
+4. Approve or reject through Telegram `/approve <approval_id> approve`, Panel, Admin, or `/api/v1/approvals/{approval_id}/decision`.
+5. Confirm the API sends `POST /sessions/{gateway_session_id}/approvals/{event_id}/decision` to the gateway and requeues the original run.
+6. After the Mac worker claims the run again, it continues reading gateway events after the saved cursor.
 
 ## 探针步骤
 

@@ -4,9 +4,10 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from autoresearch.api.dependencies import get_approval_store_service
+from autoresearch.api.dependencies import get_approval_decision_service, get_approval_store_service
 from autoresearch.api.routers.admin._auth import _require_admin_high_risk, _require_admin_read
 from autoresearch.core.services.admin_auth import AdminAccessClaims
+from autoresearch.core.services.approval_decisions import ApprovalDecisionDeliveryError, ApprovalDecisionService
 from autoresearch.core.services.approval_store import ApprovalStoreService
 from autoresearch.shared.models import (
     ApprovalDecisionRequest,
@@ -39,10 +40,10 @@ def register_approval_routes(router: APIRouter) -> None:
         approval_id: str,
         payload: ApprovalNoteRequest,
         access: AdminAccessClaims = Depends(_require_admin_high_risk),
-        approval_service: ApprovalStoreService = Depends(get_approval_store_service),
+        decision_service: ApprovalDecisionService = Depends(get_approval_decision_service),
     ) -> ApprovalRequestRead:
         try:
-            return approval_service.resolve_request(
+            return decision_service.resolve_request(
                 approval_id,
                 ApprovalDecisionRequest(
                     decision="approved",
@@ -59,16 +60,18 @@ def register_approval_routes(router: APIRouter) -> None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="approval not found") from exc
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        except ApprovalDecisionDeliveryError as exc:
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
     @router.post("/approvals/{approval_id}/reject", response_model=ApprovalRequestRead)
     def admin_reject_request(
         approval_id: str,
         payload: ApprovalNoteRequest,
         access: AdminAccessClaims = Depends(_require_admin_high_risk),
-        approval_service: ApprovalStoreService = Depends(get_approval_store_service),
+        decision_service: ApprovalDecisionService = Depends(get_approval_decision_service),
     ) -> ApprovalRequestRead:
         try:
-            return approval_service.resolve_request(
+            return decision_service.resolve_request(
                 approval_id,
                 ApprovalDecisionRequest(
                     decision="rejected",
@@ -85,3 +88,5 @@ def register_approval_routes(router: APIRouter) -> None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="approval not found") from exc
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        except ApprovalDecisionDeliveryError as exc:
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc

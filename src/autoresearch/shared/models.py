@@ -263,6 +263,48 @@ class OpenClawSessionEventAppendRequest(StrictModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class SessionEventCreateRequest(StrictModel):
+    session_id: str = Field(..., min_length=1)
+    source: str = Field(..., min_length=1)
+    event_type: str = Field(..., min_length=1)
+    role: Literal["system", "user", "assistant", "tool", "status"] = "status"
+    content: str = ""
+    status: str | None = None
+    runtime_id: str | None = None
+    run_id: str | None = None
+    approval_id: str | None = None
+    worker_id: str | None = None
+    external_event_id: str | None = None
+    idempotency_key: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class SessionEventRead(StrictModel):
+    event_id: str
+    session_id: str
+    source: str
+    event_type: str
+    role: Literal["system", "user", "assistant", "tool", "status"] = "status"
+    content: str = ""
+    status: str | None = None
+    runtime_id: str | None = None
+    run_id: str | None = None
+    approval_id: str | None = None
+    worker_id: str | None = None
+    external_event_id: str | None = None
+    idempotency_key: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+
+
+class SessionTimelineRead(StrictModel):
+    session_id: str
+    events: list[SessionEventRead] = Field(default_factory=list)
+    latest_event: SessionEventRead | None = None
+    summary: dict[str, Any] = Field(default_factory=dict)
+    correlations: dict[str, Any] = Field(default_factory=dict)
+
+
 class OpenClawSessionRead(StrictModel):
     session_id: str
     channel: str
@@ -1508,6 +1550,7 @@ class WorkerTaskType(str, Enum):
     CLEANUP_TMP = "cleanup_tmp"
     YOUTUBE_ACTION = "youtube_action"
     YOUTUBE_AUTOFLOW = "youtube_autoflow"
+    GITHUB_OPS = "github_ops"
     CLAUDE_RUNTIME = "claude_runtime"
     EXCEL_AUDIT = "excel_audit"
     CONTENT_KB_CLASSIFY = "content_kb_classify"

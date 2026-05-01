@@ -11,6 +11,7 @@ from autoresearch.core.services.claude_runtime_service import (
     ClaudeRuntimeExecutionResult,
     ClaudeRuntimeService,
 )
+from autoresearch.core.services.approval_store import ApprovalStoreService
 from autoresearch.core.services.hermes_gateway_bridge import (
     HermesGatewayEvent,
     InMemoryHermesGatewayTransport,
@@ -21,7 +22,7 @@ from autoresearch.core.services.worker_runtime_dispatch import (
     build_runtime_run_request_for_telegram_hermes,
     runtime_run_read_to_claude_execution_result,
 )
-from autoresearch.shared.models import HermesInteractiveSessionRead, JobStatus
+from autoresearch.shared.models import ApprovalRequestRead, HermesInteractiveSessionRead, JobStatus
 from autoresearch.shared.store import InMemoryRepository
 
 
@@ -333,6 +334,65 @@ def test_persisted_hermes_interactive_bridge_resumes_from_saved_cursor() -> None
     saved = repository.get("aas-1")
     assert saved is not None
     assert saved.gateway_stream_cursor == "evt-2"
+
+
+def test_persisted_hermes_interactive_bridge_creates_and_dedupes_approval() -> None:
+    now = datetime.now(timezone.utc)
+    repository = InMemoryRepository[HermesInteractiveSessionRead]()
+    approval_store = ApprovalStoreService(repository=InMemoryRepository[ApprovalRequestRead]())
+    transport = InMemoryHermesGatewayTransport(
+        gateway_session_id="gw-approval",
+        events=[
+            HermesGatewayEvent(
+                event_id="evt-approval-1",
+                event_type="interactive.approval_required",
+                timestamp=now,
+                payload={
+                    "title": "Allow Hermes tool call",
+                    "summary": "Hermes wants to run a write action.",
+                    "risk": "external",
+                },
+            )
+        ],
+    )
+    bridge = PersistedHermesGatewayBridge(
+        repository=repository,
+        transport=transport,
+        approval_store=approval_store,
+    )
+    payload = {
+        "runtime_id": "hermes",
+        "execution_mode": "interactive",
+        "session_id": "aas-approval",
+        "prompt": "continue",
+        "task_name": "demo",
+        "run_id": "run-approval",
+        "worker_id": "worker-1",
+        "actor_user_id": "9536",
+        "scope": "personal",
+    }
+
+    out = bridge.execute_interactive(payload)
+    saved_session = repository.get("aas-approval")
+    assert saved_session is not None
+    repository.save("aas-approval", saved_session.model_copy(update={"gateway_stream_cursor": None}))
+    out_again = bridge.execute_interactive(payload)
+
+    approvals = approval_store.find_by_metadata(
+        {
+            "action_type": "hermes_interactive_approval",
+            "gateway_session_id": "gw-approval",
+            "gateway_event_id": "evt-approval-1",
+        },
+        limit=10,
+    )
+    assert out.status == JobStatus.RUNNING
+    assert out.result["approval_id"] == approvals[0].approval_id
+    assert out.metrics["hermes_interactive_waiting_for_approval"] is True
+    assert out_again.result["approval_id"] == approvals[0].approval_id
+    assert len(approvals) == 1
+    assert approvals[0].telegram_uid == "9536"
+    assert approvals[0].metadata["run_id"] == "run-approval"
 
 
 def test_telegram_hermes_metadata_default_profile_is_default() -> None:

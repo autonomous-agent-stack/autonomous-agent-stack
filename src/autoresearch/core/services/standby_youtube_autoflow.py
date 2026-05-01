@@ -204,6 +204,11 @@ class StandbyYouTubeAutoflowService:
             video = self._youtube_service.get_video(video_id)
             if video is None:
                 raise KeyError(video_id)
+            publish_suggestions = _build_publish_suggestions(
+                title=video.title,
+                description=video.description,
+                digest_content=digest.content,
+            )
 
             self._emit_progress(
                 progress_callback,
@@ -270,6 +275,14 @@ class StandbyYouTubeAutoflowService:
                     **metadata,
                     "branch_name": publish.branch_name,
                     "github_summary": summary.model_dump(mode="json"),
+                    "publish_suggestions": publish_suggestions,
+                    "pipeline_stages": [
+                        _DISCOVERY_STAGE,
+                        _SUBSCRIPTION_STAGE,
+                        _TRANSCRIPT_STAGE,
+                        _DIGEST_STAGE,
+                        _GITHUB_PUBLISH_STAGE,
+                    ],
                 },
             )
         except KeyError as exc:
@@ -419,3 +432,40 @@ def build_default_standby_youtube_autoflow_service() -> StandbyYouTubeAutoflowSe
         ),
         github_service=GitHubAssistantService(repo_root=repo_root),
     )
+
+
+def _build_publish_suggestions(
+    *,
+    title: str | None,
+    description: str | None,
+    digest_content: str,
+) -> dict[str, Any]:
+    cleaned_title = (title or "").strip() or "YouTube digest"
+    digest_lines = [
+        line.strip(" -\t")
+        for line in digest_content.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    compact_digest = " ".join(digest_lines[:3]).strip()
+    suggested_description = compact_digest[:480] if compact_digest else (description or "").strip()[:480]
+    tag_candidates = []
+    normalized = f"{cleaned_title} {compact_digest}".lower()
+    for token, tag in (
+        ("ai", "AI"),
+        ("agent", "agent"),
+        ("github", "GitHub"),
+        ("youtube", "YouTube"),
+        ("workflow", "workflow"),
+        ("字幕", "字幕"),
+        ("摘要", "摘要"),
+        ("自动", "自动化"),
+    ):
+        if token in normalized and tag not in tag_candidates:
+            tag_candidates.append(tag)
+    if not tag_candidates:
+        tag_candidates = ["YouTube", "摘要", "workflow"]
+    return {
+        "suggested_title": cleaned_title[:90],
+        "suggested_description": suggested_description,
+        "suggested_tags": tag_candidates[:8],
+    }

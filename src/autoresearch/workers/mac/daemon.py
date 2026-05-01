@@ -25,10 +25,14 @@ from autoresearch.core.services.telegram_completion_format import (
     telegram_agent_attribution_row,
     telegram_runtime_attribution_row,
 )
+from autoresearch.core.services.approval_store import ApprovalStoreService
+from autoresearch.core.services.session_events import SessionEventService
 from autoresearch.shared.models import (
+    ApprovalRequestRead,
     ClaudeRuntimeSessionRecordRead,
     HermesInteractiveSessionRead,
     JobStatus,
+    SessionEventRead,
     WorkerClaimRequest,
     WorkerHeartbeatRequest,
     WorkerQueueItemRead,
@@ -442,6 +446,8 @@ class MacWorkerDaemon:
         """
         if run.task_type.value != "claude_runtime":
             return {}
+        if outcome.status == JobStatus.RUNNING:
+            return {}
         chat_id = run.payload.get("chat_id")
         if not chat_id:
             return {
@@ -811,22 +817,43 @@ def _build_hermes_gateway_bridge(config: MacWorkerConfig) -> PersistedHermesGate
         table_name="hermes_interactive_sessions",
         model_cls=HermesInteractiveSessionRead,
     )
+    approval_store = ApprovalStoreService(
+        repository=SQLiteModelRepository(
+            db_path=db_path,
+            table_name="approval_requests",
+            model_cls=ApprovalRequestRead,
+        ),
+        session_events=SessionEventService(
+            repository=SQLiteModelRepository(
+                db_path=db_path,
+                table_name="session_events",
+                model_cls=SessionEventRead,
+            )
+        ),
+    )
+    session_events = SessionEventService(
+        repository=SQLiteModelRepository(
+            db_path=db_path,
+            table_name="session_events",
+            model_cls=SessionEventRead,
+        )
+    )
     transport = HttpHermesGatewayTransport(
         base_url=config.hermes_gateway_base_url,
         health_path=config.hermes_gateway_health_path,
         timeout_seconds=config.hermes_gateway_timeout_seconds,
     )
-    return PersistedHermesGatewayBridge(repository=repository, transport=transport)
+    return PersistedHermesGatewayBridge(
+        repository=repository,
+        transport=transport,
+        approval_store=approval_store,
+        session_events=session_events,
+    )
 
 
 def _resolve_worker_api_db_path(config: MacWorkerConfig) -> Path:
     """Same DB file the API uses (`AUTORESEARCH_API_DB_PATH` or repo default)."""
-    raw = (os.environ.get("AUTORESEARCH_API_DB_PATH") or "").strip()
-    if raw:
-        db_path = Path(raw).expanduser()
-    else:
-        db_path = config.housekeeping_root / "artifacts" / "api" / "evaluations.sqlite3"
-    db_path = db_path.resolve()
+    db_path = config.resolved_api_db_path()
     db_path.parent.mkdir(parents=True, exist_ok=True)
     return db_path
 
@@ -855,7 +882,14 @@ def _build_claude_runtime(config: MacWorkerConfig) -> ClaudeRuntimeService | Non
                 db_path=db_path,
                 table_name="openclaw_sessions",
                 model_cls=OpenClawSessionRead,
-            )
+            ),
+            session_events=SessionEventService(
+                repository=SQLiteModelRepository(
+                    db_path=db_path,
+                    table_name="session_events",
+                    model_cls=SessionEventRead,
+                )
+            ),
         )
         agent_service = ClaudeAgentService(
             repository=SQLiteModelRepository(

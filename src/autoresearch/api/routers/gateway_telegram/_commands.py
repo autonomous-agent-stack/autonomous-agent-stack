@@ -7,6 +7,10 @@ from typing import Any
 
 from fastapi import BackgroundTasks
 
+from autoresearch.core.services.approval_decisions import (
+    ApprovalDecisionDeliveryError,
+    ApprovalDecisionService,
+)
 from autoresearch.api.settings import load_panel_settings, load_telegram_settings
 from autoresearch.core.adapters import CapabilityProviderRegistry
 from autoresearch.core.services.approval_store import ApprovalStoreService
@@ -634,6 +638,7 @@ def _handle_approve_command(
     extracted: dict[str, Any],
     background_tasks: BackgroundTasks,
     approval_service: ApprovalStoreService,
+    approval_decision_service: ApprovalDecisionService,
     github_issue_service: GitHubIssueService,
     notifier: TelegramNotifierService,
     session_identity: TelegramSessionIdentityRead,
@@ -649,7 +654,7 @@ def _handle_approve_command(
         else:
             decision = "approved" if approval_action == "approve" else "rejected"
             try:
-                approval = approval_service.resolve_request(
+                approval = approval_decision_service.resolve_request(
                     approval.approval_id,
                     ApprovalDecisionRequest(
                         decision=decision,
@@ -685,6 +690,9 @@ def _handle_approve_command(
                     ).strip()
             except ValueError as exc:
                 message_text = str(exc)
+                message_source = "telegram_approve_decision"
+            except ApprovalDecisionDeliveryError as exc:
+                message_text = f"审批决策未送达。 / Approval decision was not delivered: {str(exc)}"
                 message_source = "telegram_approve_decision"
             except RuntimeError as exc:
                 message_text = "\n\n".join(

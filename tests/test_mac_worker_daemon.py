@@ -171,12 +171,16 @@ class _FakeStandbyYouTubeAutoflow:
         *,
         queue_requested_by: str | None = None,
         queue_metadata: dict[str, object] | None = None,
+        progress_callback=None,
+        cancel_requested=None,
     ) -> StandbyYouTubeAutoflowResult:
         self.calls.append(
             {
                 "payload": payload,
                 "queue_requested_by": queue_requested_by,
                 "queue_metadata": queue_metadata,
+                "progress_callback": progress_callback,
+                "cancel_requested": cancel_requested,
             }
         )
         return self.result
@@ -901,6 +905,37 @@ def test_notify_telegram_skips_worker_http_when_delegated_to_api(
     assert "worker stdout" in card
     assert "诊断 / Diagnostics" in card
     assert "runtime=claude" in card
+
+
+def test_notify_telegram_does_not_build_terminal_card_for_running_pause(
+    tmp_path: Path,
+    worker_services: tuple[WorkerRegistryService, WorkerSchedulerService],
+) -> None:
+    daemon = _build_daemon(tmp_path, worker_services=worker_services)
+    now = utc_now()
+    run = WorkerQueueItemRead(
+        run_id="run_waiting_approval",
+        queue_name=WorkerQueueName.HOUSEKEEPING,
+        task_name="demo",
+        task_type=WorkerTaskType.CLAUDE_RUNTIME,
+        payload={"chat_id": "9", "runtime_id": "hermes"},
+        metadata={"telegram_completion_via_api": True, "telegram_queue_ack_message_id": 55},
+        created_at=now,
+        updated_at=now,
+    )
+    outcome = MacWorkerExecutionResult(
+        message="hermes interactive waiting for approval",
+        status=JobStatus.RUNNING,
+        metrics={
+            "telegram_live_phase": "running",
+            "worker_pause_reason": "hermes_interactive_approval",
+        },
+    )
+
+    delivery = daemon._notify_telegram_result(run=run, outcome=outcome)
+
+    assert delivery == {}
+    assert "telegram_completion_card_text" not in (outcome.result or {})
 
 
 def test_process_run_records_delivery_status_into_metrics(

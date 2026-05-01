@@ -24,6 +24,19 @@ class ButlerTaskType:
     UNKNOWN = "unknown"
 
 
+class ButlerCanonicalTaskType:
+    YOUTUBE_AUTOFLOW = "youtube.autoflow"
+    GITHUB_ISSUE_OPS = "github.issue_ops"
+    GITHUB_PR_OPS = "github.pr_ops"
+    EXCEL_COMMISSION = "excel.commission"
+    SALES_FOLLOWUP = "sales.followup"
+    DESIGN_ORDER_REVIEW = "design.order_review"
+    PURCHASE_TASK = "purchase.task"
+    HERMES_GENERAL = "hermes.general"
+    CONTENT_KB_INGEST = "content_kb.ingest"
+    BOOKMARK_ORGANIZE = "bookmark.organize"
+
+
 class ButlerClassification(StrictModel):
     """Result of classifying a user message."""
     task_type: str = ButlerTaskType.UNKNOWN
@@ -35,12 +48,12 @@ class ButlerClassification(StrictModel):
 _KEYWORD_MAP: dict[str, list[str]] = {
     ButlerTaskType.EXCEL_AUDIT: [
         "核对", "提成", "对账", "excel", "xlsx", "核算", "计算检查",
-        "差异报告", "审计", "核查", "报表核对",
+        "差异报告", "审计", "核查", "报表核对", "佣金", "commission",
     ],
     ButlerTaskType.GITHUB_ADMIN: [
         "仓库迁移", "盘点", "transfer", "collaborator", "仓库管理",
         "repo transfer", "协作者同步", "邀请接受", "github", "pull request", "pr",
-        "issue", "checks", "review",
+        "issue", "checks", "review", "帮我看这个 pr", "看这个 pr",
     ],
     ButlerTaskType.CONTENT_KB: [
         "字幕入库", "知识库", "字幕分类", "索引", "subtitle",
@@ -54,7 +67,7 @@ _KEYWORD_MAP: dict[str, list[str]] = {
     ],
     ButlerTaskType.YOUTUBE: [
         "youtube", "视频", "字幕下载", "字幕提取", "yt-dlp",
-        "视频下载", "transcript", "视频转文字",
+        "视频下载", "transcript", "视频转文字", "总结这个 youtube", "总结这个YouTube",
     ],
 }
 
@@ -113,3 +126,68 @@ class ButlerIntentRouter:
             confidence=confidence,
             extracted_params=extracted_params,
         )
+
+
+_CANONICAL_TO_LEGACY_TASK_TYPE: dict[str, str] = {
+    ButlerCanonicalTaskType.YOUTUBE_AUTOFLOW: ButlerTaskType.YOUTUBE,
+    ButlerCanonicalTaskType.GITHUB_ISSUE_OPS: ButlerTaskType.GITHUB_ADMIN,
+    ButlerCanonicalTaskType.GITHUB_PR_OPS: ButlerTaskType.GITHUB_ADMIN,
+    ButlerCanonicalTaskType.EXCEL_COMMISSION: ButlerTaskType.EXCEL_AUDIT,
+    ButlerCanonicalTaskType.SALES_FOLLOWUP: ButlerTaskType.UNKNOWN,
+    ButlerCanonicalTaskType.DESIGN_ORDER_REVIEW: ButlerTaskType.UNKNOWN,
+    ButlerCanonicalTaskType.PURCHASE_TASK: ButlerTaskType.UNKNOWN,
+    ButlerCanonicalTaskType.HERMES_GENERAL: ButlerTaskType.UNKNOWN,
+    ButlerCanonicalTaskType.CONTENT_KB_INGEST: ButlerTaskType.CONTENT_KB,
+    ButlerCanonicalTaskType.BOOKMARK_ORGANIZE: ButlerTaskType.BOOKMARK,
+}
+
+
+def normalize_butler_task_type(value: str) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in _CANONICAL_TO_LEGACY_TASK_TYPE:
+        return _CANONICAL_TO_LEGACY_TASK_TYPE[normalized]
+    allowed = {
+        ButlerTaskType.EXCEL_AUDIT,
+        ButlerTaskType.GITHUB_ADMIN,
+        ButlerTaskType.CONTENT_KB,
+        ButlerTaskType.BOOKMARK,
+        ButlerTaskType.YOUTUBE,
+        ButlerTaskType.UNKNOWN,
+    }
+    if normalized in allowed:
+        return normalized
+    raise ValueError(f"unsupported task_type: {value}")
+
+
+def canonical_task_type_for(task_type: str, *, action: str | None = None) -> str:
+    normalized_task_type = str(task_type or "").strip().lower()
+    if normalized_task_type in _CANONICAL_TO_LEGACY_TASK_TYPE:
+        return normalized_task_type
+    legacy = normalize_butler_task_type(normalized_task_type)
+    normalized_action = str(action or "").strip().lower()
+    if legacy == ButlerTaskType.YOUTUBE:
+        return ButlerCanonicalTaskType.YOUTUBE_AUTOFLOW
+    if legacy == ButlerTaskType.GITHUB_ADMIN:
+        if "pr" in normalized_action or "pull" in normalized_action:
+            return ButlerCanonicalTaskType.GITHUB_PR_OPS
+        return ButlerCanonicalTaskType.GITHUB_ISSUE_OPS
+    if legacy == ButlerTaskType.EXCEL_AUDIT:
+        return ButlerCanonicalTaskType.EXCEL_COMMISSION
+    if legacy == ButlerTaskType.CONTENT_KB:
+        return ButlerCanonicalTaskType.CONTENT_KB_INGEST
+    if legacy == ButlerTaskType.BOOKMARK:
+        return ButlerCanonicalTaskType.BOOKMARK_ORGANIZE
+    return ButlerCanonicalTaskType.HERMES_GENERAL
+
+
+def worker_task_type_for_canonical(canonical_task_type: str) -> str:
+    normalized = str(canonical_task_type or "").strip().lower()
+    if normalized == ButlerCanonicalTaskType.YOUTUBE_AUTOFLOW:
+        return "youtube_autoflow"
+    if normalized in {ButlerCanonicalTaskType.GITHUB_ISSUE_OPS, ButlerCanonicalTaskType.GITHUB_PR_OPS}:
+        return "github_ops"
+    if normalized == ButlerCanonicalTaskType.EXCEL_COMMISSION:
+        return "excel_audit"
+    if normalized == ButlerCanonicalTaskType.CONTENT_KB_INGEST:
+        return "content_kb_ingest"
+    return "claude_runtime"

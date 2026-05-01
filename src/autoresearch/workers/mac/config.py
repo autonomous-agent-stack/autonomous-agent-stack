@@ -9,6 +9,16 @@ import socket
 from autoresearch.core.runtime_identity import get_runtime_identity
 from autoresearch.shared.models import WorkerMode, WorkerQueueName, WorkerRegisterRequest, WorkerType
 
+_DEFAULT_CAPABILITIES: tuple[str, ...] = (
+    "housekeeping",
+    "claude_runtime",
+    "cleanup_appledouble",
+    "cleanup_tmp",
+    "youtube_action",
+    "youtube_autoflow",
+    "github_ops",
+)
+
 
 def _parse_bool(value: str | None, *, default: bool) -> bool:
     if value is None:
@@ -38,14 +48,7 @@ class MacWorkerConfig:
     housekeeping_root: Path = field(default_factory=lambda: Path.cwd().resolve())
     dry_run: bool = True
     role: str = "housekeeper"
-    capabilities: tuple[str, ...] = (
-        "housekeeping",
-        "claude_runtime",
-        "cleanup_appledouble",
-        "cleanup_tmp",
-        "youtube_action",
-        "youtube_autoflow",
-    )
+    capabilities: tuple[str, ...] = _DEFAULT_CAPABILITIES
     queue_name: WorkerQueueName = WorkerQueueName.HOUSEKEEPING
     worker_type: WorkerType = WorkerType.MAC
     mode: WorkerMode = WorkerMode.STANDBY
@@ -59,6 +62,7 @@ class MacWorkerConfig:
     hermes_gateway_base_url: str | None = None
     hermes_gateway_health_path: str = "/health"
     hermes_gateway_timeout_seconds: float = 10.0
+    api_db_path: Path | None = None
 
     @classmethod
     def from_env(cls) -> MacWorkerConfig:
@@ -92,7 +96,13 @@ class MacWorkerConfig:
         except ValueError:
             gateway_timeout_seconds = 10.0
         gateway_timeout_seconds = max(1.0, min(gateway_timeout_seconds, 120.0))
-        capabilities = list(cls.capabilities)
+        api_db_path_raw = (os.getenv("AUTORESEARCH_API_DB_PATH") or "").strip()
+        api_db_path = (
+            Path(api_db_path_raw).expanduser().resolve()
+            if api_db_path_raw
+            else housekeeping_root / "artifacts" / "api" / "evaluations.sqlite3"
+        )
+        capabilities = list(_DEFAULT_CAPABILITIES)
         if hermes_interactive_enabled and "hermes_interactive" not in capabilities:
             capabilities.append("hermes_interactive")
         return cls(
@@ -114,7 +124,11 @@ class MacWorkerConfig:
             hermes_gateway_base_url=gateway_base_url or None,
             hermes_gateway_health_path=gateway_health_path,
             hermes_gateway_timeout_seconds=gateway_timeout_seconds,
+            api_db_path=api_db_path,
         )
+
+    def resolved_api_db_path(self) -> Path:
+        return (self.api_db_path or self.housekeeping_root / "artifacts" / "api" / "evaluations.sqlite3").resolve()
 
     def build_register_request(self) -> WorkerRegisterRequest:
         runtime_identity = get_runtime_identity()
@@ -134,5 +148,6 @@ class MacWorkerConfig:
                 "dry_run": self.dry_run,
                 "hermes_interactive_enabled": self.hermes_interactive_enabled,
                 "hermes_gateway_configured": bool(self.hermes_gateway_base_url),
+                "api_db_path": str(self.resolved_api_db_path()),
             },
         )

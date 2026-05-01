@@ -1,9 +1,14 @@
 """Tests for ButlerIntentRouter — intent classification and dispatch."""
 from __future__ import annotations
 
+from pathlib import Path
+from types import SimpleNamespace
+
 import pytest
 
+from autoresearch.api.routers.butler import _check_hermes_interactive_callbacks
 from autoresearch.core.services.butler_router import (
+    ButlerCanonicalTaskType,
     ButlerClassification,
     ButlerIntentRouter,
     ButlerTaskType,
@@ -13,6 +18,22 @@ from autoresearch.core.services.butler_dispatch import (
     ButlerModelFillService,
     ButlerRoute,
 )
+
+
+class _FakeHermesTransport:
+    def __init__(self, health_ok: bool) -> None:
+        self.health_ok = health_ok
+
+    def health_check(self) -> bool:
+        return self.health_ok
+
+
+class _FakeWorkerInventory:
+    def __init__(self, workers: list[SimpleNamespace]) -> None:
+        self.workers = workers
+
+    def list_workers(self) -> SimpleNamespace:
+        return SimpleNamespace(workers=self.workers)
 
 
 class _FakeModelBackend:
@@ -97,6 +118,11 @@ class TestButlerIntentClassification:
     def test_youtube_keywords(self) -> None:
         router = ButlerIntentRouter()
         result = router.classify("下载这个youtube视频的字幕")
+        assert result.task_type == ButlerTaskType.YOUTUBE
+
+    def test_youtube_summary_phrase_maps_to_youtube(self) -> None:
+        router = ButlerIntentRouter()
+        result = router.classify("总结这个 YouTube")
         assert result.task_type == ButlerTaskType.YOUTUBE
 
     def test_youtube_transcript_keyword(self) -> None:
@@ -218,6 +244,8 @@ class TestButlerDispatchCenter:
         )
         decision = center.dispatch("帮我核对3月提成表")
         assert decision.task_type == ButlerTaskType.EXCEL_AUDIT
+        assert decision.canonical_task_type == ButlerCanonicalTaskType.EXCEL_COMMISSION
+        assert decision.worker_task_type == "excel_audit"
         assert decision.route == ButlerRoute.DIRECT
         assert decision.source == "rule"
         assert backend.calls == 0
@@ -234,7 +262,18 @@ class TestButlerDispatchCenter:
         assert decision.task_type == ButlerTaskType.GITHUB_ADMIN
         assert decision.target_agent == "github_ops_accountA"
         assert decision.runtime_id == "claude"
+        assert decision.canonical_task_type == ButlerCanonicalTaskType.GITHUB_ISSUE_OPS
+        assert decision.worker_task_type == "github_ops"
         assert backend.calls == 1
+
+    def test_github_pr_url_sets_canonical_pr_ops_and_number(self) -> None:
+        center = ButlerDispatchCenter(model_fill=ButlerModelFillService(enabled=False))
+        decision = center.dispatch("帮我看这个 PR https://github.com/acme/demo/pull/7")
+        assert decision.task_type == ButlerTaskType.GITHUB_ADMIN
+        assert decision.canonical_task_type == ButlerCanonicalTaskType.GITHUB_PR_OPS
+        assert decision.worker_task_type == "github_ops"
+        assert decision.extracted_params["repo"] == "acme/demo"
+        assert decision.extracted_params["pr_number"] == 7
 
     def test_model_fill_invalid_json_escalates_to_hermes(self) -> None:
         backend = _FakeModelBackend("not json")
@@ -245,6 +284,7 @@ class TestButlerDispatchCenter:
         assert decision.source == "escalation"
         assert decision.route == ButlerRoute.HERMES
         assert decision.runtime_id == "hermes"
+        assert decision.canonical_task_type == ButlerCanonicalTaskType.HERMES_GENERAL
         assert decision.model_fill_error
 
     def test_model_fill_low_confidence_escalates_to_hermes(self) -> None:
@@ -262,3 +302,71 @@ class TestButlerDispatchCenter:
         center = ButlerDispatchCenter(model_fill=ButlerModelFillService(enabled=False))
         checks = center.doctor_checks()
         assert any(item.name == "model fill" and item.status == "degraded" for item in checks)
+
+
+class TestHermesInteractiveDoctor:
+    def test_doctor_degrades_when_api_gateway_missing(self, tmp_path: Path) -> None:
+        check = _check_hermes_interactive_callbacks(
+            runtime_settings=SimpleNamespace(api_db_path=tmp_path / "api.sqlite3"),
+            hermes_transport=None,
+            worker_inventory=_FakeWorkerInventory([]),  # type: ignore[arg-type]
+        )
+
+        assert check.name == "Hermes interactive callbacks"
+        assert check.status == "degraded"
+        assert "AUTORESEARCH_HERMES_GATEWAY_BASE_URL" in check.detail
+        assert check.metadata["api_gateway_configured"] is False
+
+    def test_doctor_ok_when_gateway_worker_and_db_match(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "api.sqlite3"
+        worker = SimpleNamespace(
+            capabilities=["hermes_interactive"],
+            display_status="online",
+            metadata={"hermes_gateway_configured": True, "api_db_path": str(db_path)},
+        )
+
+        check = _check_hermes_interactive_callbacks(
+            runtime_settings=SimpleNamespace(api_db_path=db_path),
+            hermes_transport=_FakeHermesTransport(True),  # type: ignore[arg-type]
+            worker_inventory=_FakeWorkerInventory([worker]),  # type: ignore[arg-type]
+        )
+
+        assert check.status == "ok"
+        assert check.metadata["api_gateway_configured"] is True
+        assert check.metadata["api_gateway_health_ok"] is True
+        assert check.metadata["interactive_worker_count"] == 1
+        assert check.metadata["matching_db_worker_count"] == 1
+
+    def test_doctor_degrades_when_worker_db_differs(self, tmp_path: Path) -> None:
+        worker = SimpleNamespace(
+            capabilities=["hermes_interactive"],
+            display_status="busy",
+            metadata={"hermes_gateway_configured": True, "api_db_path": str(tmp_path / "worker.sqlite3")},
+        )
+
+        check = _check_hermes_interactive_callbacks(
+            runtime_settings=SimpleNamespace(api_db_path=tmp_path / "api.sqlite3"),
+            hermes_transport=_FakeHermesTransport(True),  # type: ignore[arg-type]
+            worker_inventory=_FakeWorkerInventory([worker]),  # type: ignore[arg-type]
+        )
+
+        assert check.status == "degraded"
+        assert "AUTORESEARCH_API_DB_PATH" in check.detail
+        assert check.metadata["interactive_worker_count"] == 1
+        assert check.metadata["matching_db_worker_count"] == 0
+
+    def test_doctor_fails_when_gateway_health_probe_fails(self, tmp_path: Path) -> None:
+        worker = SimpleNamespace(
+            capabilities=["hermes_interactive"],
+            display_status="online",
+            metadata={"hermes_gateway_configured": True, "api_db_path": str(tmp_path / "api.sqlite3")},
+        )
+
+        check = _check_hermes_interactive_callbacks(
+            runtime_settings=SimpleNamespace(api_db_path=tmp_path / "api.sqlite3"),
+            hermes_transport=_FakeHermesTransport(False),  # type: ignore[arg-type]
+            worker_inventory=_FakeWorkerInventory([worker]),  # type: ignore[arg-type]
+        )
+
+        assert check.status == "fail"
+        assert check.metadata["api_gateway_health_ok"] is False

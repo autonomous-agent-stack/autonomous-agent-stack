@@ -1,0 +1,54 @@
+version: "1"
+description: "Mac single-machine approval policy / Mac 单机审批策略"
+
+actions:
+  youtube.autoflow:build_digest:
+    decision: "auto"
+    risk: "read"
+    reason: "YouTube 摘要是低风险本地处理。 / YouTube summarization is a low-risk local action."
+  github.issue_ops:read_issue:
+    decision: "auto"
+    risk: "read"
+    reason: "读取 GitHub issue 不写外部状态。 / Reading a GitHub issue does not write external state."
+  github.pr_ops:read_pr:
+    decision: "auto"
+    risk: "read"
+    reason: "读取 GitHub PR 不写外部状态。 / Reading a GitHub PR does not write external state."
+  github.pr_ops:read_checks:
+    decision: "auto"
+    risk: "read"
+    reason: "读取 GitHub checks 不写外部状态。 / Reading GitHub checks does not write external state."
+  github.pr_ops:summarize_pr:
+    decision: "auto"
+    risk: "read"
+    reason: "生成 PR 摘要不写外部状态。 / Summarizing a PR does not write external state."
+  github.issue_ops:add_comment:
+    decision: "approval_required"
+    risk: "external"
+    required_role: "supervisor"
+    reason: "GitHub 评论会写入外部仓库，需要主管审批。 / GitHub comments write to an external repo and require supervisor approval."
+  github.pr_ops:add_comment:
+    decision: "approval_required"
+    risk: "external"
+    required_role: "supervisor"
+    reason: "GitHub PR 评论会写入外部仓库，需要主管审批。 / GitHub PR comments write to an external repo and require supervisor approval."
+  github.issue_ops:add_label:
+    decision: "approval_required"
+    risk: "external"
+    required_role: "supervisor"
+    reason: "GitHub label 会修改外部仓库状态，需要主管审批。 / GitHub labels modify external repo state and require supervisor approval."
+  github.pr_ops:add_label:
+    decision: "approval_required"
+    risk: "external"
+    required_role: "supervisor"
+    reason: "GitHub PR label 会修改外部仓库状态，需要主管审批。 / GitHub PR labels modify external repo state and require supervisor approval."
+  github.pr_ops:merge_pr:
+    decision: "blocked"
+    risk: "destructive"
+    required_role: "owner"
+    reason: "MVP 禁止 merge PR。 / The MVP blocks PR merges."
+  github.issue_ops:close_issue:
+    decision: "blocked"
+    risk: "destructive"
+    required_role: "owner"
+    reason: "MVP 禁止关闭 issue。 / The MVP blocks closing issues."

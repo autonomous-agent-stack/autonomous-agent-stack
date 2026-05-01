@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
 
 from autoresearch.api.dependencies import (
     get_admin_auth_service,
@@ -40,6 +40,10 @@ from autoresearch.shared.models import (
     ClaudeAgentRunRead,
     utc_now,
 )
+
+
+def _extract_admin_bootstrap_key(request: Request) -> str | None:
+    return request.headers.get("x-admin-bootstrap-key", "").strip() or None
 
 
 def register_config_routes(router: APIRouter) -> None:
@@ -81,7 +85,7 @@ def register_config_routes(router: APIRouter) -> None:
     def issue_admin_token(
         payload: AdminTokenIssueRequest,
         auth_service: Any = Depends(get_admin_auth_service),
-        bootstrap_key: str | None = Depends(lambda: None),
+        bootstrap_key: str | None = Depends(_extract_admin_bootstrap_key),
     ) -> AdminTokenRead:
         try:
             return auth_service.issue_token(

@@ -202,6 +202,7 @@ def create_app() -> FastAPI:
     core_routers = [
         ("autoresearch.api.routers.capabilities", "router", "capabilities"),
         ("autoresearch.api.routers.approvals", "router", "approvals"),
+        ("autoresearch.api.routers.sessions", "router", "sessions"),
         ("autoresearch.api.routers.workers", "router", "workers"),
         ("autoresearch.api.routers.worker_runs", "router", "worker runs"),
         ("autoresearch.api.routers.worker_schedules", "router", "worker schedules"),
@@ -224,6 +225,7 @@ def create_app() -> FastAPI:
         ("autoresearch.api.routers.openclaw", "router", "openclaw"),
         ("autoresearch.api.routers.butler", "router", "butler"),
         ("autoresearch.api.routers.github_assistant", "router", "github assistant"),
+        ("autoresearch.api.routers.github_ops", "router", "github ops"),
         ("autoresearch.api.routers.github_admin", "router", "github admin"),
         ("autoresearch.api.routers.gateway_telegram", "router", "telegram gateway"),
         ("autoresearch.api.routers.integrations", "router", "integrations"),
@@ -336,10 +338,12 @@ def create_app() -> FastAPI:
             checks["db"] = {"status": "error", "error": str(exc)}
 
         # Worker inventory (optional — may not be available in minimal mode)
+        inventory = None
         try:
             from autoresearch.api.dependencies import get_worker_inventory_service
 
             inventory_svc = get_worker_inventory_service()
+            inventory = inventory_svc.list_workers()
             summary = inventory_svc.summary()
             checks["workers"] = {
                 "status": "ok",
@@ -353,6 +357,33 @@ def create_app() -> FastAPI:
                 overall = "degraded"
         except Exception:
             checks["workers"] = {"status": "unavailable"}
+
+        try:
+            from autoresearch.api.dependencies import get_hermes_gateway_transport
+            from autoresearch.core.services.hermes_readiness import (
+                build_hermes_interactive_callback_check,
+                should_include_hermes_interactive_health,
+            )
+
+            runtime_settings = get_runtime_settings()
+            hermes_transport = get_hermes_gateway_transport()
+            workers = list(inventory.workers) if inventory is not None else []
+            if should_include_hermes_interactive_health(hermes_transport=hermes_transport, workers=workers):
+                hermes_check = build_hermes_interactive_callback_check(
+                    api_db_path=runtime_settings.api_db_path,
+                    hermes_transport=hermes_transport,
+                    workers=workers,
+                    probe_gateway=False,
+                )
+                checks["hermes_interactive"] = {
+                    "status": hermes_check.status,
+                    "detail": hermes_check.detail,
+                    **hermes_check.metadata,
+                }
+                if hermes_check.status != "ok":
+                    overall = "degraded"
+        except Exception as exc:
+            checks["hermes_interactive"] = {"status": "unavailable", "error": str(exc)}
 
         return {
             "status": overall,

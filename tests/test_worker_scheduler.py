@@ -232,6 +232,59 @@ def test_interactive_metadata_extends_initial_lease_ttl(
     assert claimed.lease.lease_expires_at == current + timedelta(seconds=901)
 
 
+def test_external_resume_pause_deactivates_lease_until_requeued(
+    worker_services: tuple[WorkerRegistryService, WorkerSchedulerService],
+) -> None:
+    registry, scheduler = worker_services
+    current = utc_now()
+    _register_mac_worker(registry, worker_id="mac-mini-01", now=current)
+    queued = scheduler.enqueue(
+        WorkerQueueItemCreateRequest(
+            task_name="interactive approval",
+            task_type="claude_runtime",
+            payload={"runtime_id": "hermes", "execution_mode": "interactive"},
+        ),
+        now=current,
+    )
+    claimed = scheduler.claim(
+        "mac-mini-01",
+        WorkerClaimRequest(),
+        now=current + timedelta(seconds=1),
+    )
+    assert claimed.claimed is True
+
+    paused = scheduler.report(
+        "mac-mini-01",
+        queued.run_id,
+        WorkerRunReportRequest(
+            status="running",
+            message="waiting for approval",
+            metrics={"worker_pause_reason": "hermes_interactive_approval"},
+        ),
+        now=current + timedelta(seconds=2),
+    )
+    next_claim = scheduler.claim(
+        "mac-mini-01",
+        WorkerClaimRequest(),
+        now=current + timedelta(seconds=3),
+    )
+
+    assert paused.status.value == "running"
+    assert next_claim.claimed is False
+    assert scheduler.list_leases()[0].active is False
+    assert scheduler.recover_stale_runs(now=current + timedelta(seconds=120)) == []
+
+    resumed = scheduler.requeue_run(
+        queued.run_id,
+        reason="Hermes interactive approval approved",
+        now=current + timedelta(seconds=4),
+        backoff_seconds=1,
+        increment_retry=False,
+    )
+    assert resumed.status.value == "queued"
+    assert resumed.retry_count == 0
+
+
 def test_expired_lease_allows_reclaim_by_another_worker(
     worker_services: tuple[WorkerRegistryService, WorkerSchedulerService],
 ) -> None:
