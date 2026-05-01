@@ -8,6 +8,7 @@ import pytest
 
 from autoresearch.api.routers.butler import _check_hermes_interactive_callbacks
 from autoresearch.core.services.butler_router import (
+    ButlerCanonicalTaskType,
     ButlerClassification,
     ButlerIntentRouter,
     ButlerTaskType,
@@ -117,6 +118,11 @@ class TestButlerIntentClassification:
     def test_youtube_keywords(self) -> None:
         router = ButlerIntentRouter()
         result = router.classify("下载这个youtube视频的字幕")
+        assert result.task_type == ButlerTaskType.YOUTUBE
+
+    def test_youtube_summary_phrase_maps_to_youtube(self) -> None:
+        router = ButlerIntentRouter()
+        result = router.classify("总结这个 YouTube")
         assert result.task_type == ButlerTaskType.YOUTUBE
 
     def test_youtube_transcript_keyword(self) -> None:
@@ -238,6 +244,8 @@ class TestButlerDispatchCenter:
         )
         decision = center.dispatch("帮我核对3月提成表")
         assert decision.task_type == ButlerTaskType.EXCEL_AUDIT
+        assert decision.canonical_task_type == ButlerCanonicalTaskType.EXCEL_COMMISSION
+        assert decision.worker_task_type == "excel_audit"
         assert decision.route == ButlerRoute.DIRECT
         assert decision.source == "rule"
         assert backend.calls == 0
@@ -254,7 +262,18 @@ class TestButlerDispatchCenter:
         assert decision.task_type == ButlerTaskType.GITHUB_ADMIN
         assert decision.target_agent == "github_ops_accountA"
         assert decision.runtime_id == "claude"
+        assert decision.canonical_task_type == ButlerCanonicalTaskType.GITHUB_ISSUE_OPS
+        assert decision.worker_task_type == "github_ops"
         assert backend.calls == 1
+
+    def test_github_pr_url_sets_canonical_pr_ops_and_number(self) -> None:
+        center = ButlerDispatchCenter(model_fill=ButlerModelFillService(enabled=False))
+        decision = center.dispatch("帮我看这个 PR https://github.com/acme/demo/pull/7")
+        assert decision.task_type == ButlerTaskType.GITHUB_ADMIN
+        assert decision.canonical_task_type == ButlerCanonicalTaskType.GITHUB_PR_OPS
+        assert decision.worker_task_type == "github_ops"
+        assert decision.extracted_params["repo"] == "acme/demo"
+        assert decision.extracted_params["pr_number"] == 7
 
     def test_model_fill_invalid_json_escalates_to_hermes(self) -> None:
         backend = _FakeModelBackend("not json")
@@ -265,6 +284,7 @@ class TestButlerDispatchCenter:
         assert decision.source == "escalation"
         assert decision.route == ButlerRoute.HERMES
         assert decision.runtime_id == "hermes"
+        assert decision.canonical_task_type == ButlerCanonicalTaskType.HERMES_GENERAL
         assert decision.model_fill_error
 
     def test_model_fill_low_confidence_escalates_to_hermes(self) -> None:

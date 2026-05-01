@@ -16,6 +16,7 @@ _DEFAULT_CAPABILITIES: tuple[str, ...] = (
     "cleanup_tmp",
     "youtube_action",
     "youtube_autoflow",
+    "github_ops",
 )
 
 

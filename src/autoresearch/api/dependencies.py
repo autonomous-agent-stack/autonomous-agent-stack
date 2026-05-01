@@ -31,6 +31,7 @@ from autoresearch.core.services.admin_config import AdminConfigService
 from autoresearch.core.services.admin_secrets import AdminSecretCipher
 from autoresearch.core.services.agent_audit_trail import AgentAuditTrailService
 from autoresearch.core.services.approval_decisions import ApprovalDecisionService
+from autoresearch.core.services.approval_policy import ApprovalPolicyService
 from autoresearch.core.services.approval_store import ApprovalStoreService
 from autoresearch.core.services.autoresearch_planner import AutoResearchPlannerService
 from autoresearch.core.services.claude_agents import ClaudeAgentService
@@ -39,6 +40,7 @@ from autoresearch.core.services.claude_session_records import ClaudeSessionRecor
 from autoresearch.core.services.evaluations import EvaluationService
 from autoresearch.core.services.executions import ExecutionService
 from autoresearch.core.services.github_admin import GitHubAdminService
+from autoresearch.core.services.github_ops import GitHubOpsService
 from autoresearch.core.services.github_issue_service import GitHubIssueService
 from autoresearch.core.services.hermes_gateway_bridge import HttpHermesGatewayTransport
 from autoresearch.core.services.mirofish_prediction import MiroFishPredictionService
@@ -241,6 +243,20 @@ def get_github_assistant_service_registry() -> GitHubAssistantServiceRegistry:
 
 def get_github_assistant_service(profile: str | None = None) -> GitHubAssistantService:
     return get_github_assistant_service_registry().get(profile)
+
+
+@lru_cache(maxsize=1)
+def get_approval_policy_service() -> ApprovalPolicyService:
+    return ApprovalPolicyService(policy_path=_repo_root() / "configs" / "approval_policy.yaml")
+
+
+@lru_cache(maxsize=1)
+def get_github_ops_service() -> GitHubOpsService:
+    return GitHubOpsService(
+        repo_root=_repo_root(),
+        approval_policy=get_approval_policy_service(),
+        approval_store=get_approval_store_service(),
+    )
 
 
 @lru_cache(maxsize=1)
@@ -487,11 +503,13 @@ def get_approval_decision_service(
     approval_store: ApprovalStoreService = Depends(get_approval_store_service),
     worker_scheduler: WorkerSchedulerService = Depends(get_worker_scheduler_service),
     hermes_transport: HttpHermesGatewayTransport | None = Depends(get_hermes_gateway_transport),
+    github_ops_service: GitHubOpsService = Depends(get_github_ops_service),
 ) -> ApprovalDecisionService:
     return ApprovalDecisionService(
         approval_store=approval_store,
         worker_scheduler=worker_scheduler,
         hermes_transport=hermes_transport,
+        github_ops_service=github_ops_service,
         session_events=get_session_event_service(),
     )
 
@@ -651,6 +669,8 @@ def clear_dependency_caches() -> None:
     _safe_cache_clear(get_execution_service)
     _safe_cache_clear(get_youtube_agent_service)
     _safe_cache_clear(get_manager_agent_service)
+    _safe_cache_clear(get_approval_policy_service)
+    _safe_cache_clear(get_github_ops_service)
     _safe_cache_clear(get_github_admin_service)
     _safe_cache_clear(get_github_issue_service)
     _safe_cache_clear(get_worker_registry_service)

@@ -225,6 +225,7 @@ def create_app() -> FastAPI:
         ("autoresearch.api.routers.openclaw", "router", "openclaw"),
         ("autoresearch.api.routers.butler", "router", "butler"),
         ("autoresearch.api.routers.github_assistant", "router", "github assistant"),
+        ("autoresearch.api.routers.github_ops", "router", "github ops"),
         ("autoresearch.api.routers.github_admin", "router", "github admin"),
         ("autoresearch.api.routers.gateway_telegram", "router", "telegram gateway"),
         ("autoresearch.api.routers.integrations", "router", "integrations"),

@@ -6,11 +6,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from autoresearch.api.dependencies import (
+    get_approval_policy_service,
     get_telegram_notifier_service,
     get_telegram_settings,
     get_worker_scheduler_service,
 )
 from autoresearch.api.settings import TelegramSettings
+from autoresearch.core.services.approval_policy import ApprovalPolicyService
+from autoresearch.core.services.github_ops import GitHubOpsRequest
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
 from autoresearch.core.services.worker_scheduler import WorkerSchedulerService
 from autoresearch.core.services.worker_scheduler import WorkerReportError
@@ -164,6 +167,38 @@ def enqueue_youtube_autoflow_run(
             payload=payload.model_dump(mode="json"),
             requested_by=payload.requested_by,
             metadata=payload.metadata,
+        )
+    )
+
+
+@router.post("/github-ops", response_model=WorkerQueueItemRead, status_code=status.HTTP_201_CREATED)
+def enqueue_github_ops_run(
+    payload: GitHubOpsRequest,
+    service: WorkerSchedulerService = Depends(get_worker_scheduler_service),
+    approval_policy: ApprovalPolicyService = Depends(get_approval_policy_service),
+) -> WorkerQueueItemRead:
+    canonical_task_type = (
+        "github.pr_ops"
+        if payload.pr_number or payload.action in {"read_pr", "read_checks", "summarize_pr"}
+        else "github.issue_ops"
+    )
+    policy = approval_policy.decide(
+        task_type=canonical_task_type,
+        action=payload.action,
+        metadata=payload.metadata,
+    )
+    return service.enqueue(
+        WorkerQueueItemCreateRequest(
+            task_type=WorkerTaskType.GITHUB_OPS,
+            payload=payload.model_dump(mode="json"),
+            requested_by=str(payload.metadata.get("requested_by") or payload.metadata.get("actor_user_id") or "") or None,
+            priority=8,
+            metadata={
+                **payload.metadata,
+                "canonical_task_type": canonical_task_type,
+                "worker_task_type": WorkerTaskType.GITHUB_OPS.value,
+                "approval_policy": policy.decision,
+            },
         )
     )
 

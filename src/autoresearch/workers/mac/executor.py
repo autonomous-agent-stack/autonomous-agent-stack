@@ -15,6 +15,7 @@ from autoresearch.core.services.standby_youtube_bridge import (
     StandbyYouTubeBridgeService,
     build_default_standby_youtube_bridge_service,
 )
+from autoresearch.core.services.github_ops import GitHubOpsService, build_default_github_ops_service
 from autoresearch.agent_protocol.runtime_models import RuntimeRunRead
 from autoresearch.shared.models import JobStatus, WorkerQueueItemRead, WorkerTaskType, utc_now
 from autoresearch.workers.mac.config import MacWorkerConfig
@@ -37,6 +38,7 @@ class MacWorkerExecutor:
         *,
         youtube_bridge: StandbyYouTubeBridgeService | None = None,
         youtube_autoflow: StandbyYouTubeAutoflowService | None = None,
+        github_ops: GitHubOpsService | None = None,
         runtime_dispatch: WorkerRuntimeDispatchService | None = None,
         hermes_live_report: Callable[[WorkerQueueItemRead, RuntimeRunRead, int], None] | None = None,
         youtube_live_report: Callable[[WorkerQueueItemRead, str, str, dict[str, Any]], None] | None = None,
@@ -45,6 +47,7 @@ class MacWorkerExecutor:
         self._config = config
         self._youtube_bridge = youtube_bridge
         self._youtube_autoflow = youtube_autoflow
+        self._github_ops = github_ops
         self._runtime_dispatch = runtime_dispatch
         self._hermes_live_report = hermes_live_report
         self._youtube_live_report = youtube_live_report
@@ -61,6 +64,8 @@ class MacWorkerExecutor:
             return self._execute_youtube_action(run)
         if run.task_type == WorkerTaskType.YOUTUBE_AUTOFLOW:
             return self._execute_youtube_autoflow(run)
+        if run.task_type == WorkerTaskType.GITHUB_OPS:
+            return self._execute_github_ops(run)
         if run.task_type == WorkerTaskType.CLAUDE_RUNTIME:
             return self._execute_claude_runtime(run)
         if run.task_type == WorkerTaskType.EXCEL_AUDIT:
@@ -251,6 +256,31 @@ class MacWorkerExecutor:
             metrics=metrics,
         )
 
+    def _execute_github_ops(self, run: WorkerQueueItemRead) -> MacWorkerExecutionResult:
+        from autoresearch.core.services.github_ops import GitHubOpsRequest
+
+        payload = {
+            **dict(run.payload or {}),
+            "metadata": {
+                **dict(run.metadata or {}),
+                **dict((run.payload or {}).get("metadata") or {}),
+                "run_id": run.run_id,
+            },
+        }
+        outcome = self._get_github_ops().execute(GitHubOpsRequest.model_validate(payload))
+        status = JobStatus.COMPLETED if outcome.status in {"completed", "approval_required", "blocked"} else JobStatus.FAILED
+        return MacWorkerExecutionResult(
+            message=outcome.summary or f"github_ops {outcome.status}",
+            status=status,
+            error=outcome.reason if outcome.status == "failed" else None,
+            result=outcome.model_dump(mode="json"),
+            metrics={
+                "github_ops_status": outcome.status,
+                "approval_policy": outcome.approval_policy,
+                "approval_required": int(outcome.status == "approval_required"),
+            },
+        )
+
     def _execute_excel_audit(self, run: WorkerQueueItemRead) -> MacWorkerExecutionResult:
         """Delegate to the deterministic excel_audit engine."""
         try:
@@ -434,6 +464,11 @@ class MacWorkerExecutor:
             self._youtube_autoflow = build_default_standby_youtube_autoflow_service()
         return self._youtube_autoflow
 
+    def _get_github_ops(self) -> GitHubOpsService:
+        if self._github_ops is None:
+            self._github_ops = build_default_github_ops_service(repo_root=self._config.housekeeping_root)
+        return self._github_ops
+
     def _resolve_root_path(self, payload: dict[str, Any]) -> Path:
         raw = payload.get("root_path")
         if raw is None:
@@ -496,6 +531,14 @@ def _youtube_autoflow_completion_card(
         value = result.get(key)
         if value:
             rows.append((label, str(value)))
+    suggestions = result.get("metadata", {}).get("publish_suggestions") if isinstance(result.get("metadata"), dict) else None
+    if isinstance(suggestions, dict):
+        suggested_title = str(suggestions.get("suggested_title") or "").strip()
+        suggested_tags = suggestions.get("suggested_tags")
+        if suggested_title:
+            rows.append(("发布标题 | Publish title", suggested_title))
+        if isinstance(suggested_tags, list) and suggested_tags:
+            rows.append(("标签 | Tags", ", ".join(str(item) for item in suggested_tags[:8])))
     reason = str(result.get("reason") or message or "").strip()
     if reason:
         rows.append(("原因 | Reason", reason[:600]))

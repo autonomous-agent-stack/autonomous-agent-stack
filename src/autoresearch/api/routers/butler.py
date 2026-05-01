@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends
 from autoresearch.api.dependencies import (
     get_butler_dispatch_center,
     get_github_assistant_service,
+    get_github_ops_service,
     get_hermes_gateway_transport,
     get_runtime_settings,
     get_runtime_adapter_registry_service,
@@ -22,6 +23,7 @@ from autoresearch.core.services.telegram_notify import TelegramNotifierService
 from autoresearch.core.services.worker_inventory import WorkerInventoryService
 from autoresearch.core.services.worker_scheduler import WorkerSchedulerService
 from autoresearch.core.services.youtube_agent import YouTubeAgentService
+from autoresearch.core.services.github_ops import GitHubOpsService
 from autoresearch.github_assistant.service import GitHubAssistantService
 
 
@@ -39,6 +41,7 @@ def butler_doctor(
     notifier: TelegramNotifierService = Depends(get_telegram_notifier_service),
     youtube_service: YouTubeAgentService = Depends(get_youtube_agent_service),
     github_service: GitHubAssistantService = Depends(get_github_assistant_service),
+    github_ops_service: GitHubOpsService = Depends(get_github_ops_service),
 ) -> ButlerDoctorRead:
     checks: list[ButlerDoctorCheck] = []
     checks.extend(dispatch_center.doctor_checks())
@@ -60,6 +63,7 @@ def butler_doctor(
     )
     checks.append(_check_youtube_autoflow(youtube_service))
     checks.append(_check_github_publish(github_service))
+    checks.append(_check_github_ops(github_ops_service))
     return ButlerDoctorRead(status=_rollup_status(checks), checks=checks)
 
 
@@ -166,6 +170,18 @@ def _check_github_publish(github_service: GitHubAssistantService) -> ButlerDocto
             "managed_repo_count": health.managed_repo_count,
             "gh_auth_ok": health.gh_auth_ok,
         },
+    )
+
+
+def _check_github_ops(github_ops_service: GitHubOpsService) -> ButlerDoctorCheck:
+    report = github_ops_service.doctor()
+    status = str(report.get("status") or "fail")
+    detail = "GitHub ops executor is ready" if status == "ok" else "GitHub ops executor is degraded"
+    return ButlerDoctorCheck(
+        name="GitHub ops",
+        status="ok" if status == "ok" else "degraded" if status == "degraded" else "fail",
+        detail=detail,
+        metadata=report,
     )
 
 

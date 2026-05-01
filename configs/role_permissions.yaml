@@ -1,0 +1,29 @@
+version: "1"
+description: "Mac single-machine role permissions / Mac 单机角色权限"
+
+roles:
+  operator:
+    can_request:
+      - "youtube.autoflow"
+      - "github.issue_ops"
+      - "github.pr_ops"
+    can_approve: []
+  supervisor:
+    can_request:
+      - "youtube.autoflow"
+      - "github.issue_ops"
+      - "github.pr_ops"
+    can_approve:
+      - "github.issue_ops:add_comment"
+      - "github.pr_ops:add_comment"
+      - "github.issue_ops:add_label"
+      - "github.pr_ops:add_label"
+  owner:
+    can_request:
+      - "*"
+    can_approve:
+      - "*"
+
+defaults:
+  requester_role: "operator"
+  approval_role: "supervisor"

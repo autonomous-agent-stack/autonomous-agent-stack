@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from autoresearch.core.services.github_ops import GITHUB_OPS_APPROVAL_ACTION, GitHubOpsService
 from autoresearch.core.services.approval_actions import HERMES_INTERACTIVE_APPROVAL_ACTION
 from autoresearch.core.services.approval_store import ApprovalStoreService
 from autoresearch.core.services.hermes_gateway_bridge import HermesGatewayTransport, HermesGatewayTransportError
@@ -23,11 +24,13 @@ class ApprovalDecisionService:
         approval_store: ApprovalStoreService,
         worker_scheduler: WorkerSchedulerService | None = None,
         hermes_transport: HermesGatewayTransport | None = None,
+        github_ops_service: GitHubOpsService | None = None,
         session_events: SessionEventService | None = None,
     ) -> None:
         self._approval_store = approval_store
         self._worker_scheduler = worker_scheduler
         self._hermes_transport = hermes_transport
+        self._github_ops_service = github_ops_service
         self._session_events = session_events
 
     def resolve_request(
@@ -38,9 +41,41 @@ class ApprovalDecisionService:
         approval = self._approval_store.get_request(approval_id)
         if approval is None:
             raise KeyError(f"approval not found: {approval_id}")
-        if approval.metadata.get("action_type") != HERMES_INTERACTIVE_APPROVAL_ACTION:
-            return self._approval_store.resolve_request(approval_id, request)
-        return self._resolve_hermes_interactive_approval(approval, request)
+        action_type = approval.metadata.get("action_type")
+        if action_type == HERMES_INTERACTIVE_APPROVAL_ACTION:
+            return self._resolve_hermes_interactive_approval(approval, request)
+        if action_type == GITHUB_OPS_APPROVAL_ACTION:
+            return self._resolve_github_ops_approval(approval, request)
+        return self._approval_store.resolve_request(approval_id, request)
+
+    def _resolve_github_ops_approval(
+        self,
+        approval: ApprovalRequestRead,
+        request: ApprovalDecisionRequest,
+    ) -> ApprovalRequestRead:
+        if approval.status != ApprovalStatus.PENDING:
+            raise ValueError(f"approval is not pending: {approval.approval_id}")
+        if request.decision == "rejected":
+            return self._approval_store.resolve_request(approval.approval_id, request)
+        if self._github_ops_service is None:
+            raise ApprovalDecisionDeliveryError("GitHub ops executor is not configured")
+        try:
+            result = self._github_ops_service.execute_approved_approval(approval)
+        except Exception as exc:
+            self._record_github_ops_delivery_failure(approval, request, str(exc))
+            raise ApprovalDecisionDeliveryError(str(exc)) from exc
+        return self._approval_store.resolve_request(
+            approval.approval_id,
+            request.model_copy(
+                update={
+                    "metadata": {
+                        **dict(request.metadata),
+                        "github_ops_executed": result.status == "completed",
+                        "github_ops_result": result.model_dump(mode="json"),
+                    }
+                }
+            ),
+        )
 
     def _resolve_hermes_interactive_approval(
         self,
@@ -149,6 +184,30 @@ class ApprovalDecisionService:
                     "decided_by": request.decided_by,
                     "error": error,
                     "action_type": HERMES_INTERACTIVE_APPROVAL_ACTION,
+                },
+            )
+        except Exception:
+            return
+
+    def _record_github_ops_delivery_failure(
+        self,
+        approval: ApprovalRequestRead,
+        request: ApprovalDecisionRequest,
+        error: str,
+    ) -> None:
+        if self._session_events is None:
+            return
+        try:
+            self._approval_store.append_pending_side_event(
+                approval,
+                event_type="approval.decision_delivery_failed",
+                content="GitHub ops approval execution failed",
+                idempotency_key=f"approval:{approval.approval_id}:github_ops_failed:{request.decision}",
+                metadata={
+                    "decision": request.decision,
+                    "decided_by": request.decided_by,
+                    "error": error,
+                    "action_type": GITHUB_OPS_APPROVAL_ACTION,
                 },
             )
         except Exception:

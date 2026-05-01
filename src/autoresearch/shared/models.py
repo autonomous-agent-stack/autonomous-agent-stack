@@ -1550,6 +1550,7 @@ class WorkerTaskType(str, Enum):
     CLEANUP_TMP = "cleanup_tmp"
     YOUTUBE_ACTION = "youtube_action"
     YOUTUBE_AUTOFLOW = "youtube_autoflow"
+    GITHUB_OPS = "github_ops"
     CLAUDE_RUNTIME = "claude_runtime"
     EXCEL_AUDIT = "excel_audit"
     CONTENT_KB_CLASSIFY = "content_kb_classify"

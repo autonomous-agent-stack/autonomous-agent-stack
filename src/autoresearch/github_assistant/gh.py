@@ -6,6 +6,7 @@ import shutil
 import subprocess
 from pathlib import Path
 import re
+from typing import Any
 
 from autoresearch.github_assistant.models import (
     GitHubIssue,
@@ -148,6 +149,36 @@ class GhCliGateway:
                 if str(item.get("path") or "").strip()
             ],
         )
+
+    def fetch_pr_checks(self, repo: str, pr_number: int) -> list[dict[str, Any]]:
+        payload = self._run_json(
+            [
+                "pr",
+                "view",
+                str(pr_number),
+                "--repo",
+                repo,
+                "--json",
+                "statusCheckRollup",
+            ]
+        )
+        raw_checks = payload.get("statusCheckRollup") or []
+        if not isinstance(raw_checks, list):
+            return []
+        checks: list[dict[str, Any]] = []
+        for item in raw_checks:
+            if not isinstance(item, dict):
+                continue
+            checks.append(
+                {
+                    "name": item.get("name") or item.get("context") or "unknown",
+                    "state": item.get("state") or item.get("status"),
+                    "conclusion": item.get("conclusion"),
+                    "details_url": item.get("detailsUrl") or item.get("targetUrl"),
+                    "workflow_name": item.get("workflowName"),
+                }
+            )
+        return checks
 
     def list_merged_pull_requests(self, repo: str, *, limit: int = 10) -> list[GitHubMergedPullRequest]:
         payload = self._run_json(

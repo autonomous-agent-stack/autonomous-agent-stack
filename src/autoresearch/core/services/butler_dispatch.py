@@ -7,9 +7,17 @@ import re
 from enum import StrEnum
 from typing import Any, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from autoresearch.core.services.butler_router import ButlerClassification, ButlerIntentRouter, ButlerTaskType
+from autoresearch.core.services.butler_router import (
+    ButlerCanonicalTaskType,
+    ButlerClassification,
+    ButlerIntentRouter,
+    ButlerTaskType,
+    canonical_task_type_for,
+    normalize_butler_task_type,
+    worker_task_type_for_canonical,
+)
 
 
 class StrictModel(BaseModel):
@@ -42,6 +50,7 @@ class ButlerModelBackend(Protocol):
 
 class ButlerModelFillDecision(StrictModel):
     task_type: str = ButlerTaskType.UNKNOWN
+    canonical_task_type: str | None = None
     route: ButlerRoute = ButlerRoute.HERMES
     target_agent: str = "butler_orchestrator"
     runtime_id: str = "hermes"
@@ -52,17 +61,17 @@ class ButlerModelFillDecision(StrictModel):
     @field_validator("task_type")
     @classmethod
     def _validate_task_type(cls, value: str) -> str:
-        allowed = {
-            ButlerTaskType.EXCEL_AUDIT,
-            ButlerTaskType.GITHUB_ADMIN,
-            ButlerTaskType.CONTENT_KB,
-            ButlerTaskType.BOOKMARK,
-            ButlerTaskType.YOUTUBE,
-            ButlerTaskType.UNKNOWN,
-        }
+        return normalize_butler_task_type(value)
+
+    @field_validator("canonical_task_type")
+    @classmethod
+    def _validate_canonical_task_type(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         normalized = str(value or "").strip().lower()
-        if normalized not in allowed:
-            raise ValueError(f"unsupported task_type: {value}")
+        if not normalized:
+            return None
+        normalize_butler_task_type(normalized)
         return normalized
 
     @field_validator("target_agent")
@@ -92,6 +101,9 @@ class ButlerModelFillDecision(StrictModel):
 
 class ButlerDispatchDecision(StrictModel):
     task_type: str = ButlerTaskType.UNKNOWN
+    canonical_task_type: str = ButlerCanonicalTaskType.HERMES_GENERAL
+    worker_task_type: str = "claude_runtime"
+    approval_policy: str = "auto"
     route: ButlerRoute = ButlerRoute.HERMES
     source: ButlerDispatchSource = ButlerDispatchSource.ESCALATION
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
@@ -104,6 +116,16 @@ class ButlerDispatchDecision(StrictModel):
     execution_mode: str = "oneshot"
     extracted_params: dict[str, Any] = Field(default_factory=dict)
     model_fill_error: str | None = None
+
+    @model_validator(mode="after")
+    def _fill_compat_fields(self) -> ButlerDispatchDecision:
+        if not self.canonical_task_type:
+            self.canonical_task_type = canonical_task_type_for(self.task_type, action=self.action)
+        if not self.worker_task_type:
+            self.worker_task_type = worker_task_type_for_canonical(self.canonical_task_type)
+        if not self.approval_policy:
+            self.approval_policy = "auto"
+        return self
 
 
 class ButlerDoctorCheck(StrictModel):
@@ -267,9 +289,8 @@ class ButlerDispatchCenter:
         hermes_execution_mode: str,
     ) -> ButlerDispatchDecision:
         params = dict(rule.extracted_params)
-        repo = _extract_github_repo(text)
-        if repo:
-            params["repo"] = repo
+        params.update(_extract_github_reference(text))
+        repo = str(params.get("repo") or "").strip() or None
 
         task_type = str(rule.task_type)
         route = ButlerRoute.WORKER
@@ -288,7 +309,7 @@ class ButlerDispatchCenter:
             priority = 3
         elif task_type == ButlerTaskType.GITHUB_ADMIN or repo:
             target_agent = _select_github_target_agent(repo)
-            action = "github_ops.pr_ops" if "pr" in text.lower() else "github_ops.issue_ops"
+            action = "github_ops.pr_ops" if _looks_like_github_pr_request(text, params) else "github_ops.issue_ops"
             priority = 8
         elif task_type == ButlerTaskType.YOUTUBE:
             target_agent = "youtube_ops"
@@ -317,8 +338,12 @@ class ButlerDispatchCenter:
             execution_mode = hermes_execution_mode
             max_retries = 1 if execution_mode == "interactive" else max_retries
 
+        canonical_task_type = canonical_task_type_for(task_type, action=action)
         return ButlerDispatchDecision(
             task_type=task_type,
+            canonical_task_type=canonical_task_type,
+            worker_task_type=worker_task_type_for_canonical(canonical_task_type),
+            approval_policy=_default_approval_policy_for(canonical_task_type, action),
             route=route,
             source=ButlerDispatchSource.RULE,
             confidence=rule.confidence,
@@ -356,12 +381,16 @@ class ButlerDispatchCenter:
         elif model_decision.task_type in {ButlerTaskType.CONTENT_KB, ButlerTaskType.BOOKMARK}:
             priority = 4
 
-        params: dict[str, Any] = {}
-        repo = _extract_github_repo(text)
-        if repo:
-            params["repo"] = repo
+        params: dict[str, Any] = _extract_github_reference(text)
+        canonical_task_type = (
+            model_decision.canonical_task_type
+            or canonical_task_type_for(model_decision.task_type, action=model_decision.action)
+        )
         return ButlerDispatchDecision(
             task_type=model_decision.task_type,
+            canonical_task_type=canonical_task_type,
+            worker_task_type=worker_task_type_for_canonical(canonical_task_type),
+            approval_policy=_default_approval_policy_for(canonical_task_type, model_decision.action),
             route=route,
             source=ButlerDispatchSource.MODEL,
             confidence=model_decision.confidence,
@@ -385,11 +414,12 @@ class ButlerDispatchCenter:
         hermes_execution_mode: str,
     ) -> ButlerDispatchDecision:
         params = dict(rule.extracted_params)
-        repo = _extract_github_repo(text)
-        if repo:
-            params["repo"] = repo
+        params.update(_extract_github_reference(text))
         return ButlerDispatchDecision(
             task_type=ButlerTaskType.UNKNOWN,
+            canonical_task_type=ButlerCanonicalTaskType.HERMES_GENERAL,
+            worker_task_type="claude_runtime",
+            approval_policy="auto",
             route=ButlerRoute.HERMES,
             source=ButlerDispatchSource.ESCALATION,
             confidence=0.0,
@@ -406,7 +436,8 @@ class ButlerDispatchCenter:
 
 
 _MODEL_FILL_SYSTEM_PROMPT = """You are a strict router. Return one JSON object only.
-Allowed task_type values: excel_audit, github_admin, content_kb, bookmark, youtube, unknown.
+Allowed legacy task_type values: excel_audit, github_admin, content_kb, bookmark, youtube, unknown.
+Allowed canonical task_type values: youtube.autoflow, github.issue_ops, github.pr_ops, excel.commission, hermes.general.
 Allowed route values: direct, worker, hermes, reject.
 Allowed runtime_id values: claude, hermes.
 Allowed target_agent values: butler_orchestrator, excel_audit, github_ops_accountA, github_ops_accountB, youtube_ops, content_kb.
@@ -416,7 +447,7 @@ Never answer the user's request. Only classify and route."""
 def _build_model_fill_prompt(text: str) -> str:
     return (
         "Classify this user request for the AAS butler control plane.\n"
-        "Return JSON with keys: task_type, route, target_agent, runtime_id, confidence, reason, action.\n"
+        "Return JSON with keys: task_type, canonical_task_type, route, target_agent, runtime_id, confidence, reason, action.\n"
         f"User request:\n{text.strip()[:4000]}"
     )
 
@@ -446,6 +477,10 @@ def _run_async(coro):
 
 
 _GITHUB_REPO_RE = re.compile(r"https?://github\.com/([^/\s]+)/([^/\s#?]+)", re.IGNORECASE)
+_GITHUB_PR_RE = re.compile(r"https?://github\.com/([^/\s]+)/([^/\s#?]+)/pull/(\d+)(?:[/?#]\S*)?", re.IGNORECASE)
+_GITHUB_ISSUE_RE = re.compile(r"https?://github\.com/([^/\s]+)/([^/\s#?]+)/issues/(\d+)(?:[/?#]\S*)?", re.IGNORECASE)
+_GITHUB_SHORT_PR_RE = re.compile(r"\b([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#pr-(\d+)\b", re.IGNORECASE)
+_GITHUB_SHORT_ISSUE_RE = re.compile(r"\b([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#(\d+)\b", re.IGNORECASE)
 _BOOKMARK_KEYWORDS = (
     "书签",
     "bookmark",
@@ -463,6 +498,55 @@ def _extract_github_repo(text: str) -> str | None:
     owner = match.group(1).strip()
     repo = match.group(2).strip().removesuffix(".git")
     return f"{owner}/{repo}" if owner and repo else None
+
+
+def _extract_github_reference(text: str) -> dict[str, Any]:
+    params: dict[str, Any] = {}
+    pr_match = _GITHUB_PR_RE.search(text)
+    if pr_match:
+        params["repo"] = f"{pr_match.group(1)}/{pr_match.group(2).removesuffix('.git')}"
+        params["pr_number"] = int(pr_match.group(3))
+        return params
+
+    issue_match = _GITHUB_ISSUE_RE.search(text)
+    if issue_match:
+        params["repo"] = f"{issue_match.group(1)}/{issue_match.group(2).removesuffix('.git')}"
+        params["issue_number"] = int(issue_match.group(3))
+        return params
+
+    short_pr = _GITHUB_SHORT_PR_RE.search(text)
+    if short_pr:
+        params["repo"] = short_pr.group(1)
+        params["pr_number"] = int(short_pr.group(2))
+        return params
+
+    short_issue = _GITHUB_SHORT_ISSUE_RE.search(text)
+    if short_issue:
+        params["repo"] = short_issue.group(1)
+        params["issue_number"] = int(short_issue.group(2))
+        return params
+
+    repo = _extract_github_repo(text)
+    if repo:
+        params["repo"] = repo
+    return params
+
+
+def _looks_like_github_pr_request(text: str, params: dict[str, Any]) -> bool:
+    if params.get("pr_number") is not None:
+        return True
+    lowered = text.lower()
+    return bool(re.search(r"\bpr\b|pull request|/pull/", lowered))
+
+
+def _default_approval_policy_for(canonical_task_type: str, action: str) -> str:
+    normalized_task = str(canonical_task_type or "").strip().lower()
+    normalized_action = str(action or "").strip().lower()
+    if normalized_task in {ButlerCanonicalTaskType.GITHUB_ISSUE_OPS, ButlerCanonicalTaskType.GITHUB_PR_OPS}:
+        if any(token in normalized_action for token in ("comment", "label")):
+            return "approval_required"
+        return "auto"
+    return "auto"
 
 
 def _select_github_target_agent(repo: str | None) -> str:

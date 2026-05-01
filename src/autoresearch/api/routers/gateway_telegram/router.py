@@ -430,6 +430,21 @@ def _handle_telegram_webhook(
                 extracted_params=dispatch_decision.extracted_params,
             ),
         )
+    github_ops_ack = _maybe_enqueue_direct_github_ops(
+        dispatch_decision=dispatch_decision,
+        chat_id=chat_id,
+        text=text,
+        update=update,
+        extracted=extracted,
+        background_tasks=background_tasks,
+        openclaw_service=openclaw_service,
+        notifier=notifier,
+        session_identity=session_identity,
+        worker_scheduler=worker_scheduler,
+        telegram_settings=telegram_settings,
+    )
+    if github_ops_ack is not None:
+        return github_ops_ack
 
     session = _find_or_create_telegram_session(
         openclaw_service=openclaw_service,
@@ -576,10 +591,22 @@ def _handle_telegram_webhook(
 
 def _build_butler_worker_contract_from_decision(dispatch_decision) -> dict[str, Any]:
     task_type_str = str(getattr(dispatch_decision, "task_type", "") or "").strip().lower()
+    canonical_task_type = str(
+        getattr(dispatch_decision, "canonical_task_type", "") or task_type_str
+    ).strip().lower()
+    worker_task_type = str(
+        getattr(dispatch_decision, "worker_task_type", "") or "claude_runtime"
+    ).strip().lower()
+    approval_policy = str(
+        getattr(dispatch_decision, "approval_policy", "") or "auto"
+    ).strip().lower()
     out: dict[str, Any] = {
         "target_agent": dispatch_decision.target_agent,
         "detected_task_type": task_type_str,
         "butler_task_type": task_type_str,
+        "canonical_task_type": canonical_task_type,
+        "worker_task_type": worker_task_type,
+        "approval_policy": approval_policy,
         "action": dispatch_decision.action,
         "priority": dispatch_decision.priority,
         "max_retries": dispatch_decision.max_retries,
@@ -593,6 +620,115 @@ def _build_butler_worker_contract_from_decision(dispatch_decision) -> dict[str, 
     if dispatch_decision.model_fill_error:
         out["model_fill_error"] = dispatch_decision.model_fill_error
     return out
+
+
+def _maybe_enqueue_direct_github_ops(
+    *,
+    dispatch_decision,
+    chat_id: str,
+    text: str,
+    update: dict[str, Any],
+    extracted: dict[str, Any],
+    background_tasks: BackgroundTasks,
+    openclaw_service: OpenClawCompatService,
+    notifier: TelegramNotifierService,
+    session_identity,
+    worker_scheduler: WorkerSchedulerService,
+    telegram_settings,
+) -> TelegramWebhookAck | None:
+    canonical_task_type = str(getattr(dispatch_decision, "canonical_task_type", "") or "").strip().lower()
+    if canonical_task_type not in {"github.issue_ops", "github.pr_ops"}:
+        return None
+    params = dict(dispatch_decision.extracted_params or {})
+    repo = str(params.get("repo") or "").strip()
+    pr_number = params.get("pr_number")
+    issue_number = params.get("issue_number")
+    if not repo or (pr_number is None and issue_number is None):
+        return None
+
+    session = _find_or_create_telegram_session(
+        openclaw_service=openclaw_service,
+        chat_id=chat_id,
+        session_identity=session_identity,
+        background_tasks=background_tasks,
+        notifier=notifier,
+    )
+    _append_user_event(
+        openclaw_service=openclaw_service,
+        session=session,
+        text=text,
+        update=update,
+        extracted=extracted,
+        session_identity=session_identity,
+    )
+    agent_contract = _build_butler_worker_contract_from_decision(dispatch_decision)
+    action = "summarize_pr" if pr_number is not None else "read_issue"
+    payload: dict[str, Any] = {
+        "action": action,
+        "repo": repo,
+        "issue_number": issue_number,
+        "pr_number": pr_number,
+        "account_profile": "accountA",
+        "metadata": {
+            "source": "telegram_gateway",
+            "session_id": session.session_id,
+            "chat_id": chat_id,
+            "actor_user_id": session_identity.actor.user_id,
+            **agent_contract,
+        },
+    }
+    queue_item = worker_scheduler.enqueue(
+        WorkerQueueItemCreateRequest(
+            task_type=WorkerTaskType.GITHUB_OPS,
+            payload=payload,
+            requested_by=session_identity.actor.user_id,
+            priority=int(agent_contract.get("priority", 8)),
+            max_retries=int(agent_contract.get("max_retries", 2)),
+            metadata={
+                "session_key": session_identity.session_key,
+                "chat_id": chat_id,
+                **agent_contract,
+            },
+        )
+    )
+    thread_id_int = _safe_int(extracted.get("message_thread_id"))
+    if notifier.enabled:
+        ack_text = _telegram_queue_ack_message(
+            task_name=f"github_ops:{action}",
+            run_id=str(queue_item.run_id),
+            worker_brand=telegram_settings.telegram_worker_display_name,
+            runtime_id=WorkerTaskType.GITHUB_OPS.value,
+            agent_name="github_ops_accountA",
+        )
+        ack_message_id = notifier.send_message_get_message_id(
+            chat_id=chat_id,
+            text=ack_text,
+            message_thread_id=thread_id_int,
+        )
+        if ack_message_id is not None:
+            worker_scheduler.merge_queue_metadata(
+                queue_item.run_id,
+                {
+                    "telegram_queue_ack_message_id": ack_message_id,
+                    "telegram_completion_via_api": True,
+                },
+            )
+    return TelegramWebhookAck(
+        accepted=True,
+        update_id=_safe_int(update.get("update_id")),
+        chat_id=chat_id,
+        session_id=session.session_id,
+        agent_run_id=None,
+        metadata={
+            "run_id": queue_item.run_id,
+            "task_name": f"github_ops:{action}",
+            "routed_to": "worker_queue",
+            "butler_dispatch_source": dispatch_decision.source.value,
+            "butler_dispatch_route": dispatch_decision.route.value,
+            "canonical_task_type": canonical_task_type,
+            "worker_task_type": WorkerTaskType.GITHUB_OPS.value,
+        },
+    )
 
 
 def _resolve_channel_route(*, extracted: dict[str, Any]) -> str:

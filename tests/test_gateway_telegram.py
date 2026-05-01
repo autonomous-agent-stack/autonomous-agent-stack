@@ -555,6 +555,42 @@ def test_telegram_worker_queue_metadata_includes_butler_agent_contract(
     assert run.payload["metadata"]["repo"] == "example/repo"
 
 
+def test_telegram_github_pr_url_enqueues_direct_github_ops(
+    telegram_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_ALLOWED_UIDS", "9527")
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_OWNER_UIDS", "9527")
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_SECRET_TOKEN", "")
+    clear_settings_caches()
+
+    response = telegram_client.post(
+        "/api/v1/gateway/telegram/webhook",
+        json={
+            "update_id": 1003,
+            "message": {
+                "message_id": 79,
+                "text": "帮我看这个 PR https://github.com/example/repo/pull/12",
+                "chat": {"id": 9527, "type": "private"},
+                "from": {"id": 9527, "username": "alice"},
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    run_id = payload["metadata"]["run_id"]
+    scheduler = getattr(telegram_client, "_worker_scheduler")
+    run = scheduler.get_run(run_id)
+    assert run is not None
+    assert run.task_type == WorkerTaskType.GITHUB_OPS
+    assert run.payload["action"] == "summarize_pr"
+    assert run.payload["repo"] == "example/repo"
+    assert run.payload["pr_number"] == 12
+    assert run.metadata["canonical_task_type"] == "github.pr_ops"
+    assert run.metadata["worker_task_type"] == "github_ops"
+
+
 def test_legacy_telegram_webhook_uses_same_processing_path(
     telegram_client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
