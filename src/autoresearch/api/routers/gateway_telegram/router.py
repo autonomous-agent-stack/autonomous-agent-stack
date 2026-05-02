@@ -453,6 +453,22 @@ def _handle_telegram_webhook(
     if github_ops_ack is not None:
         return github_ops_ack
 
+    content_bookmarks_ack = _maybe_enqueue_direct_content_kb_bookmarks(
+        dispatch_decision=dispatch_decision,
+        chat_id=chat_id,
+        text=text,
+        update=update,
+        extracted=extracted,
+        background_tasks=background_tasks,
+        openclaw_service=openclaw_service,
+        notifier=notifier,
+        session_identity=session_identity,
+        worker_scheduler=worker_scheduler,
+        telegram_settings=telegram_settings,
+    )
+    if content_bookmarks_ack is not None:
+        return content_bookmarks_ack
+
     session = _find_or_create_telegram_session(
         openclaw_service=openclaw_service,
         chat_id=chat_id,
@@ -804,6 +820,123 @@ def _maybe_enqueue_direct_github_ops(
             "canonical_task_type": canonical_task_type,
             "worker_task_type": WorkerTaskType.GITHUB_OPS.value,
         },
+    )
+
+
+def _maybe_enqueue_direct_content_kb_bookmarks(
+    *,
+    dispatch_decision,
+    chat_id: str,
+    text: str,
+    update: dict[str, Any],
+    extracted: dict[str, Any],
+    background_tasks: BackgroundTasks,
+    openclaw_service: OpenClawCompatService,
+    notifier: TelegramNotifierService,
+    session_identity,
+    worker_scheduler: WorkerSchedulerService,
+    telegram_settings,
+) -> TelegramWebhookAck | None:
+    canonical_task_type = str(getattr(dispatch_decision, "canonical_task_type", "") or "").strip().lower()
+    if canonical_task_type != "bookmark.organize":
+        return None
+
+    session = _find_or_create_telegram_session(
+        openclaw_service=openclaw_service,
+        chat_id=chat_id,
+        session_identity=session_identity,
+        background_tasks=background_tasks,
+        notifier=notifier,
+    )
+    _append_user_event(
+        openclaw_service=openclaw_service,
+        session=session,
+        text=text,
+        update=update,
+        extracted=extracted,
+        session_identity=session_identity,
+    )
+    agent_contract = _build_butler_worker_contract_from_decision(dispatch_decision)
+    requested_by = session_identity.actor.user_id or _safe_int(extracted.get("from_user_id")) or chat_id
+    params = dict(dispatch_decision.extracted_params or {})
+    urls = params.get("urls") if isinstance(params.get("urls"), list) else []
+    wants_github = "github" in text.lower() or "git hub" in text.lower()
+    payload: dict[str, Any] = {
+        "text": text,
+        "title": "X bookmarks" if _looks_like_x_bookmark_request(text) else "Bookmarks",
+        "source_type": "x_bookmarks" if _looks_like_x_bookmark_request(text) else "bookmarks",
+        "open_draft_pr": wants_github,
+        "requested_by": requested_by,
+        "metadata": {
+            "source": "telegram_gateway",
+            "session_id": session.session_id,
+            "chat_id": chat_id,
+            "urls": urls,
+            **agent_contract,
+        },
+    }
+    queue_item = worker_scheduler.enqueue(
+        WorkerQueueItemCreateRequest(
+            task_name="telegram_content_kb_bookmarks",
+            task_type=WorkerTaskType.CONTENT_KB_BOOKMARKS,
+            payload=payload,
+            requested_by=str(requested_by),
+            priority=int(agent_contract.get("priority", 4)),
+            max_retries=int(agent_contract.get("max_retries", 2)),
+            metadata={
+                "session_key": session_identity.session_key,
+                "chat_id": chat_id,
+                "message_thread_id": extracted.get("message_thread_id"),
+                "telegram_completion_via_api": True,
+                **agent_contract,
+            },
+        )
+    )
+    thread_id_int = _safe_int(extracted.get("message_thread_id"))
+    if notifier.enabled:
+        ack_text = _telegram_queue_ack_message(
+            task_name="telegram_content_kb_bookmarks",
+            run_id=str(queue_item.run_id),
+            worker_brand=telegram_settings.telegram_worker_display_name,
+            runtime_id=WorkerTaskType.CONTENT_KB_BOOKMARKS.value,
+            agent_name="content_kb",
+        )
+        ack_message_id = notifier.send_message_get_message_id(
+            chat_id=chat_id,
+            text=ack_text,
+            message_thread_id=thread_id_int,
+        )
+        if ack_message_id is not None:
+            worker_scheduler.merge_queue_metadata(
+                queue_item.run_id,
+                {
+                    "telegram_queue_ack_message_id": ack_message_id,
+                    "telegram_completion_via_api": True,
+                },
+            )
+    return TelegramWebhookAck(
+        accepted=True,
+        update_id=_safe_int(update.get("update_id")),
+        chat_id=chat_id,
+        session_id=session.session_id,
+        agent_run_id=None,
+        metadata={
+            "run_id": queue_item.run_id,
+            "task_name": "telegram_content_kb_bookmarks",
+            "routed_to": "worker_queue",
+            "butler_dispatch_source": dispatch_decision.source.value,
+            "butler_dispatch_route": dispatch_decision.route.value,
+            "canonical_task_type": canonical_task_type,
+            "worker_task_type": WorkerTaskType.CONTENT_KB_BOOKMARKS.value,
+        },
+    )
+
+
+def _looks_like_x_bookmark_request(text: str) -> bool:
+    normalized = text.lower()
+    return any(
+        token in normalized
+        for token in ("x书签", "x 书签", "x bookmark", "twitter bookmark", "推特书签")
     )
 
 

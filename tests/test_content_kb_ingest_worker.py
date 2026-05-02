@@ -91,6 +91,8 @@ def test_content_kb_ingest_task_type_registered() -> None:
     """Verify CONTENT_KB_INGEST exists in the enum."""
     assert hasattr(WorkerTaskType, "CONTENT_KB_INGEST")
     assert WorkerTaskType.CONTENT_KB_INGEST.value == "content_kb_ingest"
+    assert hasattr(WorkerTaskType, "CONTENT_KB_BOOKMARKS")
+    assert WorkerTaskType.CONTENT_KB_BOOKMARKS.value == "content_kb_bookmarks"
 
 
 def test_content_kb_ingest_full_lifecycle(
@@ -282,6 +284,71 @@ def test_content_kb_ingest_no_draft_pr_by_default(
     assert run.metrics["draft_pr_requested"] == 0
 
 
+def test_content_kb_bookmarks_archives_links(
+    tmp_path: Path,
+    worker_services: tuple[WorkerRegistryService, WorkerSchedulerService],
+) -> None:
+    """Archive pasted X bookmark links into Markdown plus a SQLite index."""
+    _, scheduler = worker_services
+    daemon = _build_daemon(tmp_path, worker_services=worker_services)
+    knowledge_root = tmp_path / "knowledge"
+
+    queued = scheduler.enqueue(
+        WorkerQueueItemCreateRequest(
+            task_type=WorkerTaskType.CONTENT_KB_BOOKMARKS,
+            payload={
+                "text": "Useful thread https://x.com/example/status/123\nhttps://twitter.com/demo/status/456",
+                "title": "X bookmarks smoke",
+                "knowledge_root": str(knowledge_root),
+                "open_draft_pr": True,
+                "owner": "my-org",
+                "default_repo": "kb",
+            },
+            requested_by="test",
+        ),
+        now=utc_now(),
+    )
+
+    daemon.run_once(now=utc_now())
+
+    run = scheduler.get_run(queued.run_id)
+    assert run is not None
+    assert run.status == JobStatus.COMPLETED
+    assert run.result is not None
+    assert run.result["bookmark_count"] == 2
+    assert Path(run.result["markdown_path"]).exists()
+    assert Path(run.result["sqlite_index_path"]).exists()
+    assert run.result["draft_pr_requested"] is True
+    assert run.result["draft_pr_hint"]["repo"] == "my-org/kb"
+    assert "promotion_files" in run.result
+    assert run.metrics["bookmarks_archived"] == 2
+
+
+def test_content_kb_bookmarks_fails_without_links(
+    tmp_path: Path,
+    worker_services: tuple[WorkerRegistryService, WorkerSchedulerService],
+) -> None:
+    """Bookmark archive reports a structured failure when no URLs are supplied."""
+    _, scheduler = worker_services
+    daemon = _build_daemon(tmp_path, worker_services=worker_services)
+
+    queued = scheduler.enqueue(
+        WorkerQueueItemCreateRequest(
+            task_type=WorkerTaskType.CONTENT_KB_BOOKMARKS,
+            payload={"text": "整理X书签", "knowledge_root": str(tmp_path / "knowledge")},
+            requested_by="test",
+        ),
+        now=utc_now(),
+    )
+
+    daemon.run_once(now=utc_now())
+
+    run = scheduler.get_run(queued.run_id)
+    assert run is not None
+    assert run.status == JobStatus.FAILED
+    assert "URLs" in (run.error or "")
+
+
 def test_content_kb_ingest_via_api(tmp_path: Path) -> None:
     """Verify the convenience endpoint returns a queued run."""
     from fastapi.testclient import TestClient
@@ -307,3 +374,26 @@ def test_content_kb_ingest_via_api(tmp_path: Path) -> None:
     assert data["run_id"]
     assert data["payload"]["subtitle_text_path"] == str(srt_path)
     assert data["payload"]["open_draft_pr"] is False
+
+
+def test_content_kb_bookmarks_via_api(tmp_path: Path) -> None:
+    """Verify the bookmark convenience endpoint returns a queued run."""
+    from fastapi.testclient import TestClient
+
+    from autoresearch.api.main import app
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/v1/worker-runs/content-kb-bookmarks",
+        json={
+            "text": "https://x.com/example/status/123",
+            "title": "API Bookmarks",
+            "knowledge_root": str(tmp_path / "knowledge"),
+            "requested_by": "api-test",
+        },
+    )
+    assert response.status_code == 201
+    data = response.json()
+    assert data["task_type"] == "content_kb_bookmarks"
+    assert data["status"] == "queued"
+    assert data["payload"]["title"] == "API Bookmarks"

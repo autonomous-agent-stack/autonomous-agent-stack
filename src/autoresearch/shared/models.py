@@ -1555,6 +1555,7 @@ class WorkerTaskType(str, Enum):
     EXCEL_AUDIT = "excel_audit"
     CONTENT_KB_CLASSIFY = "content_kb_classify"
     CONTENT_KB_INGEST = "content_kb_ingest"
+    CONTENT_KB_BOOKMARKS = "content_kb_bookmarks"
 
 
 class WorkerRunProgressRead(StrictModel):
@@ -1806,6 +1807,11 @@ class StandbyYouTubeAutoflowRequest(StrictModel):
     preferred_languages: list[str] = Field(default_factory=lambda: ["zh-Hans", "zh-CN", "en"])
     include_auto_generated: bool = True
     overwrite_existing: bool = False
+    archive_to_knowledge: bool = True
+    knowledge_root: str | None = None
+    sync_obsidian: bool = False
+    obsidian_vault_path: str | None = None
+    obsidian_subdir: str = "AAS Knowledge"
     requested_by: str | None = None
     source: str = "standby_housekeeper"
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -1831,6 +1837,9 @@ class StandbyYouTubeAutoflowResult(StrictModel):
     repo: str | None = None
     output_path: str | None = None
     route_reason: str | None = None
+    knowledge_path: str | None = None
+    knowledge_index_path: str | None = None
+    obsidian_path: str | None = None
     github_run_dir: str | None = None
     github_run_status: str | None = None
     pr_url: str | None = None

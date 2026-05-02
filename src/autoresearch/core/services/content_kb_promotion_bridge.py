@@ -72,7 +72,7 @@ class ContentKBPromotionBridge:
 
         This is the main entry point. Call after worker task completes.
         """
-        if task_type != "content_kb_ingest":
+        if task_type not in {"content_kb_ingest", "content_kb_bookmarks"}:
             return ContentKBPromotionResult(
                 pr_requested=False,
                 pr_attempted=False,
@@ -137,6 +137,13 @@ class ContentKBPromotionBridge:
 
         # Build files dict for the provider
         files: dict[str, str] = {}
+        raw_files = ingest_result.get("promotion_files")
+        if isinstance(raw_files, dict):
+            for raw_path, raw_content in raw_files.items():
+                relative_path = str(raw_path).strip().replace("\\", "/")
+                if not relative_path or relative_path.startswith("/") or "../" in relative_path:
+                    continue
+                files[relative_path] = str(raw_content)
         indexes = ingest_result.get("indexes", {})
         for index_name, index_data in indexes.items():
             files[f"indexes/{index_name}.json"] = json.dumps(

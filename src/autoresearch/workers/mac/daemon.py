@@ -748,8 +748,8 @@ class MacWorkerDaemon:
     def _maybe_promote_content_kb(
         self, *, run: WorkerQueueItemRead, outcome: MacWorkerExecutionResult,
     ) -> None:
-        """After content_kb_ingest, trigger draft PR if requested."""
-        if run.task_type.value != "content_kb_ingest":
+        """After content_kb tasks, trigger draft PR if requested."""
+        if run.task_type.value not in {"content_kb_ingest", "content_kb_bookmarks"}:
             return
         if self._content_kb_bridge is None:
             return

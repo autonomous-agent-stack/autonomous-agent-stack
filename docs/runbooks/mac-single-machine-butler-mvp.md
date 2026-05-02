@@ -186,6 +186,32 @@ curl -sS -X POST http://127.0.0.1:8001/api/v1/worker-runs/github-ops \
   }'
 ```
 
+## 知识库归档
+
+YouTube 自动流现在会在生成摘要后先写入本地知识库，再继续交给 GitHub assistant 发布。默认归档目录是 `${HOME}/aas/data/knowledge`，可通过 `AUTORESEARCH_KNOWLEDGE_ROOT` 或请求字段 `knowledge_root` 覆盖。
+
+本地归档内容：
+
+- `youtube/*.md`：视频摘要、步骤、命令、风险与来源信息
+- `youtube/*.transcript.md`：字幕全文
+- `knowledge.sqlite3`：`knowledge_items` 索引表，记录来源、标题、路径、标签和元数据
+- 可选 Obsidian 同步：设置 `sync_obsidian=true` 并提供 `obsidian_vault_path`
+
+X 书签整理使用 `content_kb_bookmarks` worker。它支持粘贴链接、JSON/CSV/TSV 导出文件或结构化 `items`，写入本地 Markdown 与 SQLite；如设置 `open_draft_pr=true`，worker 结果会触发 content_kb promotion bridge 创建草稿 PR。
+
+## Knowledge Archive
+
+The YouTube autoflow now writes a local knowledge archive after digest generation, then continues through GitHub assistant publishing. The default archive directory is `${HOME}/aas/data/knowledge`; override it with `AUTORESEARCH_KNOWLEDGE_ROOT` or the request field `knowledge_root`.
+
+Local archive outputs:
+
+- `youtube/*.md`: video digest, steps, commands, risks, and source metadata
+- `youtube/*.transcript.md`: full transcript text
+- `knowledge.sqlite3`: `knowledge_items` index table with source, title, path, tags, and metadata
+- Optional Obsidian sync: set `sync_obsidian=true` and provide `obsidian_vault_path`
+
+X bookmark curation uses the `content_kb_bookmarks` worker. It accepts pasted links, JSON/CSV/TSV export files, or structured `items`, writes local Markdown plus SQLite index rows, and triggers the content_kb promotion bridge for a draft PR when `open_draft_pr=true`.
+
 ## 审批策略
 
 策略文件：
@@ -259,6 +285,7 @@ pytest --noconftest \
   tests/test_approvals_api.py \
   tests/test_hermes_approval_decisions.py \
   tests/test_github_ops.py \
+  tests/test_content_kb_ingest_worker.py \
   tests/test_worker_orchestration.py
 ```
 
@@ -271,5 +298,6 @@ pytest --noconftest \
   tests/test_approvals_api.py \
   tests/test_hermes_approval_decisions.py \
   tests/test_github_ops.py \
+  tests/test_content_kb_ingest_worker.py \
   tests/test_worker_orchestration.py
 ```

@@ -174,6 +174,8 @@ def canonical_task_type_for(task_type: str, *, action: str | None = None) -> str
     if legacy == ButlerTaskType.EXCEL_AUDIT:
         return ButlerCanonicalTaskType.EXCEL_COMMISSION
     if legacy == ButlerTaskType.CONTENT_KB:
+        if "bookmark" in normalized_action or "书签" in normalized_action:
+            return ButlerCanonicalTaskType.BOOKMARK_ORGANIZE
         return ButlerCanonicalTaskType.CONTENT_KB_INGEST
     if legacy == ButlerTaskType.BOOKMARK:
         return ButlerCanonicalTaskType.BOOKMARK_ORGANIZE
@@ -190,4 +192,6 @@ def worker_task_type_for_canonical(canonical_task_type: str) -> str:
         return "excel_audit"
     if normalized == ButlerCanonicalTaskType.CONTENT_KB_INGEST:
         return "content_kb_ingest"
+    if normalized == ButlerCanonicalTaskType.BOOKMARK_ORGANIZE:
+        return "content_kb_bookmarks"
     return "claude_runtime"

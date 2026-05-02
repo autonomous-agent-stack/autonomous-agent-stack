@@ -320,18 +320,11 @@ class ButlerDispatchCenter:
             action = "content_kb.ingest"
             priority = 4
             if _should_escalate_content_task(text):
-                route = ButlerRoute.HERMES
-                runtime_id = "hermes"
-                execution_mode = hermes_execution_mode
-                max_retries = 1 if execution_mode == "interactive" else 2
+                action = "content_kb.bookmark"
         elif task_type == ButlerTaskType.BOOKMARK:
             target_agent = "content_kb"
             action = "content_kb.bookmark"
             priority = 4
-            route = ButlerRoute.HERMES
-            runtime_id = "hermes"
-            execution_mode = hermes_execution_mode
-            max_retries = 1 if execution_mode == "interactive" else 2
 
         if route == ButlerRoute.HERMES or runtime_id == "hermes":
             runtime_id = "hermes"
@@ -437,7 +430,7 @@ class ButlerDispatchCenter:
 
 _MODEL_FILL_SYSTEM_PROMPT = """You are a strict router. Return one JSON object only.
 Allowed legacy task_type values: excel_audit, github_admin, content_kb, bookmark, youtube, unknown.
-Allowed canonical task_type values: youtube.autoflow, github.issue_ops, github.pr_ops, excel.commission, hermes.general.
+Allowed canonical task_type values: youtube.autoflow, github.issue_ops, github.pr_ops, excel.commission, content_kb.ingest, bookmark.organize, hermes.general.
 Allowed route values: direct, worker, hermes, reject.
 Allowed runtime_id values: claude, hermes.
 Allowed target_agent values: butler_orchestrator, excel_audit, github_ops_accountA, github_ops_accountB, youtube_ops, content_kb.

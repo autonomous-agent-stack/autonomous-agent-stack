@@ -17,6 +17,9 @@ _DEFAULT_CAPABILITIES: tuple[str, ...] = (
     "youtube_action",
     "youtube_autoflow",
     "github_ops",
+    "content_kb_classify",
+    "content_kb_ingest",
+    "content_kb_bookmarks",
 )
 
 

@@ -275,6 +275,15 @@ class TestButlerDispatchCenter:
         assert decision.extracted_params["repo"] == "acme/demo"
         assert decision.extracted_params["pr_number"] == 7
 
+    def test_x_bookmarks_dispatch_to_content_kb_bookmark_worker(self) -> None:
+        center = ButlerDispatchCenter(model_fill=ButlerModelFillService(enabled=False))
+        decision = center.dispatch("把推特书签整理进知识库 https://x.com/example/status/123")
+        assert decision.task_type == ButlerTaskType.CONTENT_KB
+        assert decision.canonical_task_type == ButlerCanonicalTaskType.BOOKMARK_ORGANIZE
+        assert decision.worker_task_type == "content_kb_bookmarks"
+        assert decision.route == ButlerRoute.WORKER
+        assert "https://x.com/example/status/123" in decision.extracted_params["urls"]
+
     def test_model_fill_invalid_json_escalates_to_hermes(self) -> None:
         backend = _FakeModelBackend("not json")
         center = ButlerDispatchCenter(

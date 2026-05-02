@@ -155,6 +155,33 @@ def test_bridge_creates_pr_via_provider() -> None:
     assert "indexes/topic.json" in call["files"]
 
 
+def test_bridge_promotes_bookmark_files() -> None:
+    """Bookmark archive results can provide concrete Markdown files for PR promotion."""
+    provider = _FakePromotionProvider()
+    bridge = ContentKBPromotionBridge(_provider=provider)
+
+    result = bridge.maybe_promote(
+        task_type="content_kb_bookmarks",
+        result={
+            "draft_pr_requested": True,
+            "draft_pr_hint": {
+                "repo": "my-org/kb",
+                "branch_prefix": "content-kb/bookmarks",
+                "title_prefix": "docs(content-kb): archive X bookmarks",
+            },
+            "topic": "x-bookmarks",
+            "promotion_files": {
+                "docs/bookmarks/x/2026-05-02-x-bookmarks.md": "# X bookmarks\n",
+            },
+        },
+    )
+
+    assert result.pr_requested is True
+    assert result.pr_attempted is True
+    assert provider.calls[0]["repo"] == "my-org/kb"
+    assert "docs/bookmarks/x/2026-05-02-x-bookmarks.md" in provider.calls[0]["files"]
+
+
 def test_bridge_handles_provider_failure() -> None:
     """Bridge captures provider exceptions as failure_reason."""
     provider = _FailingPromotionProvider()

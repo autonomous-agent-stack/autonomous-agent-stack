@@ -21,6 +21,7 @@ from autoresearch.shared.models import (
     YouTubeSubscriptionCreateRequest,
     YouTubeTranscriptCreateRequest,
 )
+from content_kb.local_archive import KnowledgeArchiveResult, LocalKnowledgeArchive
 
 
 _REQUEST_VALIDATION_STAGE = "request_validation"
@@ -28,6 +29,7 @@ _DISCOVERY_STAGE = "source_discovery"
 _SUBSCRIPTION_STAGE = "subscription_check"
 _TRANSCRIPT_STAGE = "transcript_fetch"
 _DIGEST_STAGE = "digest_generate"
+_KNOWLEDGE_ARCHIVE_STAGE = "knowledge_archive"
 _GITHUB_PUBLISH_STAGE = "github_publish"
 _URL_RE = re.compile(r"https?://[^\s<>()]+")
 YouTubeAutoflowProgressCallback = Callable[[str, str, dict[str, Any]], None]
@@ -58,9 +60,11 @@ class StandbyYouTubeAutoflowService:
         *,
         youtube_service: YouTubeAgentService,
         github_service: GitHubAssistantService,
+        knowledge_archive: LocalKnowledgeArchive | None = None,
     ) -> None:
         self._youtube_service = youtube_service
         self._github_service = github_service
+        self._knowledge_archive = knowledge_archive
 
     def execute_payload(
         self,
@@ -119,7 +123,9 @@ class StandbyYouTubeAutoflowService:
                 metadata=metadata,
             )
 
+        current_stage = _SUBSCRIPTION_STAGE
         try:
+            current_stage = _SUBSCRIPTION_STAGE
             self._emit_progress(
                 progress_callback,
                 _SUBSCRIPTION_STAGE,
@@ -163,6 +169,7 @@ class StandbyYouTubeAutoflowService:
                     video_id=video_id,
                     metadata=metadata,
                 )
+            current_stage = _TRANSCRIPT_STAGE
             transcript = self._youtube_service.fetch_transcript(
                 video_id,
                 YouTubeTranscriptCreateRequest(
@@ -193,6 +200,7 @@ class StandbyYouTubeAutoflowService:
                     transcript_id=transcript.transcript_id,
                     metadata=metadata,
                 )
+            current_stage = _DIGEST_STAGE
             digest = self._youtube_service.generate_digest(
                 video_id,
                 YouTubeDigestCreateRequest(
@@ -209,6 +217,46 @@ class StandbyYouTubeAutoflowService:
                 description=video.description,
                 digest_content=digest.content,
             )
+            knowledge_result: KnowledgeArchiveResult | None = None
+            if request.archive_to_knowledge:
+                current_stage = _KNOWLEDGE_ARCHIVE_STAGE
+                self._emit_progress(
+                    progress_callback,
+                    _KNOWLEDGE_ARCHIVE_STAGE,
+                    "archiving digest to local knowledge base",
+                    {
+                        **metadata,
+                        "source_url": source_url,
+                        "subscription_id": subscription.subscription_id,
+                        "video_id": video_id,
+                        "transcript_id": transcript.transcript_id,
+                        "digest_id": digest.digest_id,
+                    },
+                )
+                if self._is_cancel_requested(cancel_requested):
+                    return self._cancelled_result(
+                        stage=_KNOWLEDGE_ARCHIVE_STAGE,
+                        source_url=source_url,
+                        subscription_id=subscription.subscription_id,
+                        video_id=video_id,
+                        transcript_id=transcript.transcript_id,
+                        digest_id=digest.digest_id,
+                        metadata=metadata,
+                    )
+                knowledge_result = self._resolve_knowledge_archive(request).write_youtube(
+                    video_id=video.video_id,
+                    source_url=video.source_url,
+                    title=video.title,
+                    channel_title=video.channel_title,
+                    description=video.description,
+                    published_at=video.published_at,
+                    digest_content=digest.content,
+                    transcript_content=transcript.content,
+                    transcript_language=transcript.language,
+                    requested_by=request.requested_by or queue_requested_by,
+                    metadata=metadata,
+                    sync_obsidian=request.sync_obsidian,
+                )
 
             self._emit_progress(
                 progress_callback,
@@ -233,6 +281,7 @@ class StandbyYouTubeAutoflowService:
                     digest_id=digest.digest_id,
                     metadata=metadata,
                 )
+            current_stage = _GITHUB_PUBLISH_STAGE
             run_dir, publish = self._github_service.publish_youtube(
                 GitHubAssistantYouTubePublishRequest(
                     video_id=video.video_id,
@@ -269,6 +318,9 @@ class StandbyYouTubeAutoflowService:
                 github_run_dir=str(run_dir),
                 github_run_status=summary.status,
                 pr_url=publish.pr_url,
+                knowledge_path=knowledge_result.markdown_path if knowledge_result else None,
+                knowledge_index_path=knowledge_result.sqlite_index_path if knowledge_result else None,
+                obsidian_path=knowledge_result.obsidian_path if knowledge_result else None,
                 artifacts=self._github_service.list_artifacts(run_dir),
                 reason=summary.warnings[-1] if summary.warnings else publish.route_reason,
                 metadata={
@@ -276,11 +328,13 @@ class StandbyYouTubeAutoflowService:
                     "branch_name": publish.branch_name,
                     "github_summary": summary.model_dump(mode="json"),
                     "publish_suggestions": publish_suggestions,
+                    "knowledge_archive": knowledge_result.as_dict() if knowledge_result else None,
                     "pipeline_stages": [
                         _DISCOVERY_STAGE,
                         _SUBSCRIPTION_STAGE,
                         _TRANSCRIPT_STAGE,
                         _DIGEST_STAGE,
+                        _KNOWLEDGE_ARCHIVE_STAGE,
                         _GITHUB_PUBLISH_STAGE,
                     ],
                 },
@@ -314,6 +368,7 @@ class StandbyYouTubeAutoflowService:
                 },
             )
         except Exception as exc:
+            failed_stage = locals().get("current_stage", _GITHUB_PUBLISH_STAGE)
             return StandbyYouTubeAutoflowResult(
                 success=False,
                 status=JobStatus.FAILED,
@@ -322,8 +377,12 @@ class StandbyYouTubeAutoflowService:
                 video_id=locals().get("video_id"),
                 transcript_id=locals().get("transcript").transcript_id if "transcript" in locals() else None,
                 digest_id=locals().get("digest").digest_id if "digest" in locals() else None,
-                error_kind="github_publish_failed",
-                failed_stage=_GITHUB_PUBLISH_STAGE,
+                error_kind=(
+                    "knowledge_archive_failed"
+                    if failed_stage == _KNOWLEDGE_ARCHIVE_STAGE
+                    else "github_publish_failed"
+                ),
+                failed_stage=failed_stage,
                 reason=str(exc).strip() or exc.__class__.__name__,
                 metadata=metadata,
             )
@@ -372,6 +431,17 @@ class StandbyYouTubeAutoflowService:
         if request.input_text and request.input_text.strip():
             metadata.setdefault("input_text", request.input_text.strip())
         return metadata
+
+    def _resolve_knowledge_archive(self, request: StandbyYouTubeAutoflowRequest) -> LocalKnowledgeArchive:
+        if request.knowledge_root or request.obsidian_vault_path or request.obsidian_subdir != "AAS Knowledge":
+            return LocalKnowledgeArchive(
+                root=request.knowledge_root,
+                obsidian_vault_path=request.obsidian_vault_path,
+                obsidian_subdir=request.obsidian_subdir,
+            )
+        if self._knowledge_archive is None:
+            self._knowledge_archive = LocalKnowledgeArchive()
+        return self._knowledge_archive
 
     @staticmethod
     def _emit_progress(
@@ -431,6 +501,7 @@ def build_default_standby_youtube_autoflow_service() -> StandbyYouTubeAutoflowSe
             repo_root=repo_root,
         ),
         github_service=GitHubAssistantService(repo_root=repo_root),
+        knowledge_archive=LocalKnowledgeArchive(),
     )
 
 
@@ -459,6 +530,7 @@ def _build_publish_suggestions(
         ("字幕", "字幕"),
         ("摘要", "摘要"),
         ("自动", "自动化"),
+        ("知识", "知识库"),
     ):
         if token in normalized and tag not in tag_candidates:
             tag_candidates.append(tag)

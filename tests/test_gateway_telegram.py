@@ -655,6 +655,41 @@ def test_telegram_github_pr_url_enqueues_direct_github_ops(
     assert run.metadata["worker_task_type"] == "github_ops"
 
 
+def test_telegram_x_bookmark_url_enqueues_direct_content_kb_bookmarks(
+    telegram_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_ALLOWED_UIDS", "9527")
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_OWNER_UIDS", "9527")
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_SECRET_TOKEN", "")
+    clear_settings_caches()
+
+    response = telegram_client.post(
+        "/api/v1/gateway/telegram/webhook",
+        json={
+            "update_id": 1006,
+            "message": {
+                "message_id": 82,
+                "text": "把推特书签整理到 GitHub https://x.com/example/status/123",
+                "chat": {"id": 9527, "type": "private"},
+                "from": {"id": 9527, "username": "alice"},
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    run_id = payload["metadata"]["run_id"]
+    scheduler = getattr(telegram_client, "_worker_scheduler")
+    run = scheduler.get_run(run_id)
+    assert run is not None
+    assert run.task_type == WorkerTaskType.CONTENT_KB_BOOKMARKS
+    assert run.payload["open_draft_pr"] is True
+    assert "https://x.com/example/status/123" in run.payload["text"]
+    assert run.metadata["canonical_task_type"] == "bookmark.organize"
+    assert run.metadata["worker_task_type"] == "content_kb_bookmarks"
+
+
 def test_legacy_telegram_webhook_uses_same_processing_path(
     telegram_client: TestClient,
     monkeypatch: pytest.MonkeyPatch,

@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+import json
 from pathlib import Path
 from typing import Any
 
@@ -74,6 +75,8 @@ class MacWorkerExecutor:
             return self._execute_content_kb_classify(run)
         if run.task_type == WorkerTaskType.CONTENT_KB_INGEST:
             return self._execute_content_kb_ingest(run)
+        if run.task_type == WorkerTaskType.CONTENT_KB_BOOKMARKS:
+            return self._execute_content_kb_bookmarks(run)
         raise ValueError(f"Unsupported task type: {run.task_type}")
 
     def _execute_noop(self, payload: dict[str, Any]) -> MacWorkerExecutionResult:
@@ -454,6 +457,88 @@ class MacWorkerExecutor:
             },
         )
 
+    def _execute_content_kb_bookmarks(self, run: WorkerQueueItemRead) -> MacWorkerExecutionResult:
+        """Archive pasted/exported bookmark items into the local knowledge base."""
+        from content_kb.local_archive import LocalKnowledgeArchive, parse_bookmark_entries
+
+        payload = dict(run.payload or {})
+        try:
+            bookmarks = parse_bookmark_entries(
+                text=str(payload.get("text") or payload.get("input_text") or ""),
+                items=payload.get("items") if isinstance(payload.get("items"), list) else None,
+                bookmarks_path=payload.get("bookmarks_path") or payload.get("source_path"),
+            )
+        except Exception as exc:
+            return MacWorkerExecutionResult(
+                message="content_kb_bookmarks failed",
+                status=JobStatus.FAILED,
+                error=str(exc).strip() or exc.__class__.__name__,
+                metrics={"error_kind": "bookmark_parse_failed"},
+            )
+        if not bookmarks:
+            return MacWorkerExecutionResult(
+                message="content_kb_bookmarks skipped: no bookmark URLs",
+                status=JobStatus.FAILED,
+                error="payload requires bookmarks_path, items, or text containing URLs",
+                metrics={"error_kind": "missing_bookmarks"},
+            )
+
+        archive = LocalKnowledgeArchive(
+            root=payload.get("knowledge_root"),
+            obsidian_vault_path=payload.get("obsidian_vault_path"),
+            obsidian_subdir=str(payload.get("obsidian_subdir") or "AAS Knowledge"),
+        )
+        archive_result = archive.write_bookmarks(
+            bookmarks=bookmarks,
+            title=str(payload.get("title") or "X bookmarks"),
+            source_type=str(payload.get("source_type") or "x_bookmarks"),
+            requested_by=str(payload.get("requested_by") or run.requested_by or "").strip() or None,
+            metadata={**dict(run.metadata or {}), **dict(payload.get("metadata") or {})},
+            sync_obsidian=bool(payload.get("sync_obsidian", False)),
+        )
+
+        result_data = {
+            **archive_result.as_dict(),
+            "bookmark_count": len(bookmarks),
+            "files_written": [archive_result.markdown_path, archive_result.sqlite_index_path],
+        }
+
+        if payload.get("open_draft_pr"):
+            owner = str(payload.get("owner") or "knowledge-base").strip() or "knowledge-base"
+            default_repo = str(payload.get("default_repo") or "knowledge-base").strip() or "knowledge-base"
+            output_dir = str(payload.get("github_output_dir") or "docs/bookmarks/x").strip().strip("/")
+            markdown_text = Path(archive_result.markdown_path).read_text(encoding="utf-8")
+            target_path = f"{output_dir}/{Path(archive_result.relative_markdown_path).name}"
+            result_data["draft_pr_requested"] = True
+            result_data["draft_pr_hint"] = {
+                "repo": f"{owner}/{default_repo}",
+                "branch_prefix": "content-kb/bookmarks",
+                "title_prefix": f"docs(content-kb): archive {len(bookmarks)} X bookmarks",
+                "source_path": archive_result.markdown_path,
+            }
+            result_data["promotion_files"] = {
+                target_path: markdown_text,
+                f"{output_dir}/index-{archive_result.item_id.split(':')[-1]}.json": json.dumps(
+                    archive_result.as_dict(),
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+            }
+        result_data["telegram_completion_card_text"] = _content_kb_bookmarks_completion_card(
+            run=run,
+            result=result_data,
+        )
+
+        return MacWorkerExecutionResult(
+            message=f"content_kb_bookmarks: archived {len(bookmarks)} bookmarks",
+            result=result_data,
+            metrics={
+                "bookmarks_archived": len(bookmarks),
+                "files_written": 2,
+                "draft_pr_requested": int(bool(payload.get("open_draft_pr"))),
+            },
+        )
+
     def _get_youtube_bridge(self) -> StandbyYouTubeBridgeService:
         if self._youtube_bridge is None:
             self._youtube_bridge = build_default_standby_youtube_bridge_service()
@@ -525,6 +610,9 @@ def _youtube_autoflow_completion_card(
         ("digest_id", "digest_id"),
         ("repo", "repo"),
         ("pr_url", "pr"),
+        ("knowledge_path", "knowledge"),
+        ("knowledge_index_path", "knowledge_index"),
+        ("obsidian_path", "obsidian"),
         ("failed_stage", "failed_stage"),
         ("error_kind", "error_kind"),
     ):
@@ -559,3 +647,33 @@ def _youtube_autoflow_completion_card(
     if status == JobStatus.FAILED:
         retry_hint = f"\n\n可重试：/retry {run.run_id}\nRetry: /retry {run.run_id}"
     return (heading + "\n\n" + "\n".join(table) + retry_hint)[:3900]
+
+
+def _content_kb_bookmarks_completion_card(
+    *,
+    run: WorkerQueueItemRead,
+    result: dict[str, Any],
+) -> str:
+    rows = [
+        ("任务", run.task_name or run.task_type.value),
+        ("run_id", run.run_id),
+        ("状态", "completed"),
+        ("bookmarks", str(result.get("bookmark_count") or 0)),
+    ]
+    for key, label in (
+        ("markdown_path", "knowledge"),
+        ("sqlite_index_path", "knowledge_index"),
+        ("obsidian_path", "obsidian"),
+    ):
+        value = result.get(key)
+        if value:
+            rows.append((label, str(value)))
+    if result.get("draft_pr_requested"):
+        hint = result.get("draft_pr_hint") if isinstance(result.get("draft_pr_hint"), dict) else {}
+        rows.append(("draft_pr", str(hint.get("repo") or "requested")))
+
+    table = ["| 项 | 值 |", "| --- | --- |"]
+    for key, value in rows:
+        cell = str(value).replace("|", "/").replace("\n", " ").strip()
+        table.append(f"| {key} | {cell[:900]} |")
+    return ("书签归档已完成。 / Bookmark archive completed.\n\n" + "\n".join(table))[:3900]

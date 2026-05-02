@@ -53,6 +53,26 @@ class ContentKBIngestRequest(BaseModel):
     metadata: dict = Field(default_factory=dict)
 
 
+class ContentKBBookmarksRequest(BaseModel):
+    """Request body for content_kb_bookmarks task."""
+
+    text: str = Field("", description="Raw text containing bookmark URLs")
+    items: list[dict[str, Any]] = Field(default_factory=list, description="Bookmark objects")
+    bookmarks_path: str | None = Field(None, description="Path to a JSON/CSV/TSV/text bookmark export")
+    title: str = Field("X bookmarks", description="Archive title")
+    source_type: str = Field("x_bookmarks", description="Knowledge source type")
+    knowledge_root: str | None = Field(None, description="Local knowledge root override")
+    sync_obsidian: bool = Field(False, description="Copy generated Markdown into an Obsidian vault")
+    obsidian_vault_path: str | None = Field(None, description="Optional Obsidian vault path")
+    obsidian_subdir: str = Field("AAS Knowledge", description="Obsidian subdirectory")
+    owner: str = Field("knowledge-base", description="GitHub owner/org")
+    default_repo: str = Field("knowledge-base", description="Default target repo name")
+    github_output_dir: str = Field("docs/bookmarks/x", description="Target directory for draft PR files")
+    open_draft_pr: bool = Field(False, description="Signal draft PR creation intent")
+    requested_by: str | None = None
+    metadata: dict = Field(default_factory=dict)
+
+
 class WorkerRunOpsRequest(BaseModel):
     reason: str = Field(default="manual operation")
     backoff_seconds: int | None = Field(default=None, ge=1, le=3600)
@@ -226,6 +246,21 @@ def enqueue_content_kb_ingest_run(
     return service.enqueue(
         WorkerQueueItemCreateRequest(
             task_type=WorkerTaskType.CONTENT_KB_INGEST,
+            payload=payload.model_dump(exclude={"requested_by", "metadata"}),
+            requested_by=payload.requested_by,
+            metadata=payload.metadata,
+        )
+    )
+
+
+@router.post("/content-kb-bookmarks", response_model=WorkerQueueItemRead, status_code=status.HTTP_201_CREATED)
+def enqueue_content_kb_bookmarks_run(
+    payload: ContentKBBookmarksRequest,
+    service: WorkerSchedulerService = Depends(get_worker_scheduler_service),
+) -> WorkerQueueItemRead:
+    return service.enqueue(
+        WorkerQueueItemCreateRequest(
+            task_type=WorkerTaskType.CONTENT_KB_BOOKMARKS,
             payload=payload.model_dump(exclude={"requested_by", "metadata"}),
             requested_by=payload.requested_by,
             metadata=payload.metadata,

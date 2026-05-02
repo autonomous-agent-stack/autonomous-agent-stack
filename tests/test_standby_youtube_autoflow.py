@@ -18,6 +18,7 @@ from autoresearch.github_assistant.models import (
     RunSummary,
 )
 from autoresearch.shared.models import JobStatus, YouTubeTargetKind
+from content_kb.local_archive import LocalKnowledgeArchive
 
 
 class _AutoflowFetcher:
@@ -101,7 +102,14 @@ def _build_service(tmp_path: Path) -> tuple[StandbyYouTubeAutoflowService, _Fake
         fetcher=_AutoflowFetcher(),
         digest_service=YouTubeDigestService(),
     )
-    return StandbyYouTubeAutoflowService(youtube_service=youtube, github_service=github), github
+    return (
+        StandbyYouTubeAutoflowService(
+            youtube_service=youtube,
+            github_service=github,
+            knowledge_archive=LocalKnowledgeArchive(root=tmp_path / "knowledge"),
+        ),
+        github,
+    )
 
 
 def test_autoflow_executes_end_to_end_from_input_text(tmp_path: Path) -> None:
@@ -125,6 +133,11 @@ def test_autoflow_executes_end_to_end_from_input_text(tmp_path: Path) -> None:
     assert result.pr_url == "https://github.com/acme/demo/pull/7"
     assert result.github_run_status == "draft_pr_opened"
     assert "patch.diff" in result.artifacts
+    assert result.knowledge_path is not None
+    assert result.knowledge_index_path is not None
+    assert Path(result.knowledge_path).exists()
+    assert Path(result.knowledge_index_path).exists()
+    assert result.metadata["knowledge_archive"]["relative_markdown_path"].startswith("youtube/")
     assert github.payloads[0].repo_hint == "acme/demo"
     assert github.payloads[0].source_url == "https://www.youtube.com/watch?v=video-001"
 
