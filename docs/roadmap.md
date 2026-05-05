@@ -76,6 +76,16 @@ Autonomous Agent Stack 的终局不再定义为“更强的自动改代码 Agent
 
 ## 最近规划：分三个阶段推进
 
+### 2026-05 Control Plane v2 收敛
+
+当前主线已经推进为 Control Plane v2：以 `/api/v2/*` 为新开发入口，
+以 worker claim/report/lease 为生产执行骨干，以 session timeline 作为事实
+来源。此前的 governance MVP 保留为 legacy 兼容面，不再作为架构主线。
+
+接下来所有新增能力都应优先注册为 capability adapter，而不是新增一套独立
+调度系统。MCP、A2A、ADK 均按 capability boundary 接入；真实外部调用必须
+显式配置后才启用。
+
 ### Phase 1（0-2 周）：先把 harness 做薄，继续守住 patch 主路径
 
 目标：先降技术债，不急着重写 runtime。

@@ -15,6 +15,16 @@ from autoresearch.api.settings import (
     get_telegram_settings,
     get_upstream_watcher_settings,
 )
+from autoresearch.control_plane.contracts import (
+    ControlPlaneApprovalRead,
+    ControlPlaneArtifactRead,
+    ControlPlaneAuditEventRead,
+    ControlPlanePromotionRead,
+    ControlPlaneRunRead,
+    ControlPlaneSessionRead,
+    ControlPlaneTaskRead,
+)
+from autoresearch.control_plane.service import ControlPlaneRepositories, ControlPlaneService
 from autoresearch.agents.opensource_searcher import GitHubSearcher
 from autoresearch.agents.manager_agent import ManagerAgentService
 from autoresearch.core.adapters import (
@@ -42,6 +52,7 @@ from autoresearch.core.services.executions import ExecutionService
 from autoresearch.core.services.github_admin import GitHubAdminService
 from autoresearch.core.services.github_ops import GitHubOpsService
 from autoresearch.core.services.github_issue_service import GitHubIssueService
+from autoresearch.core.services.governance_core import GovernanceCoreService, GovernanceRepositories
 from autoresearch.core.services.hermes_gateway_bridge import HttpHermesGatewayTransport
 from autoresearch.core.services.mirofish_prediction import MiroFishPredictionService
 from autoresearch.core.services.managed_skill_registry import ManagedSkillRegistryService
@@ -104,6 +115,13 @@ from autoresearch.shared.models import (
     YouTubeSubscriptionRead,
     YouTubeTranscriptRead,
     YouTubeVideoRead,
+)
+from autoresearch.shared.governance_core import (
+    GovernanceApprovalRead,
+    GovernanceArtifactRead,
+    GovernanceAuditEventRead,
+    GovernanceRunRead,
+    GovernanceTaskRead,
 )
 from autoresearch.shared.autoresearch_planner_contract import AutoResearchPlanRead
 from autoresearch.shared.excel_audit_contract import ExcelAuditRead
@@ -192,6 +210,84 @@ def get_execution_service() -> ExecutionService:
             model_cls=ExecutionRead,
         ),
         repo_root=_repo_root(),
+    )
+
+
+@lru_cache(maxsize=1)
+def get_governance_core_service() -> GovernanceCoreService:
+    return GovernanceCoreService(
+        repositories=GovernanceRepositories(
+            tasks=SQLiteModelRepository(
+                db_path=_api_db_path(),
+                table_name="governance_tasks",
+                model_cls=GovernanceTaskRead,
+            ),
+            runs=SQLiteModelRepository(
+                db_path=_api_db_path(),
+                table_name="governance_runs",
+                model_cls=GovernanceRunRead,
+            ),
+            approvals=SQLiteModelRepository(
+                db_path=_api_db_path(),
+                table_name="governance_approvals",
+                model_cls=GovernanceApprovalRead,
+            ),
+            artifacts=SQLiteModelRepository(
+                db_path=_api_db_path(),
+                table_name="governance_artifacts",
+                model_cls=GovernanceArtifactRead,
+            ),
+            audit_events=SQLiteModelRepository(
+                db_path=_api_db_path(),
+                table_name="governance_audit_events",
+                model_cls=GovernanceAuditEventRead,
+            ),
+        )
+    )
+
+
+@lru_cache(maxsize=1)
+def get_control_plane_service() -> ControlPlaneService:
+    return ControlPlaneService(
+        repositories=ControlPlaneRepositories(
+            sessions=SQLiteModelRepository(
+                db_path=_api_db_path(),
+                table_name="control_plane_sessions",
+                model_cls=ControlPlaneSessionRead,
+            ),
+            tasks=SQLiteModelRepository(
+                db_path=_api_db_path(),
+                table_name="control_plane_tasks",
+                model_cls=ControlPlaneTaskRead,
+            ),
+            runs=SQLiteModelRepository(
+                db_path=_api_db_path(),
+                table_name="control_plane_runs",
+                model_cls=ControlPlaneRunRead,
+            ),
+            approvals=SQLiteModelRepository(
+                db_path=_api_db_path(),
+                table_name="control_plane_approvals",
+                model_cls=ControlPlaneApprovalRead,
+            ),
+            artifacts=SQLiteModelRepository(
+                db_path=_api_db_path(),
+                table_name="control_plane_artifacts",
+                model_cls=ControlPlaneArtifactRead,
+            ),
+            audit_events=SQLiteModelRepository(
+                db_path=_api_db_path(),
+                table_name="control_plane_audit_events",
+                model_cls=ControlPlaneAuditEventRead,
+            ),
+            promotions=SQLiteModelRepository(
+                db_path=_api_db_path(),
+                table_name="control_plane_promotions",
+                model_cls=ControlPlanePromotionRead,
+            ),
+        ),
+        worker_scheduler=get_worker_scheduler_service(),
+        session_events=get_session_event_service(),
     )
 
 
@@ -667,6 +763,8 @@ def clear_dependency_caches() -> None:
     _safe_cache_clear(get_optimization_service)
     _safe_cache_clear(get_experiment_service)
     _safe_cache_clear(get_execution_service)
+    _safe_cache_clear(get_governance_core_service)
+    _safe_cache_clear(get_control_plane_service)
     _safe_cache_clear(get_youtube_agent_service)
     _safe_cache_clear(get_manager_agent_service)
     _safe_cache_clear(get_approval_policy_service)

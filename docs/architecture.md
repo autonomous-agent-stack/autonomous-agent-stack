@@ -22,6 +22,24 @@ That means the system is optimized for controlled mutation, not unrestricted aut
 
 ## Canonical Mainline
 
+### Control Plane v2
+
+The production convergence path is now Control Plane v2:
+
+```text
+Session -> Task -> Policy/Approval -> Capability Routing -> Worker/Adapter Execution -> Audit/Event Log -> Artifact/Promotion
+```
+
+The `/api/v2/*` surface is the new development target. It treats Session as the
+fact spine, Task as intent, Run as execution projection, and Capability as the
+stable abstraction for workers, local deterministic tools, GitHub assistant,
+Hermes/OpenClaw, MCP, A2A, and future ADK workflow agents.
+
+The worker claim/report/lease scheduler remains the execution backbone. Protocol
+systems such as MCP, A2A, and ADK are capability adapters, not separate
+schedulers. Legacy v1 and MVP governance endpoints remain only as migration
+surfaces while consumers move to `/api/v2/*`.
+
 ```mermaid
 flowchart TD
     A["Repo Scan<br/>AutoResearch Planner"] --> B["Worker Contract<br/>strict OpenHands or AEP job"]

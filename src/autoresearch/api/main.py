@@ -200,6 +200,10 @@ def create_app() -> FastAPI:
 
     # Core routers required for stable single-machine operation
     core_routers = [
+        ("autoresearch.api.routers.control_plane_v2", "console_router", "control plane console"),
+        ("autoresearch.api.routers.control_plane_v2", "router", "control plane v2"),
+        ("autoresearch.api.routers.governance_core", "router", "governance core"),
+        ("autoresearch.api.routers.governance_core", "api_router", "governance core api"),
         ("autoresearch.api.routers.capabilities", "router", "capabilities"),
         ("autoresearch.api.routers.approvals", "router", "approvals"),
         ("autoresearch.api.routers.sessions", "router", "sessions"),

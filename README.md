@@ -123,8 +123,39 @@ Environment files: `make setup` creates `.env` from [`.env.example`](.env.exampl
 Open after startup:
 
 - API docs: `http://127.0.0.1:8001/docs`
+- Control Plane v2 console: `http://127.0.0.1:8001/control-plane`
 - Admin panel: `http://127.0.0.1:8001/panel`
+- Legacy governance MVP panel: `http://127.0.0.1:8001/governance`
 - Health check: `http://127.0.0.1:8001/health`
+
+Control Plane v2 is the new production core path:
+
+- `POST /api/v2/butler/route`: 管家自然语言路由预览，只生成任务草稿，不创建任务。
+  `POST /api/v2/butler/route`: Butler natural-language route preview; creates a task draft without creating a task.
+- `POST /api/v2/butler/tasks`: 管家自然语言任务入口，自动选择 capability、风险标签和优先级后交给 v2 控制面。
+  `POST /api/v2/butler/tasks`: Butler natural-language task entrypoint; selects capability, risk tags, and priority before handing off to the v2 control plane.
+- `POST /api/v2/tasks`: create a governed task
+- `GET /api/v2/tasks/{id}`: inspect task projection
+- `POST /api/v2/tasks/{id}/approval`: approve or reject high-risk tasks
+- `GET /api/v2/sessions/{id}/timeline`: replay the session fact log
+- `GET /api/v2/capabilities`: list worker-backed and protocol-boundary capabilities
+- `GET /api/v2/runs/{id}`: inspect the execution projection
+- `GET /api/v2/runs/{id}/events`: inspect task/run/audit events
+
+The v2 path uses the existing worker claim/report/lease scheduler as the
+execution backbone. A2A, MCP, and future ADK integrations are modeled as
+capability adapters and remain disabled until explicitly configured.
+
+Legacy governance MVP endpoints remain during the migration window:
+
+- `POST /tasks`: create a governed task
+- `GET /tasks/{id}`: inspect task state
+- `POST /tasks/{id}/approve`: approve or reject high-risk tasks
+- `GET /runs/{id}/events`: inspect run audit events
+- `GET /adapters`: list local and protocol-boundary adapters
+
+New development should use `/api/v2/*`. The old `/tasks` surface is kept only as
+a compatibility shim while downstream callers migrate.
 
 Validate the local setup:
 

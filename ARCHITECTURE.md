@@ -18,6 +18,18 @@ The most important shift is that autonomous work is now intentionally constraine
 
 The current mainline flow is:
 
+Control Plane v2 is the new convergence layer for broader agent operations:
+
+```text
+Session -> Task -> Policy/Approval -> Capability Routing -> Worker/Adapter Execution -> Audit/Event Log -> Artifact/Promotion
+```
+
+New development should target `/api/v2/*`. The existing worker claim/report/lease
+scheduler is the production execution backbone, while MCP, A2A, Hermes/OpenClaw,
+GitHub assistant, and future ADK workflows are modeled as capabilities rather
+than as separate control planes. Legacy v1 and MVP governance endpoints remain
+only for migration compatibility.
+
 1. `AutoResearchPlannerService` scans the repo and selects a bounded change candidate.
 2. It emits an `OpenHandsWorkerJobSpec`, a `ControlledExecutionRequest`, and an AEP `JobSpec`.
 3. `OpenHandsWorkerService` translates that contract into a strict patch-only worker prompt.
