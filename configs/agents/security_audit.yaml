@@ -1,0 +1,27 @@
+{
+  "id": "security_audit",
+  "kind": "process",
+  "entrypoint": "internal:autoresearch.core.services.security_audit",
+  "version": "0.1",
+  "capabilities": [
+    "security.quick_scan",
+    "security.drift_check",
+    "security.daily_report",
+    "security.deep_scan"
+  ],
+  "default_mode": "audit_only",
+  "policy_defaults": {
+    "timeout_sec": 600,
+    "max_steps": 1,
+    "network": "disabled",
+    "network_allowlist": [],
+    "tool_allowlist": ["read", "bash"],
+    "allowed_paths": ["src/**", "tests/**", "configs/**", "docs/**", "scripts/**"],
+    "forbidden_paths": [".git/**", "memory/**", "logs/**"],
+    "max_changed_files": 0,
+    "max_patch_lines": 0,
+    "allow_binary_changes": false,
+    "cleanup_on_success": true,
+    "retain_workspace_on_failure": true
+  }
+}

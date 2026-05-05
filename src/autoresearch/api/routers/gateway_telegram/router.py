@@ -55,6 +55,7 @@ from autoresearch.shared.models import (
 from ._commands import (
     _handle_approve_command,
     _handle_cancel_command,
+    _handle_force_fail_command,
     _handle_help_command,
     _handle_memory_command,
     _handle_mode_command,
@@ -67,6 +68,7 @@ from ._commands import (
 from ._extract import (
     _is_approve_command,
     _is_cancel_command,
+    _is_force_fail_command,
     _is_help_command,
     _is_memory_command,
     _is_mode_command,
@@ -382,6 +384,18 @@ def _handle_telegram_webhook(
             session_identity=session_identity,
         )
 
+    if _is_force_fail_command(text):
+        return _handle_force_fail_command(
+            chat_id=chat_id,
+            update=update,
+            extracted=extracted,
+            background_tasks=background_tasks,
+            worker_scheduler=worker_scheduler,
+            control_plane_service=control_plane_service,
+            notifier=notifier,
+            session_identity=session_identity,
+        )
+
     if _is_retry_command(text):
         return _handle_retry_command(
             chat_id=chat_id,
@@ -389,6 +403,7 @@ def _handle_telegram_webhook(
             extracted=extracted,
             background_tasks=background_tasks,
             worker_scheduler=worker_scheduler,
+            control_plane_service=control_plane_service,
             notifier=notifier,
             session_identity=session_identity,
         )

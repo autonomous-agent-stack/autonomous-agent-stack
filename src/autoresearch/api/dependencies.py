@@ -76,12 +76,13 @@ from autoresearch.core.services.worker_schedule_service import WorkerScheduleSer
 from autoresearch.core.services.worker_scheduler import WorkerSchedulerService
 from autoresearch.core.services.worker_inventory import WorkerInventoryService
 from autoresearch.core.services.worker_registry import WorkerRegistryService
-from autoresearch.core.services.youtube_agent import YouTubeAgentService
 from autoresearch.core.services.butler_dispatch import ButlerDispatchCenter, ButlerModelFillService
 from autoresearch.core.services.butler_router import ButlerIntentRouter
+from autoresearch.core.services.butler_tool_broker import ButlerToolBroker
 from autoresearch.core.services.excel_audit import ExcelAuditService
 from autoresearch.core.repositories.excel_jobs import ExcelJobsRepository
 from autoresearch.core.services.commission_engine import CommissionEngine
+from autoresearch.core.services.security_audit import SecurityAuditService
 from autoresearch.shared.models import (
     ClaudeAgentRunRead,
     ClaudeRuntimeSessionRecordRead,
@@ -104,17 +105,9 @@ from autoresearch.shared.models import (
     SessionEventRead,
     VariantRead,
     WorkerLeaseRead,
-    WorkerInventoryListRead,
-    WorkerInventoryRead,
-    WorkerInventorySummaryRead,
     WorkerQueueItemRead,
     WorkerRegistrationRead,
     WorkerRunScheduleRead,
-    YouTubeDigestRead,
-    YouTubeRunRead,
-    YouTubeSubscriptionRead,
-    YouTubeTranscriptRead,
-    YouTubeVideoRead,
 )
 from autoresearch.shared.governance_core import (
     GovernanceApprovalRead,
@@ -347,10 +340,28 @@ def get_approval_policy_service() -> ApprovalPolicyService:
 
 
 @lru_cache(maxsize=1)
+def get_butler_tool_broker_service() -> ButlerToolBroker:
+    return ButlerToolBroker(
+        repo_root=_repo_root(),
+        mcp_registry=get_capability_provider_registry(),
+    )
+
+
+@lru_cache(maxsize=1)
 def get_github_ops_service() -> GitHubOpsService:
     return GitHubOpsService(
         repo_root=_repo_root(),
         approval_policy=get_approval_policy_service(),
+        approval_store=get_approval_store_service(),
+    )
+
+
+@lru_cache(maxsize=1)
+def get_security_audit_service() -> SecurityAuditService:
+    return SecurityAuditService(
+        repo_root=_repo_root(),
+        control_plane=get_control_plane_service(),
+        worker_scheduler=get_worker_scheduler_service(),
         approval_store=get_approval_store_service(),
     )
 
@@ -768,7 +779,9 @@ def clear_dependency_caches() -> None:
     _safe_cache_clear(get_youtube_agent_service)
     _safe_cache_clear(get_manager_agent_service)
     _safe_cache_clear(get_approval_policy_service)
+    _safe_cache_clear(get_butler_tool_broker_service)
     _safe_cache_clear(get_github_ops_service)
+    _safe_cache_clear(get_security_audit_service)
     _safe_cache_clear(get_github_admin_service)
     _safe_cache_clear(get_github_issue_service)
     _safe_cache_clear(get_worker_registry_service)

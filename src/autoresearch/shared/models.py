@@ -1555,6 +1555,7 @@ class WorkerTaskType(str, Enum):
     EXCEL_AUDIT = "excel_audit"
     CONTENT_KB_CLASSIFY = "content_kb_classify"
     CONTENT_KB_INGEST = "content_kb_ingest"
+    SECURITY_AUDIT = "security_audit"
 
 
 class WorkerRunProgressRead(StrictModel):

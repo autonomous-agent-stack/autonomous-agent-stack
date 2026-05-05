@@ -2247,6 +2247,275 @@ def test_telegram_cancel_command_syncs_direct_v2_cancel(
     assert "run.cancelled" in event_types
 
 
+def test_telegram_cancel_command_accepts_v2_task_id(
+    telegram_client: TestClient,
+) -> None:
+    notifier = _StubTelegramNotifier()
+    control_plane = getattr(telegram_client, "_control_plane_service")
+    v2_task = control_plane.create_task(
+        ControlPlaneTaskCreateRequest(
+            name="Telegram cancel by task id",
+            session_id="v2-telegram-cancel-task-id",
+            requested_by="9537",
+        )
+    )
+    assert v2_task.run_id is not None
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+
+    try:
+        response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 31716,
+                "message": {
+                    "message_id": 1516,
+                    "text": f"/cancel {v2_task.task_id}",
+                    "chat": {"id": 9537, "type": "private"},
+                    "from": {"id": 9537, "username": "cancel-user"},
+                },
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["accepted"] is True
+    assert payload["metadata"]["routed_to"] == "control_plane_v2"
+    assert payload["metadata"]["control_plane_task_id"] == v2_task.task_id
+    assert payload["metadata"]["status"] == "cancelled"
+    projected = control_plane.get_task(v2_task.task_id)
+    assert projected is not None
+    assert projected.status == ControlPlaneTaskStatus.CANCELLED
+
+
+def test_telegram_retry_command_accepts_v2_run_id_and_creates_new_run(
+    telegram_client: TestClient,
+) -> None:
+    notifier = _StubTelegramNotifier()
+    control_plane = getattr(telegram_client, "_control_plane_service")
+    worker_scheduler = getattr(telegram_client, "_worker_scheduler")
+    v2_task = control_plane.create_task(
+        ControlPlaneTaskCreateRequest(
+            name="Telegram retry by run id",
+            session_id="v2-telegram-retry-run-id",
+            requested_by="9537",
+        )
+    )
+    assert v2_task.run_id is not None
+    failed_worker = worker_scheduler.force_fail_run(v2_task.run_id, reason="prepare retry")
+    control_plane.sync_worker_run(failed_worker)
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+
+    try:
+        response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 31717,
+                "message": {
+                    "message_id": 1517,
+                    "text": f"/retry {v2_task.run_id}",
+                    "chat": {"id": 9537, "type": "private"},
+                    "from": {"id": 9537, "username": "retry-user"},
+                },
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["accepted"] is True
+    assert payload["metadata"]["routed_to"] == "control_plane_v2"
+    assert payload["metadata"]["previous_run_id"] == v2_task.run_id
+    new_run_id = payload["metadata"]["run_id"]
+    assert new_run_id != v2_task.run_id
+    projected = control_plane.get_task(v2_task.task_id)
+    assert projected is not None
+    assert projected.run_id == new_run_id
+    assert projected.status == ControlPlaneTaskStatus.QUEUED
+    assert new_run_id in notifier.messages[-1]["text"]
+
+
+def test_telegram_retry_command_accepts_v2_task_id_and_creates_new_run(
+    telegram_client: TestClient,
+) -> None:
+    notifier = _StubTelegramNotifier()
+    control_plane = getattr(telegram_client, "_control_plane_service")
+    worker_scheduler = getattr(telegram_client, "_worker_scheduler")
+    v2_task = control_plane.create_task(
+        ControlPlaneTaskCreateRequest(
+            name="Telegram retry by task id",
+            session_id="v2-telegram-retry-task-id",
+            requested_by="9537",
+        )
+    )
+    assert v2_task.run_id is not None
+    failed_worker = worker_scheduler.force_fail_run(v2_task.run_id, reason="prepare retry")
+    control_plane.sync_worker_run(failed_worker)
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+
+    try:
+        response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 31718,
+                "message": {
+                    "message_id": 1518,
+                    "text": f"/retry {v2_task.task_id}",
+                    "chat": {"id": 9537, "type": "private"},
+                    "from": {"id": 9537, "username": "retry-user"},
+                },
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["accepted"] is True
+    assert payload["metadata"]["routed_to"] == "control_plane_v2"
+    assert payload["metadata"]["previous_run_id"] == v2_task.run_id
+    assert payload["metadata"]["run_id"] != v2_task.run_id
+
+
+def test_telegram_force_fail_command_is_owner_only_for_v2_targets(
+    telegram_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_ALLOWED_UIDS", "9539")
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_OWNER_UIDS", "9538")
+    clear_settings_caches()
+    notifier = _StubTelegramNotifier()
+    control_plane = getattr(telegram_client, "_control_plane_service")
+    owner_task = control_plane.create_task(
+        ControlPlaneTaskCreateRequest(
+            name="Telegram force fail owner",
+            session_id="v2-telegram-force-fail-owner",
+            requested_by="9538",
+        )
+    )
+    member_task = control_plane.create_task(
+        ControlPlaneTaskCreateRequest(
+            name="Telegram force fail member",
+            session_id="v2-telegram-force-fail-member",
+            requested_by="9539",
+        )
+    )
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+
+    try:
+        owner_response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 31719,
+                "message": {
+                    "message_id": 1519,
+                    "text": f"/force-fail {owner_task.task_id}",
+                    "chat": {"id": 9538, "type": "private"},
+                    "from": {"id": 9538, "username": "owner-user"},
+                },
+            },
+        )
+        member_response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 31720,
+                "message": {
+                    "message_id": 1520,
+                    "text": f"/force-fail {member_task.task_id}",
+                    "chat": {"id": 9539, "type": "private"},
+                    "from": {"id": 9539, "username": "member-user"},
+                },
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+
+    assert owner_response.status_code == 200
+    owner_payload = owner_response.json()
+    assert owner_payload["accepted"] is True
+    assert owner_payload["metadata"]["status"] == "failed"
+    owner_projected = control_plane.get_task(owner_task.task_id)
+    assert owner_projected is not None
+    assert owner_projected.status == ControlPlaneTaskStatus.FAILED
+
+    assert member_response.status_code == 200
+    member_payload = member_response.json()
+    assert member_payload["accepted"] is False
+    assert member_payload["metadata"]["status"] == "forbidden"
+    member_projected = control_plane.get_task(member_task.task_id)
+    assert member_projected is not None
+    assert member_projected.status == ControlPlaneTaskStatus.QUEUED
+
+
+def test_telegram_legacy_cancel_and_retry_fallbacks_still_use_worker_run_semantics(
+    telegram_client: TestClient,
+) -> None:
+    notifier = _StubTelegramNotifier()
+    worker_scheduler = getattr(telegram_client, "_worker_scheduler")
+    cancellable = worker_scheduler.enqueue(
+        WorkerQueueItemCreateRequest(
+            task_name="legacy cancel",
+            task_type=WorkerTaskType.NOOP,
+            payload={"chat_id": "9540"},
+            metadata={"session_key": "telegram:personal:user:9540"},
+        )
+    )
+    retryable = worker_scheduler.enqueue(
+        WorkerQueueItemCreateRequest(
+            task_name="legacy retry",
+            task_type=WorkerTaskType.NOOP,
+            payload={"chat_id": "9540"},
+            metadata={"session_key": "telegram:personal:user:9540"},
+        )
+    )
+    worker_scheduler.force_fail_run(retryable.run_id, reason="legacy failed")
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+
+    try:
+        cancel_response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 31721,
+                "message": {
+                    "message_id": 1521,
+                    "text": f"/cancel {cancellable.run_id}",
+                    "chat": {"id": 9540, "type": "private"},
+                    "from": {"id": 9540, "username": "legacy-user"},
+                },
+            },
+        )
+        retry_response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 31722,
+                "message": {
+                    "message_id": 1522,
+                    "text": f"/retry {retryable.run_id}",
+                    "chat": {"id": 9540, "type": "private"},
+                    "from": {"id": 9540, "username": "legacy-user"},
+                },
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+
+    assert cancel_response.status_code == 200
+    assert cancel_response.json()["metadata"]["status"] == "cancelled"
+    cancelled = worker_scheduler.get_run(cancellable.run_id)
+    assert cancelled is not None
+    assert cancelled.status == JobStatus.CANCELLED
+
+    assert retry_response.status_code == 200
+    retry_payload = retry_response.json()
+    assert retry_payload["metadata"]["run_id"] == retryable.run_id
+    requeued = worker_scheduler.get_run(retryable.run_id)
+    assert requeued is not None
+    assert requeued.status == JobStatus.QUEUED
+    assert requeued.retry_count == 1
+
+
 def test_telegram_approve_command_can_resolve_pending_approval(
     telegram_client: TestClient,
     monkeypatch: pytest.MonkeyPatch,

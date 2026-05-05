@@ -74,6 +74,8 @@ class MacWorkerExecutor:
             return self._execute_content_kb_classify(run)
         if run.task_type == WorkerTaskType.CONTENT_KB_INGEST:
             return self._execute_content_kb_ingest(run)
+        if run.task_type == WorkerTaskType.SECURITY_AUDIT:
+            return self._execute_security_audit(run)
         raise ValueError(f"Unsupported task type: {run.task_type}")
 
     def _execute_noop(self, payload: dict[str, Any]) -> MacWorkerExecutionResult:
@@ -459,6 +461,75 @@ class MacWorkerExecutor:
             },
         )
 
+    def _execute_security_audit(self, run: WorkerQueueItemRead) -> MacWorkerExecutionResult:
+        from autoresearch.core.services.security_audit import (
+            SecurityAuditQuickScanRequest,
+            build_default_security_audit_service,
+        )
+
+        service = build_default_security_audit_service(repo_root=self._config.housekeeping_root)
+        payload = dict(run.payload or {})
+        action = str(payload.get("action") or "quick_scan").strip().lower() or "quick_scan"
+        if action in {"daily", "daily_report"}:
+            report = service.generate_daily_report()
+            failed = report.status == "fail"
+            return MacWorkerExecutionResult(
+                message=f"security_audit daily {report.status}",
+                status=JobStatus.FAILED if failed else JobStatus.COMPLETED,
+                error="security daily report failed" if failed else None,
+                result=report.model_dump(mode="json"),
+                metrics={
+                    "security_audit_status": report.status,
+                    "findings": len(report.findings),
+                },
+            )
+        if action in {"drift", "drift_check"}:
+            report = service.generate_daily_report(write_artifact=False)
+            failed = report.status == "fail"
+            return MacWorkerExecutionResult(
+                message=f"security_audit drift_check {report.status}",
+                status=JobStatus.FAILED if failed else JobStatus.COMPLETED,
+                error="security drift check failed" if failed else None,
+                result=report.model_dump(mode="json"),
+                metrics={
+                    "security_audit_status": report.status,
+                    "findings": len(report.findings),
+                },
+            )
+        if action in {"deep_scan", "prompt_hygiene"}:
+            scan = service.run_prompt_hygiene()
+            failed = scan.status == "fail"
+            return MacWorkerExecutionResult(
+                message=scan.summary,
+                status=JobStatus.FAILED if failed else JobStatus.COMPLETED,
+                error=scan.summary if failed else None,
+                result=scan.model_dump(mode="json"),
+                metrics={
+                    "security_audit_status": scan.status,
+                    "findings": len(scan.findings),
+                },
+            )
+
+        rule_candidate = payload.get("rule_candidate")
+        scan = service.quick_scan(
+            SecurityAuditQuickScanRequest(
+                diff=payload.get("diff") if isinstance(payload.get("diff"), str) else None,
+                files=_normalize_security_audit_files(payload.get("files")),
+                rule_candidate=rule_candidate if isinstance(rule_candidate, dict) else None,
+            )
+        )
+        failed = scan.status == "fail"
+        return MacWorkerExecutionResult(
+            message=scan.summary,
+            status=JobStatus.FAILED if failed else JobStatus.COMPLETED,
+            error=scan.summary if failed else None,
+            result=scan.model_dump(mode="json"),
+            metrics={
+                "security_audit_status": scan.status,
+                "findings": len(scan.findings),
+            },
+        )
+
     def _get_youtube_bridge(self) -> StandbyYouTubeBridgeService:
         if self._youtube_bridge is None:
             self._youtube_bridge = build_default_standby_youtube_bridge_service()
@@ -509,6 +580,16 @@ class MacWorkerExecutor:
             return
         if not resolved.is_dir():
             raise ValueError(f"Cleanup root must be a directory: {resolved}")
+
+
+def _normalize_security_audit_files(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value.strip()] if value.strip() else []
+    if isinstance(value, (list, tuple, set)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return []
 
 
 def _youtube_autoflow_completion_card(

@@ -1,0 +1,103 @@
+version: "1"
+description: "管家共用工具登记表 / Butler shared tool registry"
+tools:
+  - tool_id: "amap.weather"
+    capability: "location.weather.read"
+    aliases:
+      - "weather.read"
+      - "amap.weather"
+    provider: "amap_mcp"
+    tier: "common_read"
+    description: "查询城市或地点天气 / Query weather for a city or place"
+    allowed_agents:
+      - "*"
+    allowed_roles:
+      - "owner"
+      - "supervisor"
+      - "operator"
+      - "member"
+    risk_tags: []
+    metadata:
+      mcp_tool_name: "amap.weather"
+
+  - tool_id: "amap.geocode"
+    capability: "location.geocode.read"
+    aliases:
+      - "address.lookup"
+      - "amap.geocode"
+    provider: "amap_mcp"
+    tier: "common_read"
+    description: "地址解析与坐标查询 / Geocode addresses and coordinates"
+    allowed_agents:
+      - "*"
+    allowed_roles:
+      - "owner"
+      - "supervisor"
+      - "operator"
+      - "member"
+    risk_tags: []
+    metadata:
+      mcp_tool_name: "amap.geocode"
+      pii_detection: "location"
+
+  - tool_id: "amap.poi_lookup"
+    capability: "location.poi.read"
+    aliases:
+      - "poi.lookup"
+      - "amap.poi_lookup"
+    provider: "amap_mcp"
+    tier: "common_read"
+    description: "兴趣点与周边地点查询 / Search POIs and nearby places"
+    allowed_agents:
+      - "*"
+    allowed_roles:
+      - "owner"
+      - "supervisor"
+      - "operator"
+      - "member"
+    risk_tags: []
+    metadata:
+      mcp_tool_name: "amap.poi_lookup"
+      pii_detection: "location"
+
+  - tool_id: "github.push"
+    capability: "github.repo.push"
+    aliases:
+      - "github.push"
+      - "repo.push"
+    provider: "github_cli"
+    tier: "external_write"
+    description: "推送 GitHub 分支 / Push a GitHub branch"
+    allowed_agents:
+      - "github_ops_accountA"
+      - "github_ops_accountB"
+      - "github_ops_accountC"
+    allowed_roles:
+      - "owner"
+      - "supervisor"
+    risk_tags:
+      - "external_api"
+      - "external_write"
+    metadata:
+      requires_approval: true
+
+  - tool_id: "github.pr_create"
+    capability: "github.pr.create"
+    aliases:
+      - "github.pr"
+      - "github.pr_create"
+    provider: "github_cli"
+    tier: "external_write"
+    description: "创建 GitHub Pull Request / Create a GitHub pull request"
+    allowed_agents:
+      - "github_ops_accountA"
+      - "github_ops_accountB"
+      - "github_ops_accountC"
+    allowed_roles:
+      - "owner"
+      - "supervisor"
+    risk_tags:
+      - "external_api"
+      - "external_write"
+    metadata:
+      requires_approval: true

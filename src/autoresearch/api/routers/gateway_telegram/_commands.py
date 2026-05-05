@@ -11,6 +11,8 @@ from autoresearch.control_plane.contracts import (
     ControlPlaneApprovalDecisionRequest,
     ControlPlaneApprovalRead,
     ControlPlaneApprovalStatus,
+    ControlPlaneOperatorActionRequest,
+    ControlPlaneRunRead,
     ControlPlaneTaskRead,
 )
 from autoresearch.control_plane.service import ControlPlaneService
@@ -42,6 +44,7 @@ from autoresearch.shared.models import (
     ApprovalRequestCreateRequest,
     ApprovalRisk,
     ApprovalStatus,
+    ActorRole,
     AssistantScope,
     ClaudeAgentCreateRequest,
     ChatType,
@@ -49,12 +52,14 @@ from autoresearch.shared.models import (
     OpenClawMemoryRecordCreateRequest,
     OpenClawSessionEventAppendRequest,
     TelegramWebhookAck,
+    WorkerQueueItemRead,
 )
 
 from ._extract import (
     _can_telegram_task_self_approve,
     _extract_approve_query,
     _extract_cancel_target,
+    _extract_force_fail_target,
     _extract_issue_task_parts,
     _extract_memory_content,
     _extract_mode_target,
@@ -1029,11 +1034,88 @@ def _handle_cancel_command(
     session_identity: TelegramSessionIdentityRead,
 ) -> TelegramWebhookAck:
     target = _extract_cancel_target(extracted["text"])
+    if target:
+        try:
+            v2_target = _resolve_v2_task_run_by_identifier(
+                control_plane_service=control_plane_service,
+                identifier=target,
+            )
+        except ValueError as exc:
+            return _telegram_operator_rejected_ack(
+                chat_id=chat_id,
+                update=update,
+                background_tasks=background_tasks,
+                notifier=notifier,
+                source="telegram_cancel",
+                reason=f"无法取消 v2 任务。 / Cannot cancel v2 task: {exc}",
+                metadata={"target": target, "routed_to": "control_plane_v2"},
+            )
+    else:
+        v2_target = _latest_v2_operator_target_for_chat(
+            worker_scheduler=worker_scheduler,
+            control_plane_service=control_plane_service,
+            chat_id=chat_id,
+            session_key=session_identity.session_key,
+            statuses={JobStatus.QUEUED, JobStatus.RUNNING},
+        )
+    if v2_target is not None:
+        task, run = v2_target
+        try:
+            updated = control_plane_service.cancel_run(
+                run.run_id,
+                _telegram_operator_request(
+                    session_identity=session_identity,
+                    reason="cancelled from Telegram command",
+                    action="cancel",
+                ),
+            )
+        except ValueError as exc:
+            return _telegram_operator_rejected_ack(
+                chat_id=chat_id,
+                update=update,
+                background_tasks=background_tasks,
+                notifier=notifier,
+                source="telegram_cancel",
+                reason=f"无法取消 v2 任务。 / Cannot cancel v2 task: {exc}",
+                metadata={"control_plane_task_id": task.task_id, "run_id": run.run_id, "routed_to": "control_plane_v2"},
+            )
+        if updated is None:
+            return _telegram_operator_rejected_ack(
+                chat_id=chat_id,
+                update=update,
+                background_tasks=background_tasks,
+                notifier=notifier,
+                source="telegram_cancel",
+                reason=f"未找到 v2 任务。 / Control Plane v2 task not found: {target or run.run_id}",
+                metadata={"target": target or run.run_id, "routed_to": "control_plane_v2"},
+            )
+        message = (
+            "已取消 v2 任务。 / Control Plane v2 task cancelled."
+            if updated.status.value == "cancelled"
+            else "已请求取消 v2 任务。 / Control Plane v2 cancellation requested."
+        )
+        message = f"{message}\ntask_id: {updated.task_id}\nrun_id: {updated.run_id}"
+        if notifier.enabled:
+            background_tasks.add_task(notifier.send_message, chat_id=chat_id, text=message)
+        return TelegramWebhookAck(
+            accepted=True,
+            update_id=_safe_int(update.get("update_id")),
+            chat_id=chat_id,
+            metadata={
+                "source": "telegram_cancel",
+                "routed_to": "control_plane_v2",
+                "control_plane_task_id": updated.task_id,
+                "run_id": updated.run_id,
+                "status": updated.status.value,
+            },
+        )
+
     run_id = target or _latest_run_id_for_chat(
         worker_scheduler=worker_scheduler,
         chat_id=chat_id,
         session_key=session_identity.session_key,
         statuses={JobStatus.QUEUED, JobStatus.RUNNING},
+        exclude_control_plane_v2=True,
     )
     if not run_id:
         reason = "没有找到可取消的排队或运行中任务。 / No queued or running task was found to cancel."
@@ -1102,15 +1184,94 @@ def _handle_retry_command(
     extracted: dict[str, Any],
     background_tasks: BackgroundTasks,
     worker_scheduler: WorkerSchedulerService,
+    control_plane_service: ControlPlaneService,
     notifier: TelegramNotifierService,
     session_identity: TelegramSessionIdentityRead,
 ) -> TelegramWebhookAck:
     target = _extract_retry_target(extracted["text"])
+    if target:
+        try:
+            v2_target = _resolve_v2_task_run_by_identifier(
+                control_plane_service=control_plane_service,
+                identifier=target,
+            )
+        except ValueError as exc:
+            return _telegram_operator_rejected_ack(
+                chat_id=chat_id,
+                update=update,
+                background_tasks=background_tasks,
+                notifier=notifier,
+                source="telegram_retry",
+                reason=f"无法重试 v2 任务。 / Cannot retry v2 task: {exc}",
+                metadata={"target": target, "routed_to": "control_plane_v2"},
+            )
+    else:
+        v2_target = _latest_v2_operator_target_for_chat(
+            worker_scheduler=worker_scheduler,
+            control_plane_service=control_plane_service,
+            chat_id=chat_id,
+            session_key=session_identity.session_key,
+            statuses={JobStatus.FAILED, JobStatus.CANCELLED},
+        )
+    if v2_target is not None:
+        task, run = v2_target
+        try:
+            updated = control_plane_service.retry_run(
+                run.run_id,
+                _telegram_operator_request(
+                    session_identity=session_identity,
+                    reason="retry from Telegram command",
+                    action="retry",
+                ),
+            )
+        except ValueError as exc:
+            return _telegram_operator_rejected_ack(
+                chat_id=chat_id,
+                update=update,
+                background_tasks=background_tasks,
+                notifier=notifier,
+                source="telegram_retry",
+                reason=f"无法重试 v2 任务。 / Cannot retry v2 task: {exc}",
+                metadata={"control_plane_task_id": task.task_id, "run_id": run.run_id, "routed_to": "control_plane_v2"},
+            )
+        if updated is None:
+            return _telegram_operator_rejected_ack(
+                chat_id=chat_id,
+                update=update,
+                background_tasks=background_tasks,
+                notifier=notifier,
+                source="telegram_retry",
+                reason=f"未找到 v2 任务。 / Control Plane v2 task not found: {target or run.run_id}",
+                metadata={"target": target or run.run_id, "routed_to": "control_plane_v2"},
+            )
+        message = (
+            "已创建新的 v2 run。 / Created a new Control Plane v2 run.\n"
+            f"task_id: {updated.task_id}\n"
+            f"new_run_id: {updated.run_id}\n"
+            f"retry_of_run_id: {run.run_id}"
+        )
+        if notifier.enabled:
+            background_tasks.add_task(notifier.send_message, chat_id=chat_id, text=message)
+        return TelegramWebhookAck(
+            accepted=True,
+            update_id=_safe_int(update.get("update_id")),
+            chat_id=chat_id,
+            metadata={
+                "source": "telegram_retry",
+                "routed_to": "control_plane_v2",
+                "control_plane_task_id": updated.task_id,
+                "run_id": updated.run_id,
+                "previous_run_id": run.run_id,
+                "status": updated.status.value,
+            },
+        )
+
     run_id = target or _latest_run_id_for_chat(
         worker_scheduler=worker_scheduler,
         chat_id=chat_id,
         session_key=session_identity.session_key,
         statuses={JobStatus.FAILED},
+        exclude_control_plane_v2=True,
     )
     if not run_id:
         reason = "没有找到可重试的失败任务。 / No failed task was found to retry."
@@ -1158,25 +1319,246 @@ def _handle_retry_command(
     )
 
 
+def _handle_force_fail_command(
+    *,
+    chat_id: str,
+    update: dict[str, Any],
+    extracted: dict[str, Any],
+    background_tasks: BackgroundTasks,
+    worker_scheduler: WorkerSchedulerService,
+    control_plane_service: ControlPlaneService,
+    notifier: TelegramNotifierService,
+    session_identity: TelegramSessionIdentityRead,
+) -> TelegramWebhookAck:
+    if session_identity.actor.role != ActorRole.OWNER:
+        return _telegram_operator_rejected_ack(
+            chat_id=chat_id,
+            update=update,
+            background_tasks=background_tasks,
+            notifier=notifier,
+            source="telegram_force_fail",
+            reason="/force-fail 仅 owner 可用。 / /force-fail is owner-only.",
+            metadata={"status": "forbidden", "actor_role": session_identity.actor.role.value},
+        )
+
+    target = _extract_force_fail_target(extracted["text"])
+    if target:
+        try:
+            v2_target = _resolve_v2_task_run_by_identifier(
+                control_plane_service=control_plane_service,
+                identifier=target,
+            )
+        except ValueError as exc:
+            return _telegram_operator_rejected_ack(
+                chat_id=chat_id,
+                update=update,
+                background_tasks=background_tasks,
+                notifier=notifier,
+                source="telegram_force_fail",
+                reason=f"无法强制失败 v2 任务。 / Cannot force-fail v2 task: {exc}",
+                metadata={"target": target, "routed_to": "control_plane_v2"},
+            )
+    else:
+        v2_target = _latest_v2_operator_target_for_chat(
+            worker_scheduler=worker_scheduler,
+            control_plane_service=control_plane_service,
+            chat_id=chat_id,
+            session_key=session_identity.session_key,
+            statuses={JobStatus.QUEUED, JobStatus.RUNNING},
+        )
+
+    if v2_target is None:
+        return _telegram_operator_rejected_ack(
+            chat_id=chat_id,
+            update=update,
+            background_tasks=background_tasks,
+            notifier=notifier,
+            source="telegram_force_fail",
+            reason="没有找到可强制失败的 v2 任务。 / No queued or running v2 task was found to force-fail.",
+            metadata={"target": target or None, "status": "not_found"},
+        )
+
+    task, run = v2_target
+    try:
+        updated = control_plane_service.force_fail_run(
+            run.run_id,
+            _telegram_operator_request(
+                session_identity=session_identity,
+                reason="force-failed from Telegram command",
+                action="force_fail",
+            ),
+        )
+    except ValueError as exc:
+        return _telegram_operator_rejected_ack(
+            chat_id=chat_id,
+            update=update,
+            background_tasks=background_tasks,
+            notifier=notifier,
+            source="telegram_force_fail",
+            reason=f"无法强制失败 v2 任务。 / Cannot force-fail v2 task: {exc}",
+            metadata={"control_plane_task_id": task.task_id, "run_id": run.run_id, "routed_to": "control_plane_v2"},
+        )
+    if updated is None:
+        return _telegram_operator_rejected_ack(
+            chat_id=chat_id,
+            update=update,
+            background_tasks=background_tasks,
+            notifier=notifier,
+            source="telegram_force_fail",
+            reason=f"未找到 v2 任务。 / Control Plane v2 task not found: {target or run.run_id}",
+            metadata={"target": target or run.run_id, "routed_to": "control_plane_v2"},
+        )
+
+    message = f"已强制失败 v2 任务。 / Control Plane v2 task force-failed.\ntask_id: {updated.task_id}\nrun_id: {updated.run_id}"
+    if notifier.enabled:
+        background_tasks.add_task(notifier.send_message, chat_id=chat_id, text=message)
+    return TelegramWebhookAck(
+        accepted=True,
+        update_id=_safe_int(update.get("update_id")),
+        chat_id=chat_id,
+        metadata={
+            "source": "telegram_force_fail",
+            "routed_to": "control_plane_v2",
+            "control_plane_task_id": updated.task_id,
+            "run_id": updated.run_id,
+            "status": updated.status.value,
+        },
+    )
+
+
 def _latest_run_id_for_chat(
     *,
     worker_scheduler: WorkerSchedulerService,
     chat_id: str,
     session_key: str,
     statuses: set[JobStatus],
+    exclude_control_plane_v2: bool = False,
 ) -> str | None:
     candidates = []
     for run in worker_scheduler.list_queue():
-        payload = run.payload if isinstance(run.payload, dict) else {}
-        metadata = run.metadata if isinstance(run.metadata, dict) else {}
-        run_chat_id = str(payload.get("chat_id") or metadata.get("chat_id") or "").strip()
-        run_session_key = str(metadata.get("session_key") or payload.get("session_key") or "").strip()
         if run.status not in statuses:
             continue
-        if run_chat_id == chat_id or (session_key and run_session_key == session_key):
+        metadata = run.metadata if isinstance(run.metadata, dict) else {}
+        if exclude_control_plane_v2 and metadata.get("control_plane_task_id"):
+            continue
+        if _worker_run_matches_chat(run, chat_id=chat_id, session_key=session_key):
             candidates.append(run)
     candidates.sort(key=lambda item: (item.updated_at, item.created_at, item.run_id), reverse=True)
     return candidates[0].run_id if candidates else None
+
+
+def _latest_v2_operator_target_for_chat(
+    *,
+    worker_scheduler: WorkerSchedulerService,
+    control_plane_service: ControlPlaneService,
+    chat_id: str,
+    session_key: str,
+    statuses: set[JobStatus],
+) -> tuple[ControlPlaneTaskRead, ControlPlaneRunRead] | None:
+    candidates: list[tuple[WorkerQueueItemRead, ControlPlaneTaskRead, ControlPlaneRunRead]] = []
+    for worker_run in worker_scheduler.list_queue():
+        if worker_run.status not in statuses:
+            continue
+        if not _worker_run_matches_chat(worker_run, chat_id=chat_id, session_key=session_key):
+            continue
+        metadata = worker_run.metadata if isinstance(worker_run.metadata, dict) else {}
+        if not metadata.get("control_plane_task_id"):
+            continue
+        try:
+            task, run = _resolve_v2_task_run_by_identifier(
+                control_plane_service=control_plane_service,
+                identifier=worker_run.run_id,
+            )
+        except ValueError:
+            continue
+        if run.worker_run_id != worker_run.run_id:
+            continue
+        candidates.append((worker_run, task, run))
+    candidates.sort(key=lambda item: (item[0].updated_at, item[0].created_at, item[0].run_id), reverse=True)
+    if not candidates:
+        return None
+    _, task, run = candidates[0]
+    return task, run
+
+
+def _resolve_v2_task_run_by_identifier(
+    *,
+    control_plane_service: ControlPlaneService,
+    identifier: str,
+) -> tuple[ControlPlaneTaskRead, ControlPlaneRunRead] | None:
+    normalized = identifier.strip()
+    if not normalized:
+        return None
+    task = control_plane_service.get_task(normalized)
+    if task is not None:
+        if not task.run_id:
+            raise ValueError("task does not have a current run")
+        run = control_plane_service.get_run(task.run_id)
+        if run is None:
+            raise ValueError("current run not found")
+        return task, run
+
+    run = control_plane_service.get_run(normalized)
+    if run is None:
+        return None
+    task = control_plane_service.get_task(run.task_id)
+    if task is None:
+        raise ValueError("task for run not found")
+    if task.run_id != run.run_id:
+        raise ValueError("run is not the current task run")
+    return task, run
+
+
+def _worker_run_matches_chat(
+    run: WorkerQueueItemRead,
+    *,
+    chat_id: str,
+    session_key: str,
+) -> bool:
+    payload = run.payload if isinstance(run.payload, dict) else {}
+    metadata = run.metadata if isinstance(run.metadata, dict) else {}
+    run_chat_id = str(payload.get("chat_id") or metadata.get("chat_id") or "").strip()
+    run_session_key = str(metadata.get("session_key") or payload.get("session_key") or "").strip()
+    return run_chat_id == chat_id or bool(session_key and run_session_key == session_key)
+
+
+def _telegram_operator_request(
+    *,
+    session_identity: TelegramSessionIdentityRead,
+    reason: str,
+    action: str,
+) -> ControlPlaneOperatorActionRequest:
+    return ControlPlaneOperatorActionRequest(
+        reason=reason,
+        requested_by=session_identity.actor.user_id or "telegram",
+        metadata={
+            "source": "telegram_command",
+            "action": action,
+            "actor_role": session_identity.actor.role.value,
+            "session_key": session_identity.session_key,
+        },
+    )
+
+
+def _telegram_operator_rejected_ack(
+    *,
+    chat_id: str,
+    update: dict[str, Any],
+    background_tasks: BackgroundTasks,
+    notifier: TelegramNotifierService,
+    source: str,
+    reason: str,
+    metadata: dict[str, object],
+) -> TelegramWebhookAck:
+    if notifier.enabled:
+        background_tasks.add_task(notifier.send_message, chat_id=chat_id, text=reason)
+    return TelegramWebhookAck(
+        accepted=False,
+        update_id=_safe_int(update.get("update_id")),
+        chat_id=chat_id,
+        reason=reason,
+        metadata={"source": source, "status": "rejected", **metadata},
+    )
 
 
 def _handle_reset_command(

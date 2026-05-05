@@ -87,6 +87,18 @@ class ControlPlaneApprovalDecisionRequest(StrictModel):
         return str(value or "local-approver").strip() or "local-approver"
 
 
+class ControlPlaneOperatorActionRequest(StrictModel):
+    reason: str = "manual operation"
+    requested_by: str = "control-plane"
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("reason", "requested_by", mode="before")
+    @classmethod
+    def _strip_action_text(cls, value: Any, info) -> str:
+        fallback = "manual operation" if info.field_name == "reason" else "control-plane"
+        return str(value or fallback).strip() or fallback
+
+
 class ControlPlaneSessionRead(StrictModel):
     session_id: str
     created_at: datetime = Field(default_factory=utc_now)

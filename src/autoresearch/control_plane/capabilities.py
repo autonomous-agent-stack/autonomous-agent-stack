@@ -297,6 +297,46 @@ class HermesOpenClawCapabilityAdapter(CapabilityAdapter):
         )
 
 
+class SecurityAuditCapabilityAdapter(CapabilityAdapter):
+    descriptor = ControlPlaneCapabilityRead(
+        capability_id="security_audit",
+        name="Security audit",
+        type="security",
+        enabled=True,
+        dispatch_mode="worker_queue",
+        description="Runs lightweight governance checks, rule candidate audits, and daily security reports.",
+        risk_tags=[],
+        requires_approval=False,
+        external_calls_enabled=False,
+        metadata={"worker_task_type": WorkerTaskType.SECURITY_AUDIT.value},
+    )
+
+    def build_worker_request(self, task: ControlPlaneTaskRead) -> WorkerQueueItemCreateRequest:
+        primary_agent, agent_names = _agent_attribution_for_task(task)
+        action = str(task.parameters.get("action") or "quick_scan").strip() or "quick_scan"
+        return WorkerQueueItemCreateRequest(
+            task_name=task.name,
+            task_type=WorkerTaskType.SECURITY_AUDIT,
+            payload={
+                "action": action,
+                "diff": task.parameters.get("diff"),
+                "files": _list_param(task.parameters, "files"),
+                "rule_candidate": task.parameters.get("rule_candidate"),
+                "session_id": task.session_id,
+                "task_id": task.task_id,
+                "capability_id": task.capability_id,
+                "request_text": task.intent or task.name,
+                "runtime_id": task.parameters.get("runtime_id") or task.capability_id,
+                "agent_name": primary_agent,
+                "target_agent": primary_agent,
+                "target_agents": agent_names,
+            },
+            requested_by=task.requested_by,
+            priority=_priority_from_task(task, default=6),
+            metadata=_base_worker_metadata(task),
+        )
+
+
 class BoundaryCapabilityAdapter(CapabilityAdapter):
     def __init__(self, *, capability_id: str, name: str, protocol_type: str, env_prefix: str) -> None:
         enabled = os.getenv(f"{env_prefix}_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}
@@ -362,6 +402,7 @@ class ControlPlaneCapabilityRegistry:
             YouTubeAutoflowCapabilityAdapter(),
             ContentKBCapabilityAdapter(),
             HermesOpenClawCapabilityAdapter(),
+            SecurityAuditCapabilityAdapter(),
             BoundaryCapabilityAdapter(
                 capability_id="mcp",
                 name="MCP tool boundary",
@@ -405,7 +446,7 @@ _TEXT_PATH_SUFFIXES = (".srt", ".vtt", ".txt", ".md")
 
 def _base_worker_metadata(task: ControlPlaneTaskRead) -> dict[str, Any]:
     primary_agent, agent_names = _agent_attribution_for_task(task)
-    return {
+    metadata = {
         "aas_session_id": task.session_id,
         "control_plane_task_id": task.task_id,
         "control_plane_session_id": task.session_id,
@@ -416,6 +457,13 @@ def _base_worker_metadata(task: ControlPlaneTaskRead) -> dict[str, Any]:
         "telegram_display_primary_agent": primary_agent,
         "telegram_display_agent_names": agent_names,
     }
+    tool_grants = task.metadata.get("tool_grants")
+    if isinstance(tool_grants, list):
+        metadata["tool_grants"] = tool_grants
+    tool_broker = task.metadata.get("tool_broker")
+    if isinstance(tool_broker, dict):
+        metadata["tool_broker"] = tool_broker
+    return metadata
 
 
 def _agent_attribution_for_task(task: ControlPlaneTaskRead) -> tuple[str, list[str]]:
@@ -441,6 +489,7 @@ def _default_agent_for_capability(capability_id: str) -> str:
         "youtube_autoflow": "youtube_ops",
         "content_kb": "content_kb",
         "hermes_openclaw": "butler_orchestrator",
+        "security_audit": "security_audit",
     }.get(str(capability_id or "").strip(), "butler_orchestrator")
 
 

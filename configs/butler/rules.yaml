@@ -1,0 +1,13 @@
+version: "1"
+description: "管家稳定路由规则 / Butler stable routing rules"
+rules:
+  - rule_id: "shared-location-tools"
+    description: "地点、天气、POI 查询走共用工具派发 / Route location, weather, and POI lookup through shared tool grants"
+    match:
+      capabilities:
+        - "location.weather.read"
+        - "location.geocode.read"
+        - "location.poi.read"
+    route:
+      broker: "butler_tool_broker"
+      approval_policy: "auto_for_common_read"

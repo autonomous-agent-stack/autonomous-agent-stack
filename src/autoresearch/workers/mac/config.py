@@ -17,6 +17,7 @@ _DEFAULT_CAPABILITIES: tuple[str, ...] = (
     "youtube_action",
     "youtube_autoflow",
     "github_ops",
+    "security_audit",
 )
 
 

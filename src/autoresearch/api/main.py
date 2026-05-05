@@ -202,6 +202,8 @@ def create_app() -> FastAPI:
     core_routers = [
         ("autoresearch.api.routers.control_plane_v2", "console_router", "control plane console"),
         ("autoresearch.api.routers.control_plane_v2", "router", "control plane v2"),
+        ("autoresearch.api.routers.butler_governance", "router", "butler governance"),
+        ("autoresearch.api.routers.security_audit", "router", "security audit"),
         ("autoresearch.api.routers.governance_core", "router", "governance core"),
         ("autoresearch.api.routers.governance_core", "api_router", "governance core api"),
         ("autoresearch.api.routers.capabilities", "router", "capabilities"),
