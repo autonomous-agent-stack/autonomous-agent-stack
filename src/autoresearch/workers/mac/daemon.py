@@ -22,8 +22,9 @@ from autoresearch.core.services.hermes_gateway_bridge import (
 from autoresearch.core.services.worker_runtime_dispatch import WorkerRuntimeDispatchService
 from autoresearch.core.services.claude_session_records import ClaudeSessionRecordService
 from autoresearch.core.services.telegram_completion_format import (
-    telegram_agent_attribution_row,
-    telegram_runtime_attribution_row,
+    TELEGRAM_MARKDOWN_V2_PARSE_MODE,
+    format_butler_completion_message,
+    resolve_telegram_agent_attribution,
 )
 from autoresearch.core.services.approval_store import ApprovalStoreService
 from autoresearch.core.services.session_events import SessionEventService
@@ -490,13 +491,22 @@ class MacWorkerDaemon:
                 main_body = f"{hint.strip()}\n{main_body}"
             status_label = outcome.status.value
 
-        table_rows: list[tuple[str, str]] = [
-            ("任务", task_name),
-            ("run_id", str(run.run_id)),
-            ("状态", status_label),
-            telegram_runtime_attribution_row(str(payload.get("runtime_id") or "claude")),
-            telegram_agent_attribution_row(str(payload.get("agent_name") or "")),
-        ]
+        primary_agent, agent_names = resolve_telegram_agent_attribution(
+            payload,
+            run.metadata or {},
+            outcome.metrics or {},
+            res,
+        )
+        runtime_id = str(
+            payload.get("runtime_id")
+            or (run.metadata or {}).get("capability_id")
+            or "claude"
+        ).strip()
+        capability_id = str(
+            payload.get("capability_id")
+            or (run.metadata or {}).get("capability_id")
+            or runtime_id
+        ).strip()
         diag_runtime = _first_diag_value(
             keys=("dispatch_runtime", "runtime_id"),
             sources=(outcome.metrics or {}, res, payload),
@@ -512,35 +522,41 @@ class MacWorkerDaemon:
         diag_items = [f"runtime={diag_runtime or 'claude'}", f"exit={diag_exit}"]
         if diag_error_kind:
             diag_items.append(f"error_kind={diag_error_kind}")
-        table_rows.append(("诊断 | Diagnostics", ", ".join(diag_items)))
         summary_for_cell = (summary_clean or summary_raw).strip()
         if _is_vacuous_hermes_summary(summary_for_cell) and stdout_clean:
             fl = _first_nonempty_line(stdout_clean, limit=600)
             if fl:
                 summary_for_cell = fl
         first_main_line = _first_nonempty_line(main_body, limit=600)
+        summary_for_display = None
         if (
             summary_for_cell
             and summary_for_cell != stdout_clean
             and summary_for_cell != stdout_raw
             and summary_for_cell.strip() != first_main_line.strip()
         ):
-            table_rows.append(("摘要", summary_for_cell[:600]))
+            summary_for_display = summary_for_cell[:600]
 
-        parts: list[str] = []
-        if brand:
-            parts.append(f"【{brand}】")
-        parts.append("任务已结束。")
-        parts.append("")
-        parts.append(_worker_telegram_kv_table(table_rows))
-        parts.append("")
-        parts.append(main_body)
-        text = _truncate_worker_telegram_body("\n".join(parts))
+        text = format_butler_completion_message(
+            brand=brand,
+            task_name=task_name,
+            run_id=str(run.run_id),
+            status_label=status_label,
+            body=main_body,
+            runtime_id=runtime_id,
+            capability_id=capability_id,
+            primary_agent=primary_agent,
+            agent_names=agent_names,
+            diagnostics=", ".join(diag_items),
+            summary=summary_for_display,
+            error=outcome.error if outcome.status != JobStatus.COMPLETED else None,
+        )
 
         if via_api:
             merged = dict(outcome.result or {})
             merged["telegram_completion_card_text"] = text[:48000]
             merged["telegram_completion_editor"] = "api_butler"
+            merged["telegram_completion_card_parse_mode"] = TELEGRAM_MARKDOWN_V2_PARSE_MODE
             outcome.result = merged
             return {
                 "telegram_notify_status": "delegated_api",
@@ -585,6 +601,7 @@ class MacWorkerDaemon:
             message_id=ack_message_id,
             text=text,
             message_thread_id=thread_id,
+            parse_mode=TELEGRAM_MARKDOWN_V2_PARSE_MODE,
         ):
             logger.info(
                 "Telegram completion edited in-place run=%s chat_id=%s message_id=%s",
@@ -603,6 +620,7 @@ class MacWorkerDaemon:
             chat_id=str(chat_id),
             text=text,
             message_thread_id=thread_id,
+            parse_mode=TELEGRAM_MARKDOWN_V2_PARSE_MODE,
             run_id=str(run.run_id),
         )
         delivered, attempts, last_error = send_outcome
@@ -620,6 +638,7 @@ class MacWorkerDaemon:
         message_id: int,
         text: str,
         message_thread_id: int | None,
+        parse_mode: str | None = None,
     ) -> bool:
         """Try editMessageText; on failure return False so caller can sendMessage."""
         payload: dict[str, Any] = {
@@ -630,6 +649,8 @@ class MacWorkerDaemon:
         }
         if message_thread_id is not None:
             payload["message_thread_id"] = message_thread_id
+        if parse_mode:
+            payload["parse_mode"] = parse_mode
         url = f"https://api.telegram.org/bot{bot_token}/editMessageText"
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         for attempt in range(1, 4):
@@ -691,6 +712,7 @@ class MacWorkerDaemon:
         text: str,
         message_thread_id: int | None,
         run_id: str,
+        parse_mode: str | None = None,
     ) -> tuple[bool, int, str | None]:
         """Send a fresh Telegram message with up to 3 retries.
 
@@ -705,6 +727,8 @@ class MacWorkerDaemon:
         }
         if message_thread_id is not None:
             payload["message_thread_id"] = message_thread_id
+        if parse_mode:
+            payload["parse_mode"] = parse_mode
         url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         last_exc: BaseException | None = None

@@ -170,8 +170,16 @@ class _StubTelegramNotifier:
         reply_markup: dict[str, object] | None = None,
         message_thread_id: int | None = None,
         reply_to_message_id: int | None = None,
+        parse_mode: str | None = None,
     ) -> bool:
-        self.messages.append({"chat_id": chat_id, "text": text, "message_thread_id": message_thread_id})
+        self.messages.append(
+            {
+                "chat_id": chat_id,
+                "text": text,
+                "message_thread_id": message_thread_id,
+                "parse_mode": parse_mode,
+            }
+        )
         return True
 
     def send_message_get_message_id(
@@ -183,6 +191,7 @@ class _StubTelegramNotifier:
         reply_markup: dict[str, object] | None = None,
         message_thread_id: int | None = None,
         reply_to_message_id: int | None = None,
+        parse_mode: str | None = None,
     ) -> int | None:
         self.send_message(
             chat_id=chat_id,
@@ -191,6 +200,7 @@ class _StubTelegramNotifier:
             reply_markup=reply_markup,
             message_thread_id=message_thread_id,
             reply_to_message_id=reply_to_message_id,
+            parse_mode=parse_mode,
         )
         mid = 880000 + len(self.sent_message_ids)
         self.sent_message_ids.append(mid)
@@ -204,6 +214,7 @@ class _StubTelegramNotifier:
         text: str,
         disable_web_page_preview: bool = True,
         message_thread_id: int | None = None,
+        parse_mode: str | None = None,
     ) -> bool:
         self.edit_calls.append(
             {
@@ -211,6 +222,7 @@ class _StubTelegramNotifier:
                 "message_id": message_id,
                 "text": text,
                 "message_thread_id": message_thread_id,
+                "parse_mode": parse_mode,
             }
         )
         return True
@@ -1122,8 +1134,10 @@ def test_telegram_butler_excel_audit_queues_v2_worker_task(
         assert excel_service.executed_audit_ids == []
 
         assert len(notifier.messages) == 1
-        assert "Runtime: excel_audit" in notifier.messages[0]["text"]
-        assert run_id in notifier.messages[0]["text"]
+        assert notifier.messages[0]["parse_mode"] == "MarkdownV2"
+        assert "管家已接单" in notifier.messages[0]["text"]
+        assert "excel\\_audit" in notifier.messages[0]["text"]
+        assert str(run_id).replace("_", "\\_") in notifier.messages[0]["text"]
     finally:
         app.dependency_overrides.pop(get_telegram_notifier_service, None)
 
@@ -1161,7 +1175,9 @@ def test_telegram_butler_excel_audit_no_longer_uses_legacy_background_service(
         assert excel_service.executed_audit_ids == []
 
         assert len(notifier.messages) == 1
-        assert "Runtime: excel_audit" in notifier.messages[0]["text"]
+        assert notifier.messages[0]["parse_mode"] == "MarkdownV2"
+        assert "管家已接单" in notifier.messages[0]["text"]
+        assert "excel\\_audit" in notifier.messages[0]["text"]
     finally:
         app.dependency_overrides.pop(get_telegram_notifier_service, None)
 
@@ -2588,16 +2604,13 @@ def test_telegram_queue_ack_message_includes_table_and_status_hint() -> None:
         run_id="run_0b88e9edbe3e",
         worker_brand="初代worker",
     )
-    assert "收到" in text
-    assert "tg_6421432917_48" in text
-    assert "run_0b88e9edbe3e" in text
+    assert "管家已接单" in text
+    assert "tg\\_6421432917\\_48" in text
+    assert "run\\_0b88e9edbe3e" in text
     assert "/status" in text
-    assert "| 项 | 值 |" in text
-    assert "执行面 | Runtime" in text
-    assert "Agent 名称 | Agent name" in text
-    assert "claude" in text
-    assert "执行面 / Runtime" in text or "执行面 | Runtime" in text
-    assert "Agent 名称 / Agent name" in text or "Agent 名称 | Agent name" in text
+    assert "负责 agent" in text
+    assert "参与 agents" in text
+    assert "执行面 \\| Runtime" in text
     assert "claude" in text
 
 
@@ -2643,9 +2656,11 @@ def test_telegram_webhook_sends_queue_notice_with_table(
         assert run_id
         assert notifier.messages, "queue path should notify user"
         body = notifier.messages[-1]["text"]
-        assert "收到" in body
-        assert "| 项 | 值 |" in body
-        assert str(run_id) in body
+        assert notifier.messages[-1]["parse_mode"] == "MarkdownV2"
+        assert "管家已接单" in body
+        assert "负责 agent" in body
+        assert "参与 agents" in body
+        assert str(run_id).replace("_", "\\_") in body
         assert "/status" in body
         assert notifier.sent_message_ids
         stored = telegram_client._worker_scheduler.get_run(str(run_id))

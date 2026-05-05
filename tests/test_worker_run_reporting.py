@@ -689,11 +689,12 @@ def test_butler_fallback_fires_when_worker_notify_failed(
         assert edit["chat_id"] == "777"
         assert edit["message_id"] == 4242
         text = str(edit["text"])
-        assert "【初代worker】" in text
+        assert edit["parse_mode"] == "MarkdownV2"
+        assert "初代worker" in text
         assert "管家兜底" in text
-        assert "阶段 | Phase" in text
-        assert "terminal_timeout" in text
-        assert run_id in text
+        assert "阶段 \\| Phase" in text
+        assert "terminal\\_timeout" in text
+        assert run_id.replace("_", "\\_") in text
         # Dedup marker should be persisted on the run.
         stored = scheduler.get_run(run_id)
         assert stored is not None
@@ -736,6 +737,7 @@ def test_butler_primary_edits_ack_when_worker_delegates_card(
         assert notifier.edits[0]["chat_id"] == "777"
         assert notifier.edits[0]["message_id"] == 4242
         assert "正文第一行" in str(notifier.edits[0]["text"])
+        assert notifier.edits[0]["parse_mode"] is None
         assert notifier.sends == []
         stored = scheduler.get_run(run_id)
         assert stored is not None
@@ -805,8 +807,9 @@ def test_butler_fallback_falls_back_to_send_when_edit_fails(
         assert len(notifier.edits) == 1
         assert len(notifier.sends) == 1
         send_text = str(notifier.sends[0]["text"])
-        assert "【初代worker】" in send_text
-        assert "阶段 | Phase" in send_text
+        assert notifier.sends[0]["parse_mode"] == "MarkdownV2"
+        assert "初代worker" in send_text
+        assert "阶段 \\| Phase" in send_text
         assert "boom" in send_text
         stored = scheduler.get_run(run_id)
         assert stored is not None
@@ -988,9 +991,10 @@ def test_butler_live_edit_on_running_report(
         )
         assert r1.status_code == 200
         assert len(notifier.edits) == 1
-        assert "Hermes 运行中" in str(notifier.edits[0]["text"])
+        assert notifier.edits[0]["parse_mode"] == "MarkdownV2"
+        assert "管家运行中" in str(notifier.edits[0]["text"])
         assert "hermes" in str(notifier.edits[0]["text"])
-        assert "assistant-main" in str(notifier.edits[0]["text"])
+        assert "assistant\\-main" in str(notifier.edits[0]["text"])
 
         clock["t"] = 1002.0
         r2 = worker_client.post(

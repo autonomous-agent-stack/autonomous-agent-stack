@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import time
 from typing import Any
 from urllib import error, request
@@ -54,6 +53,7 @@ class TelegramNotifierService:
         reply_markup: dict[str, Any] | None = None,
         message_thread_id: int | None = None,
         reply_to_message_id: int | None = None,
+        parse_mode: str | None = None,
     ) -> bool:
         if not self.enabled:
             return False
@@ -69,6 +69,8 @@ class TelegramNotifierService:
             payload["reply_to_message_id"] = reply_to_message_id
         if reply_markup is not None:
             payload["reply_markup"] = reply_markup
+        if parse_mode:
+            payload["parse_mode"] = parse_mode
         endpoint = f"{self._api_base}/bot{self._bot_token}/sendMessage"
         body = json.dumps(payload).encode("utf-8")
         req = request.Request(
@@ -92,6 +94,7 @@ class TelegramNotifierService:
         reply_markup: dict[str, Any] | None = None,
         message_thread_id: int | None = None,
         reply_to_message_id: int | None = None,
+        parse_mode: str | None = None,
     ) -> int | None:
         """Like send_message but returns Telegram message_id for later editMessageText."""
         if not self.enabled:
@@ -108,6 +111,8 @@ class TelegramNotifierService:
             payload["reply_to_message_id"] = reply_to_message_id
         if reply_markup is not None:
             payload["reply_markup"] = reply_markup
+        if parse_mode:
+            payload["parse_mode"] = parse_mode
         endpoint = f"{self._api_base}/bot{self._bot_token}/sendMessage"
         body = json.dumps(payload).encode("utf-8")
         req = request.Request(
@@ -130,6 +135,7 @@ class TelegramNotifierService:
         text: str,
         disable_web_page_preview: bool = True,
         message_thread_id: int | None = None,
+        parse_mode: str | None = None,
     ) -> bool:
         if not self.enabled:
             return False
@@ -141,6 +147,8 @@ class TelegramNotifierService:
         }
         if message_thread_id is not None:
             payload["message_thread_id"] = message_thread_id
+        if parse_mode:
+            payload["parse_mode"] = parse_mode
         endpoint = f"{self._api_base}/bot{self._bot_token}/editMessageText"
         body = json.dumps(payload).encode("utf-8")
         req = request.Request(

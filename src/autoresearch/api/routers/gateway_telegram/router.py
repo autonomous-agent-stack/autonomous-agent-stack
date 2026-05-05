@@ -42,6 +42,7 @@ from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.openclaw_memory import OpenClawMemoryService
 from autoresearch.core.services.panel_access import PanelAccessService
 from autoresearch.core.services.session_events import SessionEventService
+from autoresearch.core.services.telegram_completion_format import TELEGRAM_MARKDOWN_V2_PARSE_MODE
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
 from autoresearch.core.services.worker_inventory import WorkerInventoryService
 from autoresearch.core.services.worker_registry import WorkerRegistryService
@@ -594,6 +595,11 @@ def _handle_v2_butler_task(
 
     thread_id = _safe_int(extracted.get("message_thread_id"))
     target_agent = str(task.parameters.get("target_agent") or "")
+    target_agents = [
+        str(item).strip()
+        for item in task.parameters.get("target_agents", [])
+        if str(item).strip()
+    ] if isinstance(task.parameters.get("target_agents"), list) else []
     if task.run_id:
         queue_metadata = {
             "telegram_completion_via_api": True,
@@ -603,6 +609,10 @@ def _handle_v2_butler_task(
             "control_plane_task_id": task.task_id,
             "control_plane_session_id": task.session_id,
             "capability_id": task.capability_id,
+            "target_agent": target_agent,
+            "target_agents": target_agents or ([target_agent] if target_agent else []),
+            "telegram_display_primary_agent": target_agent,
+            "telegram_display_agent_names": target_agents or ([target_agent] if target_agent else []),
         }
         if notifier.enabled:
             ack_text = _telegram_queue_ack_message(
@@ -611,11 +621,13 @@ def _handle_v2_butler_task(
                 worker_brand=telegram_worker_display_name,
                 runtime_id=task.capability_id,
                 agent_name=target_agent,
+                agent_names=target_agents,
             )
             ack_message_id = notifier.send_message_get_message_id(
                 chat_id=chat_id,
                 text=ack_text,
                 message_thread_id=thread_id,
+                parse_mode=TELEGRAM_MARKDOWN_V2_PARSE_MODE,
             )
             if ack_message_id is not None:
                 queue_metadata["telegram_queue_ack_message_id"] = ack_message_id

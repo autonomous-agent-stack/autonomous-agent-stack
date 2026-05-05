@@ -23,16 +23,16 @@ class _FakeResponse:
 def test_send_message_retries_once_then_succeeds(monkeypatch) -> None:
     calls = {"count": 0}
 
-    def _fake_urlopen(req, timeout):  # noqa: ANN001
-        _ = req, timeout
-        calls["count"] += 1
-        if calls["count"] == 1:
-            raise error.URLError("temporary failure")
-        return _FakeResponse({"ok": True})
-
-    monkeypatch.setattr("autoresearch.core.services.telegram_notify.request.urlopen", _fake_urlopen)
+    class _FakeOpener:
+        def open(self, req, timeout):  # noqa: ANN001
+            _ = req, timeout
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise error.URLError("temporary failure")
+            return _FakeResponse({"ok": True})
 
     service = TelegramNotifierService(bot_token="token", max_attempts=2)
+    service._opener = _FakeOpener()  # noqa: SLF001
 
     assert service.send_message(chat_id="1", text="hello") is True
     assert calls["count"] == 2
@@ -41,39 +41,55 @@ def test_send_message_retries_once_then_succeeds(monkeypatch) -> None:
 def test_send_message_returns_false_after_retries(monkeypatch) -> None:
     calls = {"count": 0}
 
-    def _fake_urlopen(req, timeout):  # noqa: ANN001
-        _ = req, timeout
-        calls["count"] += 1
-        raise error.URLError("still failing")
-
-    monkeypatch.setattr("autoresearch.core.services.telegram_notify.request.urlopen", _fake_urlopen)
+    class _FakeOpener:
+        def open(self, req, timeout):  # noqa: ANN001
+            _ = req, timeout
+            calls["count"] += 1
+            raise error.URLError("still failing")
 
     service = TelegramNotifierService(bot_token="token", max_attempts=2)
+    service._opener = _FakeOpener()  # noqa: SLF001
 
     assert service.send_message(chat_id="1", text="hello") is False
     assert calls["count"] == 2
 
 
 def test_send_message_get_message_id_returns_message_id(monkeypatch) -> None:
-    def _fake_urlopen(req, timeout):  # noqa: ANN001
-        _ = req, timeout
-        return _FakeResponse({"ok": True, "result": {"message_id": 9001}})
-
-    monkeypatch.setattr("autoresearch.core.services.telegram_notify.request.urlopen", _fake_urlopen)
+    class _FakeOpener:
+        def open(self, req, timeout):  # noqa: ANN001
+            _ = req, timeout
+            return _FakeResponse({"ok": True, "result": {"message_id": 9001}})
 
     service = TelegramNotifierService(bot_token="token", max_attempts=2)
+    service._opener = _FakeOpener()  # noqa: SLF001
     mid = service.send_message_get_message_id(chat_id="42", text="queued")
     assert mid == 9001
 
 
-def test_send_message_get_message_id_returns_none_when_not_ok(monkeypatch) -> None:
-    def _fake_urlopen(req, timeout):  # noqa: ANN001
-        _ = req, timeout
-        return _FakeResponse({"ok": False, "description": "bad request"})
+def test_send_message_includes_optional_parse_mode() -> None:
+    captured: dict[str, object] = {}
 
-    monkeypatch.setattr("autoresearch.core.services.telegram_notify.request.urlopen", _fake_urlopen)
+    class _FakeOpener:
+        def open(self, req, timeout):  # noqa: ANN001
+            _ = timeout
+            captured["payload"] = json.loads(req.data.decode("utf-8"))
+            return _FakeResponse({"ok": True})
+
+    service = TelegramNotifierService(bot_token="token", max_attempts=1)
+    service._opener = _FakeOpener()  # noqa: SLF001
+
+    assert service.send_message(chat_id="42", text="*queued*", parse_mode="MarkdownV2") is True
+    assert captured["payload"]["parse_mode"] == "MarkdownV2"
+
+
+def test_send_message_get_message_id_returns_none_when_not_ok(monkeypatch) -> None:
+    class _FakeOpener:
+        def open(self, req, timeout):  # noqa: ANN001
+            _ = req, timeout
+            return _FakeResponse({"ok": False, "description": "bad request"})
 
     service = TelegramNotifierService(bot_token="token", max_attempts=2)
+    service._opener = _FakeOpener()  # noqa: SLF001
     assert service.send_message_get_message_id(chat_id="42", text="queued") is None
 
 

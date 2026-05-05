@@ -18,10 +18,11 @@ from autoresearch.api.dependencies import (
 from autoresearch.api.settings import TelegramSettings
 from autoresearch.control_plane.service import ControlPlaneService
 from autoresearch.core.services.telegram_completion_format import (
+    TELEGRAM_MARKDOWN_V2_PARSE_MODE,
+    format_butler_completion_message,
     format_butler_live_status_message,
     polish_butler_completion_card,
-    telegram_agent_attribution_row,
-    telegram_runtime_attribution_row,
+    resolve_telegram_agent_attribution,
 )
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
 from autoresearch.core.services.worker_inventory import WorkerInventoryService
@@ -254,6 +255,7 @@ def _try_deliver_butler_live_edit(
         message_id=ack_message_id,
         text=text,
         message_thread_id=thread_id,
+        parse_mode=TELEGRAM_MARKDOWN_V2_PARSE_MODE,
     )
     if ok:
         try:
@@ -312,6 +314,7 @@ def _try_deliver_butler_completion_primary(
             thread_id = None
 
     text = polish_butler_completion_card(card)
+    parse_mode = str(result.get("telegram_completion_card_parse_mode") or "").strip() or None
     delivered = False
     if ack_message_id is not None:
         delivered = notifier.edit_message_text(
@@ -319,12 +322,14 @@ def _try_deliver_butler_completion_primary(
             message_id=ack_message_id,
             text=text,
             message_thread_id=thread_id,
+            parse_mode=parse_mode,
         )
     if not delivered:
         delivered = notifier.send_message(
             chat_id=chat_id,
             text=text,
             message_thread_id=thread_id,
+            parse_mode=parse_mode,
         )
     if delivered:
         try:
@@ -399,12 +404,14 @@ def _maybe_send_butler_completion_fallback(
             message_id=ack_message_id,
             text=text,
             message_thread_id=thread_id,
+            parse_mode=TELEGRAM_MARKDOWN_V2_PARSE_MODE,
         )
     if not delivered:
         delivered = notifier.send_message(
             chat_id=chat_id,
             text=text,
             message_thread_id=thread_id,
+            parse_mode=TELEGRAM_MARKDOWN_V2_PARSE_MODE,
         )
 
     if delivered:
@@ -434,41 +441,41 @@ def _compose_butler_fallback_text(
     brand = (settings.telegram_worker_display_name or "").strip()
     task_name = (run.task_name or run.task_type.value or "(unnamed)").strip() or "(unnamed)"
     payload = run.payload if isinstance(run.payload, dict) else {}
+    metadata = run.metadata if isinstance(run.metadata, dict) else {}
     summary = ""
     result = run.result if isinstance(run.result, dict) else {}
     metrics = run.metrics if isinstance(run.metrics, dict) else {}
     summary = str(result.get("summary") or run.message or "").strip()
     phase = str(metrics.get("telegram_live_phase") or run.status.value).strip().lower() or run.status.value
     exit_reason = str(metrics.get("exit_reason") or result.get("exit_reason") or "").strip()
-
-    rows = [
-        ("任务", task_name),
-        ("run_id", str(run.run_id)),
-        ("状态", run.status.value),
-        ("阶段 | Phase", phase),
-        telegram_runtime_attribution_row(str(payload.get("runtime_id") or "claude")),
-        telegram_agent_attribution_row(str(payload.get("agent_name") or "")),
-        ("通知", "管家兜底（worker 未送达）"),
-    ]
-    if notify_state:
-        rows.append(("worker 投递", notify_state))
-    if exit_reason:
-        rows.append(("退出原因 | Exit reason", exit_reason[:300]))
+    primary_agent, agent_names = resolve_telegram_agent_attribution(
+        payload,
+        metadata,
+        metrics,
+        result,
+    )
+    runtime_id = (
+        str(payload.get("runtime_id") or metadata.get("capability_id") or run.task_type.value)
+        .strip()
+        .lower()
+    )
+    diagnostics = f"runtime={runtime_id}, exit={exit_reason or run.status.value}"
+    body = "管家兜底：worker 未能直接送达 Telegram 结果。"
     if summary:
-        rows.append(("摘要", summary[:600]))
-
-    table_lines = ["| 项 | 值 |", "| --- | --- |"]
-    for key, value in rows:
-        cell = str(value).replace("|", "/").replace("\n", " ").strip()
-        table_lines.append(f"| {key} | {cell[:900]} |")
-
-    parts: list[str] = []
-    if brand:
-        parts.append(f"【{brand}】")
-    parts.append("任务已结束。")
-    parts.append("")
-    parts.append("\n".join(table_lines))
-    if run.error:
-        parts.append("")
-        parts.append(f"错误: {str(run.error)[:1000]}")
-    return "\n".join(parts)[:3900]
+        body = f"{body}\n\n{summary}"
+    return format_butler_completion_message(
+        brand=brand,
+        task_name=task_name,
+        run_id=str(run.run_id),
+        status_label=run.status.value,
+        body=body,
+        runtime_id=runtime_id,
+        capability_id=str(metadata.get("capability_id") or payload.get("capability_id") or runtime_id),
+        primary_agent=primary_agent,
+        agent_names=agent_names,
+        phase=phase,
+        diagnostics=diagnostics,
+        summary=summary[:600] if summary else None,
+        notify_state=notify_state,
+        error=str(run.error)[:1000] if run.error else None,
+    )
