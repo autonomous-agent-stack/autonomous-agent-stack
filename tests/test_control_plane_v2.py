@@ -28,12 +28,14 @@ from autoresearch.control_plane.contracts import (
 )
 from autoresearch.control_plane.service import ControlPlaneRepositories, ControlPlaneService
 from autoresearch.core.services.butler_dispatch import ButlerDispatchCenter, ButlerModelFillService
+from autoresearch.core.services.github_ops import GitHubOpsRequest
 from autoresearch.core.services.session_events import SessionEventService
 from autoresearch.core.services.worker_registry import WorkerRegistryService
 from autoresearch.core.services.worker_scheduler import WorkerSchedulerService
 from autoresearch.shared.models import (
     JobStatus,
     SessionEventRead,
+    StandbyYouTubeAutoflowRequest,
     WorkerClaimRequest,
     WorkerHealth,
     WorkerHeartbeatRequest,
@@ -42,6 +44,7 @@ from autoresearch.shared.models import (
     WorkerRegisterRequest,
     WorkerRegistrationRead,
     WorkerRunReportRequest,
+    WorkerTaskType,
     WorkerType,
 )
 from autoresearch.shared.store import InMemoryRepository
@@ -361,6 +364,75 @@ def test_butler_task_routes_unknown_to_hermes_openclaw() -> None:
     assert payload["task_request"]["capability_id"] == "hermes_openclaw"
     assert task["capability_id"] == "hermes_openclaw"
     assert task["status"] == ControlPlaneTaskStatus.QUEUED.value
+
+
+def test_v2_capability_worker_payloads_match_worker_contracts() -> None:
+    service, worker_scheduler, _ = build_control_plane()
+    client = build_client(service)
+
+    github = client.post(
+        "/api/v2/butler/tasks",
+        json={
+            "message": "帮我看这个 PR https://github.com/acme/demo/pull/12",
+            "session_id": "payload-github",
+        },
+    ).json()["task"]
+    github_approved = client.post(
+        f"/api/v2/tasks/{github['task_id']}/approval",
+        json={"decision": "approved", "decided_by": "tester"},
+    ).json()
+    github_run = worker_scheduler.get_run(github_approved["run_id"])
+    assert github_run is not None
+    assert github_run.task_type == WorkerTaskType.GITHUB_OPS
+    github_request = GitHubOpsRequest.model_validate(github_run.payload)
+    assert github_request.action == "summarize_pr"
+    assert github_request.repo == "acme/demo"
+    assert github_request.pr_number == 12
+
+    youtube = client.post(
+        "/api/v2/butler/tasks",
+        json={
+            "message": "总结这个 YouTube https://youtube.com/watch?v=abc123",
+            "session_id": "payload-youtube",
+        },
+    ).json()["task"]
+    youtube_approved = client.post(
+        f"/api/v2/tasks/{youtube['task_id']}/approval",
+        json={"decision": "approved", "decided_by": "tester"},
+    ).json()
+    youtube_run = worker_scheduler.get_run(youtube_approved["run_id"])
+    assert youtube_run is not None
+    assert youtube_run.task_type == WorkerTaskType.YOUTUBE_AUTOFLOW
+    youtube_request = StandbyYouTubeAutoflowRequest.model_validate(youtube_run.payload)
+    assert youtube_request.source_url == "https://youtube.com/watch?v=abc123"
+    assert youtube_request.input_text == "总结这个 YouTube https://youtube.com/watch?v=abc123"
+
+    excel = client.post(
+        "/api/v2/butler/tasks",
+        json={"message": "帮我核对 sales.xlsx 和 commission.xlsx 的提成差异"},
+    ).json()["task"]
+    excel_run = worker_scheduler.get_run(excel["run_id"])
+    assert excel_run is not None
+    assert excel_run.task_type == WorkerTaskType.EXCEL_AUDIT
+    assert excel_run.payload["task_brief"] == "帮我核对 sales.xlsx 和 commission.xlsx 的提成差异"
+    assert excel_run.payload["source_files"] == ["sales.xlsx", "commission.xlsx"]
+    assert excel_run.payload["rules"] == []
+    assert excel_run.payload["sheet_mapping"] == {}
+    assert excel_run.payload["outputs"] == {}
+
+    content = client.post(
+        "/api/v2/butler/tasks",
+        json={"message": "把字幕入库到知识库", "session_id": "payload-content-kb"},
+    ).json()["task"]
+    content_approved = client.post(
+        f"/api/v2/tasks/{content['task_id']}/approval",
+        json={"decision": "approved", "decided_by": "tester"},
+    ).json()
+    content_run = worker_scheduler.get_run(content_approved["run_id"])
+    assert content_run is not None
+    assert content_run.task_type == WorkerTaskType.CONTENT_KB_INGEST
+    assert content_run.payload["subtitle_text_path"] == ""
+    assert content_run.payload["request_text"] == "把字幕入库到知识库"
 
 
 def test_control_plane_console_exposes_natural_language_butler_form() -> None:

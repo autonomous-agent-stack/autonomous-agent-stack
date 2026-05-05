@@ -268,6 +268,40 @@ def test_daemon_executes_cleanup_appledouble_in_dry_run(
     assert str(dirty_file) in run.result["deleted_paths"]
 
 
+def test_daemon_executes_excel_audit_with_v2_payload_defaults(
+    tmp_path: Path,
+    worker_services: tuple[WorkerRegistryService, WorkerSchedulerService],
+) -> None:
+    scheduler = worker_services[1]
+    daemon = _build_daemon(tmp_path, worker_services=worker_services)
+    queued = scheduler.enqueue(
+        WorkerQueueItemCreateRequest(
+            task_type=WorkerTaskType.EXCEL_AUDIT,
+            payload={
+                "task_brief": "帮我核对 sales.xlsx 和 commission.xlsx 的提成差异",
+                "source_files": [],
+                "rules": [],
+                "sheet_mapping": {},
+                "outputs": {},
+                "session_id": "telegram-session-1",
+                "task_id": "task_excel_v2",
+                "capability_id": "excel_audit",
+            },
+            requested_by="telegram-user",
+        ),
+        now=utc_now(),
+    )
+
+    processed = daemon.run_once(now=utc_now())
+
+    assert processed is True
+    run = scheduler.get_run(queued.run_id)
+    assert run is not None
+    assert run.status in {JobStatus.COMPLETED, JobStatus.FAILED}
+    assert run.message is not None
+    assert "excel_audit" in run.message
+
+
 def test_daemon_executes_youtube_action_through_bridge(
     tmp_path: Path,
     worker_services: tuple[WorkerRegistryService, WorkerSchedulerService],

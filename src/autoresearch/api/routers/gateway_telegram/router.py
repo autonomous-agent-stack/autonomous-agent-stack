@@ -11,12 +11,13 @@ from autoresearch.api.dependencies import (
     get_butler_dispatch_center,
     get_capability_provider_registry,
     get_claude_agent_service,
-    get_claude_session_record_service,
+    get_control_plane_service,
     get_github_issue_service,
     get_manager_agent_service,
     get_openclaw_compat_service,
     get_openclaw_memory_service,
     get_panel_access_service,
+    get_session_event_service,
     get_telegram_notifier_service,
     get_worker_inventory_service,
     get_worker_registry_service,
@@ -26,23 +27,28 @@ from autoresearch.api.settings import load_telegram_settings
 from autoresearch.core.services.admin_config import AdminConfigService
 from autoresearch.core.services.approval_decisions import ApprovalDecisionService
 from autoresearch.core.services.approval_store import ApprovalStoreService
+from autoresearch.core.adapters import CapabilityProviderRegistry
 from autoresearch.core.services.butler_dispatch import ButlerDispatchCenter
-from autoresearch.core.services.butler_router import ButlerClassification, ButlerTaskType
 from autoresearch.core.services.claude_agents import ClaudeAgentService
-from autoresearch.core.services.claude_session_records import ClaudeSessionRecordService
 from autoresearch.agents.manager_agent import ManagerAgentService
+from autoresearch.control_plane.butler_bridge import (
+    ButlerControlPlaneRouteRequest,
+    route_butler_message,
+)
+from autoresearch.control_plane.contracts import ControlPlaneTaskStatus
+from autoresearch.control_plane.service import ControlPlaneService
 from autoresearch.core.services.github_issue_service import GitHubIssueService
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.openclaw_memory import OpenClawMemoryService
 from autoresearch.core.services.panel_access import PanelAccessService
+from autoresearch.core.services.session_events import SessionEventService
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
 from autoresearch.core.services.worker_inventory import WorkerInventoryService
 from autoresearch.core.services.worker_registry import WorkerRegistryService
 from autoresearch.core.services.worker_scheduler import WorkerSchedulerService
 from autoresearch.shared.models import (
+    OpenClawSessionEventAppendRequest,
     TelegramWebhookAck,
-    WorkerQueueItemCreateRequest,
-    WorkerTaskType,
 )
 
 from ._commands import (
@@ -73,13 +79,10 @@ from ._extract import (
 from ._guard import _guard_webhook_replay_and_rate, _validate_secret_token
 from ._handlers import (
     _classify_telegram_youtube_ingress,
-    _handle_butler_excel_audit,
-    _handle_telegram_youtube_autoflow,
 )
-from ._messages import _telegram_queue_ack_message, _utc_now
+from ._messages import _telegram_queue_ack_message
 from ._policy import _evaluate_telegram_routing_policy, _resolve_telegram_session_identity
 from ._session import (
-    _build_task_name,
     _ensure_admin_channel_visibility,
     _find_or_create_telegram_session,
     _append_user_event,
@@ -118,8 +121,9 @@ def telegram_webhook(
     worker_registry: WorkerRegistryService = Depends(get_worker_registry_service),
     worker_inventory: WorkerInventoryService = Depends(get_worker_inventory_service),
     worker_scheduler: WorkerSchedulerService = Depends(get_worker_scheduler_service),
-    session_record_service: ClaudeSessionRecordService = Depends(get_claude_session_record_service),
     dispatch_center: ButlerDispatchCenter = Depends(get_butler_dispatch_center),
+    control_plane_service: ControlPlaneService = Depends(get_control_plane_service),
+    session_event_service: SessionEventService = Depends(get_session_event_service),
 ) -> TelegramWebhookAck:
     return _handle_telegram_webhook(
         update=update,
@@ -139,8 +143,9 @@ def telegram_webhook(
         worker_registry=worker_registry,
         worker_inventory=worker_inventory,
         worker_scheduler=worker_scheduler,
-        session_record_service=session_record_service,
         dispatch_center=dispatch_center,
+        control_plane_service=control_plane_service,
+        session_event_service=session_event_service,
     )
 
 
@@ -167,8 +172,9 @@ def legacy_telegram_webhook(
     worker_registry: WorkerRegistryService = Depends(get_worker_registry_service),
     worker_inventory: WorkerInventoryService = Depends(get_worker_inventory_service),
     worker_scheduler: WorkerSchedulerService = Depends(get_worker_scheduler_service),
-    session_record_service: ClaudeSessionRecordService = Depends(get_claude_session_record_service),
     dispatch_center: ButlerDispatchCenter = Depends(get_butler_dispatch_center),
+    control_plane_service: ControlPlaneService = Depends(get_control_plane_service),
+    session_event_service: SessionEventService = Depends(get_session_event_service),
 ) -> TelegramWebhookAck:
     return _handle_telegram_webhook(
         update=update,
@@ -188,8 +194,9 @@ def legacy_telegram_webhook(
         worker_registry=worker_registry,
         worker_inventory=worker_inventory,
         worker_scheduler=worker_scheduler,
-        session_record_service=session_record_service,
         dispatch_center=dispatch_center,
+        control_plane_service=control_plane_service,
+        session_event_service=session_event_service,
     )
 
 
@@ -212,10 +219,11 @@ def _handle_telegram_webhook(
     worker_registry: WorkerRegistryService,
     worker_inventory: WorkerInventoryService,
     worker_scheduler: WorkerSchedulerService,
-    session_record_service: ClaudeSessionRecordService,
     dispatch_center: ButlerDispatchCenter,
+    control_plane_service: ControlPlaneService,
+    session_event_service: SessionEventService,
 ) -> TelegramWebhookAck:
-    from ._extract import _extract_telegram_message, _safe_str
+    from ._extract import _extract_telegram_message
 
     _validate_secret_token(raw_request)
     _guard_webhook_replay_and_rate(update)
@@ -393,9 +401,9 @@ def _handle_telegram_webhook(
             session_identity=session_identity,
         )
 
-    youtube_ingress_decision, youtube_source_url, youtube_rejection_reason = _classify_telegram_youtube_ingress(text)
-    if youtube_ingress_decision != "skip":
-        return _handle_telegram_youtube_autoflow(
+    youtube_ingress_decision, _, youtube_rejection_reason = _classify_telegram_youtube_ingress(text)
+    if youtube_ingress_decision == "reject":
+        return _handle_telegram_youtube_rejection(
             chat_id=chat_id,
             text=text,
             update=update,
@@ -404,47 +412,8 @@ def _handle_telegram_webhook(
             openclaw_service=openclaw_service,
             notifier=notifier,
             session_identity=session_identity,
-            worker_scheduler=worker_scheduler,
-            decision=youtube_ingress_decision,
-            source_url=youtube_source_url,
-            rejection_reason=youtube_rejection_reason,
+            reason=youtube_rejection_reason,
         )
-
-    dispatch_decision = dispatch_center.dispatch(
-        text,
-        default_runtime_id=telegram_settings.telegram_dispatch_runtime_id,
-        hermes_execution_mode=telegram_settings.telegram_hermes_execution_mode,
-    )
-    if dispatch_decision.task_type == ButlerTaskType.EXCEL_AUDIT and dispatch_decision.route.value == "direct":
-        return _handle_butler_excel_audit(
-            chat_id=chat_id,
-            update=update,
-            extracted=extracted,
-            text=text,
-            background_tasks=background_tasks,
-            notifier=notifier,
-            session_identity=session_identity,
-            butler_classification=ButlerClassification(
-                task_type=dispatch_decision.task_type,
-                confidence=dispatch_decision.confidence,
-                extracted_params=dispatch_decision.extracted_params,
-            ),
-        )
-    github_ops_ack = _maybe_enqueue_direct_github_ops(
-        dispatch_decision=dispatch_decision,
-        chat_id=chat_id,
-        text=text,
-        update=update,
-        extracted=extracted,
-        background_tasks=background_tasks,
-        openclaw_service=openclaw_service,
-        notifier=notifier,
-        session_identity=session_identity,
-        worker_scheduler=worker_scheduler,
-        telegram_settings=telegram_settings,
-    )
-    if github_ops_ack is not None:
-        return github_ops_ack
 
     session = _find_or_create_telegram_session(
         openclaw_service=openclaw_service,
@@ -467,164 +436,29 @@ def _handle_telegram_webhook(
         session_identity=session_identity,
     )
 
-    # Resolve preferred worker from sticky session record
-    preferred_worker_id: str | None = None
-    sticky_record = session_record_service.get_by_session_key(session_identity.session_key)
-    if sticky_record and sticky_record.worker_id:
-        preferred_worker_id = sticky_record.worker_id
-
-    # Build claude_runtime task payload from the dispatch center decision.
-    dispatch_runtime = dispatch_decision.runtime_id
-    channel_route = _resolve_channel_route(extracted=extracted)
-    hermes_fragment = telegram_settings.hermes_metadata_fragment_for_worker()
-    metadata: dict[str, Any] = {}
-    if hermes_fragment:
-        metadata["hermes"] = hermes_fragment
-    metadata["channel_route"] = channel_route
-    agent_contract = _build_butler_worker_contract_from_decision(dispatch_decision)
-    metadata.update(agent_contract)
-    image_urls = [] if dispatch_runtime == "hermes" else list(extracted.get("images") or [])
-
-    prompt_for_worker = resolved_prompt
-    if dispatch_runtime == "hermes" and telegram_settings.hermes_append_eof_instruction:
-        prompt_for_worker = (
-            f"{resolved_prompt}\n\n---\n"
-            "[系统] 全部工作完成后，请在输出的最后一行仅写：EOF（无其它字符）。\n"
-            "[System] When fully finished, print a single final line containing only: EOF"
-        )
-
-    runtime_payload: dict[str, Any] = {
-        "session_id": session.session_id,
-        "session_key": session_identity.session_key,
-        "assistant_id": session_identity.assistant_id,
-        "chat_id": chat_id,
-        "message_thread_id": extracted.get("message_thread_id"),
-        "is_topic_message": extracted.get("is_topic_message", False),
-        "reply_to_message_id": extracted.get("reply_to_message_id"),
-        "prompt": prompt_for_worker,
-        "task_name": _build_task_name(chat_id, update, extracted),
-        "actor_user_id": session_identity.actor.user_id,
-        "actor_role": session_identity.actor.role.value,
-        "actor_username": session_identity.actor.username,
-        "timeout_seconds": max(1, min(telegram_settings.timeout_seconds, 7200)),
-        "work_dir": str(telegram_settings.work_dir) if telegram_settings.work_dir else None,
-        "agent_name": telegram_settings.agent_name,
-        "cli_args": telegram_settings.claude_args or [],
-        "command_override": telegram_settings.command_override,
-        "skill_names": [],
-        "images": image_urls,
-        "preferred_worker_id": preferred_worker_id,
-        "source": "telegram_webhook",
-        "scope": session_identity.scope.value,
-        "chat_type": session_identity.chat_context.chat_type.value,
-        "runtime_id": dispatch_runtime,
-    }
-    if dispatch_runtime == "hermes":
-        runtime_payload["execution_mode"] = dispatch_decision.execution_mode
-    if metadata:
-        runtime_payload["metadata"] = metadata
-
-    queue_priority = int(agent_contract.get("priority", 0))
-    queue_max_retries = int(agent_contract.get("max_retries", 2))
-    queue_metadata = {
-        "session_key": session_identity.session_key,
-        "preferred_worker_id": preferred_worker_id,
-        "chat_id": chat_id,
-        "channel_route": channel_route,
-        **agent_contract,
-    }
-    if dispatch_runtime == "hermes" and dispatch_decision.execution_mode == "interactive":
-        queue_metadata.setdefault("interactive_lease_ttl_seconds", 900)
-
-    queue_item = worker_scheduler.enqueue(WorkerQueueItemCreateRequest(
-        task_type=WorkerTaskType.CLAUDE_RUNTIME,
-        payload=runtime_payload,
-        requested_by=session_identity.actor.user_id,
-        priority=queue_priority,
-        max_retries=queue_max_retries,
-        metadata=queue_metadata,
-    ))
-
-    # Notify user that task is queued (sync so we capture message_id for worker editMessageText)
-    thread_id_int = _safe_int(extracted.get("message_thread_id"))
-    if notifier.enabled:
-        ack_text = _telegram_queue_ack_message(
-            task_name=str(runtime_payload["task_name"]),
-            run_id=str(queue_item.run_id),
-            worker_brand=telegram_settings.telegram_worker_display_name,
-            runtime_id=str(runtime_payload.get("runtime_id") or "claude"),
-            agent_name=str(runtime_payload.get("agent_name") or ""),
-        )
-        ack_message_id = notifier.send_message_get_message_id(
-            chat_id=chat_id,
-            text=ack_text,
-            message_thread_id=thread_id_int,
-        )
-        if ack_message_id is not None:
-            worker_scheduler.merge_queue_metadata(
-                queue_item.run_id,
-                {
-                    "telegram_queue_ack_message_id": ack_message_id,
-                    # Worker skips direct Telegram; API edits the same ack bubble with the
-                    # full completion card after report_run (same bot = 管家界面).
-                    "telegram_completion_via_api": True,
-                },
-            )
-
-    return TelegramWebhookAck(
-        accepted=True,
-        update_id=_safe_int(update.get("update_id")),
+    return _handle_v2_butler_task(
         chat_id=chat_id,
+        update=update,
+        extracted=extracted,
+        text=resolved_prompt,
+        background_tasks=background_tasks,
+        openclaw_service=openclaw_service,
+        notifier=notifier,
+        session_identity=session_identity,
+        worker_scheduler=worker_scheduler,
+        dispatch_center=dispatch_center,
+        control_plane_service=control_plane_service,
+        session_event_service=session_event_service,
+        telegram_worker_display_name=telegram_settings.telegram_worker_display_name,
+        default_runtime_id=telegram_settings.telegram_dispatch_runtime_id,
+        hermes_execution_mode=telegram_settings.telegram_hermes_execution_mode,
+        append_hermes_eof_instruction=telegram_settings.hermes_append_eof_instruction,
         session_id=session.session_id,
-        agent_run_id=None,
-        metadata={
-            "run_id": queue_item.run_id,
-            "task_name": runtime_payload["task_name"],
-            "routed_to": "worker_queue",
-            "preferred_worker_id": preferred_worker_id,
-            "channel_route": channel_route,
-            "butler_dispatch_source": dispatch_decision.source.value,
-            "butler_dispatch_route": dispatch_decision.route.value,
-        },
     )
 
 
-def _build_butler_worker_contract_from_decision(dispatch_decision) -> dict[str, Any]:
-    task_type_str = str(getattr(dispatch_decision, "task_type", "") or "").strip().lower()
-    canonical_task_type = str(
-        getattr(dispatch_decision, "canonical_task_type", "") or task_type_str
-    ).strip().lower()
-    worker_task_type = str(
-        getattr(dispatch_decision, "worker_task_type", "") or "claude_runtime"
-    ).strip().lower()
-    approval_policy = str(
-        getattr(dispatch_decision, "approval_policy", "") or "auto"
-    ).strip().lower()
-    out: dict[str, Any] = {
-        "target_agent": dispatch_decision.target_agent,
-        "detected_task_type": task_type_str,
-        "butler_task_type": task_type_str,
-        "canonical_task_type": canonical_task_type,
-        "worker_task_type": worker_task_type,
-        "approval_policy": approval_policy,
-        "action": dispatch_decision.action,
-        "priority": dispatch_decision.priority,
-        "max_retries": dispatch_decision.max_retries,
-        "execution_mode": dispatch_decision.execution_mode,
-        "butler_dispatch_source": dispatch_decision.source.value,
-        "butler_dispatch_route": dispatch_decision.route.value,
-        "butler_dispatch_reason": dispatch_decision.reason,
-        "butler_dispatch_confidence": dispatch_decision.confidence,
-    }
-    out.update(dispatch_decision.extracted_params)
-    if dispatch_decision.model_fill_error:
-        out["model_fill_error"] = dispatch_decision.model_fill_error
-    return out
-
-
-def _maybe_enqueue_direct_github_ops(
+def _handle_telegram_youtube_rejection(
     *,
-    dispatch_decision,
     chat_id: str,
     text: str,
     update: dict[str, Any],
@@ -633,19 +467,8 @@ def _maybe_enqueue_direct_github_ops(
     openclaw_service: OpenClawCompatService,
     notifier: TelegramNotifierService,
     session_identity,
-    worker_scheduler: WorkerSchedulerService,
-    telegram_settings,
-) -> TelegramWebhookAck | None:
-    canonical_task_type = str(getattr(dispatch_decision, "canonical_task_type", "") or "").strip().lower()
-    if canonical_task_type not in {"github.issue_ops", "github.pr_ops"}:
-        return None
-    params = dict(dispatch_decision.extracted_params or {})
-    repo = str(params.get("repo") or "").strip()
-    pr_number = params.get("pr_number")
-    issue_number = params.get("issue_number")
-    if not repo or (pr_number is None and issue_number is None):
-        return None
-
+    reason: str | None,
+) -> TelegramWebhookAck:
     session = _find_or_create_telegram_session(
         openclaw_service=openclaw_service,
         chat_id=chat_id,
@@ -661,78 +484,192 @@ def _maybe_enqueue_direct_github_ops(
         extracted=extracted,
         session_identity=session_identity,
     )
-    agent_contract = _build_butler_worker_contract_from_decision(dispatch_decision)
-    action = "summarize_pr" if pr_number is not None else "read_issue"
-    payload: dict[str, Any] = {
-        "action": action,
-        "repo": repo,
-        "issue_number": issue_number,
-        "pr_number": pr_number,
-        "account_profile": "accountA",
-        "metadata": {
-            "source": "telegram_gateway",
-            "session_id": session.session_id,
-            "chat_id": chat_id,
-            "actor_user_id": session_identity.actor.user_id,
-            **agent_contract,
-        },
+    resolved_reason = reason or "消息里必须只包含 1 条合法的 YouTube URL。"
+    metadata = {
+        "source": "telegram_youtube_autoflow",
+        "status": "rejected",
+        "reason": resolved_reason,
+        "chat_id": chat_id,
+        "session_key": session_identity.session_key,
+        "scope": session_identity.scope.value,
     }
-    queue_item = worker_scheduler.enqueue(
-        WorkerQueueItemCreateRequest(
-            task_type=WorkerTaskType.GITHUB_OPS,
-            payload=payload,
-            requested_by=session_identity.actor.user_id,
-            priority=int(agent_contract.get("priority", 8)),
-            max_retries=int(agent_contract.get("max_retries", 2)),
-            metadata={
-                "session_key": session_identity.session_key,
-                "chat_id": chat_id,
-                **agent_contract,
-            },
-        )
+    openclaw_service.append_event(
+        session_id=session.session_id,
+        request=OpenClawSessionEventAppendRequest(
+            role="status",
+            content="youtube autoflow rejected",
+            metadata=metadata,
+        ),
     )
-    thread_id_int = _safe_int(extracted.get("message_thread_id"))
     if notifier.enabled:
-        ack_text = _telegram_queue_ack_message(
-            task_name=f"github_ops:{action}",
-            run_id=str(queue_item.run_id),
-            worker_brand=telegram_settings.telegram_worker_display_name,
-            runtime_id=WorkerTaskType.GITHUB_OPS.value,
-            agent_name="github_ops_accountA",
-        )
-        ack_message_id = notifier.send_message_get_message_id(
+        background_tasks.add_task(
+            notifier.send_message,
             chat_id=chat_id,
-            text=ack_text,
-            message_thread_id=thread_id_int,
+            text=f"YouTube 自动流已拒绝。\nYouTube autoflow rejected.\n\n{resolved_reason}",
+            message_thread_id=_safe_int(extracted.get("message_thread_id")),
         )
-        if ack_message_id is not None:
-            worker_scheduler.merge_queue_metadata(
-                queue_item.run_id,
-                {
-                    "telegram_queue_ack_message_id": ack_message_id,
-                    "telegram_completion_via_api": True,
-                },
+    return TelegramWebhookAck(
+        accepted=False,
+        update_id=_safe_int(update.get("update_id")),
+        chat_id=chat_id,
+        session_id=session.session_id,
+        reason=resolved_reason,
+        metadata=metadata,
+    )
+
+
+def _handle_v2_butler_task(
+    *,
+    chat_id: str,
+    update: dict[str, Any],
+    extracted: dict[str, Any],
+    text: str,
+    background_tasks: BackgroundTasks,
+    openclaw_service: OpenClawCompatService,
+    notifier: TelegramNotifierService,
+    session_identity,
+    worker_scheduler: WorkerSchedulerService,
+    dispatch_center: ButlerDispatchCenter,
+    control_plane_service: ControlPlaneService,
+    session_event_service: SessionEventService,
+    telegram_worker_display_name: str,
+    default_runtime_id: str,
+    hermes_execution_mode: str,
+    append_hermes_eof_instruction: bool,
+    session_id: str,
+) -> TelegramWebhookAck:
+    requested_by = session_identity.actor.user_id or str(extracted.get("from_user_id") or chat_id)
+    route_request = ButlerControlPlaneRouteRequest(
+        message=text,
+        session_id=session_id,
+        requested_by=requested_by,
+        metadata={
+            "source": "telegram_gateway",
+            "chat_id": chat_id,
+            "message_id": extracted.get("message_id"),
+            "message_thread_id": extracted.get("message_thread_id"),
+            "is_topic_message": extracted.get("is_topic_message", False),
+            "reply_to_message_id": extracted.get("reply_to_message_id"),
+            "session_key": session_identity.session_key,
+            "assistant_id": session_identity.assistant_id,
+            "scope": session_identity.scope.value,
+            "chat_type": session_identity.chat_context.chat_type.value,
+            "actor_role": session_identity.actor.role.value,
+            "actor_user_id": session_identity.actor.user_id,
+            "actor_username": session_identity.actor.username,
+        },
+    )
+    routed = route_butler_message(
+        route_request,
+        dispatch_center=dispatch_center,
+        session_events=session_event_service,
+        capabilities=control_plane_service.list_capabilities(),
+        default_runtime_id=default_runtime_id,
+        hermes_execution_mode=hermes_execution_mode,
+    )
+    if routed.task_request.capability_id == "hermes_openclaw" and append_hermes_eof_instruction:
+        prompt = (
+            f"{routed.task_request.intent or text}\n\n---\n"
+            "[系统] 全部工作完成后，请在输出的最后一行仅写：EOF（无其它字符）。\n"
+            "[System] When fully finished, print a single final line containing only: EOF"
+        )
+        routed = routed.model_copy(
+            update={
+                "task_request": routed.task_request.model_copy(
+                    update={
+                        "intent": prompt,
+                        "parameters": {
+                            **routed.task_request.parameters,
+                            "message": prompt,
+                            "request_text": prompt,
+                        },
+                    }
+                )
+            }
+        )
+    task = control_plane_service.create_task(routed.task_request)
+
+    thread_id = _safe_int(extracted.get("message_thread_id"))
+    target_agent = str(task.parameters.get("target_agent") or "")
+    if task.run_id:
+        queue_metadata = {
+            "telegram_completion_via_api": True,
+            "chat_id": chat_id,
+            "message_thread_id": extracted.get("message_thread_id"),
+            "session_key": session_identity.session_key,
+            "control_plane_task_id": task.task_id,
+            "control_plane_session_id": task.session_id,
+            "capability_id": task.capability_id,
+        }
+        if notifier.enabled:
+            ack_text = _telegram_queue_ack_message(
+                task_name=task.name,
+                run_id=task.run_id,
+                worker_brand=telegram_worker_display_name,
+                runtime_id=task.capability_id,
+                agent_name=target_agent,
             )
+            ack_message_id = notifier.send_message_get_message_id(
+                chat_id=chat_id,
+                text=ack_text,
+                message_thread_id=thread_id,
+            )
+            if ack_message_id is not None:
+                queue_metadata["telegram_queue_ack_message_id"] = ack_message_id
+        worker_scheduler.merge_queue_metadata(task.run_id, queue_metadata)
+    elif notifier.enabled:
+        background_tasks.add_task(
+            notifier.send_message,
+            chat_id=chat_id,
+            text=_control_plane_task_ack_text(task),
+            message_thread_id=thread_id,
+        )
+
+    openclaw_service.update_metadata(
+        session_id=session_id,
+        metadata_updates={
+            "latest_control_plane_task_id": task.task_id,
+            "latest_control_plane_task_status": task.status.value,
+            "latest_control_plane_capability_id": task.capability_id,
+            "latest_control_plane_approval_id": task.approval_id,
+            "latest_control_plane_run_id": task.run_id,
+        },
+    )
     return TelegramWebhookAck(
         accepted=True,
         update_id=_safe_int(update.get("update_id")),
         chat_id=chat_id,
-        session_id=session.session_id,
+        session_id=session_id,
         agent_run_id=None,
         metadata={
-            "run_id": queue_item.run_id,
-            "task_name": f"github_ops:{action}",
-            "routed_to": "worker_queue",
-            "butler_dispatch_source": dispatch_decision.source.value,
-            "butler_dispatch_route": dispatch_decision.route.value,
-            "canonical_task_type": canonical_task_type,
-            "worker_task_type": WorkerTaskType.GITHUB_OPS.value,
+            "source": "telegram_control_plane_v2",
+            "routed_to": "control_plane_v2",
+            "control_plane_task_id": task.task_id,
+            "capability_id": task.capability_id,
+            "status": task.status.value,
+            "approval_id": task.approval_id,
+            "run_id": task.run_id,
+            "butler_dispatch_source": routed.dispatch_decision.source.value,
+            "butler_dispatch_route": routed.dispatch_decision.route.value,
         },
     )
 
 
-def _resolve_channel_route(*, extracted: dict[str, Any]) -> str:
-    chat_type_raw = str(extracted.get("chat_type") or "").strip().lower()
-    if chat_type_raw in {"group", "supergroup", "channel"}:
-        return "group_channel"
-    return "private_channel"
+def _control_plane_task_ack_text(task) -> str:
+    if task.status == ControlPlaneTaskStatus.AWAITING_APPROVAL:
+        return (
+            "任务需要审批后执行。\n"
+            "Task requires approval before execution.\n\n"
+            f"task: {task.task_id}\n"
+            f"capability: {task.capability_id}\n"
+            f"approval: {task.approval_id}\n"
+            "console: /control-plane"
+        )
+    return (
+        "任务已提交到 Control Plane v2。\n"
+        "Task submitted to Control Plane v2.\n\n"
+        f"task: {task.task_id}\n"
+        f"capability: {task.capability_id}\n"
+        f"status: {task.status.value}\n"
+        f"run: {task.run_id or '-'}"
+    )

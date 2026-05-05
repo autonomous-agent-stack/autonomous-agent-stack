@@ -78,6 +78,17 @@ _FILE_PATH_RE = re.compile(r'[\w/\-\\\.]+\.(?:xlsx?|csv)', re.IGNORECASE)
 _URL_RE = re.compile(r'https?://\S+', re.IGNORECASE)
 
 
+def _keyword_matches(text_lower: str, keyword_lower: str) -> bool:
+    if keyword_lower.isascii() and keyword_lower.isalnum() and len(keyword_lower) <= 2:
+        return bool(
+            re.search(
+                rf"(?<![a-z0-9]){re.escape(keyword_lower)}(?![a-z0-9])",
+                text_lower,
+            )
+        )
+    return keyword_lower in text_lower
+
+
 class ButlerIntentRouter:
     """Classify free-text messages to task types using keyword matching."""
 
@@ -94,7 +105,7 @@ class ButlerIntentRouter:
         scores: dict[str, int] = {}
 
         for task_type, keywords in self._keyword_map.items():
-            score = sum(1 for kw in keywords if kw.lower() in text_lower)
+            score = sum(1 for kw in keywords if _keyword_matches(text_lower, kw.lower()))
             if score > 0:
                 scores[task_type] = score
 

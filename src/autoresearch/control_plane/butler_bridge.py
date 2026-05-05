@@ -57,8 +57,14 @@ def route_butler_message(
     dispatch_center: ButlerDispatchCenter,
     session_events: SessionEventService,
     capabilities: Sequence[ControlPlaneCapabilityRead],
+    default_runtime_id: str = "claude",
+    hermes_execution_mode: str = "oneshot",
 ) -> ButlerControlPlaneRouteRead:
-    decision = dispatch_center.dispatch(request.message)
+    decision = dispatch_center.dispatch(
+        request.message,
+        default_runtime_id=default_runtime_id,
+        hermes_execution_mode=hermes_execution_mode,
+    )
     task_request = build_task_request_from_decision(
         request=request,
         decision=decision,
@@ -197,18 +203,16 @@ def _heuristic_risk_tags(message: str, *, capability_id: str) -> set[str]:
             "write",
             "save",
             "export",
-            "output",
             "file",
-            "xlsx",
-            "csv",
             "写入",
             "保存",
             "导出",
-            "输出",
             "生成文件",
             "入库",
         ),
     ):
+        tags.add("filesystem_write")
+    if capability_id != "excel_audit" and _contains_any(normalized, ("xlsx", "csv")):
         tags.add("filesystem_write")
     if _contains_any(
         normalized,

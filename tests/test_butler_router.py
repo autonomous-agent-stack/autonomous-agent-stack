@@ -4,12 +4,9 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
-
 from autoresearch.api.routers.butler import _check_hermes_interactive_callbacks
 from autoresearch.core.services.butler_router import (
     ButlerCanonicalTaskType,
-    ButlerClassification,
     ButlerIntentRouter,
     ButlerTaskType,
 )
@@ -94,6 +91,12 @@ class TestButlerIntentClassification:
         assert result.task_type == ButlerTaskType.UNKNOWN
         assert result.confidence == 0.0
 
+    def test_prompt_does_not_match_pr_keyword(self) -> None:
+        router = ButlerIntentRouter()
+        result = router.classify("hermes eof prompt check")
+        assert result.task_type == ButlerTaskType.UNKNOWN
+        assert result.confidence == 0.0
+
     def test_empty_text(self) -> None:
         router = ButlerIntentRouter()
         result = router.classify("")
@@ -158,10 +161,11 @@ class TestButlerIntentClassification:
 class TestButlerExcelAuditDispatch:
     """Test that the gateway dispatches to ExcelAuditService."""
 
-    def _make_service(self) -> "ExcelAuditService":
+    def _make_service(self):
         from autoresearch.shared.store import InMemoryRepository
         from autoresearch.core.services.excel_audit import ExcelAuditService
         from pathlib import Path
+
         return ExcelAuditService(repository=InMemoryRepository(), repo_root=Path("/tmp"))
 
     def test_create_returns_queued(self) -> None:

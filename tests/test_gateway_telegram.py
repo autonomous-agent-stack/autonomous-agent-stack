@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import sqlite3
 import sys
-import time
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -17,11 +16,13 @@ from autoresearch.api.dependencies import (
     get_capability_provider_registry,
     get_claude_agent_service,
     get_claude_session_record_service,
+    get_control_plane_service,
     get_github_issue_service,
     get_manager_agent_service,
     get_openclaw_memory_service,
     get_openclaw_compat_service,
     get_panel_access_service,
+    get_session_event_service,
     get_telegram_notifier_service,
     get_worker_inventory_service,
     get_worker_registry_service,
@@ -43,6 +44,18 @@ from autoresearch.core.services.hermes_gateway_bridge import InMemoryHermesGatew
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.openclaw_memory import OpenClawMemoryService
 from autoresearch.core.services.panel_access import PanelAccessService
+from autoresearch.control_plane.contracts import (
+    ControlPlaneApprovalDecisionRequest,
+    ControlPlaneApprovalRead,
+    ControlPlaneArtifactRead,
+    ControlPlaneAuditEventRead,
+    ControlPlanePromotionRead,
+    ControlPlaneRunRead,
+    ControlPlaneSessionRead,
+    ControlPlaneTaskRead,
+)
+from autoresearch.control_plane.service import ControlPlaneRepositories, ControlPlaneService
+from autoresearch.core.services.session_events import SessionEventService
 from autoresearch.core.services.worker_inventory import WorkerInventoryService
 from autoresearch.core.services.worker_registry import WorkerRegistryService
 from autoresearch.core.services.worker_scheduler import WorkerSchedulerService
@@ -61,6 +74,7 @@ from autoresearch.shared.models import (
     OpenClawSessionRead,
     PromotionDiffStats,
     PromotionResult,
+    SessionEventRead,
     WorkerLeaseRead,
     WorkerQueueItemCreateRequest,
     WorkerQueueItemRead,
@@ -429,6 +443,54 @@ def telegram_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClie
             model_cls=WorkerLeaseRead,
         ),
     )
+    session_event_service = SessionEventService(
+        repository=SQLiteModelRepository(
+            db_path=db_path,
+            table_name="session_events_gateway_it",
+            model_cls=SessionEventRead,
+        )
+    )
+    control_plane_service = ControlPlaneService(
+        repositories=ControlPlaneRepositories(
+            sessions=SQLiteModelRepository(
+                db_path=db_path,
+                table_name="control_plane_sessions_gateway_it",
+                model_cls=ControlPlaneSessionRead,
+            ),
+            tasks=SQLiteModelRepository(
+                db_path=db_path,
+                table_name="control_plane_tasks_gateway_it",
+                model_cls=ControlPlaneTaskRead,
+            ),
+            runs=SQLiteModelRepository(
+                db_path=db_path,
+                table_name="control_plane_runs_gateway_it",
+                model_cls=ControlPlaneRunRead,
+            ),
+            approvals=SQLiteModelRepository(
+                db_path=db_path,
+                table_name="control_plane_approvals_gateway_it",
+                model_cls=ControlPlaneApprovalRead,
+            ),
+            artifacts=SQLiteModelRepository(
+                db_path=db_path,
+                table_name="control_plane_artifacts_gateway_it",
+                model_cls=ControlPlaneArtifactRead,
+            ),
+            audit_events=SQLiteModelRepository(
+                db_path=db_path,
+                table_name="control_plane_audit_events_gateway_it",
+                model_cls=ControlPlaneAuditEventRead,
+            ),
+            promotions=SQLiteModelRepository(
+                db_path=db_path,
+                table_name="control_plane_promotions_gateway_it",
+                model_cls=ControlPlanePromotionRead,
+            ),
+        ),
+        worker_scheduler=worker_scheduler,
+        session_events=session_event_service,
+    )
     approval_service = ApprovalStoreService(
         repository=SQLiteModelRepository(
             db_path=db_path,
@@ -444,6 +506,8 @@ def telegram_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClie
     app.dependency_overrides[get_admin_config_service] = lambda: admin_config_service
     app.dependency_overrides[get_worker_registry_service] = lambda: worker_registry
     app.dependency_overrides[get_worker_scheduler_service] = lambda: worker_scheduler
+    app.dependency_overrides[get_session_event_service] = lambda: session_event_service
+    app.dependency_overrides[get_control_plane_service] = lambda: control_plane_service
     app.dependency_overrides[get_worker_inventory_service] = lambda: WorkerInventoryService(
         worker_registry=worker_registry,
         worker_scheduler=worker_scheduler,
@@ -459,6 +523,8 @@ def telegram_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClie
     with TestClient(app) as client:
         setattr(client, "_approval_store", approval_service)
         setattr(client, "_worker_scheduler", worker_scheduler)
+        setattr(client, "_control_plane_service", control_plane_service)
+        setattr(client, "_session_event_service", session_event_service)
         try:
             yield client
         finally:
@@ -499,8 +565,8 @@ def test_telegram_webhook_routes_to_openclaw_and_agents(
     assert payload["accepted"] is True
     assert payload["chat_id"] == "9527"
     assert payload["session_id"] is not None
-    # Default chat now routes to worker queue instead of direct agent execution
-    assert payload.get("metadata", {}).get("routed_to") == "worker_queue"
+    assert payload.get("metadata", {}).get("routed_to") == "control_plane_v2"
+    assert payload["metadata"]["capability_id"] == "hermes_openclaw"
     run_id = payload.get("metadata", {}).get("run_id")
     assert run_id is not None
 
@@ -540,19 +606,17 @@ def test_telegram_worker_queue_metadata_includes_butler_agent_contract(
 
     assert response.status_code == 200
     payload = response.json()
-    run_id = payload["metadata"]["run_id"]
-    scheduler = getattr(telegram_client, "_worker_scheduler")
-    run = scheduler.get_run(run_id)
-    assert run is not None
-    assert run.priority > 0
-    assert run.max_retries == 1
-    assert run.metadata["target_agent"] == "github_ops_accountA"
-    assert run.metadata["detected_task_type"] == "github_admin"
-    assert run.metadata.get("butler_task_type") == "github_admin"
-    assert run.metadata["execution_mode"] == "interactive"
-    assert run.metadata["interactive_lease_ttl_seconds"] >= 300
-    assert run.payload["metadata"]["target_agent"] == "github_ops_accountA"
-    assert run.payload["metadata"]["repo"] == "example/repo"
+    assert payload["metadata"]["routed_to"] == "control_plane_v2"
+    assert payload["metadata"]["capability_id"] == "github_assistant"
+    assert payload["metadata"]["status"] == "awaiting_approval"
+    assert payload["metadata"]["approval_id"]
+    assert payload["metadata"]["run_id"] is None
+    service = getattr(telegram_client, "_control_plane_service")
+    task = service.get_task(payload["metadata"]["control_plane_task_id"])
+    assert task is not None
+    assert task.parameters["target_agent"] == "github_ops_accountA"
+    assert task.parameters["repo"] == "example/repo"
+    assert task.parameters["execution_mode"] == "interactive"
 
 
 def test_telegram_github_pr_url_enqueues_direct_github_ops(
@@ -579,16 +643,17 @@ def test_telegram_github_pr_url_enqueues_direct_github_ops(
 
     assert response.status_code == 200
     payload = response.json()
-    run_id = payload["metadata"]["run_id"]
-    scheduler = getattr(telegram_client, "_worker_scheduler")
-    run = scheduler.get_run(run_id)
-    assert run is not None
-    assert run.task_type == WorkerTaskType.GITHUB_OPS
-    assert run.payload["action"] == "summarize_pr"
-    assert run.payload["repo"] == "example/repo"
-    assert run.payload["pr_number"] == 12
-    assert run.metadata["canonical_task_type"] == "github.pr_ops"
-    assert run.metadata["worker_task_type"] == "github_ops"
+    assert payload["metadata"]["routed_to"] == "control_plane_v2"
+    assert payload["metadata"]["capability_id"] == "github_assistant"
+    assert payload["metadata"]["status"] == "awaiting_approval"
+    assert payload["metadata"]["approval_id"]
+    assert payload["metadata"]["run_id"] is None
+    service = getattr(telegram_client, "_control_plane_service")
+    task = service.get_task(payload["metadata"]["control_plane_task_id"])
+    assert task is not None
+    assert task.parameters["repo"] == "example/repo"
+    assert task.parameters["pr_number"] == 12
+    assert task.parameters["canonical_task_type"] == "github.pr_ops"
 
 
 def test_legacy_telegram_webhook_uses_same_processing_path(
@@ -619,8 +684,7 @@ def test_legacy_telegram_webhook_uses_same_processing_path(
     payload = response.json()
     assert payload["accepted"] is True
     assert payload["chat_id"] == "9528"
-    # Default chat now routes to worker queue
-    assert payload.get("metadata", {}).get("routed_to") == "worker_queue"
+    assert payload.get("metadata", {}).get("routed_to") == "control_plane_v2"
 
 
 def test_telegram_webhook_separates_private_and_group_sessions(
@@ -822,7 +886,7 @@ def test_telegram_group_reply_to_bot_is_accepted_when_group_whitelist_enabled(
     assert payload["session_id"] is not None
 
 
-def test_telegram_youtube_link_enqueues_existing_autoflow_and_tracks_session(
+def test_telegram_youtube_link_creates_v2_approval_and_tracks_session(
     telegram_client: TestClient,
 ) -> None:
     notifier = _StubTelegramNotifier()
@@ -846,31 +910,29 @@ def test_telegram_youtube_link_enqueues_existing_autoflow_and_tracks_session(
         assert payload["accepted"] is True
         assert payload["agent_run_id"] is None
         assert payload["session_id"] is not None
-        assert payload["metadata"]["source"] == "telegram_youtube_autoflow"
-        assert payload["metadata"]["status"] == "accepted"
-        assert payload["metadata"]["task_type"] == "youtube_autoflow"
-        run_id = payload["metadata"]["run_id"]
-        assert run_id
+        assert payload["metadata"]["source"] == "telegram_control_plane_v2"
+        assert payload["metadata"]["routed_to"] == "control_plane_v2"
+        assert payload["metadata"]["capability_id"] == "youtube_autoflow"
+        assert payload["metadata"]["status"] == "awaiting_approval"
+        assert payload["metadata"]["approval_id"]
+        assert payload["metadata"]["run_id"] is None
 
         worker_scheduler = getattr(telegram_client, "_worker_scheduler")
-        queued_run = worker_scheduler.get_run(run_id)
-        assert queued_run is not None
-        assert queued_run.task_type.value == "youtube_autoflow"
-        assert queued_run.payload["source_url"] == "https://www.youtube.com/watch?v=6yjJ7Prt-RI"
-        assert queued_run.payload["input_text"] == "请处理这个视频 https://www.youtube.com/watch?v=6yjJ7Prt-RI"
-        assert queued_run.payload["source"] == "telegram_gateway"
-        assert queued_run.metadata["session_id"] == payload["session_id"]
+        assert worker_scheduler.list_queue() == []
 
         session = telegram_client.get(f"/api/v1/openclaw/sessions/{payload['session_id']}")
         assert session.status_code == 200
         session_payload = session.json()
         assert any(event["role"] == "user" for event in session_payload["events"])
-        assert any("youtube autoflow queued" in event["content"] for event in session_payload["events"])
-        assert session_payload["metadata"]["latest_telegram_youtube_autoflow_run_id"] == run_id
+        assert session_payload["metadata"]["latest_control_plane_task_id"] == payload["metadata"]["control_plane_task_id"]
+        timeline = getattr(telegram_client, "_session_event_service").timeline(
+            session_id=payload["session_id"]
+        )
+        assert [event.event_type for event in timeline.events][:1] == ["butler.route.decided"]
 
         assert len(notifier.messages) == 1
-        assert "Runtime: youtube_autoflow" in notifier.messages[0]["text"]
-        assert run_id in notifier.messages[0]["text"]
+        assert "Task requires approval" in notifier.messages[0]["text"]
+        assert payload["metadata"]["approval_id"] in notifier.messages[0]["text"]
     finally:
         app.dependency_overrides.pop(get_telegram_notifier_service, None)
 
@@ -906,9 +968,46 @@ def test_telegram_youtube_link_rejects_multiple_urls(
         assert worker_scheduler.list_queue() == []
 
         assert len(notifier.messages) == 1
-        assert "status: rejected" in notifier.messages[0]["text"]
+        assert "YouTube autoflow rejected" in notifier.messages[0]["text"]
     finally:
         app.dependency_overrides.pop(get_telegram_notifier_service, None)
+
+
+def test_telegram_v2_approval_dispatches_high_risk_task(
+    telegram_client: TestClient,
+) -> None:
+    response = telegram_client.post(
+        "/api/v1/gateway/telegram/webhook",
+        json={
+            "update_id": 13155,
+            "message": {
+                "message_id": 888,
+                "text": "总结这个 YouTube https://youtube.com/watch?v=abc123",
+                "chat": {"id": 97105, "type": "private"},
+                "from": {"id": 97105, "username": "youtube-user"},
+            },
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["metadata"]["status"] == "awaiting_approval"
+    task_id = payload["metadata"]["control_plane_task_id"]
+
+    service = getattr(telegram_client, "_control_plane_service")
+    approved = service.decide_task(
+        task_id,
+        ControlPlaneApprovalDecisionRequest(decision="approved", decided_by="tester"),
+    )
+    assert approved is not None
+    assert approved.run_id
+    assert approved.status.value == "queued"
+
+    scheduler = getattr(telegram_client, "_worker_scheduler")
+    run = scheduler.get_run(approved.run_id)
+    assert run is not None
+    assert run.task_type == WorkerTaskType.YOUTUBE_AUTOFLOW
+    assert run.payload["source_url"] == "https://youtube.com/watch?v=abc123"
+    assert run.payload["input_text"] == "总结这个 YouTube https://youtube.com/watch?v=abc123"
 
 
 def test_telegram_youtube_reference_without_valid_url_is_rejected(
@@ -970,12 +1069,11 @@ def test_telegram_non_youtube_url_continues_to_existing_agent_path(
     assert response.status_code == 200
     payload = response.json()
     assert payload["accepted"] is True
-    # Default chat now routes to worker queue
-    assert payload.get("metadata", {}).get("routed_to") == "worker_queue"
+    assert payload.get("metadata", {}).get("routed_to") == "control_plane_v2"
     assert payload["metadata"].get("source") != "telegram_youtube_autoflow"
 
 
-def test_telegram_butler_excel_audit_is_accepted_and_reports_background_success(
+def test_telegram_butler_excel_audit_queues_v2_worker_task(
     telegram_client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1001,25 +1099,33 @@ def test_telegram_butler_excel_audit_is_accepted_and_reports_background_success(
         assert response.status_code == 200
         payload = response.json()
         assert payload["accepted"] is True
-        assert payload["reason"] == "butler routed to excel_audit (async)"
-        assert payload["metadata"]["audit_id"] == "ea_test_001"
-        assert payload["metadata"]["butler_task_type"] == "excel_audit"
-        assert excel_service.created_requests
-        assert excel_service.created_requests[0].source_files == ["sales.xlsx", "commission.xlsx"]
-        assert excel_service.executed_audit_ids == ["ea_test_001"]
+        assert payload["metadata"]["routed_to"] == "control_plane_v2"
+        assert payload["metadata"]["capability_id"] == "excel_audit"
+        assert payload["metadata"]["status"] == "queued"
+        run_id = payload["metadata"]["run_id"]
+        assert run_id
+        scheduler = getattr(telegram_client, "_worker_scheduler")
+        run = scheduler.get_run(run_id)
+        assert run is not None
+        assert run.task_type == WorkerTaskType.EXCEL_AUDIT
+        assert run.payload["task_brief"] == "帮我核对 sales.xlsx 和 commission.xlsx 的提成差异"
+        assert run.payload["source_files"] == ["sales.xlsx", "commission.xlsx"]
+        assert run.payload["rules"] == []
+        assert run.payload["sheet_mapping"] == {}
+        assert run.payload["outputs"] == {}
+        assert run.metadata["control_plane_task_id"] == payload["metadata"]["control_plane_task_id"]
+        assert run.metadata["telegram_completion_via_api"] is True
+        assert excel_service.created_requests == []
+        assert excel_service.executed_audit_ids == []
 
-        assert len(notifier.messages) == 2
-        assert "Excel 核对已受理" in notifier.messages[0]["text"]
-        assert "ea_test_001" in notifier.messages[0]["text"]
-        assert "Excel 核对完成" in notifier.messages[1]["text"]
-        assert "任务号: ea_test_001" in notifier.messages[1]["text"]
-        assert "/tmp/report.md" in notifier.messages[1]["text"]
-        assert "/tmp/report.json" in notifier.messages[1]["text"]
+        assert len(notifier.messages) == 1
+        assert "Runtime: excel_audit" in notifier.messages[0]["text"]
+        assert run_id in notifier.messages[0]["text"]
     finally:
         app.dependency_overrides.pop(get_telegram_notifier_service, None)
 
 
-def test_telegram_butler_excel_audit_reports_background_failure(
+def test_telegram_butler_excel_audit_no_longer_uses_legacy_background_service(
     telegram_client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1045,12 +1151,14 @@ def test_telegram_butler_excel_audit_reports_background_failure(
         assert response.status_code == 200
         payload = response.json()
         assert payload["accepted"] is True
-        assert payload["metadata"]["audit_id"] == "ea_test_001"
-        assert excel_service.executed_audit_ids == ["ea_test_001"]
+        assert payload["metadata"]["capability_id"] == "excel_audit"
+        assert payload["metadata"]["status"] == "queued"
+        assert payload["metadata"]["run_id"]
+        assert excel_service.created_requests == []
+        assert excel_service.executed_audit_ids == []
 
-        assert len(notifier.messages) == 2
-        assert "Excel 核对已受理" in notifier.messages[0]["text"]
-        assert "Excel 核对失败 (ea_test_001): simulated execute failure" == notifier.messages[1]["text"]
+        assert len(notifier.messages) == 1
+        assert "Runtime: excel_audit" in notifier.messages[0]["text"]
     finally:
         app.dependency_overrides.pop(get_telegram_notifier_service, None)
 
@@ -1083,7 +1191,7 @@ def test_telegram_non_excel_request_keeps_original_route_and_skips_excel_dispatc
     assert response.status_code == 200
     payload = response.json()
     assert payload["accepted"] is True
-    assert payload.get("metadata", {}).get("routed_to") == "worker_queue"
+    assert payload.get("metadata", {}).get("routed_to") == "control_plane_v2"
     assert "audit_id" not in payload.get("metadata", {})
     assert excel_service.created_requests == []
     assert excel_service.executed_audit_ids == []
@@ -1132,16 +1240,26 @@ def test_telegram_short_affirmation_rewrites_followup_from_previous_assistant_qu
     assert response.status_code == 200
     payload = response.json()
     assert payload["accepted"] is True
-    # Default chat now routes to worker queue
-    assert payload.get("metadata", {}).get("routed_to") == "worker_queue"
-    run_id = payload.get("metadata", {}).get("run_id")
-    assert run_id is not None
+    assert payload.get("metadata", {}).get("routed_to") == "control_plane_v2"
+    assert payload["metadata"]["capability_id"] == "youtube_autoflow"
+    assert payload["metadata"]["status"] == "awaiting_approval"
+    task_id = payload["metadata"]["control_plane_task_id"]
 
-    # Verify the queued task has the context-resolved prompt
-    scheduler = app.dependency_overrides[get_worker_scheduler_service]()
+    service = getattr(telegram_client, "_control_plane_service")
+    approved = service.decide_task(
+        task_id,
+        ControlPlaneApprovalDecisionRequest(decision="approved", decided_by="tester"),
+    )
+    assert approved is not None
+    assert approved.run_id is not None
+
+    # Verify the dispatched task has the context-resolved prompt
+    scheduler = getattr(telegram_client, "_worker_scheduler")
+    run_id = approved.run_id
     queued_run = scheduler.get_run(run_id)
     assert queued_run is not None
-    assert queued_run.payload["prompt"].startswith("请按我上一条确认，立即触发一次今天的视频字幕处理。")
+    assert queued_run.payload["input_text"].startswith("请按我上一条确认，立即触发一次今天的视频字幕处理。")
+
 
 def test_telegram_webhook_secret_token_guard(
     telegram_client: TestClient,
@@ -2306,7 +2424,7 @@ def test_telegram_webhook_sends_queue_notice_with_table(
         assert response.status_code == 200
         payload = response.json()
         assert payload["accepted"] is True
-        assert payload.get("metadata", {}).get("routed_to") == "worker_queue"
+        assert payload.get("metadata", {}).get("routed_to") == "control_plane_v2"
         run_id = payload.get("metadata", {}).get("run_id")
         assert run_id
         assert notifier.messages, "queue path should notify user"
@@ -2320,6 +2438,7 @@ def test_telegram_webhook_sends_queue_notice_with_table(
         assert stored is not None
         assert stored.metadata.get("telegram_queue_ack_message_id") == notifier.sent_message_ids[-1]
         assert stored.metadata.get("telegram_completion_via_api") is True
+        assert stored.metadata.get("control_plane_task_id") == payload["metadata"]["control_plane_task_id"]
     finally:
         app.dependency_overrides.pop(get_telegram_notifier_service, None)
 

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
+from typing import Any
 
 from autoresearch.control_plane.contracts import ControlPlaneCapabilityRead, ControlPlaneTaskRead
 from autoresearch.shared.models import WorkerQueueItemCreateRequest, WorkerTaskType
@@ -86,23 +88,29 @@ class GitHubAssistantCapabilityAdapter(CapabilityAdapter):
     )
 
     def build_worker_request(self, task: ControlPlaneTaskRead) -> WorkerQueueItemCreateRequest:
+        action = str(task.parameters.get("action") or "").strip() or "read_issue"
         return WorkerQueueItemCreateRequest(
             task_name=task.name,
             task_type=WorkerTaskType.GITHUB_OPS,
             payload={
-                **task.parameters,
-                "session_id": task.session_id,
-                "task_id": task.task_id,
-                "capability_id": task.capability_id,
+                "action": action,
+                "repo": task.parameters.get("repo"),
+                "issue_number": task.parameters.get("issue_number"),
+                "pr_number": task.parameters.get("pr_number"),
+                "comment": task.parameters.get("comment"),
+                "labels": task.parameters.get("labels") or [],
+                "account_profile": task.parameters.get("account_profile") or "accountA",
+                "metadata": {
+                    **_base_worker_metadata(task),
+                    "source": "control_plane_v2",
+                    "request_text": task.intent or task.name,
+                    "target_agent": task.parameters.get("target_agent"),
+                    "canonical_task_type": task.parameters.get("canonical_task_type"),
+                },
             },
             requested_by=task.requested_by,
-            priority=task.metadata.get("priority", 8),
-            metadata={
-                "aas_session_id": task.session_id,
-                "control_plane_task_id": task.task_id,
-                "capability_id": task.capability_id,
-                "control_plane_v2": True,
-            },
+            priority=_priority_from_task(task, default=8),
+            metadata=_base_worker_metadata(task),
         )
 
 
@@ -121,24 +129,29 @@ class ExcelAuditCapabilityAdapter(CapabilityAdapter):
     )
 
     def build_worker_request(self, task: ControlPlaneTaskRead) -> WorkerQueueItemCreateRequest:
+        source_files = _list_param(task.parameters, "source_files") or _list_param(
+            task.parameters, "attachments"
+        )
+        rules = _list_param(task.parameters, "rules")
+        sheet_mapping = _dict_param(task.parameters, "sheet_mapping")
+        outputs = _dict_param(task.parameters, "outputs") or _dict_param(task.parameters, "options")
         return WorkerQueueItemCreateRequest(
             task_name=task.name,
             task_type=WorkerTaskType.EXCEL_AUDIT,
             payload={
-                **task.parameters,
+                "task_brief": task.intent or task.name,
+                "source_files": source_files,
+                "rules": rules,
+                "sheet_mapping": sheet_mapping,
+                "outputs": outputs,
                 "session_id": task.session_id,
                 "task_id": task.task_id,
                 "capability_id": task.capability_id,
-                "task_brief": task.intent or task.name,
+                "request_text": task.intent or task.name,
             },
             requested_by=task.requested_by,
             priority=_priority_from_task(task, default=3),
-            metadata={
-                "aas_session_id": task.session_id,
-                "control_plane_task_id": task.task_id,
-                "capability_id": task.capability_id,
-                "control_plane_v2": True,
-            },
+            metadata=_base_worker_metadata(task),
         )
 
 
@@ -157,24 +170,28 @@ class YouTubeAutoflowCapabilityAdapter(CapabilityAdapter):
     )
 
     def build_worker_request(self, task: ControlPlaneTaskRead) -> WorkerQueueItemCreateRequest:
+        request_text = task.intent or task.name
+        source_url = _first_url(task.parameters, request_text, youtube_only=True)
         return WorkerQueueItemCreateRequest(
             task_name=task.name,
             task_type=WorkerTaskType.YOUTUBE_AUTOFLOW,
             payload={
-                **task.parameters,
-                "session_id": task.session_id,
-                "task_id": task.task_id,
-                "capability_id": task.capability_id,
-                "request_text": task.intent or task.name,
+                "source_url": source_url,
+                "input_text": request_text,
+                "requested_by": task.requested_by,
+                "source": "control_plane_v2",
+                "metadata": {
+                    **_base_worker_metadata(task),
+                    "request_text": request_text,
+                    "source_url": source_url,
+                    "session_id": task.session_id,
+                    "task_id": task.task_id,
+                    "capability_id": task.capability_id,
+                },
             },
             requested_by=task.requested_by,
             priority=_priority_from_task(task, default=5),
-            metadata={
-                "aas_session_id": task.session_id,
-                "control_plane_task_id": task.task_id,
-                "capability_id": task.capability_id,
-                "control_plane_v2": True,
-            },
+            metadata=_base_worker_metadata(task),
         )
 
 
@@ -193,11 +210,27 @@ class ContentKBCapabilityAdapter(CapabilityAdapter):
     )
 
     def build_worker_request(self, task: ControlPlaneTaskRead) -> WorkerQueueItemCreateRequest:
+        request_text = task.intent or task.name
+        subtitle_text_path = str(
+            task.parameters.get("subtitle_text_path")
+            or task.parameters.get("file_path")
+            or _first_text_path(task.parameters)
+            or ""
+        ).strip()
         return WorkerQueueItemCreateRequest(
             task_name=task.name,
             task_type=WorkerTaskType.CONTENT_KB_INGEST,
             payload={
-                **task.parameters,
+                "subtitle_text_path": subtitle_text_path,
+                "title": task.parameters.get("title") or task.name,
+                "topic": task.parameters.get("topic") or "",
+                "source_url": task.parameters.get("source_url")
+                or _first_url(task.parameters, request_text),
+                "speakers": _list_param(task.parameters, "speakers"),
+                "created_at": task.parameters.get("created_at") or "",
+                "owner": task.parameters.get("owner") or "knowledge-base",
+                "default_repo": task.parameters.get("default_repo") or "knowledge-base",
+                "open_draft_pr": bool(task.parameters.get("open_draft_pr")),
                 "session_id": task.session_id,
                 "task_id": task.task_id,
                 "capability_id": task.capability_id,
@@ -205,12 +238,7 @@ class ContentKBCapabilityAdapter(CapabilityAdapter):
             },
             requested_by=task.requested_by,
             priority=_priority_from_task(task, default=4),
-            metadata={
-                "aas_session_id": task.session_id,
-                "control_plane_task_id": task.task_id,
-                "capability_id": task.capability_id,
-                "control_plane_v2": True,
-            },
+            metadata=_base_worker_metadata(task),
         )
 
 
@@ -350,3 +378,67 @@ def _priority_from_task(task: ControlPlaneTaskRead, *, default: int) -> int:
         return max(0, min(int(raw), 100))
     except (TypeError, ValueError):
         return default
+
+
+_URL_RE = re.compile(r"https?://[^\s<>()]+")
+_TEXT_PATH_SUFFIXES = (".srt", ".vtt", ".txt", ".md")
+
+
+def _base_worker_metadata(task: ControlPlaneTaskRead) -> dict[str, Any]:
+    return {
+        "aas_session_id": task.session_id,
+        "control_plane_task_id": task.task_id,
+        "control_plane_session_id": task.session_id,
+        "capability_id": task.capability_id,
+        "control_plane_v2": True,
+    }
+
+
+def _list_param(parameters: dict[str, Any], key: str) -> list[Any]:
+    value = parameters.get(key)
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        return list(value)
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+    return []
+
+
+def _dict_param(parameters: dict[str, Any], key: str) -> dict[str, Any]:
+    value = parameters.get(key)
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _first_url(
+    parameters: dict[str, Any],
+    text: str,
+    *,
+    youtube_only: bool = False,
+) -> str | None:
+    candidates: list[str] = []
+    for raw in _list_param(parameters, "urls"):
+        candidates.append(str(raw))
+    source_url = parameters.get("source_url")
+    if source_url:
+        candidates.append(str(source_url))
+    candidates.extend(_URL_RE.findall(text or ""))
+    for candidate in candidates:
+        cleaned = candidate.rstrip(".,)").strip()
+        if not cleaned:
+            continue
+        if youtube_only and "youtu" not in cleaned.lower():
+            continue
+        return cleaned
+    return None
+
+
+def _first_text_path(parameters: dict[str, Any]) -> str | None:
+    for key in ("attachments", "source_files", "paths", "files"):
+        for raw in _list_param(parameters, key):
+            candidate = str(raw).strip()
+            if candidate.lower().endswith(_TEXT_PATH_SUFFIXES):
+                return candidate
+    return None

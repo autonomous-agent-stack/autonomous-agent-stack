@@ -364,7 +364,6 @@ class MacWorkerExecutor:
         Optionally signals a draft PR should be opened via result metadata.
         The actual PR creation is a downstream concern (github_assistant or DAG).
         """
-        from content_kb.contracts import SpeakerIndex, TimelineIndex, TopicIndex
         from content_kb.index_builder import build_speaker_index, build_timeline_index, build_topic_index
         from content_kb.repo_selector import resolve_repo_selection
         from content_kb.subtitle_ingest import infer_topic_from_subtitle, ingest_subtitle
@@ -373,9 +372,15 @@ class MacWorkerExecutor:
         file_path = payload.get("subtitle_text_path", "")
         if not file_path:
             return MacWorkerExecutionResult(
-                message="content_kb_ingest skipped: no subtitle_text_path",
+                message="content_kb_ingest needs a local subtitle_text_path or text file path",
                 status=JobStatus.FAILED,
-                error="payload.subtitle_text_path is required",
+                error="payload.subtitle_text_path is required for content_kb_ingest",
+                result={
+                    "task_type": WorkerTaskType.CONTENT_KB_INGEST.value,
+                    "status": "missing_input_file",
+                    "required_field": "subtitle_text_path",
+                    "request_text": payload.get("request_text", ""),
+                },
             )
 
         path = Path(file_path)
