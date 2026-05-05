@@ -10,6 +10,7 @@ from autoresearch.control_plane.contracts import (
     ControlPlaneTaskStatus,
 )
 from autoresearch.core.adapters import CapabilityDomain, CapabilityProviderRegistry, SkillProvider
+from autoresearch.core.services.telegram_completion_format import format_butler_queue_ack_message
 from autoresearch.core.services.telegram_identity import TelegramSessionIdentityRead
 from autoresearch.shared.manager_agent_contract import ManagerDispatchRead
 from autoresearch.shared.models import (
@@ -63,8 +64,9 @@ def _build_help_message(*, session_identity: TelegramSessionIdentityRead) -> str
         "/memory <内容> 写入长期记忆",
         "/skills 查看可用 skills",
         "/skills <skill_key> 查看 skill 详情",
-        "/cancel [run_id] 取消最近或指定任务 / cancel latest or selected task",
-        "/retry [run_id] 重试最近或指定失败任务 / retry latest or selected failed task",
+        "/cancel [run_id|task_id] 取消最近或指定任务 / cancel latest or selected task",
+        "/retry [run_id|task_id] 重试最近或指定失败任务 / retry latest or selected failed task",
+        "/force-fail [run_id|task_id] owner 强制失败 v2 任务 / owner-only force-fail for v2 tasks",
         "/reset 重置当前会话",
     ]
     if chat_type == ChatType.PRIVATE:
@@ -252,37 +254,16 @@ def _telegram_queue_ack_message(
     worker_brand: str,
     runtime_id: str | None = None,
     agent_name: str | None = None,
+    agent_names: list[str] | None = None,
 ) -> str:
-    brand = (worker_brand or "").strip()
-    opener = f"收到，任务已进队（由【{brand}】执行）。" if brand else "收到，任务已进队。"
-    tail = (
-        f"完成后由【{brand}】在此会话回复；要看 worker / 队列发 /status。"
-        if brand
-        else "Worker 接单即跑；要看 worker / 队列发 /status。"
+    return format_butler_queue_ack_message(
+        task_name=task_name,
+        run_id=run_id,
+        worker_brand=worker_brand,
+        runtime_id=runtime_id,
+        primary_agent=agent_name,
+        agent_names=agent_names,
     )
-    table = _telegram_two_column_table(
-        [
-            ("任务", task_name),
-            ("run_id", run_id),
-            ("执行面 | Runtime", (runtime_id or "claude").strip().lower() or "claude"),
-            ("Agent 名称 | Agent name", (agent_name or "").strip() or "（未命名）| (unnamed)"),
-        ]
-    )
-    runtime_hint = (runtime_id or "claude").strip().lower() or "claude"
-    agent_hint = (agent_name or "").strip() or "（未命名）| (unnamed)"
-    body = "\n".join(
-        [
-            opener,
-            "",
-            f"执行面 | Runtime: {runtime_hint}",
-            f"Agent 名称 | Agent name: {agent_hint}",
-            "",
-            *table,
-            "",
-            tail,
-        ]
-    )
-    return _truncate_telegram_text(body)
 
 
 def _build_status_summary_lines(

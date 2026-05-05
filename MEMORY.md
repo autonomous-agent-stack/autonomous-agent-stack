@@ -33,6 +33,11 @@
 - AAS 接管 Hermes 时优先通过 `configs/runtime_agents/hermes.yaml` + `HermesRuntimeAdapterService` + `metadata.hermes`，不要在调用侧散落 shell 启动逻辑。
 - 如果 Windows 客户端要启动 Hermes，先切到目标项目目录再启动，别默认相信 `cwd` 会被自动翻译成 WSL 路径。
 
+## Control Plane v2 operator actions（2026-05-05）
+- v2 operator API 已支持 task/run 级 cancel、retry、force-fail；状态不允许返回 409，目标不存在返回 404。
+- v2 retry 不复用旧 run_id：保留同一个 task，创建新的 worker run 和 v2 run，并用 metadata 记录 `retry_of_run_id`、`retry_of_worker_run_id`、`retry_sequence`、`previous_run_ids`、`latest_retry_of_run_id`。
+- Telegram `/cancel` 与 `/retry` 先解析 v2 `task_id`/`run_id`，非 v2 worker run 保留旧 fallback；`/force-fail` 仅 owner 可用且仅作用于 v2 task/run。
+
 ## Prompt Hygiene 审计尺子（2026-03-26）
 - 新增只读审计脚本 `scripts/check_prompt_hygiene.py`，配套 `make hygiene-check`
 - 默认扫描 `src/`，输出到 `logs/audit/prompt_hygiene/report.txt` 和 `report.json`

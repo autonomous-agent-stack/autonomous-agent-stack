@@ -8,6 +8,7 @@ from autoresearch.control_plane.contracts import (
     ControlPlaneApprovalRead,
     ControlPlaneAuditEventRead,
     ControlPlaneCapabilityRead,
+    ControlPlaneOperatorActionRequest,
     ControlPlaneRunRead,
     ControlPlaneTaskCreateRequest,
     ControlPlaneTaskRead,
@@ -136,6 +137,96 @@ def decide_task_approval(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     if task is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+    return task
+
+
+@router.post("/tasks/{task_id}/cancel", response_model=ControlPlaneTaskRead)
+def cancel_task(
+    task_id: str,
+    payload: ControlPlaneOperatorActionRequest,
+    service: ControlPlaneService = Depends(get_control_plane_service_dependency),
+) -> ControlPlaneTaskRead:
+    try:
+        task = service.cancel_task(task_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    if task is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+    return task
+
+
+@router.post("/runs/{run_id}/cancel", response_model=ControlPlaneTaskRead)
+def cancel_run(
+    run_id: str,
+    payload: ControlPlaneOperatorActionRequest,
+    service: ControlPlaneService = Depends(get_control_plane_service_dependency),
+) -> ControlPlaneTaskRead:
+    try:
+        task = service.cancel_run(run_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    if task is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+    return task
+
+
+@router.post("/tasks/{task_id}/retry", response_model=ControlPlaneTaskRead)
+def retry_task(
+    task_id: str,
+    payload: ControlPlaneOperatorActionRequest,
+    service: ControlPlaneService = Depends(get_control_plane_service_dependency),
+) -> ControlPlaneTaskRead:
+    try:
+        task = service.retry_task(task_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    if task is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+    return task
+
+
+@router.post("/runs/{run_id}/retry", response_model=ControlPlaneTaskRead)
+def retry_run(
+    run_id: str,
+    payload: ControlPlaneOperatorActionRequest,
+    service: ControlPlaneService = Depends(get_control_plane_service_dependency),
+) -> ControlPlaneTaskRead:
+    try:
+        task = service.retry_run(run_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    if task is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+    return task
+
+
+@router.post("/tasks/{task_id}/force-fail", response_model=ControlPlaneTaskRead)
+def force_fail_task(
+    task_id: str,
+    payload: ControlPlaneOperatorActionRequest,
+    service: ControlPlaneService = Depends(get_control_plane_service_dependency),
+) -> ControlPlaneTaskRead:
+    try:
+        task = service.force_fail_task(task_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    if task is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+    return task
+
+
+@router.post("/runs/{run_id}/force-fail", response_model=ControlPlaneTaskRead)
+def force_fail_run(
+    run_id: str,
+    payload: ControlPlaneOperatorActionRequest,
+    service: ControlPlaneService = Depends(get_control_plane_service_dependency),
+) -> ControlPlaneTaskRead:
+    try:
+        task = service.force_fail_run(run_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    if task is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
     return task
 
 

@@ -219,6 +219,229 @@ def test_v2_worker_report_sync_updates_projection_and_terminal_timeline() -> Non
     assert "run.succeeded" in event_types
 
 
+def test_v2_cancel_queued_run_operator_updates_projection_and_timeline() -> None:
+    service, worker_scheduler, _ = build_control_plane()
+    client = build_client(service)
+
+    task = client.post(
+        "/api/v2/tasks",
+        json={"name": "queued cancel", "session_id": "session-v2-cancel-queued"},
+    ).json()
+
+    response = client.post(
+        f"/api/v2/tasks/{task['task_id']}/cancel",
+        json={"reason": "operator cancelled queued run", "requested_by": "tester"},
+    )
+
+    assert response.status_code == 200
+    cancelled = response.json()
+    assert cancelled["status"] == ControlPlaneTaskStatus.CANCELLED.value
+    assert cancelled["run_id"] == task["run_id"]
+    worker_run = worker_scheduler.get_run(task["run_id"])
+    assert worker_run is not None
+    assert worker_run.status == JobStatus.CANCELLED
+    run = client.get(f"/api/v2/runs/{task['run_id']}").json()
+    assert run["status"] == ControlPlaneRunStatus.CANCELLED.value
+    assert run["error"] == "operator cancelled queued run"
+    timeline = client.get("/api/v2/sessions/session-v2-cancel-queued/timeline").json()
+    event_types = [event["event_type"] for event in timeline["events"]]
+    assert "run.cancelled" in event_types
+
+
+def test_v2_cancel_running_run_records_request_without_terminal_projection() -> None:
+    service, worker_scheduler, worker_registry = build_control_plane()
+    client = build_client(service)
+
+    task = client.post(
+        "/api/v2/tasks",
+        json={"name": "running cancel", "session_id": "session-v2-cancel-running"},
+    ).json()
+    register_worker(worker_registry)
+    claim = worker_scheduler.claim("worker-1", WorkerClaimRequest())
+    assert claim.run is not None
+    running_worker = worker_scheduler.report(
+        "worker-1",
+        claim.run.run_id,
+        WorkerRunReportRequest(status=JobStatus.RUNNING, message="started"),
+    )
+    service.sync_worker_run(running_worker)
+
+    response = client.post(
+        f"/api/v2/runs/{task['run_id']}/cancel",
+        json={"reason": "operator requested stop", "requested_by": "tester"},
+    )
+
+    assert response.status_code == 200
+    projected = response.json()
+    assert projected["status"] == ControlPlaneTaskStatus.RUNNING.value
+    worker_run = worker_scheduler.get_run(task["run_id"])
+    assert worker_run is not None
+    assert worker_run.status == JobStatus.RUNNING
+    assert worker_run.metadata["cancel_requested"] is True
+    assert worker_run.metadata["cancel_reason"] == "operator requested stop"
+    run = client.get(f"/api/v2/runs/{task['run_id']}").json()
+    assert run["status"] == ControlPlaneRunStatus.RUNNING.value
+    assert run["metadata"]["cancel_requested"] is True
+    timeline = client.get("/api/v2/sessions/session-v2-cancel-running/timeline").json()
+    event_types = [event["event_type"] for event in timeline["events"]]
+    assert "run.cancel_requested" in event_types
+
+
+def test_v2_force_fail_operator_updates_projection_and_timeline() -> None:
+    service, _, _ = build_control_plane()
+    client = build_client(service)
+
+    task = client.post(
+        "/api/v2/tasks",
+        json={"name": "force fail", "session_id": "session-v2-force-fail"},
+    ).json()
+
+    response = client.post(
+        f"/api/v2/runs/{task['run_id']}/force-fail",
+        json={"reason": "operator forced failure", "requested_by": "tester"},
+    )
+
+    assert response.status_code == 200
+    failed = response.json()
+    assert failed["status"] == ControlPlaneTaskStatus.FAILED.value
+    run = client.get(f"/api/v2/runs/{task['run_id']}").json()
+    assert run["status"] == ControlPlaneRunStatus.FAILED.value
+    assert run["error"] == "operator forced failure"
+    timeline = client.get("/api/v2/sessions/session-v2-force-fail/timeline").json()
+    event_types = [event["event_type"] for event in timeline["events"]]
+    assert "run.failed" in event_types
+
+
+def test_v2_retry_failed_run_creates_new_run_with_lineage_metadata() -> None:
+    service, worker_scheduler, _ = build_control_plane()
+    client = build_client(service)
+
+    task = client.post(
+        "/api/v2/tasks",
+        json={"name": "retry failed", "session_id": "session-v2-retry-failed"},
+    ).json()
+    old_run_id = task["run_id"]
+    worker_scheduler.merge_queue_metadata(
+        old_run_id,
+        {
+            "telegram_completion_via_api": True,
+            "chat_id": "9710",
+            "session_key": "telegram:personal:user:9710",
+            "telegram_queue_ack_message_id": 123,
+            "telegram_butler_primary_sent": True,
+        },
+    )
+    failed = client.post(
+        f"/api/v2/runs/{old_run_id}/force-fail",
+        json={"reason": "make retryable", "requested_by": "tester"},
+    ).json()
+    assert failed["status"] == ControlPlaneTaskStatus.FAILED.value
+
+    response = client.post(
+        f"/api/v2/runs/{old_run_id}/retry",
+        json={"reason": "try again", "requested_by": "tester", "metadata": {"ticket": "ops-1"}},
+    )
+
+    assert response.status_code == 200
+    retried = response.json()
+    new_run_id = retried["run_id"]
+    assert new_run_id != old_run_id
+    assert retried["status"] == ControlPlaneTaskStatus.QUEUED.value
+    assert retried["metadata"]["previous_run_ids"] == [old_run_id]
+    assert retried["metadata"]["latest_retry_of_run_id"] == old_run_id
+    old_run = client.get(f"/api/v2/runs/{old_run_id}").json()
+    assert old_run["status"] == ControlPlaneRunStatus.FAILED.value
+    new_run = client.get(f"/api/v2/runs/{new_run_id}").json()
+    assert new_run["status"] == ControlPlaneRunStatus.QUEUED.value
+    assert new_run["metadata"]["retry_of_run_id"] == old_run_id
+    assert new_run["metadata"]["retry_of_worker_run_id"] == old_run_id
+    assert new_run["metadata"]["retry_sequence"] == 1
+    assert new_run["metadata"]["operator_metadata"] == {"ticket": "ops-1"}
+    new_worker = worker_scheduler.get_run(new_run_id)
+    assert new_worker is not None
+    assert new_worker.metadata["control_plane_task_id"] == retried["task_id"]
+    assert new_worker.metadata["control_plane_session_id"] == "session-v2-retry-failed"
+    assert new_worker.metadata["capability_id"] == "echo"
+    assert new_worker.metadata["telegram_completion_via_api"] is True
+    assert new_worker.metadata["chat_id"] == "9710"
+    assert new_worker.metadata["session_key"] == "telegram:personal:user:9710"
+    assert "telegram_butler_primary_sent" not in new_worker.metadata
+    timeline = client.get("/api/v2/sessions/session-v2-retry-failed/timeline").json()
+    event_types = [event["event_type"] for event in timeline["events"]]
+    assert "task.retried" in event_types
+    assert event_types.count("run.queued") == 2
+
+
+def test_v2_retry_cancelled_task_creates_new_run() -> None:
+    service, _, _ = build_control_plane()
+    client = build_client(service)
+
+    task = client.post(
+        "/api/v2/tasks",
+        json={"name": "retry cancelled", "session_id": "session-v2-retry-cancelled"},
+    ).json()
+    old_run_id = task["run_id"]
+    cancelled = client.post(
+        f"/api/v2/tasks/{task['task_id']}/cancel",
+        json={"reason": "cancel before retry", "requested_by": "tester"},
+    ).json()
+    assert cancelled["status"] == ControlPlaneTaskStatus.CANCELLED.value
+
+    response = client.post(
+        f"/api/v2/tasks/{task['task_id']}/retry",
+        json={"reason": "retry cancelled task", "requested_by": "tester"},
+    )
+
+    assert response.status_code == 200
+    retried = response.json()
+    assert retried["run_id"] != old_run_id
+    assert retried["status"] == ControlPlaneTaskStatus.QUEUED.value
+    assert retried["metadata"]["previous_run_ids"] == [old_run_id]
+    old_run = client.get(f"/api/v2/runs/{old_run_id}").json()
+    assert old_run["status"] == ControlPlaneRunStatus.CANCELLED.value
+
+
+def test_v2_retry_rejects_non_terminal_current_runs_and_missing_targets() -> None:
+    service, worker_scheduler, worker_registry = build_control_plane()
+    client = build_client(service)
+
+    queued = client.post("/api/v2/tasks", json={"name": "queued retry"}).json()
+    queued_retry = client.post(f"/api/v2/tasks/{queued['task_id']}/retry", json={"reason": "too early"})
+    assert queued_retry.status_code == 409
+
+    register_worker(worker_registry)
+    claim = worker_scheduler.claim("worker-1", WorkerClaimRequest())
+    assert claim.run is not None
+    running_worker = worker_scheduler.report(
+        "worker-1",
+        claim.run.run_id,
+        WorkerRunReportRequest(status=JobStatus.RUNNING, message="started"),
+    )
+    service.sync_worker_run(running_worker)
+    running_retry = client.post(f"/api/v2/runs/{queued['run_id']}/retry", json={"reason": "still running"})
+    assert running_retry.status_code == 409
+
+    service2, worker_scheduler2, worker_registry2 = build_control_plane()
+    client2 = build_client(service2)
+    succeeded = client2.post("/api/v2/tasks", json={"name": "succeeded retry"}).json()
+    register_worker(worker_registry2)
+    claim2 = worker_scheduler2.claim("worker-1", WorkerClaimRequest())
+    assert claim2.run is not None
+    completed_worker = worker_scheduler2.report(
+        "worker-1",
+        claim2.run.run_id,
+        WorkerRunReportRequest(status=JobStatus.COMPLETED, message="done"),
+    )
+    service2.sync_worker_run(completed_worker)
+    succeeded_retry = client2.post(f"/api/v2/tasks/{succeeded['task_id']}/retry", json={"reason": "done"})
+    assert succeeded_retry.status_code == 409
+
+    missing_task = client.post("/api/v2/tasks/task_missing/retry", json={"reason": "missing"})
+    missing_run = client.post("/api/v2/runs/run_missing/retry", json={"reason": "missing"})
+    assert missing_task.status_code == 404
+    assert missing_run.status_code == 404
+
+
 def test_v2_high_risk_task_requires_approval_before_enqueue() -> None:
     service, _, _ = build_control_plane()
     client = build_client(service)

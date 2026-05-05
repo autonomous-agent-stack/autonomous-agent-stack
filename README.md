@@ -134,6 +134,8 @@ Control Plane v2 is the new production core path:
   `POST /api/v2/butler/route`: Butler natural-language route preview; creates a task draft without creating a task.
 - `POST /api/v2/butler/tasks`: 管家自然语言任务入口，自动选择 capability、风险标签和优先级后交给 v2 控制面。
   `POST /api/v2/butler/tasks`: Butler natural-language task entrypoint; selects capability, risk tags, and priority before handing off to the v2 control plane.
+- Telegram 管家任务卡片使用 MarkdownV2 展示入队、运行中、完成与取消状态，并标明负责 agent 与参与 agents。
+  Telegram Butler task cards use MarkdownV2 for queued, running, completed, and cancellation states, and show the primary agent plus participating agents.
 - `POST /api/v2/tasks`: create a governed task
 - `GET /api/v2/tasks/{id}`: inspect task projection
 - `POST /api/v2/tasks/{id}/approval`: approve or reject high-risk tasks

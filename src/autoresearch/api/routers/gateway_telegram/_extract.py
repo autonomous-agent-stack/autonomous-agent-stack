@@ -213,6 +213,11 @@ def _is_retry_command(text: str) -> bool:
     return lowered == "/retry" or lowered.startswith("/retry ")
 
 
+def _is_force_fail_command(text: str) -> bool:
+    normalized = text.strip().lower()
+    return normalized == "/force-fail" or normalized.startswith("/force-fail ")
+
+
 def _extract_cancel_target(text: str) -> str:
     normalized = text.strip()
     lowered = normalized.lower()
@@ -233,6 +238,16 @@ def _extract_retry_target(text: str) -> str:
     if lowered == "/retry":
         return ""
     if lowered.startswith("/retry "):
+        return normalized.split(" ", 1)[1].strip()
+    return ""
+
+
+def _extract_force_fail_target(text: str) -> str:
+    normalized = text.strip()
+    lowered = normalized.lower()
+    if lowered == "/force-fail":
+        return ""
+    if lowered.startswith("/force-fail "):
         return normalized.split(" ", 1)[1].strip()
     return ""
 

@@ -495,14 +495,15 @@ def test_notify_telegram_edit_in_place_when_ack_message_id(
     assert edit_calls[0]["message_id"] == 777
     assert edit_calls[0]["chat_id"] == "42"
     text = str(edit_calls[0]["text"])
-    assert "【初代worker】" in text
-    assert "hello-out" in text
+    assert edit_calls[0]["parse_mode"] == "MarkdownV2"
+    assert "初代worker" in text
+    assert "hello\\-out" in text
     assert "执行面" in text
     assert "hermes" in text
-    assert "assistant-main" in text
-    assert "诊断 / Diagnostics" in text
-    assert "runtime=hermes" in text
-    assert "exit=completed" in text
+    assert "assistant\\-main" in text
+    assert "诊断 \\| Diagnostics" in text
+    assert "runtime\\=hermes" in text
+    assert "exit\\=completed" in text
     assert send_calls == []
 
 
@@ -895,7 +896,7 @@ def test_notify_telegram_emits_no_output_template_when_only_warnings(
     )
     text = str(edit_calls[0]["text"])
     # When everything is warnings we still want a meaningful card with run_id.
-    assert "run_d_only_warn" in text
+    assert "run\\_d\\_only\\_warn" in text
     assert "仅有警告输出" in text or "无文本输出" in text
     # Should NOT just dump the raw warning lines as the whole body.
     assert "Warning: a" not in text or "仅有警告输出" in text
@@ -935,10 +936,11 @@ def test_notify_telegram_skips_worker_http_when_delegated_to_api(
     assert edit_calls == []
     assert send_calls == []
     assert "telegram_completion_card_text" in (outcome.result or {})
+    assert outcome.result.get("telegram_completion_card_parse_mode") == "MarkdownV2"
     card = str(outcome.result.get("telegram_completion_card_text"))
     assert "worker stdout" in card
-    assert "诊断 / Diagnostics" in card
-    assert "runtime=claude" in card
+    assert "诊断 \\| Diagnostics" in card
+    assert "runtime\\=claude" in card
 
 
 def test_notify_telegram_does_not_build_terminal_card_for_running_pause(

@@ -17,6 +17,11 @@ from autoresearch.api.settings import TelegramSettings
 from autoresearch.control_plane.service import ControlPlaneService
 from autoresearch.core.services.approval_policy import ApprovalPolicyService
 from autoresearch.core.services.github_ops import GitHubOpsRequest
+from autoresearch.core.services.telegram_completion_format import (
+    TELEGRAM_MARKDOWN_V2_PARSE_MODE,
+    format_butler_completion_message,
+    resolve_telegram_agent_attribution,
+)
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
 from autoresearch.core.services.worker_scheduler import WorkerSchedulerService
 from autoresearch.core.services.worker_scheduler import WorkerReportError
@@ -285,21 +290,29 @@ def _try_edit_cancel_requested_card(
     except (TypeError, ValueError):
         thread_id = None
     reason = str(metadata.get("cancel_reason") or "cancelled by user").strip()
-    text = "\n".join(
-        [
-            "已请求取消，worker 会在安全检查点停止。 / Cancellation requested; the worker will stop at a safe checkpoint.",
-            "",
-            "| 项 | 值 |",
-            "| --- | --- |",
-            f"| run_id | {run.run_id} |",
-            "| 状态 | cancel_requested |",
-            f"| 原因 | {reason[:500]} |",
-        ]
+    primary_agent, agent_names = resolve_telegram_agent_attribution(payload, metadata)
+    runtime_id = str(payload.get("runtime_id") or metadata.get("capability_id") or run.task_type.value)
+    text = format_butler_completion_message(
+        brand="",
+        task_name=run.task_name,
+        run_id=run.run_id,
+        status_label="cancel_requested",
+        body=(
+            "已请求取消，worker 会在安全检查点停止。 / Cancellation requested; "
+            "the worker will stop at a safe checkpoint."
+        ),
+        runtime_id=runtime_id,
+        capability_id=str(metadata.get("capability_id") or payload.get("capability_id") or runtime_id),
+        primary_agent=primary_agent,
+        agent_names=agent_names,
+        phase="cancel_requested",
+        summary=reason[:500],
     )
     if notifier.edit_message_text(
         chat_id=chat_id,
         message_id=ack_message_id,
-        text=text[:3900],
+        text=text,
         message_thread_id=thread_id,
+        parse_mode=TELEGRAM_MARKDOWN_V2_PARSE_MODE,
     ):
         scheduler.merge_queue_metadata(run.run_id, {"telegram_cancel_requested_sent": True})

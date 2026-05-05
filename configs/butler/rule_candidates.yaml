@@ -1,0 +1,3 @@
+version: "1"
+description: "管家候选规则登记表 / Butler rule candidate registry"
+rule_candidates: []

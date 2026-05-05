@@ -11,6 +11,7 @@ from autoresearch.control_plane.contracts import (
     ControlPlaneApprovalStatus,
     ControlPlaneArtifactRead,
     ControlPlaneAuditEventRead,
+    ControlPlaneOperatorActionRequest,
     ControlPlanePromotionRead,
     ControlPlaneRunRead,
     ControlPlaneRunStatus,
@@ -20,15 +21,37 @@ from autoresearch.control_plane.contracts import (
     ControlPlaneTaskStatus,
 )
 from autoresearch.core.services.session_events import SessionEventService
-from autoresearch.core.services.worker_scheduler import WorkerSchedulerService
+from autoresearch.core.services.butler_tool_broker import (
+    ButlerToolBroker,
+    ButlerToolResolveRequest,
+)
+from autoresearch.core.services.worker_scheduler import WorkerReportError, WorkerSchedulerService
 from autoresearch.shared.models import JobStatus, SessionEventCreateRequest, utc_now
-from autoresearch.shared.models import WorkerQueueItemRead
+from autoresearch.shared.models import WorkerQueueItemCreateRequest, WorkerQueueItemRead
 from autoresearch.shared.store import Repository, create_resource_id
 
 
 logger = logging.getLogger(__name__)
 
 _APPROVAL_REQUIRED_TAGS = {"shell", "filesystem_write", "external_api"}
+_RETRY_METADATA_PRESERVE_KEYS = {
+    "chat_id",
+    "message_thread_id",
+    "session_key",
+    "control_plane_task_id",
+    "control_plane_session_id",
+    "capability_id",
+    "telegram_completion_via_api",
+    "telegram_queue_ack_message_id",
+}
+_RETRY_TELEGRAM_DROP_KEYS = {
+    "telegram_butler_fallback_reason",
+    "telegram_butler_fallback_sent",
+    "telegram_butler_primary_sent",
+    "telegram_cancel_requested_sent",
+    "telegram_live_last_body_hash",
+    "telegram_live_last_edit_at",
+}
 
 
 @dataclass(frozen=True)
@@ -50,15 +73,49 @@ class ControlPlaneService:
         worker_scheduler: WorkerSchedulerService,
         session_events: SessionEventService,
         capabilities: ControlPlaneCapabilityRegistry | None = None,
+        tool_broker: ButlerToolBroker | None = None,
     ) -> None:
         self._repositories = repositories
         self._worker_scheduler = worker_scheduler
         self._session_events = session_events
         self._capabilities = capabilities or ControlPlaneCapabilityRegistry()
+        self._tool_broker = tool_broker or ButlerToolBroker()
 
     def create_task(self, request: ControlPlaneTaskCreateRequest) -> ControlPlaneTaskRead:
         now = utc_now()
         capability = self._capabilities.get(request.capability_id).descriptor
+        parameters = dict(request.parameters)
+        task_metadata = dict(request.metadata)
+        effective_risk_tags = {*request.risk_tags, *capability.risk_tags}
+        tool_resolution = None
+        tool_requirements = parameters.get("tool_requirements") or task_metadata.get("tool_requirements") or []
+        if tool_requirements:
+            tool_resolution = self._tool_broker.resolve(
+                ButlerToolResolveRequest(
+                    requested_by=request.requested_by,
+                    actor_role=str(
+                        parameters.get("actor_role")
+                        or task_metadata.get("actor_role")
+                        or task_metadata.get("role")
+                        or "operator"
+                    ),
+                    target_agent=str(
+                        parameters.get("target_agent")
+                        or parameters.get("agent_name")
+                        or task_metadata.get("target_agent")
+                        or "butler_orchestrator"
+                    ),
+                    tool_requirements=tool_requirements,
+                    task_risk_tags=list(effective_risk_tags),
+                    parameters=parameters,
+                )
+            )
+            tool_payload = tool_resolution.model_dump(mode="json")
+            parameters["tool_grants"] = tool_payload["grants"]
+            parameters["tool_denials"] = tool_payload["denied"]
+            task_metadata["tool_broker"] = tool_payload
+            task_metadata["tool_grants"] = tool_payload["grants"]
+            effective_risk_tags.update(tool_resolution.risk_tags)
         session = self._ensure_session(
             session_id=request.session_id,
             owner=request.requested_by,
@@ -67,7 +124,7 @@ class ControlPlaneService:
                 "first_task_name": request.name,
             },
         )
-        effective_risk_tags = sorted({*request.risk_tags, *capability.risk_tags})
+        sorted_risk_tags = sorted(effective_risk_tags)
         task = ControlPlaneTaskRead(
             task_id=create_resource_id("task"),
             session_id=session.session_id,
@@ -75,13 +132,13 @@ class ControlPlaneService:
             intent=request.intent,
             status=ControlPlaneTaskStatus.CREATED,
             capability_id=request.capability_id,
-            parameters=request.parameters,
-            risk_tags=effective_risk_tags,
+            parameters=parameters,
+            risk_tags=sorted_risk_tags,
             requested_by=request.requested_by,
             created_at=now,
             updated_at=now,
             metadata={
-                **request.metadata,
+                **task_metadata,
                 "priority": request.priority,
                 "capability_type": capability.type,
             },
@@ -96,6 +153,16 @@ class ControlPlaneService:
             task_id=task.task_id,
             metadata={"capability_id": task.capability_id, "risk_tags": task.risk_tags},
         )
+        if tool_resolution is not None:
+            self._record(
+                session_id=task.session_id,
+                subject_type="tool_broker",
+                subject_id=task.task_id,
+                event_type="tool_broker.resolved",
+                message=f"Tool broker resolved {len(tool_resolution.grants)} grant(s).",
+                task_id=task.task_id,
+                metadata=tool_resolution.model_dump(mode="json"),
+            )
 
         if self._requires_approval(task, capability_requires_approval=capability.requires_approval):
             approval = self._create_approval(task)
@@ -232,6 +299,72 @@ class ControlPlaneService:
             return rejected
         return self._dispatch_task(task)
 
+    def cancel_task(
+        self,
+        task_id: str,
+        request: ControlPlaneOperatorActionRequest,
+    ) -> ControlPlaneTaskRead | None:
+        task = self.get_task(task_id)
+        if task is None:
+            return None
+        run = self._current_run_for_task(task)
+        return self._cancel_task_run(task=task, run=run, request=request)
+
+    def cancel_run(
+        self,
+        run_id: str,
+        request: ControlPlaneOperatorActionRequest,
+    ) -> ControlPlaneTaskRead | None:
+        resolved = self._resolve_current_task_run(run_id)
+        if resolved is None:
+            return None
+        task, run = resolved
+        return self._cancel_task_run(task=task, run=run, request=request)
+
+    def force_fail_task(
+        self,
+        task_id: str,
+        request: ControlPlaneOperatorActionRequest,
+    ) -> ControlPlaneTaskRead | None:
+        task = self.get_task(task_id)
+        if task is None:
+            return None
+        run = self._current_run_for_task(task)
+        return self._force_fail_task_run(task=task, run=run, request=request)
+
+    def force_fail_run(
+        self,
+        run_id: str,
+        request: ControlPlaneOperatorActionRequest,
+    ) -> ControlPlaneTaskRead | None:
+        resolved = self._resolve_current_task_run(run_id)
+        if resolved is None:
+            return None
+        task, run = resolved
+        return self._force_fail_task_run(task=task, run=run, request=request)
+
+    def retry_task(
+        self,
+        task_id: str,
+        request: ControlPlaneOperatorActionRequest,
+    ) -> ControlPlaneTaskRead | None:
+        task = self.get_task(task_id)
+        if task is None:
+            return None
+        run = self._current_run_for_task(task)
+        return self._retry_task_run(task=task, run=run, request=request)
+
+    def retry_run(
+        self,
+        run_id: str,
+        request: ControlPlaneOperatorActionRequest,
+    ) -> ControlPlaneTaskRead | None:
+        resolved = self._resolve_current_task_run(run_id)
+        if resolved is None:
+            return None
+        task, run = resolved
+        return self._retry_task_run(task=task, run=run, request=request)
+
     def sync_worker_run(self, worker_run: WorkerQueueItemRead) -> ControlPlaneTaskRead | None:
         task_id = str((worker_run.metadata or {}).get("control_plane_task_id") or "").strip()
         if not task_id:
@@ -241,9 +374,9 @@ class ControlPlaneService:
             logger.warning("Control Plane v2 task %s not found while syncing worker run %s", task_id, worker_run.run_id)
             return None
 
-        run = self._repositories.runs.get(task.run_id or worker_run.run_id)
+        run = self._find_run_by_worker_run_id(worker_run.run_id)
         if run is None:
-            run = self._find_run_by_worker_run_id(worker_run.run_id)
+            run = self._repositories.runs.get(task.run_id or worker_run.run_id)
         if run is None:
             logger.warning("Control Plane v2 run for worker run %s not found while syncing task %s", worker_run.run_id, task_id)
             return None
@@ -276,16 +409,19 @@ class ControlPlaneService:
         )
         self._repositories.runs.save(updated_run.run_id, updated_run)
 
-        updated_task = task.model_copy(
-            update={
-                "status": task_status,
-                "run_id": updated_run.run_id,
-                "result": worker_run.result if worker_run.result is not None else task.result,
-                "error": worker_run.error,
-                "updated_at": max(task.updated_at, worker_run.updated_at, current),
-            }
-        )
-        self._repositories.tasks.save(updated_task.task_id, updated_task)
+        if task.run_id in {None, updated_run.run_id}:
+            updated_task = task.model_copy(
+                update={
+                    "status": task_status,
+                    "run_id": updated_run.run_id,
+                    "result": worker_run.result if worker_run.result is not None else task.result,
+                    "error": worker_run.error,
+                    "updated_at": max(task.updated_at, worker_run.updated_at, current),
+                }
+            )
+            self._repositories.tasks.save(updated_task.task_id, updated_task)
+        else:
+            updated_task = self._project_task(task)
 
         terminal_event = _terminal_event_type_from_worker(worker_run.status)
         if terminal_event is not None:
@@ -302,6 +438,205 @@ class ControlPlaneService:
                     **worker_snapshot,
                 },
             )
+        return updated_task
+
+    def _cancel_task_run(
+        self,
+        *,
+        task: ControlPlaneTaskRead,
+        run: ControlPlaneRunRead,
+        request: ControlPlaneOperatorActionRequest,
+    ) -> ControlPlaneTaskRead:
+        self._require_operator_worker_run(run, allowed={ControlPlaneRunStatus.QUEUED, ControlPlaneRunStatus.RUNNING})
+        assert run.worker_run_id is not None
+        try:
+            worker_run = self._worker_scheduler.cancel_run(run.worker_run_id, reason=request.reason)
+        except KeyError as exc:
+            raise ValueError("worker run not found") from exc
+        except WorkerReportError as exc:
+            raise ValueError(exc.detail) from exc
+
+        if worker_run.status == JobStatus.CANCELLED:
+            synced = self.sync_worker_run(worker_run)
+            if synced is None:
+                raise ValueError("control-plane run could not be synced after cancellation")
+            return synced
+
+        now = utc_now()
+        operator_metadata = {
+            "reason": request.reason,
+            "requested_by": request.requested_by,
+            **dict(request.metadata),
+        }
+        updated_run = run.model_copy(
+            update={
+                "status": ControlPlaneRunStatus.RUNNING,
+                "updated_at": max(run.updated_at, worker_run.updated_at, now),
+                "metadata": {
+                    **run.metadata,
+                    "cancel_requested": True,
+                    "cancel_reason": request.reason,
+                    "cancel_requested_by": request.requested_by,
+                    "cancel_requested_at": now.isoformat(),
+                    "worker_run_id": worker_run.run_id,
+                    "worker_status": worker_run.status.value,
+                    "worker_message": worker_run.message,
+                    "operator_metadata": operator_metadata,
+                },
+            }
+        )
+        self._repositories.runs.save(updated_run.run_id, updated_run)
+        updated_task = task.model_copy(
+            update={
+                "status": ControlPlaneTaskStatus.RUNNING,
+                "run_id": updated_run.run_id,
+                "updated_at": max(task.updated_at, updated_run.updated_at),
+            }
+        )
+        self._repositories.tasks.save(updated_task.task_id, updated_task)
+        self._record(
+            session_id=task.session_id,
+            subject_type="run",
+            subject_id=updated_run.run_id,
+            event_type="run.cancel_requested",
+            message=f"Cancellation requested: {request.reason}",
+            task_id=task.task_id,
+            run_id=updated_run.run_id,
+            metadata={
+                "capability_id": task.capability_id,
+                "worker_run_id": worker_run.run_id,
+                "reason": request.reason,
+                "requested_by": request.requested_by,
+                **dict(request.metadata),
+            },
+        )
+        return updated_task
+
+    def _force_fail_task_run(
+        self,
+        *,
+        task: ControlPlaneTaskRead,
+        run: ControlPlaneRunRead,
+        request: ControlPlaneOperatorActionRequest,
+    ) -> ControlPlaneTaskRead:
+        self._require_operator_worker_run(run, allowed={ControlPlaneRunStatus.QUEUED, ControlPlaneRunStatus.RUNNING})
+        assert run.worker_run_id is not None
+        try:
+            worker_run = self._worker_scheduler.force_fail_run(run.worker_run_id, reason=request.reason)
+        except KeyError as exc:
+            raise ValueError("worker run not found") from exc
+        except WorkerReportError as exc:
+            raise ValueError(exc.detail) from exc
+        synced = self.sync_worker_run(worker_run)
+        if synced is None:
+            raise ValueError("control-plane run could not be synced after force-fail")
+        return synced
+
+    def _retry_task_run(
+        self,
+        *,
+        task: ControlPlaneTaskRead,
+        run: ControlPlaneRunRead,
+        request: ControlPlaneOperatorActionRequest,
+    ) -> ControlPlaneTaskRead:
+        self._require_operator_worker_run(run, allowed={ControlPlaneRunStatus.FAILED, ControlPlaneRunStatus.CANCELLED})
+        assert run.worker_run_id is not None
+        previous_worker_run = self._worker_scheduler.get_run(run.worker_run_id)
+        if previous_worker_run is None:
+            raise ValueError("worker run not found")
+
+        retry_sequence = _next_retry_sequence(run, previous_worker_run)
+        worker_request = WorkerQueueItemCreateRequest(
+            queue_name=previous_worker_run.queue_name,
+            task_name=previous_worker_run.task_name,
+            task_type=previous_worker_run.task_type,
+            payload=dict(previous_worker_run.payload),
+            requested_by=previous_worker_run.requested_by or request.requested_by,
+            priority=previous_worker_run.priority,
+            max_retries=previous_worker_run.max_retries,
+            metadata=_retry_worker_metadata(
+                task=task,
+                previous_run=run,
+                previous_worker_run=previous_worker_run,
+                request=request,
+                retry_sequence=retry_sequence,
+            ),
+        )
+        worker_run = self._worker_scheduler.enqueue(worker_request)
+        run_metadata = {
+            "dispatch_mode": "worker_queue",
+            "worker_task_type": worker_run.task_type.value,
+            "retry_of_run_id": run.run_id,
+            "retry_of_worker_run_id": previous_worker_run.run_id,
+            "retry_sequence": retry_sequence,
+            "retry_reason": request.reason,
+            "retry_requested_by": request.requested_by,
+            "operator_metadata": dict(request.metadata),
+        }
+        new_run = ControlPlaneRunRead(
+            run_id=worker_run.run_id,
+            task_id=task.task_id,
+            session_id=task.session_id,
+            capability_id=task.capability_id,
+            status=ControlPlaneRunStatus.QUEUED,
+            worker_run_id=worker_run.run_id,
+            queued_at=worker_run.created_at,
+            updated_at=worker_run.updated_at,
+            metadata=run_metadata,
+        )
+        self._repositories.runs.save(new_run.run_id, new_run)
+
+        previous_run_ids = _append_previous_run_id(task.metadata.get("previous_run_ids"), run.run_id)
+        updated_task = task.model_copy(
+            update={
+                "status": ControlPlaneTaskStatus.QUEUED,
+                "run_id": new_run.run_id,
+                "result": None,
+                "error": None,
+                "updated_at": worker_run.updated_at,
+                "metadata": {
+                    **task.metadata,
+                    "previous_run_ids": previous_run_ids,
+                    "latest_retry_of_run_id": run.run_id,
+                },
+            }
+        )
+        self._repositories.tasks.save(updated_task.task_id, updated_task)
+        self._record(
+            session_id=task.session_id,
+            subject_type="task",
+            subject_id=task.task_id,
+            event_type="task.retried",
+            message=f"Task retried: {request.reason}",
+            task_id=task.task_id,
+            run_id=run.run_id,
+            metadata={
+                "previous_run_id": run.run_id,
+                "previous_worker_run_id": previous_worker_run.run_id,
+                "new_run_id": new_run.run_id,
+                "new_worker_run_id": worker_run.run_id,
+                "retry_sequence": retry_sequence,
+                "requested_by": request.requested_by,
+                "reason": request.reason,
+                **dict(request.metadata),
+            },
+        )
+        self._record(
+            session_id=task.session_id,
+            subject_type="run",
+            subject_id=new_run.run_id,
+            event_type="run.queued",
+            message="Retried task dispatched onto the worker queue.",
+            task_id=task.task_id,
+            run_id=new_run.run_id,
+            metadata={
+                "worker_run_id": worker_run.run_id,
+                "worker_task_type": worker_run.task_type.value,
+                "capability_id": task.capability_id,
+                "retry_of_run_id": run.run_id,
+                "retry_sequence": retry_sequence,
+            },
+        )
         return updated_task
 
     def _dispatch_task(self, task: ControlPlaneTaskRead) -> ControlPlaneTaskRead:
@@ -498,6 +833,37 @@ class ControlPlaneService:
                 return run
         return None
 
+    def _current_run_for_task(self, task: ControlPlaneTaskRead) -> ControlPlaneRunRead:
+        if not task.run_id:
+            raise ValueError("task does not have a current run")
+        run = self.get_run(task.run_id)
+        if run is None:
+            raise ValueError("current run not found")
+        return run
+
+    def _resolve_current_task_run(self, run_id: str) -> tuple[ControlPlaneTaskRead, ControlPlaneRunRead] | None:
+        run = self.get_run(run_id)
+        if run is None:
+            return None
+        task = self.get_task(run.task_id)
+        if task is None:
+            raise ValueError("task for run not found")
+        if task.run_id != run.run_id:
+            raise ValueError("run is not the current task run")
+        return task, run
+
+    @staticmethod
+    def _require_operator_worker_run(
+        run: ControlPlaneRunRead,
+        *,
+        allowed: set[ControlPlaneRunStatus],
+    ) -> None:
+        if run.status not in allowed:
+            allowed_values = ", ".join(sorted(status.value for status in allowed))
+            raise ValueError(f"run status does not allow this operation: {run.status.value}; allowed: {allowed_values}")
+        if not run.worker_run_id:
+            raise ValueError("run is not backed by a worker run")
+
     def _requires_approval(self, task: ControlPlaneTaskRead, *, capability_requires_approval: bool) -> bool:
         tags = {tag.strip().lower() for tag in task.risk_tags}
         return capability_requires_approval or bool(tags & _APPROVAL_REQUIRED_TAGS)
@@ -585,3 +951,60 @@ def _terminal_event_type_from_worker(status: JobStatus) -> str | None:
     if status == JobStatus.CANCELLED:
         return "run.cancelled"
     return None
+
+
+def _next_retry_sequence(
+    run: ControlPlaneRunRead,
+    worker_run: WorkerQueueItemRead,
+) -> int:
+    for raw in (run.metadata.get("retry_sequence"), worker_run.metadata.get("retry_sequence")):
+        if raw is None:
+            continue
+        try:
+            return int(raw) + 1
+        except (TypeError, ValueError):
+            continue
+    return 1
+
+
+def _retry_worker_metadata(
+    *,
+    task: ControlPlaneTaskRead,
+    previous_run: ControlPlaneRunRead,
+    previous_worker_run: WorkerQueueItemRead,
+    request: ControlPlaneOperatorActionRequest,
+    retry_sequence: int,
+) -> dict[str, Any]:
+    preserved: dict[str, Any] = {}
+    for key, value in (previous_worker_run.metadata or {}).items():
+        if key in _RETRY_TELEGRAM_DROP_KEYS:
+            continue
+        if key in _RETRY_METADATA_PRESERVE_KEYS or key.startswith("telegram_"):
+            preserved[key] = value
+
+    return {
+        **preserved,
+        "control_plane_task_id": task.task_id,
+        "control_plane_session_id": task.session_id,
+        "capability_id": task.capability_id,
+        "retry_of_run_id": previous_run.run_id,
+        "retry_of_worker_run_id": previous_worker_run.run_id,
+        "retry_sequence": retry_sequence,
+        "retry_reason": request.reason,
+        "retry_requested_by": request.requested_by,
+        "operator_metadata": dict(request.metadata),
+    }
+
+
+def _append_previous_run_id(raw_value: Any, run_id: str) -> list[str]:
+    if isinstance(raw_value, list):
+        previous = [str(item).strip() for item in raw_value if str(item).strip()]
+    elif isinstance(raw_value, tuple):
+        previous = [str(item).strip() for item in raw_value if str(item).strip()]
+    elif raw_value is None:
+        previous = []
+    else:
+        previous = [str(raw_value).strip()] if str(raw_value).strip() else []
+    if run_id not in previous:
+        previous.append(run_id)
+    return previous

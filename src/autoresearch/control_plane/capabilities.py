@@ -22,6 +22,7 @@ class CapabilityAdapter:
         return CapabilityDispatch(worker_request=self.build_worker_request(task))
 
     def build_worker_request(self, task: ControlPlaneTaskRead) -> WorkerQueueItemCreateRequest:
+        primary_agent, agent_names = _agent_attribution_for_task(task)
         return WorkerQueueItemCreateRequest(
             task_name=task.name,
             task_type=WorkerTaskType.NOOP,
@@ -31,15 +32,14 @@ class CapabilityAdapter:
                 "capability_id": task.capability_id,
                 "parameters": task.parameters,
                 "intent": task.intent,
+                "runtime_id": task.parameters.get("runtime_id") or task.capability_id,
+                "agent_name": primary_agent,
+                "target_agent": primary_agent,
+                "target_agents": agent_names,
             },
             requested_by=task.requested_by,
             priority=0,
-            metadata={
-                "aas_session_id": task.session_id,
-                "control_plane_task_id": task.task_id,
-                "capability_id": task.capability_id,
-                "control_plane_v2": True,
-            },
+            metadata=_base_worker_metadata(task),
         )
 
 
@@ -89,6 +89,7 @@ class GitHubAssistantCapabilityAdapter(CapabilityAdapter):
 
     def build_worker_request(self, task: ControlPlaneTaskRead) -> WorkerQueueItemCreateRequest:
         action = str(task.parameters.get("action") or "").strip() or "read_issue"
+        primary_agent, agent_names = _agent_attribution_for_task(task)
         return WorkerQueueItemCreateRequest(
             task_name=task.name,
             task_type=WorkerTaskType.GITHUB_OPS,
@@ -104,7 +105,10 @@ class GitHubAssistantCapabilityAdapter(CapabilityAdapter):
                     **_base_worker_metadata(task),
                     "source": "control_plane_v2",
                     "request_text": task.intent or task.name,
-                    "target_agent": task.parameters.get("target_agent"),
+                    "runtime_id": task.parameters.get("runtime_id") or "claude",
+                    "agent_name": primary_agent,
+                    "target_agent": primary_agent,
+                    "target_agents": agent_names,
                     "canonical_task_type": task.parameters.get("canonical_task_type"),
                 },
             },
@@ -129,6 +133,7 @@ class ExcelAuditCapabilityAdapter(CapabilityAdapter):
     )
 
     def build_worker_request(self, task: ControlPlaneTaskRead) -> WorkerQueueItemCreateRequest:
+        primary_agent, agent_names = _agent_attribution_for_task(task)
         source_files = _list_param(task.parameters, "source_files") or _list_param(
             task.parameters, "attachments"
         )
@@ -148,6 +153,10 @@ class ExcelAuditCapabilityAdapter(CapabilityAdapter):
                 "task_id": task.task_id,
                 "capability_id": task.capability_id,
                 "request_text": task.intent or task.name,
+                "runtime_id": task.parameters.get("runtime_id") or task.capability_id,
+                "agent_name": primary_agent,
+                "target_agent": primary_agent,
+                "target_agents": agent_names,
             },
             requested_by=task.requested_by,
             priority=_priority_from_task(task, default=3),
@@ -172,6 +181,7 @@ class YouTubeAutoflowCapabilityAdapter(CapabilityAdapter):
     def build_worker_request(self, task: ControlPlaneTaskRead) -> WorkerQueueItemCreateRequest:
         request_text = task.intent or task.name
         source_url = _first_url(task.parameters, request_text, youtube_only=True)
+        primary_agent, agent_names = _agent_attribution_for_task(task)
         return WorkerQueueItemCreateRequest(
             task_name=task.name,
             task_type=WorkerTaskType.YOUTUBE_AUTOFLOW,
@@ -187,6 +197,10 @@ class YouTubeAutoflowCapabilityAdapter(CapabilityAdapter):
                     "session_id": task.session_id,
                     "task_id": task.task_id,
                     "capability_id": task.capability_id,
+                    "runtime_id": task.parameters.get("runtime_id") or task.capability_id,
+                    "agent_name": primary_agent,
+                    "target_agent": primary_agent,
+                    "target_agents": agent_names,
                 },
             },
             requested_by=task.requested_by,
@@ -217,6 +231,7 @@ class ContentKBCapabilityAdapter(CapabilityAdapter):
             or _first_text_path(task.parameters)
             or ""
         ).strip()
+        primary_agent, agent_names = _agent_attribution_for_task(task)
         return WorkerQueueItemCreateRequest(
             task_name=task.name,
             task_type=WorkerTaskType.CONTENT_KB_INGEST,
@@ -235,6 +250,10 @@ class ContentKBCapabilityAdapter(CapabilityAdapter):
                 "task_id": task.task_id,
                 "capability_id": task.capability_id,
                 "request_text": task.intent or task.name,
+                "runtime_id": task.parameters.get("runtime_id") or task.capability_id,
+                "agent_name": primary_agent,
+                "target_agent": primary_agent,
+                "target_agents": agent_names,
             },
             requested_by=task.requested_by,
             priority=_priority_from_task(task, default=4),
@@ -257,6 +276,7 @@ class HermesOpenClawCapabilityAdapter(CapabilityAdapter):
     )
 
     def build_worker_request(self, task: ControlPlaneTaskRead) -> WorkerQueueItemCreateRequest:
+        primary_agent, agent_names = _agent_attribution_for_task(task)
         return WorkerQueueItemCreateRequest(
             task_name=task.name,
             task_type=WorkerTaskType.CLAUDE_RUNTIME,
@@ -266,15 +286,54 @@ class HermesOpenClawCapabilityAdapter(CapabilityAdapter):
                 "capability_id": task.capability_id,
                 "prompt": task.intent or task.name,
                 "parameters": task.parameters,
+                "runtime_id": task.parameters.get("runtime_id") or "claude",
+                "agent_name": primary_agent,
+                "target_agent": primary_agent,
+                "target_agents": agent_names,
             },
             requested_by=task.requested_by,
             priority=task.metadata.get("priority", 5),
-            metadata={
-                "aas_session_id": task.session_id,
-                "control_plane_task_id": task.task_id,
+            metadata=_base_worker_metadata(task),
+        )
+
+
+class SecurityAuditCapabilityAdapter(CapabilityAdapter):
+    descriptor = ControlPlaneCapabilityRead(
+        capability_id="security_audit",
+        name="Security audit",
+        type="security",
+        enabled=True,
+        dispatch_mode="worker_queue",
+        description="Runs lightweight governance checks, rule candidate audits, and daily security reports.",
+        risk_tags=[],
+        requires_approval=False,
+        external_calls_enabled=False,
+        metadata={"worker_task_type": WorkerTaskType.SECURITY_AUDIT.value},
+    )
+
+    def build_worker_request(self, task: ControlPlaneTaskRead) -> WorkerQueueItemCreateRequest:
+        primary_agent, agent_names = _agent_attribution_for_task(task)
+        action = str(task.parameters.get("action") or "quick_scan").strip() or "quick_scan"
+        return WorkerQueueItemCreateRequest(
+            task_name=task.name,
+            task_type=WorkerTaskType.SECURITY_AUDIT,
+            payload={
+                "action": action,
+                "diff": task.parameters.get("diff"),
+                "files": _list_param(task.parameters, "files"),
+                "rule_candidate": task.parameters.get("rule_candidate"),
+                "session_id": task.session_id,
+                "task_id": task.task_id,
                 "capability_id": task.capability_id,
-                "control_plane_v2": True,
+                "request_text": task.intent or task.name,
+                "runtime_id": task.parameters.get("runtime_id") or task.capability_id,
+                "agent_name": primary_agent,
+                "target_agent": primary_agent,
+                "target_agents": agent_names,
             },
+            requested_by=task.requested_by,
+            priority=_priority_from_task(task, default=6),
+            metadata=_base_worker_metadata(task),
         )
 
 
@@ -343,6 +402,7 @@ class ControlPlaneCapabilityRegistry:
             YouTubeAutoflowCapabilityAdapter(),
             ContentKBCapabilityAdapter(),
             HermesOpenClawCapabilityAdapter(),
+            SecurityAuditCapabilityAdapter(),
             BoundaryCapabilityAdapter(
                 capability_id="mcp",
                 name="MCP tool boundary",
@@ -385,13 +445,64 @@ _TEXT_PATH_SUFFIXES = (".srt", ".vtt", ".txt", ".md")
 
 
 def _base_worker_metadata(task: ControlPlaneTaskRead) -> dict[str, Any]:
-    return {
+    primary_agent, agent_names = _agent_attribution_for_task(task)
+    metadata = {
         "aas_session_id": task.session_id,
         "control_plane_task_id": task.task_id,
         "control_plane_session_id": task.session_id,
         "capability_id": task.capability_id,
         "control_plane_v2": True,
+        "target_agent": primary_agent,
+        "target_agents": agent_names,
+        "telegram_display_primary_agent": primary_agent,
+        "telegram_display_agent_names": agent_names,
     }
+    tool_grants = task.metadata.get("tool_grants")
+    if isinstance(tool_grants, list):
+        metadata["tool_grants"] = tool_grants
+    tool_broker = task.metadata.get("tool_broker")
+    if isinstance(tool_broker, dict):
+        metadata["tool_broker"] = tool_broker
+    return metadata
+
+
+def _agent_attribution_for_task(task: ControlPlaneTaskRead) -> tuple[str, list[str]]:
+    params = task.parameters or {}
+    primary = str(
+        params.get("target_agent")
+        or params.get("agent_name")
+        or _default_agent_for_capability(task.capability_id)
+    ).strip()
+    if not primary:
+        primary = "butler_orchestrator"
+    names: list[str] = []
+    for key in ("target_agents", "agent_names", "agents"):
+        names.extend(str(item).strip() for item in _list_param(params, key) if str(item).strip())
+    names.append(primary)
+    return primary[:200], _dedupe_agent_names(names)[:8]
+
+
+def _default_agent_for_capability(capability_id: str) -> str:
+    return {
+        "github_assistant": "github_ops_accountA",
+        "excel_audit": "excel_audit",
+        "youtube_autoflow": "youtube_ops",
+        "content_kb": "content_kb",
+        "hermes_openclaw": "butler_orchestrator",
+        "security_audit": "security_audit",
+    }.get(str(capability_id or "").strip(), "butler_orchestrator")
+
+
+def _dedupe_agent_names(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for raw in values:
+        name = str(raw or "").strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        out.append(name)
+    return out
 
 
 def _list_param(parameters: dict[str, Any], key: str) -> list[Any]:
