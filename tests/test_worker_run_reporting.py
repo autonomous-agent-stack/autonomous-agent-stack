@@ -6,11 +6,31 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 import pytest
 
-from autoresearch.api.dependencies import get_worker_registry_service, get_worker_scheduler_service
+from autoresearch.api.dependencies import (
+    get_control_plane_service,
+    get_worker_registry_service,
+    get_worker_scheduler_service,
+)
 from autoresearch.api.main import app
+from autoresearch.control_plane.contracts import (
+    ControlPlaneApprovalRead,
+    ControlPlaneArtifactRead,
+    ControlPlaneAuditEventRead,
+    ControlPlanePromotionRead,
+    ControlPlaneRunRead,
+    ControlPlaneRunStatus,
+    ControlPlaneSessionRead,
+    ControlPlaneTaskCreateRequest,
+    ControlPlaneTaskRead,
+    ControlPlaneTaskStatus,
+)
+from autoresearch.control_plane.service import ControlPlaneRepositories, ControlPlaneService
+from autoresearch.core.services.session_events import SessionEventService
 from autoresearch.core.services.worker_registry import WorkerRegistryService
 from autoresearch.core.services.worker_scheduler import WorkerSchedulerService
 from autoresearch.shared.models import (
+    JobStatus,
+    SessionEventRead,
     WorkerClaimRequest,
     WorkerLeaseRead,
     WorkerQueueItemCreateRequest,
@@ -51,6 +71,62 @@ def worker_services(tmp_path: Path) -> tuple[WorkerRegistryService, WorkerSchedu
         lease_ttl_seconds=60,
     )
     return registry, scheduler
+
+
+def _build_control_plane_service(
+    tmp_path: Path,
+    scheduler: WorkerSchedulerService,
+) -> tuple[ControlPlaneService, SessionEventService]:
+    db_path = tmp_path / "worker-run-control-plane.sqlite3"
+    session_events = SessionEventService(
+        repository=SQLiteModelRepository(
+            db_path=db_path,
+            table_name="session_events_reporting_cp_test",
+            model_cls=SessionEventRead,
+        )
+    )
+    service = ControlPlaneService(
+        repositories=ControlPlaneRepositories(
+            sessions=SQLiteModelRepository(
+                db_path=db_path,
+                table_name="control_plane_sessions_reporting_test",
+                model_cls=ControlPlaneSessionRead,
+            ),
+            tasks=SQLiteModelRepository(
+                db_path=db_path,
+                table_name="control_plane_tasks_reporting_test",
+                model_cls=ControlPlaneTaskRead,
+            ),
+            runs=SQLiteModelRepository(
+                db_path=db_path,
+                table_name="control_plane_runs_reporting_test",
+                model_cls=ControlPlaneRunRead,
+            ),
+            approvals=SQLiteModelRepository(
+                db_path=db_path,
+                table_name="control_plane_approvals_reporting_test",
+                model_cls=ControlPlaneApprovalRead,
+            ),
+            artifacts=SQLiteModelRepository(
+                db_path=db_path,
+                table_name="control_plane_artifacts_reporting_test",
+                model_cls=ControlPlaneArtifactRead,
+            ),
+            audit_events=SQLiteModelRepository(
+                db_path=db_path,
+                table_name="control_plane_audit_events_reporting_test",
+                model_cls=ControlPlaneAuditEventRead,
+            ),
+            promotions=SQLiteModelRepository(
+                db_path=db_path,
+                table_name="control_plane_promotions_reporting_test",
+                model_cls=ControlPlanePromotionRead,
+            ),
+        ),
+        worker_scheduler=scheduler,
+        session_events=session_events,
+    )
+    return service, session_events
 
 
 @pytest.fixture
@@ -138,6 +214,98 @@ def test_enqueue_claim_and_report_lifecycle_via_api(
     leases = scheduler.list_leases()
     assert len(leases) == 1
     assert leases[0].active is False
+
+
+def test_report_terminal_control_plane_run_updates_v2_state(
+    worker_client: TestClient,
+    worker_services: tuple[WorkerRegistryService, WorkerSchedulerService],
+    tmp_path: Path,
+) -> None:
+    registry, scheduler = worker_services
+    _register_worker(registry, worker_id="mac-mini-01")
+    control_plane, session_events = _build_control_plane_service(tmp_path, scheduler)
+    task = control_plane.create_task(
+        ControlPlaneTaskCreateRequest(
+            name="worker report sync",
+            session_id="session-worker-report-sync",
+            requested_by="report-test",
+        )
+    )
+    assert task.run_id is not None
+    claimed = scheduler.claim("mac-mini-01", WorkerClaimRequest(), now=utc_now())
+    assert claimed.run is not None
+
+    app.dependency_overrides[get_control_plane_service] = lambda: control_plane
+    try:
+        completed = worker_client.post(
+            f"/api/v1/workers/mac-mini-01/runs/{task.run_id}/report",
+            json={
+                "status": "completed",
+                "message": "worker report complete",
+                "result": {"summary": "v2 projection updated"},
+                "metrics": {"rows": 12},
+            },
+        )
+        assert completed.status_code == 200
+    finally:
+        app.dependency_overrides.pop(get_control_plane_service, None)
+
+    projected = control_plane.get_task(task.task_id)
+    assert projected is not None
+    assert projected.status == ControlPlaneTaskStatus.SUCCEEDED
+    assert projected.result == {"summary": "v2 projection updated"}
+    run = control_plane.get_run(task.run_id)
+    assert run is not None
+    assert run.status == ControlPlaneRunStatus.SUCCEEDED
+    assert run.output == {"summary": "v2 projection updated"}
+    assert run.metadata["worker_status"] == "completed"
+    assert run.metadata["worker_message"] == "worker report complete"
+    assert run.metadata["worker_result"] == {"summary": "v2 projection updated"}
+    assert run.metadata["worker_metrics"] == {"rows": 12}
+    assert run.metadata["worker_run_id"] == task.run_id
+    timeline = session_events.timeline(session_id="session-worker-report-sync")
+    event_types = [event.event_type for event in timeline.events]
+    assert "run.succeeded" in event_types
+
+
+def test_report_control_plane_sync_failure_does_not_break_report(
+    worker_client: TestClient,
+    worker_services: tuple[WorkerRegistryService, WorkerSchedulerService],
+) -> None:
+    registry, scheduler = worker_services
+    _register_worker(registry, worker_id="mac-mini-01")
+    queued = scheduler.enqueue(
+        WorkerQueueItemCreateRequest(
+            task_type="noop",
+            payload={"message": "hello"},
+            metadata={"control_plane_task_id": "task_missing"},
+        ),
+        now=utc_now(),
+    )
+    scheduler.claim("mac-mini-01", WorkerClaimRequest(), now=utc_now())
+
+    class _FailingControlPlane:
+        def sync_worker_run(self, run: WorkerQueueItemRead) -> None:
+            raise RuntimeError(f"boom {run.run_id}")
+
+    app.dependency_overrides[get_control_plane_service] = lambda: _FailingControlPlane()
+    try:
+        response = worker_client.post(
+            f"/api/v1/workers/mac-mini-01/runs/{queued.run_id}/report",
+            json={
+                "status": "completed",
+                "message": "still stored",
+                "result": {"ok": True},
+            },
+        )
+        assert response.status_code == 200
+    finally:
+        app.dependency_overrides.pop(get_control_plane_service, None)
+
+    stored = scheduler.get_run(queued.run_id)
+    assert stored is not None
+    assert stored.status == JobStatus.COMPLETED
+    assert stored.result == {"ok": True}
 
 
 def test_report_persists_failure_metadata_for_summary_chain(
@@ -573,7 +741,6 @@ def test_butler_fallback_disabled_by_setting(
     from autoresearch.api.dependencies import get_telegram_notifier_service
     from autoresearch.api.main import app
     from autoresearch.api.settings import (
-        TelegramSettings,
         get_telegram_settings as real_get_telegram_settings,
     )
 

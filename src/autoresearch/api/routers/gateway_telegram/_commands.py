@@ -7,6 +7,13 @@ from typing import Any
 
 from fastapi import BackgroundTasks
 
+from autoresearch.control_plane.contracts import (
+    ControlPlaneApprovalDecisionRequest,
+    ControlPlaneApprovalRead,
+    ControlPlaneApprovalStatus,
+    ControlPlaneTaskRead,
+)
+from autoresearch.control_plane.service import ControlPlaneService
 from autoresearch.core.services.approval_decisions import (
     ApprovalDecisionDeliveryError,
     ApprovalDecisionService,
@@ -29,7 +36,6 @@ from autoresearch.core.services.telegram_notify import TelegramNotifierService
 from autoresearch.core.services.worker_inventory import WorkerInventoryService
 from autoresearch.core.services.worker_registry import WorkerRegistryService
 from autoresearch.core.services.worker_scheduler import WorkerReportError, WorkerSchedulerService
-from autoresearch.core.services.claude_session_records import ClaudeSessionRecordService
 from autoresearch.shared.manager_agent_contract import ManagerDispatchRead, ManagerDispatchRequest
 from autoresearch.shared.models import (
     ApprovalDecisionRequest,
@@ -54,24 +60,17 @@ from ._extract import (
     _extract_mode_target,
     _extract_retry_target,
     _extract_skill_query,
-    _is_approve_command,
-    _is_help_command,
-    _is_memory_command,
-    _is_mode_command,
-    _is_reset_command,
-    _is_skills_command,
-    _is_status_query,
-    _is_task_command,
     _parse_approve_query,
     _parse_task_command,
     _safe_int,
-    _safe_str,
 )
 from ._messages import (
     _build_agent_result_message,
     _build_approval_decision_message,
     _build_approval_detail_message,
     _build_approval_list_message,
+    _build_v2_approval_decision_message,
+    _build_v2_approval_detail_message,
     _build_github_issue_comment_body,
     _build_github_issue_comment_posted_message,
     _build_github_issue_reply_approval_message,
@@ -89,8 +88,6 @@ from ._messages import (
 )
 from ._session import (
     _build_session_title,
-    _build_task_name,
-    _ensure_admin_channel_visibility,
     _find_existing_telegram_session,
     _find_or_create_telegram_session,
     _sync_session_runtime_identity,
@@ -639,7 +636,9 @@ def _handle_approve_command(
     background_tasks: BackgroundTasks,
     approval_service: ApprovalStoreService,
     approval_decision_service: ApprovalDecisionService,
+    control_plane_service: ControlPlaneService,
     github_issue_service: GitHubIssueService,
+    worker_scheduler: WorkerSchedulerService,
     notifier: TelegramNotifierService,
     session_identity: TelegramSessionIdentityRead,
 ) -> TelegramWebhookAck:
@@ -649,71 +648,141 @@ def _handle_approve_command(
     message_source = "telegram_approve_query"
     if approval_action is not None and approval_id:
         approval = approval_service.get_request(approval_id)
-        if approval is None or approval.telegram_uid != approval_uid:
-            message_text = f"未找到 approval: {approval_id}"
-        else:
-            decision = "approved" if approval_action == "approve" else "rejected"
-            try:
-                approval = approval_decision_service.resolve_request(
-                    approval.approval_id,
-                    ApprovalDecisionRequest(
-                        decision=decision,
-                        decided_by=approval_uid,
-                        note=approval_note or None,
-                        metadata={
-                            "resolved_via": "telegram_command",
-                            "chat_id": chat_id,
-                            "scope": session_identity.scope.value,
-                        },
-                    ),
-                )
-                message_text = _build_approval_decision_message(approval)
-                message_source = "telegram_approve_decision"
-                approval_query = approval.approval_id
-                if decision == "approved" and approval.metadata.get("action_type") == "github_issue_comment":
-                    comment_output = _post_github_issue_comment_for_approval(
-                        approval=approval,
-                        approval_service=approval_service,
-                        github_issue_service=github_issue_service,
-                        chat_id=chat_id,
-                        scope=session_identity.scope.value,
+        if approval is not None:
+            if approval.telegram_uid != approval_uid:
+                message_text = f"未找到 approval: {approval_id}"
+            else:
+                decision = "approved" if approval_action == "approve" else "rejected"
+                try:
+                    approval = approval_decision_service.resolve_request(
+                        approval.approval_id,
+                        ApprovalDecisionRequest(
+                            decision=decision,
+                            decided_by=approval_uid,
+                            note=approval_note or None,
+                            metadata={
+                                "resolved_via": "telegram_command",
+                                "chat_id": chat_id,
+                                "scope": session_identity.scope.value,
+                            },
+                        ),
                     )
+                    message_text = _build_approval_decision_message(approval)
+                    message_source = "telegram_approve_decision"
+                    approval_query = approval.approval_id
+                    if decision == "approved" and approval.metadata.get("action_type") == "github_issue_comment":
+                        comment_output = _post_github_issue_comment_for_approval(
+                            approval=approval,
+                            approval_service=approval_service,
+                            github_issue_service=github_issue_service,
+                            chat_id=chat_id,
+                            scope=session_identity.scope.value,
+                        )
+                        message_text = "\n\n".join(
+                            [
+                                message_text,
+                                _build_github_issue_comment_posted_message(
+                                    approval_id=approval.approval_id,
+                                    issue_reference=str(approval.metadata.get("issue_reference") or "unknown"),
+                                    output=comment_output or None,
+                                ),
+                            ]
+                        ).strip()
+                except ValueError as exc:
+                    message_text = str(exc)
+                    message_source = "telegram_approve_decision"
+                except ApprovalDecisionDeliveryError as exc:
+                    message_text = f"审批决策未送达。 / Approval decision was not delivered: {str(exc)}"
+                    message_source = "telegram_approve_decision"
+                except RuntimeError as exc:
                     message_text = "\n\n".join(
                         [
-                            message_text,
-                            _build_github_issue_comment_posted_message(
-                                approval_id=approval.approval_id,
-                                issue_reference=str(approval.metadata.get("issue_reference") or "unknown"),
-                                output=comment_output or None,
-                            ),
+                            _build_approval_decision_message(approval),
+                            f"[GitHub Reply Failed]\n{str(exc).strip()}",
                         ]
                     ).strip()
-            except ValueError as exc:
-                message_text = str(exc)
-                message_source = "telegram_approve_decision"
-            except ApprovalDecisionDeliveryError as exc:
-                message_text = f"审批决策未送达。 / Approval decision was not delivered: {str(exc)}"
-                message_source = "telegram_approve_decision"
-            except RuntimeError as exc:
-                message_text = "\n\n".join(
-                    [
-                        _build_approval_decision_message(approval),
-                        f"[GitHub Reply Failed]\n{str(exc).strip()}",
-                    ]
-                ).strip()
-                message_source = "telegram_approve_decision"
+                    message_source = "telegram_approve_decision"
+        else:
+            v2_lookup = _find_v2_approval_task(
+                control_plane_service=control_plane_service,
+                identifier=approval_id,
+                requested_by=approval_uid,
+            )
+            if v2_lookup is None:
+                message_text = f"未找到 approval: {approval_id}"
+            else:
+                v2_approval, v2_task = v2_lookup
+                decision = "approved" if approval_action == "approve" else "rejected"
+                try:
+                    resolved_task = control_plane_service.decide_task(
+                        v2_task.task_id,
+                        ControlPlaneApprovalDecisionRequest(
+                            decision=decision,
+                            decided_by=approval_uid,
+                            note=approval_note or None,
+                            metadata={
+                                "resolved_via": "telegram_command",
+                                "chat_id": chat_id,
+                                "scope": session_identity.scope.value,
+                                "approval_id": v2_approval.approval_id,
+                            },
+                        ),
+                    )
+                    if resolved_task is None:
+                        message_text = f"未找到 approval: {approval_id}"
+                    else:
+                        v2_task = resolved_task
+                        if decision == "approved" and v2_task.run_id:
+                            worker_scheduler.merge_queue_metadata(
+                                v2_task.run_id,
+                                {
+                                    "telegram_completion_via_api": True,
+                                    "chat_id": chat_id,
+                                    "message_thread_id": extracted.get("message_thread_id"),
+                                    "session_key": session_identity.session_key,
+                                    "control_plane_task_id": v2_task.task_id,
+                                    "control_plane_session_id": v2_task.session_id,
+                                    "capability_id": v2_task.capability_id,
+                                },
+                            )
+                        message_text = _build_v2_approval_decision_message(v2_task)
+                        message_source = "telegram_approve_decision"
+                        approval_query = v2_approval.approval_id
+                except ValueError as exc:
+                    message_text = str(exc)
+                    message_source = "telegram_approve_decision"
+                    approval_query = v2_approval.approval_id
     elif approval_id:
         approval = approval_service.get_request(approval_id)
-        if approval is None or approval.telegram_uid != approval_uid:
-            message_text = f"未找到 approval: {approval_id}"
+        if approval is not None:
+            if approval.telegram_uid != approval_uid:
+                message_text = f"未找到 approval: {approval_id}"
+            else:
+                approval_query = approval.approval_id
+                message_text = _build_approval_detail_message(approval)
         else:
-            approval_query = approval.approval_id
-            message_text = _build_approval_detail_message(approval)
+            v2_lookup = _find_v2_approval_task(
+                control_plane_service=control_plane_service,
+                identifier=approval_id,
+                requested_by=approval_uid,
+            )
+            if v2_lookup is None:
+                message_text = f"未找到 approval: {approval_id}"
+            else:
+                v2_approval, v2_task = v2_lookup
+                approval_query = v2_approval.approval_id
+                message_text = _build_v2_approval_detail_message(v2_approval, v2_task)
     else:
         approvals = approval_service.list_requests(
             status=ApprovalStatus.PENDING,
             telegram_uid=approval_uid,
             limit=10,
+        )
+        approvals.extend(
+            _list_v2_pending_approval_items(
+                control_plane_service=control_plane_service,
+                requested_by=approval_uid,
+            )
         )
         message_text = _build_approval_list_message(approvals)
 
@@ -732,8 +801,73 @@ def _handle_approve_command(
             "approval_id": approval_query or None,
             "decision": approval_action or None,
             "scope": session_identity.scope.value,
+            **_v2_approval_metadata(
+                control_plane_service=control_plane_service,
+                approval_id=approval_query,
+            ),
         },
     )
+
+
+def _find_v2_approval_task(
+    *,
+    control_plane_service: ControlPlaneService,
+    identifier: str,
+    requested_by: str,
+) -> tuple[ControlPlaneApprovalRead, ControlPlaneTaskRead] | None:
+    approval = control_plane_service.get_approval(identifier)
+    task: ControlPlaneTaskRead | None = None
+    if approval is not None:
+        task = control_plane_service.get_task(approval.task_id)
+    else:
+        task = control_plane_service.get_task(identifier)
+        if task is not None and task.approval_id:
+            approval = control_plane_service.get_approval(task.approval_id)
+    if approval is None or task is None:
+        return None
+    if approval.requested_by != requested_by and task.requested_by != requested_by:
+        return None
+    return approval, task
+
+
+def _list_v2_pending_approval_items(
+    *,
+    control_plane_service: ControlPlaneService,
+    requested_by: str,
+) -> list[dict[str, object]]:
+    items: list[dict[str, object]] = []
+    for approval in control_plane_service.list_approvals():
+        if approval.status != ControlPlaneApprovalStatus.PENDING:
+            continue
+        if approval.requested_by != requested_by:
+            continue
+        task = control_plane_service.get_task(approval.task_id)
+        if task is None:
+            continue
+        items.append({"kind": "control_plane_v2", "approval": approval, "task": task})
+    items.sort(key=lambda item: item["approval"].updated_at, reverse=True)
+    return items[:10]
+
+
+def _v2_approval_metadata(
+    *,
+    control_plane_service: ControlPlaneService,
+    approval_id: str | None,
+) -> dict[str, object]:
+    if not approval_id:
+        return {}
+    approval = control_plane_service.get_approval(approval_id)
+    if approval is None:
+        return {}
+    task = control_plane_service.get_task(approval.task_id)
+    if task is None:
+        return {}
+    return {
+        "control_plane_task_id": task.task_id,
+        "capability_id": task.capability_id,
+        "status": task.status.value,
+        "run_id": task.run_id,
+    }
 
 
 def _handle_mode_command(
@@ -746,8 +880,6 @@ def _handle_mode_command(
     notifier: TelegramNotifierService,
     session_identity: TelegramSessionIdentityRead,
 ) -> TelegramWebhookAck:
-    from autoresearch.shared.models import OpenClawSessionCreateRequest
-
     target_scope = _extract_mode_target(extracted["text"])
     chat_type = session_identity.chat_context.chat_type
 

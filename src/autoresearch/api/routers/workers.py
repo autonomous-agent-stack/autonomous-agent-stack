@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 
 from autoresearch.api.dependencies import (
+    get_control_plane_service,
     get_telegram_notifier_service,
     get_telegram_settings,
     get_worker_inventory_service,
@@ -15,6 +16,7 @@ from autoresearch.api.dependencies import (
     get_worker_scheduler_service,
 )
 from autoresearch.api.settings import TelegramSettings
+from autoresearch.control_plane.service import ControlPlaneService
 from autoresearch.core.services.telegram_completion_format import (
     format_butler_live_status_message,
     polish_butler_completion_card,
@@ -128,6 +130,7 @@ def report_worker_run(
     run_id: str,
     payload: WorkerRunReportRequest,
     service: WorkerSchedulerService = Depends(get_worker_scheduler_service),
+    control_plane_service: ControlPlaneService = Depends(get_control_plane_service),
     telegram_settings: TelegramSettings = Depends(get_telegram_settings),
     notifier: TelegramNotifierService = Depends(get_telegram_notifier_service),
 ) -> WorkerQueueItemRead:
@@ -139,6 +142,11 @@ def report_worker_run(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.detail) from exc
 
     if stored.status in _TERMINAL_STATUSES:
+        if (stored.metadata or {}).get("control_plane_task_id"):
+            try:
+                control_plane_service.sync_worker_run(stored)
+            except Exception:
+                logger.exception("control-plane v2 sync raised for worker run=%s", stored.run_id)
         if telegram_settings.butler_api_completion_enabled:
             try:
                 _try_deliver_butler_completion_primary(

@@ -330,7 +330,9 @@ def _handle_telegram_webhook(
             background_tasks=background_tasks,
             approval_service=approval_service,
             approval_decision_service=approval_decision_service,
+            control_plane_service=control_plane_service,
             github_issue_service=github_issue_service,
+            worker_scheduler=worker_scheduler,
             notifier=notifier,
             session_identity=session_identity,
         )

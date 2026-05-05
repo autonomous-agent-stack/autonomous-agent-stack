@@ -177,6 +177,48 @@ def test_v2_low_risk_task_uses_worker_backbone_and_session_spine() -> None:
     assert "worker.run.completed" in event_types
 
 
+def test_v2_worker_report_sync_updates_projection_and_terminal_timeline() -> None:
+    service, worker_scheduler, worker_registry = build_control_plane()
+    client = build_client(service)
+
+    task = client.post(
+        "/api/v2/tasks",
+        json={"name": "sync worker result", "session_id": "session-worker-sync"},
+    ).json()
+    register_worker(worker_registry)
+    claim = worker_scheduler.claim("worker-1", WorkerClaimRequest())
+    assert claim.run is not None
+    reported = worker_scheduler.report(
+        "worker-1",
+        claim.run.run_id,
+        WorkerRunReportRequest(
+            status=JobStatus.COMPLETED,
+            message="worker finished",
+            result={"summary": "worker output"},
+            metrics={"duration_ms": 42},
+        ),
+    )
+
+    projected_task = service.sync_worker_run(reported)
+
+    assert projected_task is not None
+    assert projected_task.status == ControlPlaneTaskStatus.SUCCEEDED
+    assert projected_task.result == {"summary": "worker output"}
+    run = service.get_run(task["run_id"])
+    assert run is not None
+    assert run.status == ControlPlaneRunStatus.SUCCEEDED
+    assert run.output == {"summary": "worker output"}
+    assert run.metadata["worker_status"] == "completed"
+    assert run.metadata["worker_message"] == "worker finished"
+    assert run.metadata["worker_metrics"] == {"duration_ms": 42}
+    assert run.metadata["worker_run_id"] == task["run_id"]
+
+    timeline = client.get("/api/v2/sessions/session-worker-sync/timeline").json()
+    event_types = [event["event_type"] for event in timeline["events"]]
+    assert "worker.run.completed" in event_types
+    assert "run.succeeded" in event_types
+
+
 def test_v2_high_risk_task_requires_approval_before_enqueue() -> None:
     service, _, _ = build_control_plane()
     client = build_client(service)
@@ -212,7 +254,7 @@ def test_v2_high_risk_task_requires_approval_before_enqueue() -> None:
 
 
 def test_v2_rejected_task_never_dispatches() -> None:
-    service, _, _ = build_control_plane()
+    service, worker_scheduler, _ = build_control_plane()
     client = build_client(service)
 
     created = client.post(
@@ -227,6 +269,7 @@ def test_v2_rejected_task_never_dispatches() -> None:
     assert rejected["status"] == ControlPlaneTaskStatus.REJECTED.value
     assert rejected["run_id"] is None
     assert rejected["error"] == "No external calls."
+    assert worker_scheduler.list_queue() == []
 
 
 def test_v2_capability_registry_exposes_protocol_boundaries() -> None:

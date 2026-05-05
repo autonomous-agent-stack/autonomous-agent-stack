@@ -52,7 +52,9 @@ from autoresearch.control_plane.contracts import (
     ControlPlanePromotionRead,
     ControlPlaneRunRead,
     ControlPlaneSessionRead,
+    ControlPlaneTaskCreateRequest,
     ControlPlaneTaskRead,
+    ControlPlaneTaskStatus,
 )
 from autoresearch.control_plane.service import ControlPlaneRepositories, ControlPlaneService
 from autoresearch.core.services.session_events import SessionEventService
@@ -2013,6 +2015,168 @@ def test_telegram_approve_command_lists_and_reads_pending_approvals(
         assert "[Approval Detail]" in notifier.messages[1]["text"]
         assert "Approve branch promotion" in notifier.messages[1]["text"]
         assert f"/approve {approval.approval_id} approve" in notifier.messages[1]["text"]
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+
+
+def test_telegram_approve_command_lists_legacy_and_v2_pending_approvals(
+    telegram_client: TestClient,
+) -> None:
+    notifier = _StubTelegramNotifier()
+    approval_service = getattr(telegram_client, "_approval_store")
+    control_plane = getattr(telegram_client, "_control_plane_service")
+    legacy = approval_service.create_request(
+        ApprovalRequestCreateRequest(
+            title="Legacy approval",
+            summary="Keep the old approval UX visible",
+            source="legacy_policy",
+            telegram_uid="9535",
+            session_id="legacy-approval-session",
+        )
+    )
+    v2_task = control_plane.create_task(
+        ControlPlaneTaskCreateRequest(
+            name="GitHub v2 approval",
+            intent="Review https://github.com/acme/demo/pull/9",
+            session_id="v2-approval-session",
+            capability_id="github_assistant",
+            parameters={"repo": "acme/demo", "pr_number": 9, "action": "summarize_pr"},
+            requested_by="9535",
+        )
+    )
+    assert v2_task.approval_id is not None
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+
+    try:
+        response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 31711,
+                "message": {
+                    "message_id": 1511,
+                    "text": "/approve",
+                    "chat": {"id": 9535, "type": "private"},
+                    "from": {"id": 9535, "username": "approve-user"},
+                },
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["metadata"]["source"] == "telegram_approve_query"
+        assert len(notifier.messages) == 1
+        text = notifier.messages[0]["text"]
+        assert legacy.approval_id in text
+        assert v2_task.approval_id in text
+        assert "v2 | github_assistant" in text
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+
+
+def test_telegram_approve_command_handles_v2_detail_approve_and_reject(
+    telegram_client: TestClient,
+) -> None:
+    notifier = _StubTelegramNotifier()
+    control_plane = getattr(telegram_client, "_control_plane_service")
+    scheduler = getattr(telegram_client, "_worker_scheduler")
+    github_task = control_plane.create_task(
+        ControlPlaneTaskCreateRequest(
+            name="GitHub approval from Telegram command",
+            intent="Review https://github.com/acme/demo/pull/10",
+            session_id="v2-approval-command-github",
+            capability_id="github_assistant",
+            parameters={"repo": "acme/demo", "pr_number": 10, "action": "summarize_pr"},
+            requested_by="9536",
+        )
+    )
+    youtube_task = control_plane.create_task(
+        ControlPlaneTaskCreateRequest(
+            name="YouTube approval from Telegram command",
+            intent="总结这个 YouTube https://youtube.com/watch?v=abc123",
+            session_id="v2-approval-command-youtube",
+            capability_id="youtube_autoflow",
+            requested_by="9536",
+        )
+    )
+    assert github_task.approval_id is not None
+    assert youtube_task.approval_id is not None
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+
+    try:
+        detail_response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 31712,
+                "message": {
+                    "message_id": 1512,
+                    "text": f"/approve {github_task.approval_id}",
+                    "chat": {"id": 9536, "type": "private"},
+                    "from": {"id": 9536, "username": "approve-user"},
+                },
+            },
+        )
+        assert detail_response.status_code == 200
+        assert detail_response.json()["metadata"]["approval_id"] == github_task.approval_id
+        assert detail_response.json()["metadata"]["control_plane_task_id"] == github_task.task_id
+
+        approve_response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 31713,
+                "message": {
+                    "message_id": 1513,
+                    "text": f"/approve {github_task.approval_id} approve ship it",
+                    "chat": {"id": 9536, "type": "private"},
+                    "from": {"id": 9536, "username": "approve-user"},
+                },
+            },
+        )
+        assert approve_response.status_code == 200
+        approve_payload = approve_response.json()["metadata"]
+        assert approve_payload["source"] == "telegram_approve_decision"
+        assert approve_payload["approval_id"] == github_task.approval_id
+        assert approve_payload["control_plane_task_id"] == github_task.task_id
+        assert approve_payload["capability_id"] == "github_assistant"
+        assert approve_payload["status"] == ControlPlaneTaskStatus.QUEUED.value
+        assert approve_payload["run_id"]
+        github_run = scheduler.get_run(approve_payload["run_id"])
+        assert github_run is not None
+        assert github_run.task_type == WorkerTaskType.GITHUB_OPS
+        assert github_run.metadata["telegram_completion_via_api"] is True
+        assert github_run.metadata["chat_id"] == "9536"
+        assert github_run.metadata["control_plane_task_id"] == github_task.task_id
+        assert github_run.metadata["capability_id"] == "github_assistant"
+
+        reject_response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 31714,
+                "message": {
+                    "message_id": 1514,
+                    "text": f"/approve {youtube_task.approval_id} reject no external call",
+                    "chat": {"id": 9536, "type": "private"},
+                    "from": {"id": 9536, "username": "approve-user"},
+                },
+            },
+        )
+        assert reject_response.status_code == 200
+        reject_payload = reject_response.json()["metadata"]
+        assert reject_payload["source"] == "telegram_approve_decision"
+        assert reject_payload["control_plane_task_id"] == youtube_task.task_id
+        assert reject_payload["capability_id"] == "youtube_autoflow"
+        assert reject_payload["status"] == ControlPlaneTaskStatus.REJECTED.value
+        assert reject_payload["run_id"] is None
+        rejected = control_plane.get_task(youtube_task.task_id)
+        assert rejected is not None
+        assert rejected.status == ControlPlaneTaskStatus.REJECTED
+        assert rejected.error == "no external call"
+
+        assert len(notifier.messages) == 3
+        assert "[Control Plane v2 Approval]" in notifier.messages[0]["text"]
+        assert "risk_tags: external_api" in notifier.messages[0]["text"]
+        assert "console: /control-plane" in notifier.messages[0]["text"]
+        assert "[Control Plane v2 Approval Decision]" in notifier.messages[1]["text"]
+        assert "status: queued" in notifier.messages[1]["text"]
+        assert "status: rejected" in notifier.messages[2]["text"]
+        assert "note: no external call" in notifier.messages[2]["text"]
     finally:
         app.dependency_overrides.pop(get_telegram_notifier_service, None)
 

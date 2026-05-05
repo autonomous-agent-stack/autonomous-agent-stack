@@ -3,6 +3,12 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from autoresearch.control_plane.contracts import (
+    ControlPlaneApprovalRead,
+    ControlPlaneApprovalStatus,
+    ControlPlaneTaskRead,
+    ControlPlaneTaskStatus,
+)
 from autoresearch.core.adapters import CapabilityDomain, CapabilityProviderRegistry, SkillProvider
 from autoresearch.core.services.telegram_identity import TelegramSessionIdentityRead
 from autoresearch.shared.manager_agent_contract import ManagerDispatchRead
@@ -11,6 +17,7 @@ from autoresearch.shared.models import (
     ChatType,
     JobStatus,
     OpenClawMemoryBundleRead,
+    OpenClawSessionRead,
     WorkerMode,
 )
 
@@ -290,8 +297,6 @@ def _build_status_summary_lines(
     workers: list[Any],
     worker_inventory,
 ) -> list[str]:
-    from autoresearch.shared.models import OpenClawSessionRead as _SessionRead
-
     descriptors = capability_registry.list_descriptors()
     skill_provider_count = len([item for item in descriptors if item.domain == CapabilityDomain.SKILL])
     runtime_display = runtime_identity["runtime_display"]
@@ -523,7 +528,13 @@ def _build_approval_list_message(approvals: list[Any]) -> str:
         "",
     ]
     for item in approvals[:10]:
-        lines.append(f"- {item.approval_id} | {item.risk.value} | {item.title}")
+        if isinstance(item, dict) and item.get("kind") == "control_plane_v2":
+            task = item["task"]
+            approval = item["approval"]
+            risk_tags = ", ".join(task.risk_tags) if task.risk_tags else "-"
+            lines.append(f"- {approval.approval_id} | v2 | {task.capability_id} | {risk_tags} | {task.name}")
+        else:
+            lines.append(f"- {item.approval_id} | {item.risk.value} | {item.title}")
     lines.extend(
         [
             "",
@@ -531,6 +542,37 @@ def _build_approval_list_message(approvals: list[Any]) -> str:
             "发送 /approve <approval_id> approve [备注] 或 /approve <approval_id> reject [备注] 执行决策。",
         ]
     )
+    return "\n".join(lines).strip()
+
+
+def _build_v2_approval_detail_message(
+    approval: ControlPlaneApprovalRead,
+    task: ControlPlaneTaskRead,
+) -> str:
+    risk_tags = ", ".join(task.risk_tags) if task.risk_tags else "-"
+    lines = [
+        "[Control Plane v2 Approval]",
+        f"approval: {approval.approval_id}",
+        f"task: {task.task_id}",
+        f"capability: {task.capability_id}",
+        f"risk_tags: {risk_tags}",
+        f"status: {task.status.value}",
+        "console: /control-plane",
+    ]
+    if task.name:
+        lines.append(f"name: {task.name}")
+    if task.intent:
+        lines.append(f"intent: {task.intent}")
+    if approval.note:
+        lines.append(f"note: {approval.note}")
+    if approval.status == ControlPlaneApprovalStatus.PENDING and task.status == ControlPlaneTaskStatus.AWAITING_APPROVAL:
+        lines.extend(
+            [
+                "",
+                f"/approve {approval.approval_id} approve [备注]",
+                f"/approve {approval.approval_id} reject [备注]",
+            ]
+        )
     return "\n".join(lines).strip()
 
 
@@ -559,6 +601,22 @@ def _build_approval_detail_message(approval: Any) -> str:
                 f"/approve {approval.approval_id} reject [备注]",
             ]
         )
+    return "\n".join(lines).strip()
+
+
+def _build_v2_approval_decision_message(task: ControlPlaneTaskRead) -> str:
+    lines = [
+        "[Control Plane v2 Approval Decision]",
+        f"task: {task.task_id}",
+        f"capability: {task.capability_id}",
+        f"status: {task.status.value}",
+        f"run: {task.run_id or '-'}",
+    ]
+    if task.approval_id:
+        lines.append(f"approval: {task.approval_id}")
+    if task.error:
+        lines.append(f"note: {task.error}")
+    lines.append("console: /control-plane")
     return "\n".join(lines).strip()
 
 

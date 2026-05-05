@@ -22,6 +22,7 @@ from autoresearch.control_plane.contracts import (
 from autoresearch.core.services.session_events import SessionEventService
 from autoresearch.core.services.worker_scheduler import WorkerSchedulerService
 from autoresearch.shared.models import JobStatus, SessionEventCreateRequest, utc_now
+from autoresearch.shared.models import WorkerQueueItemRead
 from autoresearch.shared.store import Repository, create_resource_id
 
 
@@ -135,6 +136,9 @@ class ControlPlaneService:
     def list_approvals(self) -> list[ControlPlaneApprovalRead]:
         return self._repositories.approvals.list()
 
+    def get_approval(self, approval_id: str) -> ControlPlaneApprovalRead | None:
+        return self._repositories.approvals.get(approval_id)
+
     def get_task(self, task_id: str) -> ControlPlaneTaskRead | None:
         task = self._repositories.tasks.get(task_id)
         if task is None:
@@ -227,6 +231,78 @@ class ControlPlaneService:
             )
             return rejected
         return self._dispatch_task(task)
+
+    def sync_worker_run(self, worker_run: WorkerQueueItemRead) -> ControlPlaneTaskRead | None:
+        task_id = str((worker_run.metadata or {}).get("control_plane_task_id") or "").strip()
+        if not task_id:
+            return None
+        task = self._repositories.tasks.get(task_id)
+        if task is None:
+            logger.warning("Control Plane v2 task %s not found while syncing worker run %s", task_id, worker_run.run_id)
+            return None
+
+        run = self._repositories.runs.get(task.run_id or worker_run.run_id)
+        if run is None:
+            run = self._find_run_by_worker_run_id(worker_run.run_id)
+        if run is None:
+            logger.warning("Control Plane v2 run for worker run %s not found while syncing task %s", worker_run.run_id, task_id)
+            return None
+
+        current = utc_now()
+        run_status = _run_status_from_worker(worker_run.status)
+        task_status = _task_status_from_run(run_status)
+        worker_snapshot = {
+            "worker_run_id": worker_run.run_id,
+            "worker_status": worker_run.status.value,
+            "worker_message": worker_run.message,
+            "worker_result": worker_run.result,
+            "worker_error": worker_run.error,
+            "worker_metrics": worker_run.metrics,
+        }
+        updated_run = run.model_copy(
+            update={
+                "status": run_status,
+                "worker_run_id": worker_run.run_id,
+                "output": worker_run.result if worker_run.result is not None else run.output,
+                "error": worker_run.error,
+                "started_at": worker_run.started_at or run.started_at,
+                "completed_at": worker_run.completed_at or run.completed_at,
+                "updated_at": max(run.updated_at, worker_run.updated_at, current),
+                "metadata": {
+                    **run.metadata,
+                    **worker_snapshot,
+                },
+            }
+        )
+        self._repositories.runs.save(updated_run.run_id, updated_run)
+
+        updated_task = task.model_copy(
+            update={
+                "status": task_status,
+                "run_id": updated_run.run_id,
+                "result": worker_run.result if worker_run.result is not None else task.result,
+                "error": worker_run.error,
+                "updated_at": max(task.updated_at, worker_run.updated_at, current),
+            }
+        )
+        self._repositories.tasks.save(updated_task.task_id, updated_task)
+
+        terminal_event = _terminal_event_type_from_worker(worker_run.status)
+        if terminal_event is not None:
+            self._record(
+                session_id=task.session_id,
+                subject_type="run",
+                subject_id=updated_run.run_id,
+                event_type=terminal_event,
+                message=worker_run.message or f"Worker run {worker_run.status.value}.",
+                task_id=task.task_id,
+                run_id=updated_run.run_id,
+                metadata={
+                    "capability_id": task.capability_id,
+                    **worker_snapshot,
+                },
+            )
+        return updated_task
 
     def _dispatch_task(self, task: ControlPlaneTaskRead) -> ControlPlaneTaskRead:
         adapter = self._capabilities.get(task.capability_id)
@@ -416,6 +492,12 @@ class ControlPlaneService:
             self._repositories.runs.save(projected.run_id, projected)
         return projected
 
+    def _find_run_by_worker_run_id(self, worker_run_id: str) -> ControlPlaneRunRead | None:
+        for run in self._repositories.runs.list():
+            if run.worker_run_id == worker_run_id:
+                return run
+        return None
+
     def _requires_approval(self, task: ControlPlaneTaskRead, *, capability_requires_approval: bool) -> bool:
         tags = {tag.strip().lower() for tag in task.risk_tags}
         return capability_requires_approval or bool(tags & _APPROVAL_REQUIRED_TAGS)
@@ -493,3 +575,13 @@ def _task_status_from_run(status: ControlPlaneRunStatus) -> ControlPlaneTaskStat
     if status == ControlPlaneRunStatus.RUNNING:
         return ControlPlaneTaskStatus.RUNNING
     return ControlPlaneTaskStatus.QUEUED
+
+
+def _terminal_event_type_from_worker(status: JobStatus) -> str | None:
+    if status == JobStatus.COMPLETED:
+        return "run.succeeded"
+    if status in {JobStatus.FAILED, JobStatus.INTERRUPTED}:
+        return "run.failed"
+    if status == JobStatus.CANCELLED:
+        return "run.cancelled"
+    return None
