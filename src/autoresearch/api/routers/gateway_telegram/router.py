@@ -376,6 +376,7 @@ def _handle_telegram_webhook(
             extracted=extracted,
             background_tasks=background_tasks,
             worker_scheduler=worker_scheduler,
+            control_plane_service=control_plane_service,
             notifier=notifier,
             session_identity=session_identity,
         )

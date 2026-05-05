@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -7,11 +8,13 @@ from pydantic import BaseModel, Field
 
 from autoresearch.api.dependencies import (
     get_approval_policy_service,
+    get_control_plane_service,
     get_telegram_notifier_service,
     get_telegram_settings,
     get_worker_scheduler_service,
 )
 from autoresearch.api.settings import TelegramSettings
+from autoresearch.control_plane.service import ControlPlaneService
 from autoresearch.core.services.approval_policy import ApprovalPolicyService
 from autoresearch.core.services.github_ops import GitHubOpsRequest
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
@@ -25,6 +28,8 @@ from autoresearch.shared.models import (
     WorkerTaskType,
 )
 
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/worker-runs", tags=["worker-runs"])
 
@@ -107,6 +112,7 @@ def cancel_worker_run(
     run_id: str,
     payload: WorkerRunOpsRequest,
     service: WorkerSchedulerService = Depends(get_worker_scheduler_service),
+    control_plane_service: ControlPlaneService = Depends(get_control_plane_service),
     telegram_settings: TelegramSettings = Depends(get_telegram_settings),
     notifier: TelegramNotifierService = Depends(get_telegram_notifier_service),
 ) -> WorkerQueueItemRead:
@@ -116,6 +122,9 @@ def cancel_worker_run(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found") from exc
     except WorkerReportError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.detail) from exc
+
+    if stored.status == JobStatus.CANCELLED:
+        _try_sync_control_plane_v2(stored, control_plane_service=control_plane_service)
 
     if stored.status == JobStatus.CANCELLED and telegram_settings.butler_api_completion_enabled:
         from autoresearch.api.routers.workers import (
@@ -147,13 +156,16 @@ def force_fail_worker_run(
     run_id: str,
     payload: WorkerRunOpsRequest,
     service: WorkerSchedulerService = Depends(get_worker_scheduler_service),
+    control_plane_service: ControlPlaneService = Depends(get_control_plane_service),
 ) -> WorkerQueueItemRead:
     try:
-        return service.force_fail_run(run_id, reason=payload.reason)
+        stored = service.force_fail_run(run_id, reason=payload.reason)
     except KeyError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found") from exc
     except WorkerReportError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.detail) from exc
+    _try_sync_control_plane_v2(stored, control_plane_service=control_plane_service)
+    return stored
 
 
 @router.post("/youtube-autoflow", response_model=WorkerQueueItemRead, status_code=status.HTTP_201_CREATED)
@@ -231,6 +243,19 @@ def enqueue_content_kb_ingest_run(
             metadata=payload.metadata,
         )
     )
+
+
+def _try_sync_control_plane_v2(
+    run: WorkerQueueItemRead,
+    *,
+    control_plane_service: ControlPlaneService,
+) -> None:
+    if not (run.metadata or {}).get("control_plane_task_id"):
+        return
+    try:
+        control_plane_service.sync_worker_run(run)
+    except Exception:
+        logger.exception("control-plane v2 sync raised for worker run=%s", run.run_id)
 
 
 def _try_edit_cancel_requested_card(

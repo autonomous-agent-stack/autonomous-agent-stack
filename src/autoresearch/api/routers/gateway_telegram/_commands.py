@@ -1024,6 +1024,7 @@ def _handle_cancel_command(
     extracted: dict[str, Any],
     background_tasks: BackgroundTasks,
     worker_scheduler: WorkerSchedulerService,
+    control_plane_service: ControlPlaneService,
     notifier: TelegramNotifierService,
     session_identity: TelegramSessionIdentityRead,
 ) -> TelegramWebhookAck:
@@ -1070,8 +1071,10 @@ def _handle_cancel_command(
             metadata={"source": "telegram_cancel", "run_id": run_id, "status": "rejected"},
         )
     if run.status == JobStatus.CANCELLED:
+        from autoresearch.api.routers.worker_runs import _try_sync_control_plane_v2
         from autoresearch.api.routers.workers import _try_deliver_butler_completion_primary
 
+        _try_sync_control_plane_v2(run, control_plane_service=control_plane_service)
         _try_deliver_butler_completion_primary(run, notifier=notifier, scheduler=worker_scheduler)
     else:
         from autoresearch.api.routers.worker_runs import _try_edit_cancel_requested_card

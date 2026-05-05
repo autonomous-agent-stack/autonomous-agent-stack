@@ -308,6 +308,127 @@ def test_report_control_plane_sync_failure_does_not_break_report(
     assert stored.result == {"ok": True}
 
 
+def test_cancel_queued_control_plane_run_updates_v2_state(
+    worker_client: TestClient,
+    worker_services: tuple[WorkerRegistryService, WorkerSchedulerService],
+    tmp_path: Path,
+) -> None:
+    _, scheduler = worker_services
+    control_plane, session_events = _build_control_plane_service(tmp_path, scheduler)
+    task = control_plane.create_task(
+        ControlPlaneTaskCreateRequest(
+            name="worker cancel sync",
+            session_id="session-worker-cancel-sync",
+            requested_by="cancel-test",
+        )
+    )
+    assert task.run_id is not None
+
+    app.dependency_overrides[get_control_plane_service] = lambda: control_plane
+    try:
+        response = worker_client.post(
+            f"/api/v1/worker-runs/{task.run_id}/cancel",
+            json={"reason": "operator cancelled queued work"},
+        )
+        assert response.status_code == 200
+    finally:
+        app.dependency_overrides.pop(get_control_plane_service, None)
+
+    projected = control_plane.get_task(task.task_id)
+    assert projected is not None
+    assert projected.status == ControlPlaneTaskStatus.CANCELLED
+    run = control_plane.get_run(task.run_id)
+    assert run is not None
+    assert run.status == ControlPlaneRunStatus.CANCELLED
+    assert run.error == "operator cancelled queued work"
+    timeline = session_events.timeline(session_id="session-worker-cancel-sync")
+    event_types = [event.event_type for event in timeline.events]
+    assert "run.cancelled" in event_types
+
+
+def test_force_fail_control_plane_run_updates_v2_state(
+    worker_client: TestClient,
+    worker_services: tuple[WorkerRegistryService, WorkerSchedulerService],
+    tmp_path: Path,
+) -> None:
+    _, scheduler = worker_services
+    control_plane, session_events = _build_control_plane_service(tmp_path, scheduler)
+    task = control_plane.create_task(
+        ControlPlaneTaskCreateRequest(
+            name="worker force fail sync",
+            session_id="session-worker-force-fail-sync",
+            requested_by="force-fail-test",
+        )
+    )
+    assert task.run_id is not None
+
+    app.dependency_overrides[get_control_plane_service] = lambda: control_plane
+    try:
+        response = worker_client.post(
+            f"/api/v1/worker-runs/{task.run_id}/force-fail",
+            json={"reason": "operator forced failure"},
+        )
+        assert response.status_code == 200
+    finally:
+        app.dependency_overrides.pop(get_control_plane_service, None)
+
+    projected = control_plane.get_task(task.task_id)
+    assert projected is not None
+    assert projected.status == ControlPlaneTaskStatus.FAILED
+    run = control_plane.get_run(task.run_id)
+    assert run is not None
+    assert run.status == ControlPlaneRunStatus.FAILED
+    assert run.error == "operator forced failure"
+    timeline = session_events.timeline(session_id="session-worker-force-fail-sync")
+    event_types = [event.event_type for event in timeline.events]
+    assert "run.failed" in event_types
+
+
+def test_cancel_and_force_fail_control_plane_sync_failure_does_not_break_endpoint(
+    worker_client: TestClient,
+    worker_services: tuple[WorkerRegistryService, WorkerSchedulerService],
+) -> None:
+    _, scheduler = worker_services
+    cancel_queued = scheduler.enqueue(
+        WorkerQueueItemCreateRequest(
+            task_type="noop",
+            payload={"message": "cancel"},
+            metadata={"control_plane_task_id": "task_missing_cancel"},
+        ),
+        now=utc_now(),
+    )
+    fail_queued = scheduler.enqueue(
+        WorkerQueueItemCreateRequest(
+            task_type="noop",
+            payload={"message": "force-fail"},
+            metadata={"control_plane_task_id": "task_missing_force_fail"},
+        ),
+        now=utc_now(),
+    )
+
+    class _FailingControlPlane:
+        def sync_worker_run(self, run: WorkerQueueItemRead) -> None:
+            raise RuntimeError(f"boom {run.run_id}")
+
+    app.dependency_overrides[get_control_plane_service] = lambda: _FailingControlPlane()
+    try:
+        cancelled = worker_client.post(
+            f"/api/v1/worker-runs/{cancel_queued.run_id}/cancel",
+            json={"reason": "cancel despite sync failure"},
+        )
+        failed = worker_client.post(
+            f"/api/v1/worker-runs/{fail_queued.run_id}/force-fail",
+            json={"reason": "fail despite sync failure"},
+        )
+    finally:
+        app.dependency_overrides.pop(get_control_plane_service, None)
+
+    assert cancelled.status_code == 200
+    assert cancelled.json()["status"] == "cancelled"
+    assert failed.status_code == 200
+    assert failed.json()["status"] == "failed"
+
+
 def test_report_persists_failure_metadata_for_summary_chain(
     worker_client: TestClient,
     worker_services: tuple[WorkerRegistryService, WorkerSchedulerService],

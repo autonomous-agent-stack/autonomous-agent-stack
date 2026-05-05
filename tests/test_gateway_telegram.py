@@ -50,6 +50,7 @@ from autoresearch.control_plane.contracts import (
     ControlPlaneArtifactRead,
     ControlPlaneAuditEventRead,
     ControlPlanePromotionRead,
+    ControlPlaneRunStatus,
     ControlPlaneRunRead,
     ControlPlaneSessionRead,
     ControlPlaneTaskCreateRequest,
@@ -2179,6 +2180,55 @@ def test_telegram_approve_command_handles_v2_detail_approve_and_reject(
         assert "note: no external call" in notifier.messages[2]["text"]
     finally:
         app.dependency_overrides.pop(get_telegram_notifier_service, None)
+
+
+def test_telegram_cancel_command_syncs_direct_v2_cancel(
+    telegram_client: TestClient,
+) -> None:
+    notifier = _StubTelegramNotifier()
+    control_plane = getattr(telegram_client, "_control_plane_service")
+    v2_task = control_plane.create_task(
+        ControlPlaneTaskCreateRequest(
+            name="Telegram direct cancel v2 task",
+            intent="cancel queued task",
+            session_id="v2-telegram-cancel-sync",
+            requested_by="9537",
+        )
+    )
+    assert v2_task.run_id is not None
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+
+    try:
+        response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 31715,
+                "message": {
+                    "message_id": 1515,
+                    "text": f"/cancel {v2_task.run_id}",
+                    "chat": {"id": 9537, "type": "private"},
+                    "from": {"id": 9537, "username": "cancel-user"},
+                },
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["accepted"] is True
+    assert payload["metadata"]["status"] == "cancelled"
+    projected = control_plane.get_task(v2_task.task_id)
+    assert projected is not None
+    assert projected.status == ControlPlaneTaskStatus.CANCELLED
+    run = control_plane.get_run(v2_task.run_id)
+    assert run is not None
+    assert run.status == ControlPlaneRunStatus.CANCELLED
+    timeline = getattr(telegram_client, "_session_event_service").timeline(
+        session_id="v2-telegram-cancel-sync"
+    )
+    event_types = [event.event_type for event in timeline.events]
+    assert "run.cancelled" in event_types
 
 
 def test_telegram_approve_command_can_resolve_pending_approval(

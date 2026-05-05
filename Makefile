@@ -44,7 +44,7 @@ PROMOTE_BRANCH_PREFIX ?= codex/auto-upgrade
 PROMOTE_PUSH ?= 0
 PROMOTE_OPEN_DRAFT_PR ?= 0
 
-.PHONY: help setup doctor doctor-linux start test-quick smoke-local validate-req4 clean
+.PHONY: help setup doctor doctor-linux start test-quick smoke-local smoke-cpv2 validate-req4 clean
 .PHONY: ai-lab ai-lab-setup ai-lab-check ai-lab-up ai-lab-down ai-lab-status ai-lab-shell ai-lab-run masfactory-flight hygiene-check openhands openhands-dry-run openhands-controlled openhands-controlled-dry-run openhands-demo agent-run promote-run
 .PHONY: review-setup review-gates-local assistant-doctor assistant-triage assistant-execute assistant-review-pr assistant-release-plan assistant-schedule
 .PHONY: telegram-butler-start telegram-butler-status telegram-butler-stop telegram-ingress-audit
@@ -89,6 +89,7 @@ help:
 	@echo "  make review-gates-local Run mypy/bandit/semgrep on reviewer core modules"
 	@echo "  make test-quick  Run quick smoke tests"
 	@echo "  make smoke-local Run stable single-machine baseline smoke test"
+	@echo "  make smoke-cpv2 固化 Control Plane v2 E2E smoke / Run Control Plane v2 E2E smoke"
 	@echo "  make validate-req4 Validate requirement #4 scaffold readiness"
 	@echo "  make clean       Remove Python cache folders"
 	@echo ""
@@ -140,6 +141,9 @@ smoke-local:
 	fi
 	@echo "Running stable single-machine baseline smoke test..."
 	AUTORESEARCH_MODE=minimal PYTHONPATH=src $(VENV_PYTHON) -m pytest tests/test_stable_local_smoke.py -v
+
+smoke-cpv2:
+	uv run --no-project --with-requirements requirements.txt python scripts/control_plane_v2_e2e_smoke.py
 
 validate-req4:
 	@echo "Validating requirement #4 scaffold readiness..."
