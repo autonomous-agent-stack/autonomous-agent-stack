@@ -315,7 +315,7 @@ CLI 至少支持：
 如果你不知道什么时候该跑什么命令，就用下面这组：
 
 ```bash
-cd /Volumes/AI_LAB/Github/autonomous-agent-stack
+cd $AAS_REPO_ROOT
 
 make setup
 make doctor

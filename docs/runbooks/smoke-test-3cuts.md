@@ -9,7 +9,7 @@
 ### 1. Start the API server
 
 ```bash
-cd /Volumes/AI_LAB/Github/autonomous-agent-stack
+cd $AAS_REPO_ROOT
 
 # Set required env vars
 export AUTORESEARCH_TELEGRAM_BOT_TOKEN="your-bot-token"

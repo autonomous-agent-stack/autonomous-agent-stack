@@ -84,7 +84,7 @@
 最小启动路径：
 
 ```bash
-cd /Volumes/AI_LAB/Github/autonomous-agent-stack
+cd $AAS_REPO_ROOT
 make setup
 make doctor
 AUTORESEARCH_MODE=minimal make start

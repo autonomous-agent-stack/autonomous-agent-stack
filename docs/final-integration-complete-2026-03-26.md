@@ -118,7 +118,7 @@ curl -X POST http://127.0.0.1:8001/api/v1/telegram/webhook \
 ### 测试 5：前端面板（待构建）
 
 ```bash
-cd /Volumes/PS1008/Github/autonomous-agent-stack/panel
+cd $AAS_REPO_ROOT/panel
 npm install
 npm run build
 # 访问 http://127.0.0.1:8001/panel

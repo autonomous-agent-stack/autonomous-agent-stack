@@ -85,9 +85,9 @@ class MASFactoryBridge:
 ### 步骤 1：启动服务
 
 ```bash
-cd /Volumes/PS1008/Github/autonomous-agent-stack
+cd $AAS_REPO_ROOT
 
-PYTHONPATH=/Volumes/PS1008/Github/autonomous-agent-stack/src:$PYTHONPATH \
+PYTHONPATH=$AAS_REPO_ROOT/src:$PYTHONPATH \
 .venv/bin/python -m uvicorn autoresearch.api.main:app \
   --host 127.0.0.1 --port 8001
 ```

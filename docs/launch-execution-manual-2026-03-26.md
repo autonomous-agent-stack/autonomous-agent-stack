@@ -32,7 +32,7 @@ cat /tmp/cloudflared_8001.log | grep "trycloudflare.com"
 ### 步骤 1：创建 .env 文件
 
 ```bash
-cd /Volumes/PS1008/Github/autonomous-agent-stack
+cd $AAS_REPO_ROOT
 
 # 复制模板
 cp .env.example .env
@@ -72,10 +72,10 @@ nano .env
 pkill -f "uvicorn.*8001"
 
 # 重新启动（加载 .env）
-cd /Volumes/PS1008/Github/autonomous-agent-stack
+cd $AAS_REPO_ROOT
 source .env
 
-PYTHONPATH=/Volumes/PS1008/Github/autonomous-agent-stack/src:$PYTHONPATH \
+PYTHONPATH=$AAS_REPO_ROOT/src:$PYTHONPATH \
 .venv/bin/python -m uvicorn autoresearch.api.main:app \
   --host 127.0.0.1 --port 8001 > /tmp/autoresearch_8001.log 2>&1 &
 
@@ -149,16 +149,16 @@ curl "https://api.telegram.org/bot${BOT_TOKEN}/getWebhookInfo"
 cat /tmp/cloudflared_8001.log | grep "trycloudflare.com" | tail -1
 
 # 一键创建 .env
-cd /Volumes/PS1008/Github/autonomous-agent-stack
+cd $AAS_REPO_ROOT
 cp .env.example .env
 nano .env
 
 # 一键重启服务
 pkill -f "uvicorn.*8001"
 sleep 2
-cd /Volumes/PS1008/Github/autonomous-agent-stack
+cd $AAS_REPO_ROOT
 source .env
-PYTHONPATH=/Volumes/PS1008/Github/autonomous-agent-stack/src:$PYTHONPATH \
+PYTHONPATH=$AAS_REPO_ROOT/src:$PYTHONPATH \
 .venv/bin/python -m uvicorn autoresearch.api.main:app \
   --host 127.0.0.1 --port 8001 > /tmp/autoresearch_8001.log 2>&1 &
 sleep 3

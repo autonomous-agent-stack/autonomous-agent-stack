@@ -170,7 +170,7 @@ logger.info("[Agent-Stack-Bridge] Security scan passed")
 
 ```bash
 # 创建分支
-cd /Volumes/PS1008/Github/autonomous-agent-stack
+cd $AAS_REPO_ROOT
 git checkout -b feature/4-agent-matrix-bridge
 
 # 启动 4 个子代理

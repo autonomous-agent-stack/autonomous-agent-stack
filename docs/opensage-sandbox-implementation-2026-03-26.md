@@ -27,7 +27,7 @@
 ### 步骤 1：构建沙盒镜像
 
 ```bash
-cd /Volumes/PS1008/Github/autonomous-agent-stack/sandbox
+cd $AAS_REPO_ROOT/sandbox
 
 # 构建 Docker 镜像
 docker build -t opensage-sandbox:latest .

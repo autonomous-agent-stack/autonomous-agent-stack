@@ -33,15 +33,15 @@
 
 如果你是第一次接 requirement-4，先看这 3 份：
 
-1. [ACTION_PLAN_WHEN_ASSETS_ARRIVE_ZH.md](/Volumes/AI_LAB/Github/autonomous-agent-stack/docs/requirement4/ACTION_PLAN_WHEN_ASSETS_ARRIVE_ZH.md)
+1. [ACTION_PLAN_WHEN_ASSETS_ARRIVE_ZH.md](ACTION_PLAN_WHEN_ASSETS_ARRIVE_ZH.md)
 作用：
 定义 2 天 pilot 的主口径、主范围、主验收标准。
 
-2. [BRANCH_A_B_IMPLEMENTATION_BEST_PRACTICES_ZH.md](/Volumes/AI_LAB/Github/autonomous-agent-stack/docs/requirement4/BRANCH_A_B_IMPLEMENTATION_BEST_PRACTICES_ZH.md)
+2. [BRANCH_A_B_IMPLEMENTATION_BEST_PRACTICES_ZH.md](BRANCH_A_B_IMPLEMENTATION_BEST_PRACTICES_ZH.md)
 作用：
 告诉你分支 A / 分支 B 具体怎么做，尤其是小白如何按 prompt 和命令一步步执行。
 
-3. [../aas-claude-ecc-excel-best-practice-report.md](/Volumes/AI_LAB/Github/autonomous-agent-stack/docs/aas-claude-ecc-excel-best-practice-report.md)
+3. [../aas-claude-ecc-excel-best-practice-report.md](../aas-claude-ecc-excel-best-practice-report.md)
 作用：
 解释为什么 requirement-4 必须走 deterministic + auditable 的路线，以及 Claude Code CLI + ECC 应该放在哪条链上。
 
@@ -101,8 +101,8 @@
 
 推荐直接按这个顺序走：
 
-1. 看 [ACTION_PLAN_WHEN_ASSETS_ARRIVE_ZH.md](/Volumes/AI_LAB/Github/autonomous-agent-stack/docs/requirement4/ACTION_PLAN_WHEN_ASSETS_ARRIVE_ZH.md)
-2. 看 [BRANCH_A_B_IMPLEMENTATION_BEST_PRACTICES_ZH.md](/Volumes/AI_LAB/Github/autonomous-agent-stack/docs/requirement4/BRANCH_A_B_IMPLEMENTATION_BEST_PRACTICES_ZH.md)
+1. 看 [ACTION_PLAN_WHEN_ASSETS_ARRIVE_ZH.md](ACTION_PLAN_WHEN_ASSETS_ARRIVE_ZH.md)
+2. 看 [BRANCH_A_B_IMPLEMENTATION_BEST_PRACTICES_ZH.md](BRANCH_A_B_IMPLEMENTATION_BEST_PRACTICES_ZH.md)
 3. 跑 `make setup`
 4. 跑 `make doctor`
 5. 确认 4 类业务资产已落盘
@@ -116,7 +116,7 @@
 
 直接跳到：
 
-- [BRANCH_A_B_IMPLEMENTATION_BEST_PRACTICES_ZH.md](/Volumes/AI_LAB/Github/autonomous-agent-stack/docs/requirement4/BRANCH_A_B_IMPLEMENTATION_BEST_PRACTICES_ZH.md)
+- [BRANCH_A_B_IMPLEMENTATION_BEST_PRACTICES_ZH.md](BRANCH_A_B_IMPLEMENTATION_BEST_PRACTICES_ZH.md)
 
 重点看：
 
@@ -132,7 +132,7 @@
 
 直接跳到：
 
-- [BRANCH_A_B_IMPLEMENTATION_BEST_PRACTICES_ZH.md](/Volumes/AI_LAB/Github/autonomous-agent-stack/docs/requirement4/BRANCH_A_B_IMPLEMENTATION_BEST_PRACTICES_ZH.md)
+- [BRANCH_A_B_IMPLEMENTATION_BEST_PRACTICES_ZH.md](BRANCH_A_B_IMPLEMENTATION_BEST_PRACTICES_ZH.md)
 
 重点看：
 
@@ -158,9 +158,9 @@
 
 还可以按需看这些补充材料：
 
-- [CONFIDENTIAL_ASSET_STORAGE_DECISION_ZH.md](/Volumes/AI_LAB/Github/autonomous-agent-stack/docs/requirement4/CONFIDENTIAL_ASSET_STORAGE_DECISION_ZH.md)
-- [IMPLEMENTATION_READY_CHECKLIST.md](/Volumes/AI_LAB/Github/autonomous-agent-stack/docs/requirement4/IMPLEMENTATION_READY_CHECKLIST.md)
-- [NEXT_STEP_ONCE_BUSINESS_ASSETS_ARRIVE.md](/Volumes/AI_LAB/Github/autonomous-agent-stack/docs/requirement4/NEXT_STEP_ONCE_BUSINESS_ASSETS_ARRIVE.md)
-- [CLAUDE_CODE_BEST_PRACTICES_ZH.md](/Volumes/AI_LAB/Github/autonomous-agent-stack/docs/requirement4/CLAUDE_CODE_BEST_PRACTICES_ZH.md)
+- [CONFIDENTIAL_ASSET_STORAGE_DECISION_ZH.md](CONFIDENTIAL_ASSET_STORAGE_DECISION_ZH.md)
+- [IMPLEMENTATION_READY_CHECKLIST.md](IMPLEMENTATION_READY_CHECKLIST.md)
+- [NEXT_STEP_ONCE_BUSINESS_ASSETS_ARRIVE.md](NEXT_STEP_ONCE_BUSINESS_ASSETS_ARRIVE.md)
+- [CLAUDE_CODE_BEST_PRACTICES_ZH.md](CLAUDE_CODE_BEST_PRACTICES_ZH.md)
 
 这些文档现在是补充说明，不是 requirement-4 的主口径真源。

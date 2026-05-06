@@ -360,7 +360,7 @@ class AutoAuditCron:
 
 - [ ] **实装依赖哈希清单**
   ```bash
-  cd /Volumes/PS1008/Github/autonomous-agent-stack
+  cd $AAS_REPO_ROOT
   bash scripts/zero-trust-dependencies.sh
   ```
 

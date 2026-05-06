@@ -20,8 +20,8 @@
 macOS Host
 ├── 主账号：your-main-account
 └── 标准副账号：ai_lab
-    ├── /Users/ai_lab/workspace   <- 唯一可写交换区
-    ├── /Users/ai_lab/.cache      <- 可选，独立小缓存
+    ├── $AAS_WORKSPACE_ROOT   <- 唯一可写交换区
+    ├── $AAS_CACHE_ROOT      <- 可选，独立小缓存
     └── APFS quota volume         <- 硬限制空间上限
 
 Docker (Apple Silicon)
@@ -29,20 +29,20 @@ Docker (Apple Silicon)
 ├── python:3.11-slim-bookworm
 ├── cpus: "4"
 ├── memory: "2g"
-└── volume: /Users/ai_lab/workspace:/workspace:rw
+└── volume: $AAS_WORKSPACE_ROOT:/workspace:rw
 ```
 
 ## 关键说明
 
 - **标准副账号**：用于降低对主账号的误操作风险，但不是安全边界本身。
 - **真正的磁盘硬限制**：macOS 对普通用户目录没有 Linux 式通用 quota；要做硬限制，最好把工作区放到 **独立 APFS 卷**，用 `-quota` 控制容量。
-- **双向交换区**：容器只挂载 `/Users/ai_lab/workspace/`，宿主和容器都通过这个目录交换文件。
+- **双向交换区**：容器只挂载 `$AAS_WORKSPACE_ROOT/`，宿主和容器都通过这个目录交换文件。
 - **禁挂载敏感目录**：不要把 `/etc`、`~/.ssh`、`~/.zshrc`、`~/Library` 之类目录映射进容器。
 
 ## 目录约定
 
 ```bash
-/Users/ai_lab/
+$AAS_RUNTIME_ROOT/
 ├── workspace/        # 唯一给 Agent 的读写区
 ├── logs/             # 可选：宿主机审计日志
 └── .cache/           # 可选：小缓存，建议单独限制

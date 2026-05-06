@@ -134,7 +134,7 @@ ANTHROPIC_API_KEY=your-api-key-here
 ### 步骤 2：安装依赖
 
 ```bash
-cd /Volumes/PS1008/Github/autonomous-agent-stack
+cd $AAS_REPO_ROOT
 
 # 安装 Anthropic SDK
 .venv/bin/pip install anthropic
@@ -146,7 +146,7 @@ cd /Volumes/PS1008/Github/autonomous-agent-stack
 
 ```bash
 # 运行测试
-PYTHONPATH=/Volumes/PS1008/Github/autonomous-agent-stack/src:$PYTHONPATH \
+PYTHONPATH=$AAS_REPO_ROOT/src:$PYTHONPATH \
 .venv/bin/python -m pytest tests/test_claude_api_adapter.py -v
 ```
 

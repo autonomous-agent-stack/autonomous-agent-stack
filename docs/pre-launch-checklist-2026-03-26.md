@@ -20,9 +20,9 @@ pkill -f "uvicorn.*8001"
 ### 2. 重启服务（端口 8001）✅
 
 ```bash
-cd /Volumes/PS1008/Github/autonomous-agent-stack
+cd $AAS_REPO_ROOT
 
-PYTHONPATH=/Volumes/PS1008/Github/autonomous-agent-stack/src:$PYTHONPATH \
+PYTHONPATH=$AAS_REPO_ROOT/src:$PYTHONPATH \
 nohup .venv/bin/python -m uvicorn autoresearch.api.main:app \
   --host 127.0.0.1 --port 8001 > /tmp/autoresearch_8001.log 2>&1 &
 
@@ -50,7 +50,7 @@ curl http://127.0.0.1:8001/health
 
 ```bash
 # 编辑 .env
-nano /Volumes/PS1008/Github/autonomous-agent-stack/.env
+nano $AAS_REPO_ROOT/.env
 
 # 更新为实际的 Topic ID
 AUTORESEARCH_TOPIC_MARKET=实际ID

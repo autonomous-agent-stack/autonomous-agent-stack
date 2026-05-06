@@ -152,7 +152,7 @@ $ bash ~/.openclaw/scripts/night-watch-start
 
 **监控配置**：
 - 监控频率：每 5 分钟
-- 监控对象：`/Volumes/PS1008/Github/autonomous-agent-stack`
+- 监控对象：`$AAS_REPO_ROOT`
 - 报告文件：`~/.openclaw/workspace/AutonomousAgentStack_NightWatch.md`
 
 ---

@@ -117,7 +117,7 @@
 - docs/P4_PROTOCOL_CONFIG_COMPLETE.md
 - docs/FINAL_SUMMARY.md
 - docs/QUICK_START.md
-- docs/audit_reports/（审计报告）
+- docs/archive/audit_reports/（审计报告）
 
 ---
 

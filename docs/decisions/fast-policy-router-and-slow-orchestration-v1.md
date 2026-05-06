@@ -8,9 +8,9 @@
 
 ## 目标 | Goal
 
-**中文：** 把「快策略路由（fast policy router）」与「慢编排（slow orchestration）」在 AAS 中写成一等概念：明确管家不是「纯规则」，而是**规则优先、模型补位、复杂事才上 Hermes**；并为 capability registry、quota/budget、direct route vs escalation 提供可演进的文档基线。
+Chinese: 把「快策略路由（fast policy router）」与「慢编排（slow orchestration）」在 AAS 中写成一等概念：明确管家不是「纯规则」，而是**规则优先、模型补位、复杂事才上 Hermes**；并为 capability registry、quota/budget、direct route vs escalation 提供可演进的文档基线。
 
-**English:** Make **fast policy routing** and **slow orchestration** first-class concepts in AAS: the butler is **not** “rules-only”; it is **rules-first, model fill-in, Hermes for heavy work**; and document a baseline for capability registry fields, quota/budget, and direct route vs escalation.
+English: Make **fast policy routing** and **slow orchestration** first-class concepts in AAS: the butler is **not** “rules-only”; it is **rules-first, model fill-in, Hermes for heavy work**; and document a baseline for capability registry fields, quota/budget, and direct route vs escalation.
 
 **外部参考（命题对齐 | External reference (concept alignment):）**  
 `codex/fast-slow-governance-router` 提交 `30b7d51`（*docs: propose fast policy router orchestration split*）与 `autonomous-agent-stack/autonomous-agent-stack#80` 所提出的拆分：**fast path 做策略与 gate，slow path 做长程编排与工具执行**。本决策把该命题吸收为 AAS 侧词汇与边界，不绑定某一外部仓库实现细节。
@@ -19,7 +19,7 @@
 
 ## 当前事实 | Current Truth
 
-**中文：**
+Chinese:
 
 - Telegram 入口经 [`ButlerDispatchCenter`](../../src/autoresearch/core/services/butler_dispatch.py)：**[`ButlerIntentRouter`](../../src/autoresearch/core/services/butler_router.py)** 仍为 fast 规则层；规则为 `UNKNOWN` 时由 **`ButlerModelFillService`** 产出**仅路由用**的结构化 JSON（`task_type` / `route` / `runtime_id` 等枚举）；仍不确定则**升级 Hermes**。网关侧不再散落 agent/runtime/priority 选择，由分派决策统一写入队列 metadata（`detected_task_type` / `butler_task_type` 等字段为**字符串**）。
 - 少数意图（如 Excel audit）在 gateway 内保留**直接**异步路径，不走通用队列。
@@ -27,7 +27,7 @@
 - 队列级取消：`cancel_requested` + worker 协作停；`/api/v1/butler/doctor` 汇总规则层、模型补位、Hermes、队列、Telegram、YouTube autoflow、GitHub publish 等检查。
 - **自动化未覆盖**：控制面进程「整体重启」后，同一条任务链（ack → 可选节流 RUNNING → 终态卡）的端到端恢复。
 
-**English:**
+English:
 
 - Telegram ingress goes through [`ButlerDispatchCenter`](../../src/autoresearch/core/services/butler_dispatch.py): **[`ButlerIntentRouter`](../../src/autoresearch/core/services/butler_router.py)** remains the fast rule tier; on `UNKNOWN`, **`ButlerModelFillService`** returns **routing-only** structured JSON (enumerated `task_type` / `route` / `runtime_id`, etc.); if still uncertain, **escalate to Hermes**. The gateway no longer sprinkles agent/runtime/priority selection—one dispatch decision is written into queue metadata (`detected_task_type` / `butler_task_type` as **strings**).
 - Some intents (e.g. Excel audit) keep a **direct** async branch outside the generic queue.
@@ -39,9 +39,9 @@
 
 ## 目标架构（演进方向）| Target architecture (evolution)
 
-**中文：** 三层分工；**当前代码已实现** fast 规则 + 可选模型补位（路由 JSON）+ Hermes 升级；模型不可用时 UNKNOWN 仍升级 Hermes，`doctor` 标记 degraded/fail。
+Chinese: 三层分工；**当前代码已实现** fast 规则 + 可选模型补位（路由 JSON）+ Hermes 升级；模型不可用时 UNKNOWN 仍升级 Hermes，`doctor` 标记 degraded/fail。
 
-**English:** Three layers; **implemented** as fast rules + optional model fill-in (routing JSON) + Hermes escalation; when the model tier is unavailable, `UNKNOWN` still escalates to Hermes and `doctor` reports degraded/fail instead of pretending OK.
+English: Three layers; **implemented** as fast rules + optional model fill-in (routing JSON) + Hermes escalation; when the model tier is unavailable, `UNKNOWN` still escalates to Hermes and `doctor` reports degraded/fail instead of pretending OK.
 
 ```mermaid
 flowchart LR
@@ -71,9 +71,9 @@ flowchart LR
 
 ## AAS 抽象能力（文档 schema）| AAS capability abstractions (doc schema)
 
-**中文：** 下列字段/维度作为 **capability registry** 与路由文档的推荐检查清单（实现可分期落地）。
+Chinese: 下列字段/维度作为 **capability registry** 与路由文档的推荐检查清单（实现可分期落地）。
 
-**English:** Use as a **checklist** for capability registry and routing docs (implementation can land in phases).
+English: Use as a **checklist** for capability registry and routing docs (implementation can land in phases).
 
 - **trust_boundary**：能力触及的数据/仓库边界。
 - **credential_boundary**：凭据是否出站、是否可委派给 worker。
@@ -90,13 +90,13 @@ flowchart LR
 
 ## 范围 | Scope（本决策 v1）
 
-**中文：**
+Chinese:
 
 - 固定术语与边界：fast router / slow orchestration / direct vs escalate。
 - 说明当前实现与目标的差距，以及 Telegram **同气泡节流**与「全量每条消息上屏」的非目标关系。
 - 附录：重启与转发的**手工验收矩阵**；可选 pytest 尖刺在附录中标注为 follow-up。
 
-**English:**
+English:
 
 - Fix vocabulary and boundaries: fast router / slow orchestration / direct vs escalate.
 - Document gap vs goal and relation to Telegram **same-bubble throttling** vs “every line to chat”.
@@ -106,21 +106,21 @@ flowchart LR
 
 ## 非目标 | Non-goals（v1 文档不写死实现）
 
-**中文：** 不在本文件所在 PR 内承诺完成：生产级 LLM 补位分类器、全量 quota 引擎、或取消 Telegram 节流的多气泡刷屏。
+Chinese: 不在本文件所在 PR 内承诺完成：生产级 LLM 补位分类器、全量 quota 引擎、或取消 Telegram 节流的多气泡刷屏。
 
-**English:** Not committing in the same doc-only slice: production LLM fill-in router, full quota engine, or unthrottled multi-message streaming.
+English: Not committing in the same doc-only slice: production LLM fill-in router, full quota engine, or unthrottled multi-message streaming.
 
 ---
 
 ## 验收 | Acceptance
 
-**中文：**
+Chinese:
 
 - 读者能回答：管家当前是「规则 + 默认 Hermes」，目标三层是什么；为何 RUNNING 不是「每条必达 Telegram」。
 - Roadmap 可从 README 链到本决策。
 - 附录矩阵可被 SRE/开发用于发版前手工回归（直至有自动化替代）。
 
-**English:**
+English:
 
 - Readers can state: today is **rules + default Hermes**; target three layers; why RUNNING is not “every report = one Telegram edit”.
 - README links here.
@@ -130,9 +130,9 @@ flowchart LR
 
 ## 状态 | Status
 
-**中文：** 文档与实现对齐：`ButlerDispatchCenter`、`ButlerModelFillService`、`/api/v1/butler/doctor`、Telegram 网关单一分派入口、队列取消与 RUNNING live 卡（含非 Hermes 自定义标题）已合入主干演进。
+Chinese: 文档与实现对齐：`ButlerDispatchCenter`、`ButlerModelFillService`、`/api/v1/butler/doctor`、Telegram 网关单一分派入口、队列取消与 RUNNING live 卡（含非 Hermes 自定义标题）已合入主干演进。
 
-**English:** Doc and code are aligned: `ButlerDispatchCenter`, `ButlerModelFillService`, `/api/v1/butler/doctor`, a single Telegram dispatch ingress, queue cancel semantics, and throttled RUNNING live edits (including non-Hermes titles via `telegram_live_card_title`) ship in the ongoing implementation line.
+English: Doc and code are aligned: `ButlerDispatchCenter`, `ButlerModelFillService`, `/api/v1/butler/doctor`, a single Telegram dispatch ingress, queue cancel semantics, and throttled RUNNING live edits (including non-Hermes titles via `telegram_live_card_title`) ship in the ongoing implementation line.
 
 ---
 
@@ -164,9 +164,9 @@ flowchart LR
 
 ## 附录 B：可选自动化 follow-up | Appendix B: Optional automated follow-up
 
-**中文：** 低优先级尖刺示例：（1）`TestClient` 入队后替换/重建 scheduler 单例（若依赖注入允许），再调 `report_worker_run` 验证完成卡路径；（2）`pytest` `slow` 标记下子进程起 uvicorn 再 SIGKILL——成本高，仅当生产强需求。
+Chinese: 低优先级尖刺示例：（1）`TestClient` 入队后替换/重建 scheduler 单例（若依赖注入允许），再调 `report_worker_run` 验证完成卡路径；（2）`pytest` `slow` 标记下子进程起 uvicorn 再 SIGKILL——成本高，仅当生产强需求。
 
-**English:** Low-priority spikes: (1) after enqueue, reset/rebuild scheduler singleton if DI allows, then call `report_worker_run`; (2) subprocess uvicorn + SIGKILL under a `slow` marker—high cost, only if production demands it.
+English: Low-priority spikes: (1) after enqueue, reset/rebuild scheduler singleton if DI allows, then call `report_worker_run`; (2) subprocess uvicorn + SIGKILL under a `slow` marker—high cost, only if production demands it.
 
 ---
 

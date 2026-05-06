@@ -1,6 +1,5 @@
-# Coarse check: PR body should contain both Chinese (CJK) and English (Latin) prose.
-# See AGENTS.md and .github/pull_request_template.md
-name: PR bilingual (coarse)
+# Documentation i18n check: active docs are language-separated and portable.
+name: Docs i18n
 
 on:
   pull_request:
@@ -10,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  bilingual-description:
+  docs-i18n:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     # Draft PRs: allow WIP; enforce when marked ready (ready_for_review) or non-draft edits.
@@ -23,8 +22,5 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Verify PR title/body (bilingual coarse)
-        env:
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_BODY: ${{ github.event.pull_request.body }}
+      - name: Verify docs i18n and portable paths
         run: python3 scripts/ci/check_pr_bilingual.py

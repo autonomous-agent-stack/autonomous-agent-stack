@@ -11,7 +11,7 @@
 ### ✅ 通过项目
 
 1. **工作目录** ✅
-   - 路径：/Volumes/PS1008/Github/autonomous-agent-stack
+   - 路径：$AAS_REPO_ROOT
    - 状态：正确
 
 2. **Git 分支** ✅
@@ -61,7 +61,7 @@ TELEGRAM_BOT_TOKEN=your_token_here  # 需手动填写
 
 ### Step 1：清理 AppleDouble
 ```bash
-cd /Volumes/PS1008/Github/autonomous-agent-stack
+cd $AAS_REPO_ROOT
 python3 src/security/apple_double_cleaner.py
 ```
 

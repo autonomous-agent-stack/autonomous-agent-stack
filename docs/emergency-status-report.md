@@ -51,7 +51,7 @@
 
 2. **编辑 .env 文件**
    ```bash
-   cd /Volumes/PS1008/Github/autonomous-agent-stack
+   cd $AAS_REPO_ROOT
    nano .env
 
    # 或使用 vim
@@ -73,7 +73,7 @@
    pkill uvicorn
 
    # 启动新进程
-   cd /Volumes/PS1008/Github/autonomous-agent-stack
+   cd $AAS_REPO_ROOT
    nohup uvicorn src.autoresearch.api.main:app --host 0.0.0.0 --port 8000 &
 
    # 验证

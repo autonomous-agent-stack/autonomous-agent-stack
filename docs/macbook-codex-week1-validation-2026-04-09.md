@@ -100,8 +100,8 @@ legacy locations were missing or inaccessible under `set -euo pipefail`.
 It was adjusted to continue reporting candidates and missing directories instead of
 aborting the discovery pass. After the change, the script reported:
 
-- missing `/Volumes/PS1008/Github/openclaw-memory`
-- missing `/Volumes/PS1008/Github/openclaw`
+- missing `$AAS_CODE_ROOT/openclaw-memory`
+- missing `$AAS_CODE_ROOT/openclaw`
 
 ## Mac Worker Smoke
 
@@ -129,9 +129,9 @@ Observed results:
 
 Representative dry-run findings seen in worker logs:
 
-- `/Volumes/AI_LAB/Github/.DS_Store`
-- `/Volumes/AI_LAB/Github/claude_cli/.DS_Store`
-- `/Volumes/AI_LAB/Github/claude_cli-private/vendor/.DS_Store`
+- `$AAS_CODE_ROOT/.DS_Store`
+- `$AAS_CODE_ROOT/claude_cli/.DS_Store`
+- `$AAS_CODE_ROOT/claude_cli-private/vendor/.DS_Store`
 
 ## Outcome
 

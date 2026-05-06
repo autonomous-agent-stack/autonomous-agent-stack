@@ -5,9 +5,9 @@
 
 ## 目标 | Goal
 
-**中文：** 通过当前 Telegram 网关暴露既有内部 `youtube_autoflow` 链路，不在聊天层复制 YouTube / GitHub 业务逻辑。
+Chinese: 通过当前 Telegram 网关暴露既有内部 `youtube_autoflow` 链路，不在聊天层复制 YouTube / GitHub 业务逻辑。
 
-**English:** Expose the existing internal `youtube_autoflow` chain through the current Telegram gateway without duplicating YouTube or GitHub business logic in the chat layer.
+English: Expose the existing internal `youtube_autoflow` chain through the current Telegram gateway without duplicating YouTube or GitHub business logic in the chat layer.
 
 ## Scope
 
@@ -43,9 +43,9 @@ This slice includes:
 
 ## 非目标 | Non-goals
 
-**中文：** 仍不在本切片承诺：Telegram 专用 YouTube 处理链、Telegram 专用 GitHub 发布路径、远端真实 PR 冒烟、TypeScript `agent-control-plane/` 改动、多智能体编排层、**隐式自动失败补救链**（仅手动 `/retry <run_id>` 与清晰 doctor/状态面）、依赖 Telegram **删除消息**的撤回（v1 仅编辑原 ack 气泡为已取消/已撤回）。
+Chinese: 仍不在本切片承诺：Telegram 专用 YouTube 处理链、Telegram 专用 GitHub 发布路径、远端真实 PR 冒烟、TypeScript `agent-control-plane/` 改动、多智能体编排层、**隐式自动失败补救链**（仅手动 `/retry <run_id>` 与清晰 doctor/状态面）、依赖 Telegram **删除消息**的撤回（v1 仅编辑原 ack 气泡为已取消/已撤回）。
 
-**English:** Still out of scope for this line: a Telegram-only YouTube processor, a Telegram-only GitHub publish path, remote real-PR smoke, TypeScript `agent-control-plane/` edits, a multi-agent orchestration layer, **implicit auto-remediation chains** (manual `/retry <run_id>` plus doctor/status surfaces only), and withdraw flows that **delete Telegram messages** (v1 edits the original ack bubble to cancelled/withdrawn only).
+English: Still out of scope for this line: a Telegram-only YouTube processor, a Telegram-only GitHub publish path, remote real-PR smoke, TypeScript `agent-control-plane/` edits, a multi-agent orchestration layer, **implicit auto-remediation chains** (manual `/retry <run_id>` plus doctor/status surfaces only), and withdraw flows that **delete Telegram messages** (v1 edits the original ack bubble to cancelled/withdrawn only).
 
 ## Acceptance
 

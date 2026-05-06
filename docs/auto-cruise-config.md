@@ -93,7 +93,7 @@ AUTO_CRUISE_AUDIT_INTERVAL=1h
 ssh iCloud_GZ@<M1的IP>
 
 # 启动巡航
-cd /Volumes/PS1008/Github/autonomous-agent-stack
+cd $AAS_REPO_ROOT
 python3 -c "
 from src.skills.auto_intelligence_cron import AutoIntelligenceCron
 from src.security.auto_audit_cron import AutoAuditCron
