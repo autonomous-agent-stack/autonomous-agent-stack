@@ -166,3 +166,4 @@ class AgentManifest(StrictModel):
     capabilities: list[str] = Field(default_factory=list)
     default_mode: ExecutionMode = "apply_in_workspace"
     policy_defaults: ExecutionPolicy = Field(default_factory=ExecutionPolicy)
+    metadata: dict[str, Any] = Field(default_factory=dict)

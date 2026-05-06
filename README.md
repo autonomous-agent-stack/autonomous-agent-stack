@@ -150,6 +150,9 @@ The v2 path uses the existing worker claim/report/lease scheduler as the
 execution backbone. A2A, MCP, and future ADK integrations are modeled as
 capability adapters and remain disabled until explicitly configured.
 
+联邦就绪 v1 已加入 CrewAI-compatible agent adapter、受控 MCP 调用、用户/peer 配额账本、静态 peer 注册、agent/worker 租约和联邦任务 API。详见 [docs/federation-ready-v1.md](docs/federation-ready-v1.md)。
+Federation-ready v1 now includes the CrewAI-compatible agent adapter, governed MCP calls, user/peer quota ledger, static peer registry, agent/worker leases, and federation task APIs. See [docs/federation-ready-v1.md](docs/federation-ready-v1.md).
+
 Legacy governance MVP endpoints remain during the migration window:
 
 - `POST /tasks`: create a governed task

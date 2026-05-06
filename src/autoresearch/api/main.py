@@ -209,6 +209,9 @@ def create_app() -> FastAPI:
         ("autoresearch.api.routers.capabilities", "router", "capabilities"),
         ("autoresearch.api.routers.approvals", "router", "approvals"),
         ("autoresearch.api.routers.sessions", "router", "sessions"),
+        ("autoresearch.api.routers.usage", "router", "usage"),
+        ("autoresearch.api.routers.mcp", "router", "governed mcp"),
+        ("autoresearch.api.routers.federation", "router", "federation"),
         ("autoresearch.api.routers.workers", "router", "workers"),
         ("autoresearch.api.routers.worker_runs", "router", "worker runs"),
         ("autoresearch.api.routers.worker_schedules", "router", "worker schedules"),
@@ -359,7 +362,8 @@ def create_app() -> FastAPI:
                 "degraded": summary.degraded_workers,
                 "offline": summary.offline_workers,
             }
-            if summary.online_workers == 0 and summary.total_workers > 0:
+            active_workers = summary.online_workers + summary.busy_workers
+            if active_workers == 0 and summary.total_workers > 0:
                 overall = "degraded"
         except Exception:
             checks["workers"] = {"status": "unavailable"}
