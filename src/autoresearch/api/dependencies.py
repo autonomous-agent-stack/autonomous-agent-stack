@@ -6,6 +6,7 @@ from pathlib import Path
 
 from fastapi import Depends
 
+from autoresearch.agent_protocol.capability_registry import CapabilityManifestRegistry
 from autoresearch.agent_protocol.runtime_registry import RuntimeAdapterRegistry
 from autoresearch.api.settings import (
     get_admin_settings,
@@ -40,11 +41,14 @@ from autoresearch.core.repositories import SQLiteEvaluationRepository
 from autoresearch.core.services.admin_auth import AdminAuthService
 from autoresearch.core.services.admin_config import AdminConfigService
 from autoresearch.core.services.admin_secrets import AdminSecretCipher
+from autoresearch.core.services.a2a_gateway import A2AGatewayService, A2ATaskRead
 from autoresearch.core.services.agent_audit_trail import AgentAuditTrailService
 from autoresearch.core.services.approval_decisions import ApprovalDecisionService
 from autoresearch.core.services.approval_policy import ApprovalPolicyService
 from autoresearch.core.services.approval_store import ApprovalStoreService
+from autoresearch.core.services.aep_process_runtime_adapter import AepProcessRuntimeAdapterService
 from autoresearch.core.services.autoresearch_planner import AutoResearchPlannerService
+from autoresearch.core.services.capability_manifest_service import CapabilityManifestService
 from autoresearch.core.services.claude_agents import ClaudeAgentService
 from autoresearch.core.services.claude_runtime_service import ClaudeRuntimeService
 from autoresearch.core.services.claude_session_records import ClaudeSessionRecordService
@@ -145,6 +149,10 @@ def _repo_root() -> Path:
 
 def _runtime_manifests_dir() -> Path:
     return _repo_root() / "configs" / "runtime_agents"
+
+
+def _capability_manifests_dir() -> Path:
+    return _repo_root() / "configs" / "capabilities"
 
 
 def _api_db_path() -> Path:
@@ -515,6 +523,71 @@ def get_hermes_runtime_adapter_service() -> HermesRuntimeAdapterService:
     )
 
 
+def _aep_runtime(
+    *,
+    runtime_id: str,
+    agent_id: str,
+    display_name: str,
+    optional_dependencies: list[str] | None = None,
+) -> AepProcessRuntimeAdapterService:
+    return AepProcessRuntimeAdapterService(
+        repo_root=_repo_root(),
+        runtime_id=runtime_id,
+        agent_id=agent_id,
+        display_name=display_name,
+        optional_dependencies=optional_dependencies,
+    )
+
+
+@lru_cache(maxsize=1)
+def get_openhands_runtime_adapter_service() -> AepProcessRuntimeAdapterService:
+    return _aep_runtime(
+        runtime_id="openhands",
+        agent_id="openhands",
+        display_name="OpenHands coding worker",
+    )
+
+
+@lru_cache(maxsize=1)
+def get_crewai_runtime_adapter_service() -> AepProcessRuntimeAdapterService:
+    return _aep_runtime(
+        runtime_id="crewai",
+        agent_id="agent_reach_crewai_researcher",
+        display_name="CrewAI multi-agent worker",
+        optional_dependencies=["crewai"],
+    )
+
+
+@lru_cache(maxsize=1)
+def get_haystack_runtime_adapter_service() -> AepProcessRuntimeAdapterService:
+    return _aep_runtime(
+        runtime_id="haystack",
+        agent_id="haystack_demo",
+        display_name="Haystack knowledge worker",
+        optional_dependencies=["haystack"],
+    )
+
+
+@lru_cache(maxsize=1)
+def get_langgraph_runtime_adapter_service() -> AepProcessRuntimeAdapterService:
+    return _aep_runtime(
+        runtime_id="langgraph",
+        agent_id="langgraph_order_flow",
+        display_name="LangGraph workflow worker",
+        optional_dependencies=["langgraph"],
+    )
+
+
+@lru_cache(maxsize=1)
+def get_a2a_runtime_adapter_service() -> AepProcessRuntimeAdapterService:
+    return _aep_runtime(
+        runtime_id="a2a",
+        agent_id="a2a_bridge",
+        display_name="A2A federated agent bridge",
+        optional_dependencies=["a2a"],
+    )
+
+
 @lru_cache(maxsize=1)
 def get_runtime_adapter_registry_service() -> RuntimeAdapterServiceRegistry:
     manifest_registry = RuntimeAdapterRegistry(_runtime_manifests_dir())
@@ -523,12 +596,37 @@ def get_runtime_adapter_registry_service() -> RuntimeAdapterServiceRegistry:
         factories={
             "openclaw": get_openclaw_runtime_adapter_service,
             "hermes": get_hermes_runtime_adapter_service,
+            "openhands": get_openhands_runtime_adapter_service,
+            "crewai": get_crewai_runtime_adapter_service,
+            "haystack": get_haystack_runtime_adapter_service,
+            "langgraph": get_langgraph_runtime_adapter_service,
+            "a2a": get_a2a_runtime_adapter_service,
         },
     )
 
 
 def get_runtime_adapter_service(runtime_id: str = "openclaw") -> RuntimeAdapterContract:
     return get_runtime_adapter_registry_service().get(runtime_id)
+
+
+@lru_cache(maxsize=1)
+def get_capability_manifest_service() -> CapabilityManifestService:
+    return CapabilityManifestService(
+        registry=CapabilityManifestRegistry(_capability_manifests_dir()),
+        runtime_registry=get_runtime_adapter_registry_service(),
+    )
+
+
+@lru_cache(maxsize=1)
+def get_a2a_gateway_service() -> A2AGatewayService:
+    return A2AGatewayService(
+        capability_service=get_capability_manifest_service(),
+        task_repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="a2a_tasks",
+            model_cls=A2ATaskRead,
+        ),
+    )
 
 
 @lru_cache(maxsize=1)
@@ -672,6 +770,7 @@ def get_federation_service() -> FederationService:
             model_cls=FederationTaskRead,
         ),
         control_plane=get_control_plane_service(),
+        capability_service=get_capability_manifest_service(),
         quota_service=get_usage_quota_service(),
         session_events=get_session_event_service(),
         failure_review_service=get_butler_failure_review_service(),
@@ -889,7 +988,14 @@ def clear_dependency_caches() -> None:
     _safe_cache_clear(get_openclaw_skill_service)
     _safe_cache_clear(get_openclaw_runtime_adapter_service)
     _safe_cache_clear(get_hermes_runtime_adapter_service)
+    _safe_cache_clear(get_openhands_runtime_adapter_service)
+    _safe_cache_clear(get_crewai_runtime_adapter_service)
+    _safe_cache_clear(get_haystack_runtime_adapter_service)
+    _safe_cache_clear(get_langgraph_runtime_adapter_service)
+    _safe_cache_clear(get_a2a_runtime_adapter_service)
     _safe_cache_clear(get_runtime_adapter_registry_service)
+    _safe_cache_clear(get_capability_manifest_service)
+    _safe_cache_clear(get_a2a_gateway_service)
     _safe_cache_clear(get_claude_agent_service)
     _safe_cache_clear(get_claude_session_record_service)
     _safe_cache_clear(get_claude_runtime_service)

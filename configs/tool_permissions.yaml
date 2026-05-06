@@ -57,3 +57,13 @@ tools:
       - "*"
     risk_tags:
       - destructive
+  stdio_example.*:
+    enabled: false
+    decision: blocked
+    reason: "stdio MCP 外部示例默认关闭。 / stdio MCP external examples are disabled by default."
+    allowed_roles:
+      - owner
+    allowed_agents:
+      - "*"
+    risk_tags:
+      - external_api

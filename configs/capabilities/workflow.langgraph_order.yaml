@@ -1,0 +1,27 @@
+capability_id: workflow.langgraph_order
+kind: workflow
+provided_by: langgraph
+display_name: "LangGraph 订单流程演示 / LangGraph order workflow demo"
+description: "中文：演示有状态工作流、checkpoint 引用、审批中断和恢复边界。 English: Demonstrates a stateful workflow, checkpoint references, approval interrupts, and resume boundaries."
+enabled: true
+input_schema:
+  type: object
+  properties:
+    brief:
+      type: string
+output_schema:
+  type: object
+  properties:
+    status:
+      type: string
+    checkpoint_ref:
+      type: string
+risk_tier: sensitive_read
+policy_refs:
+  - workflow.approval_interrupt
+artifact_types:
+  - report
+lease_enabled: true
+metadata:
+  checkpoint_owner: langgraph
+  global_audit_owner: aas

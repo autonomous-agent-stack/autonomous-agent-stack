@@ -1,0 +1,26 @@
+capability_id: knowledge.haystack_demo
+kind: knowledge
+provided_by: haystack
+display_name: "Haystack 知识检索演示 / Haystack knowledge demo"
+description: "中文：演示知识/RAG runtime 的本地检索、引用和 artifact 输出。 English: Demonstrates local retrieval, citation, and artifact output for a knowledge/RAG runtime."
+enabled: true
+input_schema:
+  type: object
+  properties:
+    query:
+      type: string
+output_schema:
+  type: object
+  properties:
+    answer:
+      type: string
+    citations:
+      type: array
+risk_tier: common_read
+policy_refs:
+  - knowledge.read
+artifact_types:
+  - report
+lease_enabled: true
+metadata:
+  index_policy: local_demo

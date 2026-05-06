@@ -1,0 +1,25 @@
+capability_id: federation.a2a_bridge
+kind: federated
+provided_by: a2a
+display_name: "A2A 联邦桥 / A2A federation bridge"
+description: "中文：把外部 A2A agent 作为可租用 runtime/capability 接入 AAS。 English: Wraps external A2A agents as rentable AAS runtimes/capabilities."
+enabled: true
+input_schema:
+  type: object
+  properties:
+    task:
+      type: string
+    endpoint:
+      type: string
+output_schema:
+  type: object
+risk_tier: external_write
+policy_refs:
+  - federation.lease_required
+  - tool_proxy.external_write_approval
+artifact_types:
+  - report
+lease_enabled: true
+metadata:
+  protocol: a2a
+  ledger: federation

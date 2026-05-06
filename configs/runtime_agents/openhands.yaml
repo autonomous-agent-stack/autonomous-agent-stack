@@ -1,0 +1,21 @@
+{
+  "id": "openhands",
+  "kind": "runtime",
+  "service": "autoresearch.core.services.aep_process_runtime_adapter:AepProcessRuntimeAdapterService",
+  "version": "1.0",
+  "runtime_type": "coding_worker",
+  "display_name": "OpenHands coding worker",
+  "enabled": true,
+  "capabilities": ["create_session", "run", "stream", "cancel", "status"],
+  "aep_bridge": {
+    "jobspec_inputs": ["run_id", "agent_id", "task", "policy.timeout_sec"],
+    "result_fields": ["status", "summary", "changed_paths", "output_artifacts", "metrics", "error"],
+    "workspace_binding": "RuntimeRunRequest.prompt -> AEP JobSpec.task",
+    "artifact_bindings": ["DriverResult.output_artifacts -> RuntimeRunRead.output_artifacts"]
+  },
+  "metadata": {
+    "agent_id": "openhands",
+    "lane": "runtime_adapter_v1",
+    "role": "coding_worker"
+  }
+}

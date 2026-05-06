@@ -5,6 +5,7 @@ from abc import ABC, abstractmethod
 from autoresearch.agent_protocol.runtime_models import (
     RuntimeCancelRead,
     RuntimeCancelRequest,
+    RuntimeDoctorRead,
     RuntimeRunRead,
     RuntimeRunRequest,
     RuntimeSessionCreateRequest,
@@ -33,3 +34,10 @@ class RuntimeAdapterContract(ABC):
 
     @abstractmethod
     def status(self, request: RuntimeStatusRequest) -> RuntimeStatusRead: ...
+
+    def doctor(self) -> RuntimeDoctorRead:
+        return RuntimeDoctorRead(
+            runtime_id=self.__class__.__name__,
+            status="ok",
+            detail="runtime adapter is wired",
+        )

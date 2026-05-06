@@ -3,8 +3,10 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from autoresearch.agent_protocol.runtime_models import (
+    RuntimeAdapterManifest,
     RuntimeCancelRead,
     RuntimeCancelRequest,
+    RuntimeDoctorRead,
     RuntimeRunRead,
     RuntimeRunRequest,
     RuntimeSessionCreateRequest,
@@ -32,6 +34,35 @@ def _resolve_runtime_adapter(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
         ) from exc
+
+
+@router.get("", response_model=list[RuntimeAdapterManifest])
+def list_runtime_manifests(
+    registry: RuntimeAdapterServiceRegistry = Depends(get_runtime_adapter_registry_service),
+) -> list[RuntimeAdapterManifest]:
+    return registry.list_manifests()
+
+
+@router.get("/{runtime_id}/manifest", response_model=RuntimeAdapterManifest)
+def get_runtime_manifest(
+    runtime_id: str,
+    registry: RuntimeAdapterServiceRegistry = Depends(get_runtime_adapter_registry_service),
+) -> RuntimeAdapterManifest:
+    try:
+        return registry.manifest(runtime_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.get("/{runtime_id}/doctor", response_model=RuntimeDoctorRead)
+def get_runtime_doctor(
+    runtime_id: str,
+    registry: RuntimeAdapterServiceRegistry = Depends(get_runtime_adapter_registry_service),
+) -> RuntimeDoctorRead:
+    try:
+        return registry.doctor(runtime_id)
+    except (FileNotFoundError, KeyError) as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
 @router.post("/{runtime_id}/sessions", response_model=RuntimeSessionRead, status_code=status.HTTP_201_CREATED)

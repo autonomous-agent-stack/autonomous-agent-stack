@@ -8,6 +8,7 @@ from pydantic import Field, field_validator
 
 from autoresearch.control_plane.contracts import ControlPlaneTaskCreateRequest
 from autoresearch.control_plane.service import ControlPlaneService
+from autoresearch.core.services.capability_manifest_service import CapabilityManifestService
 from autoresearch.core.services.butler_failure_review import (
     ButlerFailureReviewRequest,
     ButlerFailureReviewService,
@@ -130,6 +131,7 @@ class FederationService:
         lease_repository: Repository[FederationLeaseRead],
         task_repository: Repository[FederationTaskRead],
         control_plane: ControlPlaneService,
+        capability_service: CapabilityManifestService | None = None,
         quota_service: UsageQuotaService | None = None,
         session_events: SessionEventService | None = None,
         failure_review_service: ButlerFailureReviewService | None = None,
@@ -138,6 +140,7 @@ class FederationService:
         self._lease_repository = lease_repository
         self._task_repository = task_repository
         self._control_plane = control_plane
+        self._capability_service = capability_service
         self._quota_service = quota_service
         self._session_events = session_events
         self._failure_review_service = failure_review_service
@@ -159,7 +162,20 @@ class FederationService:
                 if isinstance(item, dict):
                     capabilities.append(FederationCapabilityRead.model_validate(item))
         if capabilities:
+            configured = {item.capability_id for item in capabilities}
+            capabilities.extend(
+                self._federation_capability_from_manifest(item)
+                for item in self._capability_manifests()
+                if item.lease_enabled and item.enabled and item.capability_id not in configured
+            )
             return sorted(capabilities, key=lambda item: item.capability_id)
+        manifest_capabilities = [
+            self._federation_capability_from_manifest(item)
+            for item in self._capability_manifests()
+            if item.lease_enabled and item.enabled
+        ]
+        if manifest_capabilities:
+            return sorted(manifest_capabilities, key=lambda item: item.capability_id)
         return [
             FederationCapabilityRead(
                 capability_id=item.capability_id,
@@ -171,6 +187,27 @@ class FederationService:
             for item in self._control_plane.list_capabilities()
             if item.enabled and not item.external_calls_enabled
         ]
+
+    def _capability_manifests(self) -> list[Any]:
+        if self._capability_service is None:
+            return []
+        return self._capability_service.list_manifests()
+
+    @staticmethod
+    def _federation_capability_from_manifest(manifest: Any) -> FederationCapabilityRead:
+        return FederationCapabilityRead(
+            capability_id=manifest.capability_id,
+            name=manifest.display_name or manifest.capability_id,
+            lease_required=manifest.lease_enabled,
+            risk_tags=[manifest.risk_tier],
+            max_duration_seconds=int(manifest.metadata.get("max_duration_seconds") or 3600),
+            metadata={
+                **manifest.metadata,
+                "source": "capability_manifest",
+                "provided_by": manifest.provided_by,
+                "kind": manifest.kind,
+            },
+        )
 
     def list_leases(self, *, peer_id: str | None = None) -> list[FederationLeaseRead]:
         leases = [self._normalize_lease(item) for item in self._lease_repository.list()]
