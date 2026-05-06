@@ -86,6 +86,7 @@ from autoresearch.core.services.worker_inventory import WorkerInventoryService
 from autoresearch.core.services.worker_registry import WorkerRegistryService
 from autoresearch.core.services.butler_agent_state import ButlerAgentStateService
 from autoresearch.core.services.butler_dispatch import ButlerDispatchCenter, ButlerModelFillService
+from autoresearch.core.services.butler_failure_review import ButlerFailureReviewService
 from autoresearch.core.services.butler_router import ButlerIntentRouter
 from autoresearch.core.services.butler_tool_broker import ButlerToolBroker
 from autoresearch.core.services.excel_audit import ExcelAuditService
@@ -296,6 +297,15 @@ def get_control_plane_service() -> ControlPlaneService:
         ),
         worker_scheduler=get_worker_scheduler_service(),
         session_events=get_session_event_service(),
+        failure_review_service=get_butler_failure_review_service(),
+    )
+
+
+@lru_cache(maxsize=1)
+def get_butler_failure_review_service() -> ButlerFailureReviewService:
+    return ButlerFailureReviewService(
+        session_events=get_session_event_service(),
+        rule_candidates_path=_repo_root() / "configs" / "butler" / "rule_candidates.yaml",
     )
 
 
@@ -643,6 +653,7 @@ def get_governed_mcp_service() -> GovernedMCPService:
         quota_service=get_usage_quota_service(),
         approval_store=get_approval_store_service(),
         session_events=get_session_event_service(),
+        failure_review_service=get_butler_failure_review_service(),
     )
 
 
@@ -663,6 +674,7 @@ def get_federation_service() -> FederationService:
         control_plane=get_control_plane_service(),
         quota_service=get_usage_quota_service(),
         session_events=get_session_event_service(),
+        failure_review_service=get_butler_failure_review_service(),
     )
 
 

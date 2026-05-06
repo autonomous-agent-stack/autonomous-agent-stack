@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import BackgroundTasks
 
 from autoresearch.api.settings import load_telegram_settings
-from autoresearch.core.adapters import CapabilityDomain, CapabilityProviderRegistry, SkillProvider
 from autoresearch.core.services.admin_config import AdminConfigService
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.telegram_identity import (
@@ -17,13 +15,12 @@ from autoresearch.shared.models import (
     AdminChannelConfigCreateRequest,
     AdminChannelConfigUpdateRequest,
     AssistantScope,
-    JobStatus,
     OpenClawSessionCreateRequest,
     OpenClawSessionEventAppendRequest,
     OpenClawSessionRead,
 )
 
-from ._extract import _safe_int, _safe_str
+from ._extract import _safe_int
 from ._messages import _truncate_telegram_text, _utc_now
 
 
@@ -222,15 +219,14 @@ def _resolve_contextual_followup_prompt(
     from ._extract import _SHORT_AFFIRMATIVE_RE, _YOUTUBE_PROCESS_CONFIRM_RE
 
     normalized_text = text.strip()
-    if not _SHORT_AFFIRMATIVE_RE.fullmatch(normalized_text):
-        return text
-
     last_assistant_message = _latest_assistant_message(session)
     if not last_assistant_message:
         return text
 
-    if _YOUTUBE_PROCESS_CONFIRM_RE.search(last_assistant_message) and (
-        "?" in last_assistant_message or "？" in last_assistant_message
+    if (
+        _SHORT_AFFIRMATIVE_RE.fullmatch(normalized_text)
+        and _YOUTUBE_PROCESS_CONFIRM_RE.search(last_assistant_message)
+        and ("?" in last_assistant_message or "？" in last_assistant_message)
     ):
         return (
             "请按我上一条确认，立即触发一次今天的视频字幕处理。"
@@ -238,7 +234,79 @@ def _resolve_contextual_followup_prompt(
             "并返回本次实际执行结果，不要再重复问我要不要开始。"
         )
 
+    if _looks_like_contextual_followup(normalized_text):
+        previous = _truncate_text_for_context(last_assistant_message, limit=1800)
+        followup = _truncate_text_for_context(normalized_text, limit=600)
+        return (
+            "请结合上文回答用户追问，不要把追问当成全新的独立任务。\n"
+            "Use the previous assistant result as context for this follow-up; do not treat it as a standalone task.\n\n"
+            f"上文 / Previous result:\n{previous}\n\n"
+            f"追问 / Follow-up:\n{followup}"
+        )
+
     return text
+
+
+def _truncate_text_for_context(text: str, *, limit: int) -> str:
+    normalized = text.strip()
+    if len(normalized) <= limit:
+        return normalized
+    return normalized[:limit].rstrip() + "\n...[truncated]"
+
+
+def _looks_like_contextual_followup(text: str) -> bool:
+    normalized = text.strip()
+    if not normalized:
+        return False
+    lowered = normalized.lower()
+    if normalized.startswith("/") or lowered.startswith(("http://", "https://")):
+        return False
+    if len(normalized) > 160:
+        return False
+    zh_tokens = (
+        "这个",
+        "那个",
+        "它",
+        "他们",
+        "上文",
+        "上面",
+        "刚才",
+        "上一条",
+        "上一轮",
+        "上次",
+        "继续",
+        "展开",
+        "详情",
+        "具体",
+        "原因",
+        "为什么",
+        "怎么",
+        "哪些",
+        "哪条",
+        "多少",
+        "新增",
+        "新的",
+        "结果",
+    )
+    en_tokens = (
+        "detail",
+        "details",
+        "previous",
+        "last",
+        "above",
+        "that",
+        "it",
+        "them",
+        "why",
+        "how",
+        "which",
+        "more",
+        "continue",
+        "expand",
+        "new",
+        "result",
+    )
+    return any(token in normalized for token in zh_tokens) or any(token in lowered for token in en_tokens)
 
 
 def _latest_assistant_message(session: OpenClawSessionRead) -> str | None:

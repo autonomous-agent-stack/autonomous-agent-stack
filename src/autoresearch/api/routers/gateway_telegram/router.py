@@ -460,6 +460,7 @@ def _handle_telegram_webhook(
         update=update,
         extracted=extracted,
         text=resolved_prompt,
+        original_text=text,
         background_tasks=background_tasks,
         openclaw_service=openclaw_service,
         notifier=notifier,
@@ -543,6 +544,7 @@ def _handle_v2_butler_task(
     update: dict[str, Any],
     extracted: dict[str, Any],
     text: str,
+    original_text: str | None = None,
     background_tasks: BackgroundTasks,
     openclaw_service: OpenClawCompatService,
     notifier: TelegramNotifierService,
@@ -558,6 +560,8 @@ def _handle_v2_butler_task(
     session_id: str,
 ) -> TelegramWebhookAck:
     requested_by = session_identity.actor.user_id or str(extracted.get("from_user_id") or chat_id)
+    display_text = (original_text or text).strip()
+    contextual_followup = bool(display_text and display_text != text.strip())
     route_request = ButlerControlPlaneRouteRequest(
         message=text,
         session_id=session_id,
@@ -576,6 +580,8 @@ def _handle_v2_butler_task(
             "actor_role": session_identity.actor.role.value,
             "actor_user_id": session_identity.actor.user_id,
             "actor_username": session_identity.actor.username,
+            "telegram_original_text": display_text,
+            "telegram_contextual_followup": contextual_followup,
         },
     )
     routed = route_butler_message(
@@ -615,7 +621,20 @@ def _handle_v2_butler_task(
         for item in task.parameters.get("target_agents", [])
         if str(item).strip()
     ] if isinstance(task.parameters.get("target_agents"), list) else []
-    if task.run_id:
+    immediate_without_worker = bool(
+        task.run_id
+        and task.status in {ControlPlaneTaskStatus.SUCCEEDED, ControlPlaneTaskStatus.FAILED}
+        and worker_scheduler.get_run(task.run_id) is None
+    )
+    if immediate_without_worker:
+        if notifier.enabled:
+            background_tasks.add_task(
+                notifier.send_message,
+                chat_id=chat_id,
+                text=_control_plane_immediate_task_text(task),
+                message_thread_id=thread_id,
+            )
+    elif task.run_id:
         queue_metadata = {
             "telegram_completion_via_api": True,
             "chat_id": chat_id,
@@ -631,7 +650,7 @@ def _handle_v2_butler_task(
         }
         if notifier.enabled:
             ack_text = _telegram_queue_ack_message(
-                task_name=task.name,
+                task_name=str(task.parameters.get("display_text") or task.name),
                 run_id=task.run_id,
                 worker_brand=telegram_worker_display_name,
                 runtime_id=task.capability_id,
@@ -714,6 +733,36 @@ def _control_plane_task_ack_text(task) -> str:
         f"capability: {task.capability_id}\n"
         f"status: {task.status.value}\n"
         f"run: {task.run_id or '-'}"
+    )
+
+
+def _control_plane_immediate_task_text(task) -> str:
+    result = task.result if isinstance(getattr(task, "result", None), dict) else {}
+    body = str(
+        result.get("answer")
+        or result.get("summary")
+        or result.get("reason")
+        or task.error
+        or ""
+    ).strip()
+    if not body:
+        body = (
+            "任务已完成。\n"
+            "Task completed."
+            if task.status == ControlPlaneTaskStatus.SUCCEEDED
+            else "任务已结束，但没有返回结果。\nTask ended without a result."
+        )
+    task_name = str(task.parameters.get("display_text") or task.name).strip() or task.name
+    title = (
+        "管家已完成。\nButler completed."
+        if task.status == ControlPlaneTaskStatus.SUCCEEDED
+        else "管家执行失败。\nButler failed."
+    )
+    return (
+        f"{title}\n\n"
+        f"任务 / Task: {task_name}\n"
+        f"能力 / Capability: {task.capability_id}\n\n"
+        f"{body}"
     )
 
 

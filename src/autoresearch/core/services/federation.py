@@ -8,6 +8,10 @@ from pydantic import Field, field_validator
 
 from autoresearch.control_plane.contracts import ControlPlaneTaskCreateRequest
 from autoresearch.control_plane.service import ControlPlaneService
+from autoresearch.core.services.butler_failure_review import (
+    ButlerFailureReviewRequest,
+    ButlerFailureReviewService,
+)
 from autoresearch.core.services.session_events import SessionEventService
 from autoresearch.core.services.usage_quota import (
     UsageQuotaCheckRequest,
@@ -128,6 +132,7 @@ class FederationService:
         control_plane: ControlPlaneService,
         quota_service: UsageQuotaService | None = None,
         session_events: SessionEventService | None = None,
+        failure_review_service: ButlerFailureReviewService | None = None,
     ) -> None:
         self._peers_path = peers_path
         self._lease_repository = lease_repository
@@ -135,6 +140,7 @@ class FederationService:
         self._control_plane = control_plane
         self._quota_service = quota_service
         self._session_events = session_events
+        self._failure_review_service = failure_review_service
         self._payload = self._load_payload()
 
     @property
@@ -229,7 +235,8 @@ class FederationService:
         session_id = str(request.metadata.get("session_id") or create_resource_id("federation_session"))
         reserve = self._reserve_peer_quota(request, peer_id=peer.peer_id, session_id=session_id)
         if reserve is not None and not reserve.allowed:
-            return self._reject_task(request, reserve.reason)
+            usage_entry_id = reserve.entry.entry_id if reserve.entry else None
+            return self._reject_task(request, reserve.reason, usage_entry_id=usage_entry_id)
         usage_entry_id = reserve.entry.entry_id if reserve is not None and reserve.entry else None
 
         try:
@@ -376,8 +383,41 @@ class FederationService:
             "active_lease_count": len([lease for lease in leases if lease.status == "active"]),
         }
 
-    def _reject_task(self, request: FederationTaskCreateRequest, reason: str) -> FederationTaskRead:
+    def _reject_task(
+        self,
+        request: FederationTaskCreateRequest,
+        reason: str,
+        *,
+        usage_entry_id: str | None = None,
+    ) -> FederationTaskRead:
         current = utc_now()
+        review_metadata: dict[str, Any] = {}
+        session_id = str(request.metadata.get("session_id") or "").strip() or None
+        if self._failure_review_service is not None:
+            review = self._failure_review_service.review(
+                ButlerFailureReviewRequest(
+                    message=request.intent or request.task_name,
+                    task_id=request.lease_id,
+                    run_id=None,
+                    capability_id=request.capability_id,
+                    worker_error=reason,
+                    worker_message="Federation task rejected",
+                    worker_metrics={"status": "rejected", "peer_id": request.peer_id},
+                    session_id=session_id,
+                    usage_entry_id=usage_entry_id,
+                    metadata={
+                        **request.metadata,
+                        "federation_peer_id": request.peer_id,
+                        "federation_lease_id": request.lease_id,
+                    },
+                )
+            )
+            review_metadata = {
+                "failure_review_id": review.review_id,
+                "failure_kind": review.failure_kind,
+                "route_repair_suggestion": review.suggested_route,
+                "candidate_skill_summary": review.candidate_skill_summary,
+            }
         task = FederationTaskRead(
             federation_task_id=create_resource_id("ftask"),
             peer_id=request.peer_id,
@@ -387,7 +427,11 @@ class FederationService:
             error=reason,
             created_at=current,
             updated_at=current,
-            metadata={"reason": reason},
+            metadata={
+                "reason": reason,
+                "usage_entry_id": usage_entry_id,
+                **review_metadata,
+            },
         )
         saved = self._task_repository.save(task.federation_task_id, task)
         self._record_event("federation.task.rejected", reason, saved.model_dump(mode="json"))

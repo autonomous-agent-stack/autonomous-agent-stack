@@ -9,6 +9,10 @@ import httpx
 from pydantic import Field, field_validator
 
 from autoresearch.core.services.approval_store import ApprovalStoreService
+from autoresearch.core.services.butler_failure_review import (
+    ButlerFailureReviewRequest,
+    ButlerFailureReviewService,
+)
 from autoresearch.core.services.session_events import SessionEventService
 from autoresearch.core.services.usage_quota import UsageQuotaCheckRequest, UsageQuotaService
 from autoresearch.github_assistant.config import load_yaml_object
@@ -208,12 +212,14 @@ class GovernedMCPService:
         quota_service: UsageQuotaService,
         approval_store: ApprovalStoreService | None = None,
         session_events: SessionEventService | None = None,
+        failure_review_service: ButlerFailureReviewService | None = None,
     ) -> None:
         self._servers_path = servers_path
         self._permission_service = permission_service
         self._quota_service = quota_service
         self._approval_store = approval_store
         self._session_events = session_events
+        self._failure_review_service = failure_review_service
         self._payload = self._load_servers()
 
     @property
@@ -522,6 +528,19 @@ class GovernedMCPService:
         usage_entry_id: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> GovernedMCPToolCallRead:
+        metadata_out = dict(metadata or {})
+        if status in {"blocked", "failed"}:
+            metadata_out.update(
+                self._maybe_review_failed_call(
+                    call_id=call_id,
+                    request=request,
+                    permission=permission,
+                    status=status,
+                    error=error,
+                    usage_entry_id=usage_entry_id,
+                    metadata=metadata_out,
+                )
+            )
         audit_event_id = self._record_call_event(
             call_id=call_id,
             request=request,
@@ -530,7 +549,7 @@ class GovernedMCPService:
             error=error,
             approval_id=approval_id,
             usage_entry_id=usage_entry_id,
-            metadata=metadata,
+            metadata=metadata_out,
         )
         return GovernedMCPToolCallRead(
             call_id=call_id,
@@ -542,8 +561,48 @@ class GovernedMCPService:
             approval_id=approval_id,
             usage_entry_id=usage_entry_id,
             audit_event_id=audit_event_id,
-            metadata=dict(metadata or {}),
+            metadata=metadata_out,
         )
+
+    def _maybe_review_failed_call(
+        self,
+        *,
+        call_id: str,
+        request: GovernedMCPToolCallRequest,
+        permission: ToolPermissionDecisionRead,
+        status: GovernedMCPCallStatus,
+        error: str | None,
+        usage_entry_id: str | None,
+        metadata: dict[str, Any],
+    ) -> dict[str, Any]:
+        if self._failure_review_service is None:
+            return {}
+        review = self._failure_review_service.review(
+            ButlerFailureReviewRequest(
+                message=f"MCP tool {request.tool_id} {status}",
+                task_id=request.task_id,
+                run_id=call_id,
+                capability_id="mcp",
+                worker_error=error,
+                worker_message=f"MCP tool call {status}",
+                worker_result={"permission": permission.model_dump(mode="json")},
+                worker_metrics={"status": status, "tool_id": request.tool_id},
+                session_id=request.session_id,
+                usage_entry_id=usage_entry_id,
+                metadata={
+                    **metadata,
+                    "mcp_call_id": call_id,
+                    "permission_decision": permission.decision,
+                    "risk_tier": permission.risk_tier,
+                },
+            )
+        )
+        return {
+            "failure_review_id": review.review_id,
+            "failure_kind": review.failure_kind,
+            "route_repair_suggestion": review.suggested_route,
+            "candidate_skill_summary": review.candidate_skill_summary,
+        }
 
     def _record_call_event(
         self,
