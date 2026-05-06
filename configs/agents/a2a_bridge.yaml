@@ -1,0 +1,22 @@
+{
+  "id": "a2a_bridge",
+  "kind": "process",
+  "entrypoint": "drivers/a2a_adapter.py",
+  "version": "0.1",
+  "execution_semantics": "patch",
+  "capabilities": ["a2a", "federation", "produce_patchable_changes"],
+  "default_mode": "apply_in_workspace",
+  "policy_defaults": {
+    "timeout_sec": 180,
+    "allowed_paths": ["apps/**", "docs/**", "tests/**"],
+    "forbidden_paths": [".git/**", "logs/**", ".masfactory_runtime/**", "memory/**", "**/*.key", "**/*.pem"],
+    "max_changed_files": 5,
+    "max_patch_lines": 1000,
+    "cleanup_on_success": true,
+    "retain_workspace_on_failure": true
+  },
+  "metadata": {
+    "description": "A2A server/client bridge runtime demo. / A2A server/client bridge runtime demo.",
+    "optional_dependency": "a2a"
+  }
+}

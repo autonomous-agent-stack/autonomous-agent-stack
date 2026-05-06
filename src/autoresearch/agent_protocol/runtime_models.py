@@ -27,11 +27,40 @@ class RuntimeAdapterManifest(StrictModel):
     kind: Literal["runtime"] = "runtime"
     service: str
     version: str = "0.1"
+    runtime_type: Literal[
+        "gateway",
+        "coding_worker",
+        "multi_agent_worker",
+        "knowledge_worker",
+        "workflow_worker",
+        "federated_agent",
+        "process_worker",
+    ] = "process_worker"
+    display_name: str | None = None
+    enabled: bool = True
     capabilities: list[Literal["create_session", "run", "stream", "cancel", "status"]] = Field(
         default_factory=list
     )
+    optional_dependencies: list[str] = Field(default_factory=list)
     aep_bridge: RuntimeAepBridgeSpec = Field(default_factory=RuntimeAepBridgeSpec)
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class RuntimeErrorRead(StrictModel):
+    code: str
+    message: str
+    stage: str | None = None
+    retryable: bool = False
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class RuntimeDoctorRead(StrictModel):
+    runtime_id: str
+    status: Literal["ok", "degraded", "disabled", "failed"]
+    detail: str
+    manifest: RuntimeAdapterManifest | None = None
+    missing_dependencies: list[str] = Field(default_factory=list)
+    checks: dict[str, Any] = Field(default_factory=dict)
 
 
 class RuntimeSessionCreateRequest(StrictModel):
@@ -154,6 +183,7 @@ class RuntimeRunRead(StrictModel):
     updated_at: datetime
     metadata: dict[str, Any] = Field(default_factory=dict)
     error: str | None = None
+    runtime_error: RuntimeErrorRead | None = None
 
 
 class RuntimeStreamRequest(StrictModel):
@@ -168,6 +198,7 @@ class RuntimeStreamEvent(StrictModel):
     session_id: str
     run_id: str | None = None
     event_id: str
+    event_type: str = "run.progress"
     role: Literal["system", "user", "assistant", "tool", "status"]
     content: str
     created_at: str

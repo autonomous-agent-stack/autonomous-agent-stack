@@ -7,8 +7,10 @@ from fastapi.testclient import TestClient
 
 from autoresearch.agent_protocol.models import DriverMetrics
 from autoresearch.agent_protocol.runtime_models import (
+    RuntimeAdapterManifest,
     RuntimeCancelRead,
     RuntimeCancelRequest,
+    RuntimeDoctorRead,
     RuntimeRunRead,
     RuntimeRunRequest,
     RuntimeSessionCreateRequest,
@@ -26,6 +28,9 @@ from autoresearch.shared.models import AssistantScope, JobStatus
 
 
 class _FakeRuntimeAdapter(RuntimeAdapterContract):
+    def doctor(self) -> RuntimeDoctorRead:
+        return RuntimeDoctorRead(runtime_id="hermes", status="ok", detail="fake runtime ok")
+
     def create_session(self, request: RuntimeSessionCreateRequest) -> RuntimeSessionRead:
         now = datetime.now(UTC)
         return RuntimeSessionRead(
@@ -71,6 +76,7 @@ class _FakeRuntimeAdapter(RuntimeAdapterContract):
                 session_id=request.session_id,
                 run_id="run-1",
                 event_id="evt-1",
+                event_type="run.progress",
                 role="status",
                 content="streaming",
                 created_at=datetime.now(UTC).isoformat(),
@@ -140,11 +146,19 @@ class _ValueErrorRuntimeAdapter(_FakeRuntimeAdapter):
 def _client() -> TestClient:
     app = FastAPI()
     app.include_router(router)
+    manifest = RuntimeAdapterManifest(
+        id="hermes",
+        service="tests.fake:FakeRuntime",
+        capabilities=["create_session", "run", "stream", "cancel", "status"],
+    )
     registry = RuntimeAdapterServiceRegistry(
         manifest_registry=type(
             "_ManifestRegistry",
             (),
-            {"load": staticmethod(lambda runtime_id: type("_M", (), {"id": runtime_id})())},
+            {
+                "load": staticmethod(lambda runtime_id: manifest.model_copy(update={"id": runtime_id})),
+                "load_all": staticmethod(lambda: [manifest]),
+            },
         )(),
         factories={"hermes": _FakeRuntimeAdapter, "openclaw": _FakeRuntimeAdapter},
     )
@@ -154,6 +168,18 @@ def _client() -> TestClient:
 
 def test_runtime_router_provides_unified_endpoints() -> None:
     client = _client()
+
+    list_resp = client.get("/api/v1/runtime")
+    assert list_resp.status_code == 200
+    assert list_resp.json()[0]["id"] == "hermes"
+
+    manifest_resp = client.get("/api/v1/runtime/hermes/manifest")
+    assert manifest_resp.status_code == 200
+    assert manifest_resp.json()["id"] == "hermes"
+
+    doctor_resp = client.get("/api/v1/runtime/hermes/doctor")
+    assert doctor_resp.status_code == 200
+    assert doctor_resp.json()["status"] == "ok"
 
     session_resp = client.post(
         "/api/v1/runtime/hermes/sessions",

@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from autoresearch.api.dependencies import get_capability_provider_registry
+from autoresearch.agent_protocol.capability_models import (
+    CapabilityManifest,
+    CapabilityRunRead,
+    CapabilityRunRequest,
+)
+from autoresearch.api.dependencies import get_capability_manifest_service, get_capability_provider_registry
+from autoresearch.core.services.capability_manifest_service import CapabilityManifestService
 from autoresearch.core.adapters import (
     CalendarAdapter,
     CapabilityDomain,
@@ -26,9 +32,23 @@ from autoresearch.shared.models import OpenClawSkillDetailRead
 router = APIRouter(prefix="/api/v1/capabilities", tags=["capabilities"])
 
 
+@router.get("", response_model=list[CapabilityManifest])
+def list_capability_manifests(
+    service: CapabilityManifestService = Depends(get_capability_manifest_service),
+) -> list[CapabilityManifest]:
+    return service.list_manifests()
+
+
 @router.get("/health")
 def capability_health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@router.get("/doctor")
+def capability_doctor(
+    service: CapabilityManifestService = Depends(get_capability_manifest_service),
+) -> dict[str, object]:
+    return service.doctor()
 
 
 @router.get("/providers", response_model=list[CapabilityProviderDescriptorRead])
@@ -119,6 +139,31 @@ async def search_provider_github_repositories(
             limit=limit,
         )
     )
+
+
+@router.get("/{capability_id}", response_model=CapabilityManifest)
+def get_capability_manifest(
+    capability_id: str,
+    service: CapabilityManifestService = Depends(get_capability_manifest_service),
+) -> CapabilityManifest:
+    try:
+        return service.get(capability_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.post("/{capability_id}/runs", response_model=CapabilityRunRead, status_code=status.HTTP_201_CREATED)
+def run_capability(
+    capability_id: str,
+    payload: CapabilityRunRequest,
+    service: CapabilityManifestService = Depends(get_capability_manifest_service),
+) -> CapabilityRunRead:
+    try:
+        return service.run_capability(capability_id, payload)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 def _get_provider_or_404(*, registry: CapabilityProviderRegistry, provider_id: str):

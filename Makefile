@@ -55,7 +55,7 @@ FEDERATION_CAPABILITY ?= echo
 .PHONY: review-setup review-gates-local assistant-doctor assistant-triage assistant-execute assistant-review-pr assistant-release-plan assistant-schedule
 .PHONY: telegram-butler-start telegram-butler-status telegram-butler-stop telegram-ingress-audit
 .PHONY: butler-start butler-stop butler-restart butler-status agent-list agent-start agent-stop agent-drain agent-restart agent-status
-.PHONY: crewai-setup crewai-new crewai-run crewai-demo mcp-doctor quota-doctor federation-doctor federation-demo
+.PHONY: crewai-setup crewai-new crewai-run crewai-demo mcp-doctor quota-doctor federation-doctor federation-demo runtime-doctor capability-doctor agent-reach-crewai-demo haystack-demo langgraph-demo a2a-demo evergreen-demo
 
 help:
 	@echo "Autonomous Agent Stack - common commands"
@@ -86,6 +86,13 @@ help:
 	@echo "  make crewai-new AGENT='...' Scaffold a CrewAI-compatible AAS agent"
 	@echo "  make crewai-run AGENT='...' TASK='...' Run a CrewAI-compatible AAS agent"
 	@echo "  make mcp-doctor Validate governed MCP registry and policy"
+	@echo "  make runtime-doctor Validate RuntimeAdapter v1 registry and doctors"
+	@echo "  make capability-doctor Validate CapabilityManifest v1 registry"
+	@echo "  make agent-reach-crewai-demo Run CrewAI + Agent-Reach governed demo"
+	@echo "  make haystack-demo Run Haystack knowledge runtime demo"
+	@echo "  make langgraph-demo Run LangGraph workflow runtime demo"
+	@echo "  make a2a-demo Run A2A server/client bridge demo"
+	@echo "  make evergreen-demo Run all evergreen control-plane demos"
 	@echo "  make quota-doctor Validate usage quota policy and ledger"
 	@echo "  make federation-doctor Validate federation peer and lease config"
 	@echo "  make federation-demo Run a local bilateral federation lease/task demo"
@@ -213,6 +220,55 @@ federation-demo:
 		exit 1; \
 	fi
 	PYTHONPATH=src $(VENV_PYTHON) scripts/federation_ready_smoke.py federation-demo --peer-id $(FEDERATION_PEER) --capability-id $(FEDERATION_CAPABILITY)
+
+runtime-doctor:
+	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \
+		echo "Missing $(VENV_PYTHON). Run 'make setup' first."; \
+		exit 1; \
+	fi
+	PYTHONPATH=src $(VENV_PYTHON) scripts/evergreen_smoke.py runtime-doctor
+
+capability-doctor:
+	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \
+		echo "Missing $(VENV_PYTHON). Run 'make setup' first."; \
+		exit 1; \
+	fi
+	PYTHONPATH=src $(VENV_PYTHON) scripts/evergreen_smoke.py capability-doctor
+
+agent-reach-crewai-demo:
+	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \
+		echo "Missing $(VENV_PYTHON). Run 'make setup' first."; \
+		exit 1; \
+	fi
+	PYTHONPATH=src $(VENV_PYTHON) scripts/evergreen_smoke.py agent-reach-crewai-demo
+
+haystack-demo:
+	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \
+		echo "Missing $(VENV_PYTHON). Run 'make setup' first."; \
+		exit 1; \
+	fi
+	PYTHONPATH=src $(VENV_PYTHON) scripts/evergreen_smoke.py haystack-demo
+
+langgraph-demo:
+	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \
+		echo "Missing $(VENV_PYTHON). Run 'make setup' first."; \
+		exit 1; \
+	fi
+	PYTHONPATH=src $(VENV_PYTHON) scripts/evergreen_smoke.py langgraph-demo
+
+a2a-demo:
+	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \
+		echo "Missing $(VENV_PYTHON). Run 'make setup' first."; \
+		exit 1; \
+	fi
+	PYTHONPATH=src $(VENV_PYTHON) scripts/evergreen_smoke.py a2a-demo
+
+evergreen-demo:
+	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \
+		echo "Missing $(VENV_PYTHON). Run 'make setup' first."; \
+		exit 1; \
+	fi
+	PYTHONPATH=src $(VENV_PYTHON) scripts/evergreen_smoke.py evergreen-demo
 
 smoke-local:
 	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \

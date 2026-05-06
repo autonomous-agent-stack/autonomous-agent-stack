@@ -1,3 +1,4 @@
+from .capability_models import CapabilityManifest, CapabilityRunRead, CapabilityRunRequest
 from .decision import attempt_succeeded, derive_terminal_status
 from .models import (
     AgentManifest,
@@ -16,6 +17,8 @@ from .runtime_models import (
     RuntimeAepBridgeSpec,
     RuntimeCancelRead,
     RuntimeCancelRequest,
+    RuntimeDoctorRead,
+    RuntimeErrorRead,
     RuntimeRunRead,
     RuntimeRunRequest,
     RuntimeSessionCreateRequest,
@@ -29,6 +32,9 @@ from .runtime_models import (
 __all__ = [
     "AgentManifest",
     "ArtifactRef",
+    "CapabilityManifest",
+    "CapabilityRunRead",
+    "CapabilityRunRequest",
     "DriverResult",
     "ExecutionPolicy",
     "FallbackStep",
@@ -40,6 +46,8 @@ __all__ = [
     "RuntimeAepBridgeSpec",
     "RuntimeCancelRead",
     "RuntimeCancelRequest",
+    "RuntimeDoctorRead",
+    "RuntimeErrorRead",
     "RuntimeRunRead",
     "RuntimeRunRequest",
     "RuntimeSessionCreateRequest",

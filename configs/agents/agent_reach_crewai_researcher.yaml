@@ -1,0 +1,31 @@
+{
+  "id": "agent_reach_crewai_researcher",
+  "kind": "process",
+  "entrypoint": "drivers/crewai_adapter.py",
+  "version": "0.1",
+  "execution_semantics": "patch",
+  "capabilities": ["crewai", "agent_reach", "research", "produce_patchable_changes"],
+  "default_mode": "apply_in_workspace",
+  "policy_defaults": {
+    "timeout_sec": 240,
+    "max_steps": 4,
+    "network": "disabled",
+    "network_allowlist": [],
+    "tool_allowlist": ["read", "write", "bash"],
+    "allowed_paths": ["apps/**", "docs/**", "tests/**"],
+    "forbidden_paths": [".git/**", "logs/**", ".masfactory_runtime/**", "memory/**", "**/*.key", "**/*.pem"],
+    "max_changed_files": 6,
+    "max_patch_lines": 1200,
+    "allow_binary_changes": false,
+    "cleanup_on_success": true,
+    "retain_workspace_on_failure": true
+  },
+  "metadata": {
+    "description": "Agent-Reach + CrewAI 研究员示例：公开资料读取与结构化研究产物。 / Agent-Reach + CrewAI researcher demo for public-source reading and structured research artifacts.",
+    "crewai": {
+      "entrypoint": "examples.crewai_agents.agent_reach_crewai_researcher.crew",
+      "require_package": false,
+      "optional_dependency": "crewai"
+    }
+  }
+}

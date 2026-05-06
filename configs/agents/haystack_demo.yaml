@@ -1,0 +1,22 @@
+{
+  "id": "haystack_demo",
+  "kind": "process",
+  "entrypoint": "drivers/haystack_adapter.py",
+  "version": "0.1",
+  "execution_semantics": "patch",
+  "capabilities": ["haystack", "knowledge", "rag", "produce_patchable_changes"],
+  "default_mode": "apply_in_workspace",
+  "policy_defaults": {
+    "timeout_sec": 180,
+    "allowed_paths": ["apps/**", "docs/**", "tests/**"],
+    "forbidden_paths": [".git/**", "logs/**", ".masfactory_runtime/**", "memory/**", "**/*.key", "**/*.pem"],
+    "max_changed_files": 5,
+    "max_patch_lines": 1000,
+    "cleanup_on_success": true,
+    "retain_workspace_on_failure": true
+  },
+  "metadata": {
+    "description": "Haystack 知识/RAG runtime 演示。 / Haystack knowledge/RAG runtime demo.",
+    "optional_dependency": "haystack"
+  }
+}

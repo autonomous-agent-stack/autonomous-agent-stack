@@ -16,3 +16,12 @@ class RuntimeAdapterRegistry:
             raise FileNotFoundError(f"runtime manifest not found: {manifest_path}")
         payload = _load_yaml_like(manifest_path)
         return RuntimeAdapterManifest.model_validate(payload)
+
+    def load_all(self) -> list[RuntimeAdapterManifest]:
+        if not self._manifests_dir.exists():
+            return []
+        manifests: list[RuntimeAdapterManifest] = []
+        for path in sorted(self._manifests_dir.glob("*.yaml")):
+            payload = _load_yaml_like(path)
+            manifests.append(RuntimeAdapterManifest.model_validate(payload))
+        return manifests

@@ -1,0 +1,20 @@
+capability_id: echo
+kind: runtime
+provided_by: openclaw
+display_name: "回显能力 / Echo capability"
+description: "中文：本地联邦与 capability smoke 使用的低风险回显能力。 English: Low-risk echo capability used by local federation and capability smoke tests."
+enabled: true
+input_schema:
+  type: object
+  properties:
+    prompt:
+      type: string
+output_schema:
+  type: object
+risk_tier: common_read
+policy_refs: []
+artifact_types:
+  - report
+lease_enabled: true
+metadata:
+  dispatch_mode: runtime
