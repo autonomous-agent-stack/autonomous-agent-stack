@@ -951,6 +951,75 @@ def test_butler_fallback_explains_source_collect_auth_failure(
         app.dependency_overrides.pop(get_telegram_notifier_service, None)
 
 
+def test_butler_fallback_describes_source_collect_content_kb_completion(
+    worker_client: TestClient,
+    worker_services: tuple[WorkerRegistryService, WorkerSchedulerService],
+) -> None:
+    """source_collect downstream content_kb completion should read like success, not failed delivery."""
+    from autoresearch.api.dependencies import get_telegram_notifier_service
+    from autoresearch.api.main import app
+
+    registry, scheduler = worker_services
+    _register_worker(registry, worker_id="mac-mini-01")
+    queued = scheduler.enqueue(
+        WorkerQueueItemCreateRequest(
+            task_name="整理X书签",
+            task_type="content_kb_ingest",
+            payload={
+                "chat_id": "777",
+                "runtime_id": "content_kb",
+                "capability_id": "content_kb",
+                "agent_name": "content_kb",
+                "target_agents": ["source_collect", "content_kb"],
+                "topic": "ai-status-and-outlook",
+            },
+            metadata={
+                "telegram_queue_ack_message_id": 4242,
+                "telegram_completion_via_api": True,
+                "capability_id": "content_kb",
+                "source_collect_downstream": True,
+                "source_collect_worker_run_id": "run_source_collect_001",
+            },
+        ),
+        now=utc_now(),
+    )
+    scheduler.claim("mac-mini-01", WorkerClaimRequest(), now=utc_now() + timedelta(seconds=1))
+
+    notifier = _StubNotifier()
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+    try:
+        report = worker_client.post(
+            f"/api/v1/workers/mac-mini-01/runs/{queued.run_id}/report",
+            json={
+                "status": "completed",
+                "message": "content_kb_ingest: ai-status-and-outlook → knowledge-base/knowledge-base",
+                "result": {
+                    "topic": "ai-status-and-outlook",
+                    "repo": "knowledge-base/knowledge-base",
+                    "directory": "knowledge-base/ai-status-and-outlook",
+                    "files_written": ["knowledge-base/ai-status-and-outlook/normalized_subtitle.txt"],
+                },
+                "metrics": {"files_written": 1, "indexes_built": 3},
+            },
+        )
+        assert report.status_code == 200
+        assert len(notifier.edits) == 1
+        text = str(notifier.edits[0]["text"])
+        assert notifier.edits[0]["parse_mode"] == "MarkdownV2"
+        assert "知识库入库" in text
+        assert "Completed knowledge\\-base ingestion" in text
+        assert "knowledge\\-base/knowledge\\-base" in text
+        assert "normalized\\_subtitle\\.txt" in text
+        assert "worker 未能直接送达" not in text
+        assert "管家兜底" not in text
+        stored = scheduler.get_run(queued.run_id)
+        assert stored is not None
+        assert stored.metadata.get("telegram_butler_fallback_sent") is True
+        assert stored.metadata.get("telegram_butler_fallback_reason") == "missing_status"
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+
+
 def test_butler_primary_edits_ack_when_worker_delegates_card(
     worker_client: TestClient,
     worker_services: tuple[WorkerRegistryService, WorkerSchedulerService],

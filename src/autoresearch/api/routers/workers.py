@@ -592,10 +592,18 @@ def _compose_butler_fallback_text(
     if collector:
         diagnostics_parts.append(f"collector={collector}")
     diagnostics = ", ".join(diagnostics_parts)
-    body = "管家兜底：worker 未能直接送达 Telegram 结果。"
+    body = _content_kb_downstream_completion_body(
+        run=run,
+        payload=payload,
+        metadata=metadata,
+        result=result,
+        summary=summary,
+    )
+    if not body:
+        body = "管家兜底：worker 未能直接送达 Telegram 结果。"
     if hint:
         body = f"{body}\n\n{hint}"
-    elif summary:
+    elif summary and "content_kb_ingest:" not in body:
         body = f"{body}\n\n{summary}"
     return format_butler_completion_message(
         brand=brand,
@@ -613,3 +621,61 @@ def _compose_butler_fallback_text(
         notify_state=notify_state,
         error=str(run.error)[:1000] if run.error else None,
     )
+
+
+def _content_kb_downstream_completion_body(
+    *,
+    run: WorkerQueueItemRead,
+    payload: dict[str, Any],
+    metadata: dict[str, Any],
+    result: dict[str, Any],
+    summary: str,
+) -> str:
+    task_type = str(getattr(run.task_type, "value", run.task_type) or "").strip().lower()
+    if task_type != "content_kb_ingest" or not _has_source_collect_parent(payload, metadata, result):
+        return ""
+    if run.status != JobStatus.COMPLETED:
+        return ""
+
+    lines = [
+        "已完成 X 书签采集后的知识库入库。",
+        "Completed knowledge-base ingestion after X bookmark collection.",
+    ]
+    repo = str(result.get("repo") or "").strip()
+    topic = str(result.get("topic") or payload.get("topic") or "").strip()
+    directory = str(result.get("directory") or "").strip()
+    files = _display_file_names(result.get("files_written"))
+    if repo:
+        lines.append(f"知识库 / Knowledge base：{repo}")
+    if topic:
+        lines.append(f"主题 / Topic：{topic}")
+    if directory:
+        lines.append(f"目录 / Directory：{directory}")
+    if files:
+        lines.append(f"文件 / Files：{', '.join(files)}")
+    if summary:
+        lines.extend(["", summary])
+    return "\n".join(lines)
+
+
+def _has_source_collect_parent(
+    payload: dict[str, Any],
+    metadata: dict[str, Any],
+    result: dict[str, Any],
+) -> bool:
+    if metadata.get("source_collect_downstream") is True:
+        return True
+    parent_keys = ("source_collect_run_id", "source_collect_worker_run_id")
+    return any(payload.get(key) or metadata.get(key) or result.get(key) for key in parent_keys)
+
+
+def _display_file_names(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    names: list[str] = []
+    for item in value[:5]:
+        text = str(item or "").strip()
+        if not text:
+            continue
+        names.append(text.rsplit("/", 1)[-1])
+    return names
