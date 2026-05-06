@@ -23,6 +23,15 @@ make federation-demo
 - `configs/tool_permissions.yaml`：工具风险层级、角色、agent allowlist 与审批策略。
 - `configs/quota_policy.yaml`：用户与 peer 的信用点额度策略。
 - `configs/federation_peers.yaml`：静态 peer、可发布 capability 与租约边界。
+- `configs/butler/rule_candidates.yaml`：Butler 失败复盘产生的候选规则登记表；候选必须通过 `security_audit` 扫描后才能提升到正式规则。
+
+### Butler 自修复闭环
+
+Federation-ready v1 现在把 Butler 失败处理接到同一条本地治理脊柱上。Telegram 上下文追问只用 `追问 / Follow-up` 后的真实短句做路由，任务标题保留用户原话，完整上文只进入 `intent` / `request_text` 供执行或本地回答使用。
+
+新增 `butler.context_status` canonical task 与 `butler_context_status` capability，用上一轮 assistant 结果里的 `知识库 / KB`、repo/topic 与同步状态生成即时中英双语回答。没有可解析上下文时返回本地无法确认，不升级到 Hermes 硬撞依赖。
+
+新增 `ButlerFailureReviewService` 统一复盘 worker/MCP/federation 失败，稳定输出 `failure_kind`、`failure_review_id`、`route_repair_suggestion`、`candidate_skill_summary` 等 metadata，并写入 session timeline。Hermes 的新 review action 是 `hermes.failure_review`，定位为失败研判顾问；Hermes CLI 不可用时复盘归类为 `dependency_missing`，doctor 会通过 `Hermes CLI readiness` 明确暴露。
 
 ### API
 
@@ -65,6 +74,15 @@ make federation-demo
 - `configs/tool_permissions.yaml`: tool risk tiers, roles, agent allowlists, and approval policy.
 - `configs/quota_policy.yaml`: credit-unit quota policy for users and peers.
 - `configs/federation_peers.yaml`: static peers, published capabilities, and lease boundaries.
+- `configs/butler/rule_candidates.yaml`: registry for Butler rule candidates produced by failure reviews; candidates must pass `security_audit` before promotion into stable rules.
+
+### Butler Self-Repair Loop
+
+Federation-ready v1 now connects Butler failure handling to the same local governance spine. Telegram contextual follow-ups route only on the real short text after `追问 / Follow-up`, task titles keep the user's original wording, and the full previous context stays in `intent` / `request_text` for execution or local answering.
+
+The new `butler.context_status` canonical task and `butler_context_status` capability generate immediate bilingual answers from the previous assistant result's `知识库 / KB`, repo/topic, and sync status. If no parseable context exists, the system returns a local “unable to confirm” answer instead of escalating into Hermes dependency failures.
+
+`ButlerFailureReviewService` now reviews worker/MCP/federation failures, emits stable metadata such as `failure_kind`, `failure_review_id`, `route_repair_suggestion`, and `candidate_skill_summary`, and writes the review to the session timeline. The new Hermes review action is `hermes.failure_review`, scoped to advisory failure analysis; when the Hermes CLI is unavailable, the review is classified as `dependency_missing`, and doctor exposes it through `Hermes CLI readiness`.
 
 ### APIs
 

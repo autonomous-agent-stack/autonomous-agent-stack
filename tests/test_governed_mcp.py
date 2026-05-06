@@ -150,3 +150,94 @@ def test_mcp_tool_call_blocks_when_quota_is_exhausted(tmp_path: Path) -> None:
         "committed",
         "rejected",
     ]
+
+
+def test_stdio_mcp_tool_discovery_and_call(tmp_path: Path) -> None:
+    server_script = tmp_path / "stdio_mcp_server.py"
+    server_script.write_text(
+        r'''
+import json
+import sys
+
+def read_frame():
+    headers = {}
+    while True:
+        line = sys.stdin.buffer.readline()
+        if line in (b"\r\n", b"\n", b""):
+            break
+        key, value = line.decode("ascii").split(":", 1)
+        headers[key.lower()] = value.strip()
+    length = int(headers.get("content-length", "0"))
+    if not length:
+        return None
+    return json.loads(sys.stdin.buffer.read(length).decode("utf-8"))
+
+def write_frame(payload):
+    raw = json.dumps(payload).encode("utf-8")
+    sys.stdout.buffer.write(f"Content-Length: {len(raw)}\r\n\r\n".encode("ascii") + raw)
+    sys.stdout.buffer.flush()
+
+while True:
+    msg = read_frame()
+    if msg is None:
+        break
+    method = msg.get("method")
+    if method == "notifications/initialized":
+        continue
+    if method == "initialize":
+        write_frame({"jsonrpc": "2.0", "id": msg["id"], "result": {"capabilities": {"tools": {}}}})
+    elif method == "tools/list":
+        write_frame({"jsonrpc": "2.0", "id": msg["id"], "result": {"tools": [{"name": "ping", "description": "Ping", "inputSchema": {"type": "object"}}]}})
+    elif method == "tools/call":
+        write_frame({"jsonrpc": "2.0", "id": msg["id"], "result": {"content": [{"type": "text", "text": "pong"}], "isError": False}})
+''',
+        encoding="utf-8",
+    )
+    servers = tmp_path / "mcp_servers.yaml"
+    permissions = tmp_path / "tool_permissions.yaml"
+    quota = tmp_path / "quota_policy.yaml"
+    servers.write_text(
+        f"""
+servers:
+  - server_id: stdio_demo
+    display_name: stdio demo
+    transport: stdio
+    command: python3
+    args: ["{server_script}"]
+    enabled: true
+    tool_allowlist: [ping]
+    tools: []
+""",
+        encoding="utf-8",
+    )
+    permissions.write_text(
+        """
+defaults:
+  allowed_roles: [member]
+  allowed_agents: ["*"]
+tools:
+  stdio_demo.ping:
+    enabled: true
+    decision: auto
+""",
+        encoding="utf-8",
+    )
+    quota.write_text("defaults:\n  max_units_per_period: 10\n", encoding="utf-8")
+    quota_service = UsageQuotaService(
+        repository=InMemoryRepository[UsageLedgerEntryRead](),
+        policy_path=quota,
+    )
+    service = GovernedMCPService(
+        servers_path=servers,
+        permission_service=ToolPermissionService(policy_path=permissions),
+        quota_service=quota_service,
+    )
+
+    tools = service.list_tools()
+    assert [tool.tool_id for tool in tools] == ["stdio_demo.ping"]
+    result = service.call_tool(
+        GovernedMCPToolCallRequest(tool_id="stdio_demo.ping", actor_id="u4", actor_role="member")
+    )
+
+    assert result.status == "succeeded"
+    assert result.result["isError"] is False

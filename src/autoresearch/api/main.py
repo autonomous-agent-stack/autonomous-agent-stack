@@ -212,6 +212,7 @@ def create_app() -> FastAPI:
         ("autoresearch.api.routers.usage", "router", "usage"),
         ("autoresearch.api.routers.mcp", "router", "governed mcp"),
         ("autoresearch.api.routers.federation", "router", "federation"),
+        ("autoresearch.api.routers.a2a", "router", "a2a"),
         ("autoresearch.api.routers.workers", "router", "workers"),
         ("autoresearch.api.routers.worker_runs", "router", "worker runs"),
         ("autoresearch.api.routers.worker_schedules", "router", "worker schedules"),

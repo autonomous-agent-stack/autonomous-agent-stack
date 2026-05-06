@@ -8,7 +8,20 @@
 [![Quality Gates](https://github.com/srxly888-creator/autonomous-agent-stack/workflows/Quality%20Gates/badge.svg)](https://github.com/srxly888-creator/autonomous-agent-stack/actions/workflows/quality-gates.yml)
 [![RFC](https://img.shields.io/badge/RFC-4%20篇-orange)](docs/rfc/)
 
-[English](README.md) | **简体中文**
+[English](README.en.md) | [双语概览](README.md) | **简体中文**
+
+## 最新状态
+
+AAS 现在以 Evergreen Agent Control Plane 为主线，并通过阻断性门禁推进到 Evergreen OS GA v1.0，而不是依靠 demo 声称成熟。`/api/v2` 是唯一新主线；`/api/v1/*` 只保留兼容面。`SessionEvent` facts 是机器事实源，timeline、summary、handoff、audit report 和 replay-plan 都只能从 facts 投影或重建。
+
+本 GA 分支新增硬验收面：GA 定义、显式禁令、adapter 认证矩阵、生产存储契约、运行隔离、不可绕过测试、connector 注册、UI/SDK 真实 API 接入，以及聚合发布门禁。不能通过认证矩阵的 adapter 只能标 `beta` 或 `experimental`；mock-only、demo-only、fake stream、no-op cancel、fake artifact、approval 只写日志不阻断，一律不得标 `stable`。
+
+```bash
+make bypass-ga
+make ga-release-gate
+```
+
+阻断性 GA 规则见 [GA Definition](docs/ga-definition.md)、[GA Prohibitions](docs/ga-prohibitions.md)、[Runtime Isolation](docs/runtime-isolation.md) 和 [Adapter Certification Matrix](docs/certification/adapter-certification-matrix.md)。
 
 ---
 

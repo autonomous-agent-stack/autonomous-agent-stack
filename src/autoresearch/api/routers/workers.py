@@ -9,7 +9,6 @@ from fastapi import APIRouter, Body, Depends, HTTPException, status
 
 from autoresearch.api.dependencies import (
     get_control_plane_service,
-    get_openclaw_compat_service,
     get_telegram_notifier_service,
     get_telegram_settings,
     get_worker_inventory_service,
@@ -22,12 +21,10 @@ from autoresearch.core.services.telegram_completion_format import (
     TELEGRAM_MARKDOWN_V2_PARSE_MODE,
     format_butler_completion_message,
     format_butler_live_status_message,
-    markdown_v2_escape,
     polish_butler_completion_card,
     resolve_telegram_agent_attribution,
 )
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
-from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.worker_inventory import WorkerInventoryService
 from autoresearch.core.services.worker_scheduler import (
     WorkerClaimError,
@@ -46,7 +43,6 @@ from autoresearch.shared.models import (
     WorkerQueueItemRead,
     WorkerRegisterRequest,
     WorkerRegistrationRead,
-    OpenClawSessionEventAppendRequest,
     WorkerRunReportRequest,
 )
 
@@ -138,7 +134,6 @@ def report_worker_run(
     control_plane_service: ControlPlaneService = Depends(get_control_plane_service),
     telegram_settings: TelegramSettings = Depends(get_telegram_settings),
     notifier: TelegramNotifierService = Depends(get_telegram_notifier_service),
-    openclaw_service: OpenClawCompatService = Depends(get_openclaw_compat_service),
 ) -> WorkerQueueItemRead:
     try:
         stored = service.report(worker_id, run_id, payload)
@@ -159,7 +154,6 @@ def report_worker_run(
                     stored,
                     notifier=notifier,
                     scheduler=service,
-                    openclaw_service=openclaw_service,
                 )
             except Exception:
                 logger.exception("butler primary completion raised for run=%s", stored.run_id)
@@ -175,30 +169,12 @@ def report_worker_run(
                     notifier=notifier,
                     settings=telegram_settings,
                     scheduler=service,
-                    openclaw_service=openclaw_service,
                 )
             except Exception:
                 # Fallback is a best-effort safety net; never let it break /report.
                 logger.exception("butler completion fallback raised for run=%s", stored.run_id)
     elif stored.status == JobStatus.RUNNING:
-        if _is_xreach_auth_recovery_pause(stored):
-            if (stored.metadata or {}).get("control_plane_task_id"):
-                try:
-                    control_plane_service.sync_worker_run(stored)
-                except Exception:
-                    logger.exception("control-plane v2 xreach recovery sync raised for worker run=%s", stored.run_id)
-            if telegram_settings.butler_api_completion_enabled:
-                try:
-                    _maybe_send_xreach_auth_recovery_card(
-                        stored,
-                        notifier=notifier,
-                        settings=telegram_settings,
-                        scheduler=service,
-                        openclaw_service=openclaw_service,
-                    )
-                except Exception:
-                    logger.exception("xreach auth recovery card raised for run=%s", stored.run_id)
-        elif telegram_settings.butler_live_updates_enabled:
+        if telegram_settings.butler_live_updates_enabled:
             try:
                 _try_deliver_butler_live_edit(
                     stored,
@@ -209,118 +185,6 @@ def report_worker_run(
             except Exception:
                 logger.exception("butler live edit raised for run=%s", stored.run_id)
     return stored
-
-
-def _is_xreach_auth_recovery_pause(run: WorkerQueueItemRead) -> bool:
-    metrics = run.metrics if isinstance(run.metrics, dict) else {}
-    result = run.result if isinstance(run.result, dict) else {}
-    pause_reason = str(metrics.get("worker_pause_reason") or "").strip().lower()
-    error_kind = str(metrics.get("error_kind") or result.get("error_kind") or "").strip().lower()
-    return pause_reason == "xreach_auth_required" or error_kind == "collector_auth_required"
-
-
-def _maybe_send_xreach_auth_recovery_card(
-    run: WorkerQueueItemRead,
-    *,
-    notifier: TelegramNotifierService,
-    settings: TelegramSettings,
-    scheduler: WorkerSchedulerService,
-    openclaw_service: OpenClawCompatService | None = None,
-) -> None:
-    if not notifier.enabled:
-        return
-    metadata = run.metadata if isinstance(run.metadata, dict) else {}
-    if not metadata.get("telegram_completion_via_api"):
-        return
-    if metadata.get("telegram_xreach_auth_recovery_sent"):
-        return
-    payload = run.payload if isinstance(run.payload, dict) else {}
-    chat_id = str(payload.get("chat_id") or metadata.get("chat_id") or "").strip()
-    if not chat_id:
-        return
-    thread_raw = payload.get("message_thread_id") or metadata.get("message_thread_id")
-    thread_id: int | None = None
-    if thread_raw is not None and str(thread_raw).strip() != "":
-        try:
-            thread_id = int(thread_raw)
-        except (TypeError, ValueError):
-            thread_id = None
-
-    text = _compose_xreach_auth_recovery_text(run=run, settings=settings)
-    delivered = notifier.send_message(
-        chat_id=chat_id,
-        text=text,
-        message_thread_id=thread_id,
-        parse_mode=TELEGRAM_MARKDOWN_V2_PARSE_MODE,
-        reply_markup=_xreach_auth_recovery_reply_markup(run.run_id),
-    )
-    if delivered:
-        _append_telegram_assistant_context(
-            run=run,
-            text=text,
-            openclaw_service=openclaw_service,
-            source="telegram_xreach_auth_recovery",
-        )
-        scheduler.merge_queue_metadata(
-            run.run_id,
-            {
-                "telegram_xreach_auth_recovery_sent": True,
-                "telegram_xreach_auth_recovery_card": "sent",
-            },
-        )
-
-
-def _compose_xreach_auth_recovery_text(
-    *,
-    run: WorkerQueueItemRead,
-    settings: TelegramSettings,
-) -> str:
-    brand = (settings.telegram_worker_display_name or "AAS Worker").strip() or "AAS Worker"
-    task_name = (run.task_name or run.task_type.value or "整理X书签").strip() or "整理X书签"
-    result = run.result if isinstance(run.result, dict) else {}
-    attempts = result.get("xreach_auth_attempts") if isinstance(result.get("xreach_auth_attempts"), list) else []
-    attempt_lines: list[str] = []
-    for attempt in attempts[:4]:
-        if not isinstance(attempt, dict):
-            continue
-        step = str(attempt.get("step") or "").strip()
-        code = str(attempt.get("returncode") or "").strip()
-        if step:
-            attempt_lines.append(f"- {step}: {code or '?'}")
-    attempt_text = "\n".join(attempt_lines) if attempt_lines else "- auth check: needs user action"
-    title = f"{brand} · 需要你配合恢复 X 书签采集"
-    body = "\n".join(
-        [
-            "Hermes 兜底判断：这不是整理失败，是本机 X 登录态需要恢复。原采集 run 已暂停，完成恢复后可以继续同一个 run。",
-            "Hermes recovery: this is not a terminal collection failure. The local X login state needs recovery; the original run is paused and can continue after recovery.",
-            "",
-            f"任务：{task_name}",
-            f"run id：{run.run_id}",
-            "状态：等待用户配合 / waiting for user action",
-            "",
-            "已尝试 / Attempts",
-            attempt_text,
-            "",
-            "下一步：点“打开登录页”，在本机浏览器完成登录后点“我已完成，继续采集”。也可以先点“重新检测登录态”。",
-            "Next: tap Open login page, finish login locally, then tap Resume collection. You can also tap Recheck auth first.",
-        ]
-    )
-    return "\n".join([markdown_v2_escape(title), "", markdown_v2_escape(body)])[:3900]
-
-
-def _xreach_auth_recovery_reply_markup(run_id: str) -> dict[str, Any]:
-    return {
-        "inline_keyboard": [
-            [
-                {"text": "打开登录页", "callback_data": f"/xreach-auth-open {run_id}"},
-                {"text": "我已完成，继续采集", "callback_data": f"/xreach-auth-resume {run_id}"},
-            ],
-            [
-                {"text": "重新检测登录态", "callback_data": f"/xreach-auth-check {run_id}"},
-                {"text": "取消任务", "callback_data": f"/cancel {run_id}"},
-            ],
-        ]
-    }
 
 
 def _try_deliver_butler_live_edit(
@@ -415,7 +279,6 @@ def _try_deliver_butler_completion_primary(
     *,
     notifier: TelegramNotifierService,
     scheduler: WorkerSchedulerService,
-    openclaw_service: OpenClawCompatService | None = None,
 ) -> None:
     """Edit the queue-ack bubble via the API bot when the worker delegated the card (Hermes path)."""
     if not notifier.enabled:
@@ -469,12 +332,6 @@ def _try_deliver_butler_completion_primary(
             parse_mode=parse_mode,
         )
     if delivered:
-        _append_telegram_assistant_context(
-            run=run,
-            text=text,
-            openclaw_service=openclaw_service,
-            source="telegram_butler_primary_completion",
-        )
         try:
             scheduler.merge_queue_metadata(
                 run.run_id,
@@ -494,7 +351,6 @@ def _maybe_send_butler_completion_fallback(
     notifier: TelegramNotifierService,
     settings: TelegramSettings,
     scheduler: WorkerSchedulerService,
-    openclaw_service: OpenClawCompatService | None = None,
 ) -> None:
     """Send a brief brand-prefixed summary if the worker did not deliver the bubble itself.
 
@@ -561,12 +417,6 @@ def _maybe_send_butler_completion_fallback(
         )
 
     if delivered:
-        _append_telegram_assistant_context(
-            run=run,
-            text=text,
-            openclaw_service=openclaw_service,
-            source="telegram_butler_fallback_completion",
-        )
         try:
             scheduler.merge_queue_metadata(
                 run.run_id,
@@ -581,43 +431,6 @@ def _maybe_send_butler_completion_fallback(
                 run.run_id,
                 exc_info=True,
             )
-
-
-def _append_telegram_assistant_context(
-    *,
-    run: WorkerQueueItemRead,
-    text: str,
-    openclaw_service: OpenClawCompatService | None,
-    source: str,
-) -> None:
-    if openclaw_service is None:
-        return
-    metadata = run.metadata if isinstance(run.metadata, dict) else {}
-    payload = run.payload if isinstance(run.payload, dict) else {}
-    session_id = str(
-        metadata.get("control_plane_session_id")
-        or metadata.get("session_id")
-        or payload.get("session_id")
-        or ""
-    ).strip()
-    if not session_id:
-        return
-    try:
-        openclaw_service.append_event(
-            session_id=session_id,
-            request=OpenClawSessionEventAppendRequest(
-                role="assistant",
-                content=text[:3900],
-                metadata={
-                    "source": source,
-                    "run_id": run.run_id,
-                    "task_type": str(getattr(run.task_type, "value", run.task_type)),
-                    "status": run.status.value,
-                },
-            ),
-        )
-    except Exception:
-        logger.warning("failed to append Telegram assistant context for run=%s", run.run_id, exc_info=True)
 
 
 def _compose_butler_fallback_text(
@@ -657,18 +470,13 @@ def _compose_butler_fallback_text(
     if collector:
         diagnostics_parts.append(f"collector={collector}")
     diagnostics = ", ".join(diagnostics_parts)
-    body = _content_kb_downstream_completion_body(
-        run=run,
-        payload=payload,
-        metadata=metadata,
-        result=result,
-        summary=summary,
-    )
-    if not body:
-        body = "管家兜底：worker 未能直接送达 Telegram 结果。"
+    body = "管家兜底：worker 未能直接送达 Telegram 结果。"
+    failure_label = _failure_kind_display_text(error_kind)
+    if failure_label:
+        body = f"{body}\n\n失败种类 / Failure kind：{failure_label}"
     if hint:
         body = f"{body}\n\n{hint}"
-    elif summary and "content_kb_ingest:" not in body:
+    elif summary:
         body = f"{body}\n\n{summary}"
     return format_butler_completion_message(
         brand=brand,
@@ -688,167 +496,18 @@ def _compose_butler_fallback_text(
     )
 
 
-def _content_kb_downstream_completion_body(
-    *,
-    run: WorkerQueueItemRead,
-    payload: dict[str, Any],
-    metadata: dict[str, Any],
-    result: dict[str, Any],
-    summary: str,
-) -> str:
-    task_type = str(getattr(run.task_type, "value", run.task_type) or "").strip().lower()
-    if task_type != "content_kb_ingest" or not _has_source_collect_parent(payload, metadata, result):
-        return ""
-    if run.status != JobStatus.COMPLETED:
-        return ""
-
-    detail_lookup = bool(result.get("source_collect_detail_lookup") or payload.get("source_collect_detail_lookup"))
-    if detail_lookup:
-        lines = [
-            "X 书签详情：已同步到知识库。",
-            "X bookmark details: synced to the knowledge base.",
-        ]
-    else:
-        lines = [
-            "X 书签：采集结果已同步到知识库。",
-            "X bookmarks: collection synced to the knowledge base.",
-        ]
-    answer = str(result.get("source_collect_answer") or payload.get("source_collect_answer") or "").strip()
-    item_count = _optional_int(_first_present(result.get("source_collect_item_count"), payload.get("source_collect_item_count")))
-    new_count = _optional_int(
-        _first_present(result.get("source_collect_new_item_count"), payload.get("source_collect_new_item_count"))
-    )
-    known_count = _optional_int(
-        _first_present(result.get("source_collect_known_item_count"), payload.get("source_collect_known_item_count"))
-    )
-    new_urls = _display_urls(
-        result.get("source_collect_new_source_urls") or payload.get("source_collect_new_source_urls")
-    )
-    new_items = _display_new_item_details(
-        result.get("source_collect_new_items") or payload.get("source_collect_new_items")
-    )
-    if answer and not new_items:
-        lines.extend(["", "回答 / Answer：", answer])
-    stats: list[str] = []
-    if item_count is not None:
-        stats.append(f"采集 {item_count}")
-    if new_count is not None:
-        if new_count == 0:
-            stats.append("新增 0")
-        else:
-            stats.append(f"新增 {new_count}")
-    if known_count is not None:
-        stats.append(f"已知 {known_count}")
-    if stats:
-        lines.append(f"统计 / Stats：{'；'.join(stats)}")
-    if new_count == 0:
-        lines.append("结论 / Result：没有发现新书签。 / No new bookmarks found.")
-    if new_items:
-        lines.append("新增摘要 / New:")
-        lines.extend(new_items)
-    if new_urls and not new_items:
-        lines.append("新增来源 / New sources：")
-        lines.extend(f"- {url}" for url in new_urls)
-    repo = str(result.get("repo") or "").strip()
-    topic = str(result.get("topic") or payload.get("topic") or "").strip()
-    directory = str(result.get("directory") or "").strip()
-    files = _display_file_names(result.get("files_written"))
-    kb_parts = [part for part in (repo, topic) if part]
-    if kb_parts:
-        lines.append(f"知识库 / KB：{' · '.join(kb_parts)}")
-    elif directory:
-        lines.append(f"知识库 / KB：{directory}")
-    if files:
-        lines.append(f"文件 / Files：{', '.join(files)}")
-    return "\n".join(lines)
-
-
-def _has_source_collect_parent(
-    payload: dict[str, Any],
-    metadata: dict[str, Any],
-    result: dict[str, Any],
-) -> bool:
-    if metadata.get("source_collect_downstream") is True:
-        return True
-    parent_keys = ("source_collect_run_id", "source_collect_worker_run_id")
-    return any(payload.get(key) or metadata.get(key) or result.get(key) for key in parent_keys)
-
-
-def _display_file_names(value: Any) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    names: list[str] = []
-    for item in value[:5]:
-        text = str(item or "").strip()
-        if not text:
-            continue
-        names.append(text.rsplit("/", 1)[-1])
-    return names
-
-
-def _display_urls(value: Any) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    urls: list[str] = []
-    seen: set[str] = set()
-    for item in value[:3]:
-        text = str(item or "").strip()
-        if not text or text in seen:
-            continue
-        urls.append(text)
-        seen.add(text)
-    return urls
-
-
-def _display_new_item_details(value: Any) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    lines: list[str] = []
-    for index, item in enumerate(value[:3], start=1):
-        if not isinstance(item, dict):
-            continue
-        title = str(item.get("title") or f"Item {index}").strip()
-        url = str(item.get("url") or item.get("source_url") or "").strip()
-        author = str(item.get("author") or "").strip()
-        text = str(item.get("text") or item.get("content") or item.get("body") or "").strip()
-        label = _compact_item_label(title=title, author=author, text=text)
-        lines.append(f"{index}. {label}")
-        if author:
-            lines.append(f"   作者 / Author：{author}")
-        if url:
-            lines.append(f"   {url}")
-    return lines
-
-
-def _compact_item_label(*, title: str, author: str, text: str) -> str:
-    clean_title = title.strip()
-    if clean_title.lower().startswith("x bookmark by @"):
-        clean_title = ""
-    prefix = author.strip() or clean_title or "X bookmark"
-    summary = _compact_text(text, limit=72)
-    if summary and summary != prefix:
-        return f"{prefix}：{summary}"
-    return prefix
-
-
-def _compact_text(text: str, *, limit: int) -> str:
-    normalized = " ".join(str(text or "").split())
-    if len(normalized) <= limit:
-        return normalized
-    return normalized[: max(1, limit - 1)].rstrip() + "…"
-
-
-def _optional_int(value: Any) -> int | None:
-    if value is None:
+def _failure_kind_display_text(error_kind: str) -> str | None:
+    normalized = str(error_kind or "").strip().lower()
+    if not normalized:
         return None
-    try:
-        return max(0, int(value))
-    except (TypeError, ValueError):
-        return None
-
-
-def _first_present(*values: Any) -> Any:
-    for value in values:
-        if value is not None:
-            return value
-    return None
+    labels = {
+        "binary_missing": "依赖缺失 / dependency_missing",
+        "dependency_missing": "依赖缺失 / dependency_missing",
+        "runtime_unavailable": "运行时不可用 / runtime_unavailable",
+        "interactive_bridge_unavailable": "运行时不可用 / runtime_unavailable",
+        "worker_contract_error": "worker 契约错误 / worker_contract_error",
+        "quota_exceeded": "额度不足 / quota_exceeded",
+        "permission_denied": "权限拒绝 / permission_denied",
+        "collector_auth_failed": "采集器鉴权失败 / collector_auth_failed",
+    }
+    return labels.get(normalized, normalized)

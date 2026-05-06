@@ -10,6 +10,7 @@ from autoresearch.agent_protocol.runtime_models import (
     JobBackedRuntimeBridge,
     RuntimeCancelRead,
     RuntimeCancelRequest,
+    RuntimeDoctorRead,
     RuntimeRunRead,
     RuntimeRunRequest,
     RuntimeSessionCreateRequest,
@@ -197,6 +198,14 @@ class OpenClawRuntimeAdapterService(RuntimeAdapterContract):
                 "session_bound": session is not None,
                 "run_bound": run is not None,
             },
+        )
+
+    def doctor(self) -> RuntimeDoctorRead:
+        return RuntimeDoctorRead(
+            runtime_id=self._runtime_id,
+            status="ok",
+            detail=f"{self._runtime_id} runtime adapter is wired",
+            checks={"metadata_namespace": self._metadata_namespace},
         )
 
     def to_driver_result(self, job: JobSpec, status: RuntimeStatusRead) -> DriverResult:

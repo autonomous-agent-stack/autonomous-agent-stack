@@ -1,14 +1,20 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 from pathlib import Path
+import subprocess
 from typing import Any, Literal
 
 import httpx
 from pydantic import Field, field_validator
 
 from autoresearch.core.services.approval_store import ApprovalStoreService
+from autoresearch.core.services.butler_failure_review import (
+    ButlerFailureReviewRequest,
+    ButlerFailureReviewService,
+)
 from autoresearch.core.services.session_events import SessionEventService
 from autoresearch.core.services.usage_quota import UsageQuotaCheckRequest, UsageQuotaService
 from autoresearch.github_assistant.config import load_yaml_object
@@ -30,8 +36,11 @@ GovernedMCPCallStatus = Literal["succeeded", "awaiting_approval", "blocked", "fa
 class MCPServerRead(StrictModel):
     server_id: str
     display_name: str
-    transport: Literal["local", "http"] = "local"
+    transport: Literal["local", "http", "stdio"] = "local"
     endpoint: str | None = None
+    command: str | None = None
+    args: list[str] = Field(default_factory=list)
+    env: dict[str, str] = Field(default_factory=dict)
     enabled: bool = False
     auth_env: str | None = None
     tool_allowlist: list[str] = Field(default_factory=list)
@@ -208,12 +217,14 @@ class GovernedMCPService:
         quota_service: UsageQuotaService,
         approval_store: ApprovalStoreService | None = None,
         session_events: SessionEventService | None = None,
+        failure_review_service: ButlerFailureReviewService | None = None,
     ) -> None:
         self._servers_path = servers_path
         self._permission_service = permission_service
         self._quota_service = quota_service
         self._approval_store = approval_store
         self._session_events = session_events
+        self._failure_review_service = failure_review_service
         self._payload = self._load_servers()
 
     @property
@@ -229,6 +240,8 @@ class GovernedMCPService:
             tools.extend(self._configured_tools_for_server(server))
             if server.enabled and server.transport == "http":
                 tools.extend(self._discover_http_tools(server))
+            if server.enabled and server.transport == "stdio":
+                tools.extend(self._discover_stdio_tools(server))
         tools.sort(key=lambda item: (item.server_id, item.tool_id))
         return _dedupe_tools(tools)
 
@@ -359,10 +372,13 @@ class GovernedMCPService:
             display_name=str(payload.get("display_name") or payload.get("name") or payload.get("server_id") or "").strip(),
             transport=str(payload.get("transport") or "local").strip().lower(),
             endpoint=_optional_string(payload.get("endpoint")),
+            command=_optional_string(payload.get("command")),
+            args=[str(item).strip() for item in payload.get("args") or [] if str(item).strip()],
+            env={str(key): str(value) for key, value in (payload.get("env") or {}).items()} if isinstance(payload.get("env"), dict) else {},
             enabled=bool(payload.get("enabled", False)),
             auth_env=_optional_string(payload.get("auth_env")),
             tool_allowlist=[str(item).strip() for item in payload.get("tool_allowlist") or [] if str(item).strip()],
-            metadata={k: v for k, v in payload.items() if k not in {"server_id", "id", "display_name", "name", "transport", "endpoint", "enabled", "auth_env", "tool_allowlist", "tools"}},
+            metadata={k: v for k, v in payload.items() if k not in {"server_id", "id", "display_name", "name", "transport", "endpoint", "command", "args", "env", "enabled", "auth_env", "tool_allowlist", "tools"}},
         )
 
     def _configured_tools_for_server(self, server: MCPServerRead) -> list[GovernedMCPToolRead]:
@@ -385,6 +401,35 @@ class GovernedMCPService:
                     enabled=server.enabled and bool(raw.get("enabled", True)),
                     input_schema=dict(raw.get("input_schema") or raw.get("inputSchema") or {}),
                     metadata={**dict(raw.get("metadata") or {}), "transport": server.transport},
+                )
+            )
+        return out
+
+    def _discover_stdio_tools(self, server: MCPServerRead) -> list[GovernedMCPToolRead]:
+        try:
+            payload = self._stdio_json_rpc(server, "tools/list", {})
+        except Exception:
+            return []
+        raw_tools = ((payload.get("result") or {}).get("tools") if isinstance(payload.get("result"), dict) else None) or []
+        out: list[GovernedMCPToolRead] = []
+        for raw in raw_tools:
+            if not isinstance(raw, dict):
+                continue
+            name = str(raw.get("name") or "").strip()
+            if not name:
+                continue
+            if server.tool_allowlist and name not in server.tool_allowlist and f"{server.server_id}.{name}" not in server.tool_allowlist:
+                continue
+            out.append(
+                GovernedMCPToolRead(
+                    tool_id=f"{server.server_id}.{name}",
+                    server_id=server.server_id,
+                    name=name,
+                    description=str(raw.get("description") or "").strip(),
+                    tier="common_read",
+                    enabled=True,
+                    input_schema=dict(raw.get("inputSchema") or {}),
+                    metadata={"transport": "stdio", "discovered": True},
                 )
             )
         return out
@@ -455,6 +500,16 @@ class GovernedMCPService:
                 raise RuntimeError(str(payload["error"]))
             result = payload.get("result")
             return result if isinstance(result, dict) else {"result": result}
+        if server.transport == "stdio":
+            payload = self._stdio_json_rpc(
+                server,
+                "tools/call",
+                {"name": tool.name, "arguments": params},
+            )
+            if payload.get("error"):
+                raise RuntimeError(str(payload["error"]))
+            result = payload.get("result")
+            return result if isinstance(result, dict) else {"result": result}
         raise RuntimeError(f"unsupported MCP transport: {server.transport}")
 
     def _post_json_rpc(self, server: MCPServerRead, payload: dict[str, Any]) -> dict[str, Any]:
@@ -471,6 +526,81 @@ class GovernedMCPService:
             response.raise_for_status()
             data = response.json()
         return data if isinstance(data, dict) else {"result": data}
+
+    def _stdio_json_rpc(self, server: MCPServerRead, method: str, params: dict[str, Any]) -> dict[str, Any]:
+        if not server.command:
+            raise RuntimeError("MCP stdio command is not configured")
+        env = os.environ.copy()
+        env.update(server.env)
+        process = subprocess.Popen(
+            [server.command, *server.args],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            env=env,
+        )
+        try:
+            self._send_mcp_frame(
+                process,
+                {
+                    "jsonrpc": "2.0",
+                    "id": "init",
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2024-11-05",
+                        "capabilities": {},
+                        "clientInfo": {"name": "aas-governed-mcp", "version": "1.0"},
+                    },
+                },
+            )
+            self._read_mcp_response(process, expected_id="init")
+            self._send_mcp_frame(
+                process,
+                {"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}},
+            )
+            request_id = create_resource_id("mcp_rpc")
+            self._send_mcp_frame(
+                process,
+                {"jsonrpc": "2.0", "id": request_id, "method": method, "params": params},
+            )
+            return self._read_mcp_response(process, expected_id=request_id)
+        finally:
+            try:
+                process.terminate()
+                process.wait(timeout=1.0)
+            except Exception:
+                process.kill()
+
+    @staticmethod
+    def _send_mcp_frame(process: subprocess.Popen[bytes], payload: dict[str, Any]) -> None:
+        if process.stdin is None:
+            raise RuntimeError("MCP stdio stdin is unavailable")
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        process.stdin.write(f"Content-Length: {len(body)}\r\n\r\n".encode("ascii") + body)
+        process.stdin.flush()
+
+    @staticmethod
+    def _read_mcp_response(process: subprocess.Popen[bytes], *, expected_id: str) -> dict[str, Any]:
+        if process.stdout is None:
+            raise RuntimeError("MCP stdio stdout is unavailable")
+        while True:
+            headers: dict[str, str] = {}
+            while True:
+                line = process.stdout.readline()
+                if not line:
+                    raise RuntimeError("MCP stdio server closed stdout")
+                if line in {b"\r\n", b"\n"}:
+                    break
+                text = line.decode("ascii", "replace").strip()
+                if ":" in text:
+                    key, value = text.split(":", 1)
+                    headers[key.lower()] = value.strip()
+            length = int(headers.get("content-length") or "0")
+            if length <= 0:
+                continue
+            payload = json.loads(process.stdout.read(length).decode("utf-8"))
+            if isinstance(payload, dict) and payload.get("id") == expected_id:
+                return payload
 
     def _approval_satisfied(self, approval_id: str | None) -> bool:
         if not approval_id or self._approval_store is None:
@@ -522,6 +652,19 @@ class GovernedMCPService:
         usage_entry_id: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> GovernedMCPToolCallRead:
+        metadata_out = dict(metadata or {})
+        if status in {"blocked", "failed"}:
+            metadata_out.update(
+                self._maybe_review_failed_call(
+                    call_id=call_id,
+                    request=request,
+                    permission=permission,
+                    status=status,
+                    error=error,
+                    usage_entry_id=usage_entry_id,
+                    metadata=metadata_out,
+                )
+            )
         audit_event_id = self._record_call_event(
             call_id=call_id,
             request=request,
@@ -530,7 +673,7 @@ class GovernedMCPService:
             error=error,
             approval_id=approval_id,
             usage_entry_id=usage_entry_id,
-            metadata=metadata,
+            metadata=metadata_out,
         )
         return GovernedMCPToolCallRead(
             call_id=call_id,
@@ -542,8 +685,48 @@ class GovernedMCPService:
             approval_id=approval_id,
             usage_entry_id=usage_entry_id,
             audit_event_id=audit_event_id,
-            metadata=dict(metadata or {}),
+            metadata=metadata_out,
         )
+
+    def _maybe_review_failed_call(
+        self,
+        *,
+        call_id: str,
+        request: GovernedMCPToolCallRequest,
+        permission: ToolPermissionDecisionRead,
+        status: GovernedMCPCallStatus,
+        error: str | None,
+        usage_entry_id: str | None,
+        metadata: dict[str, Any],
+    ) -> dict[str, Any]:
+        if self._failure_review_service is None:
+            return {}
+        review = self._failure_review_service.review(
+            ButlerFailureReviewRequest(
+                message=f"MCP tool {request.tool_id} {status}",
+                task_id=request.task_id,
+                run_id=call_id,
+                capability_id="mcp",
+                worker_error=error,
+                worker_message=f"MCP tool call {status}",
+                worker_result={"permission": permission.model_dump(mode="json")},
+                worker_metrics={"status": status, "tool_id": request.tool_id},
+                session_id=request.session_id,
+                usage_entry_id=usage_entry_id,
+                metadata={
+                    **metadata,
+                    "mcp_call_id": call_id,
+                    "permission_decision": permission.decision,
+                    "risk_tier": permission.risk_tier,
+                },
+            )
+        )
+        return {
+            "failure_review_id": review.review_id,
+            "failure_kind": review.failure_kind,
+            "route_repair_suggestion": review.suggested_route,
+            "candidate_skill_summary": review.candidate_skill_summary,
+        }
 
     def _record_call_event(
         self,

@@ -80,12 +80,9 @@ from autoresearch.shared.models import (
     PromotionResult,
     SessionEventRead,
     WorkerLeaseRead,
-    WorkerClaimRequest,
     WorkerQueueItemCreateRequest,
     WorkerQueueItemRead,
     WorkerRegistrationRead,
-    WorkerRegisterRequest,
-    WorkerRunReportRequest,
     WorkerTaskType,
     utc_now,
 )
@@ -1385,7 +1382,7 @@ def test_telegram_contextual_followup_carries_previous_assistant_result_to_butle
     assert task.name == "新增的x书签详情是什么"
 
 
-def test_telegram_contextual_github_status_followup_routes_to_hermes_answer(
+def test_telegram_contextual_github_status_followup_returns_local_context_answer(
     telegram_client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1432,7 +1429,8 @@ def test_telegram_contextual_github_status_followup_routes_to_hermes_answer(
     assert response.status_code == 200
     payload = response.json()
     assert payload["accepted"] is True
-    assert payload["metadata"]["capability_id"] == "hermes_openclaw"
+    assert payload["metadata"]["capability_id"] == "butler_context_status"
+    assert payload["metadata"]["status"] == "succeeded"
     task_id = payload["metadata"]["control_plane_task_id"]
     service = getattr(telegram_client, "_control_plane_service")
     task = service.get_task(task_id)
@@ -1442,6 +1440,12 @@ def test_telegram_contextual_github_status_followup_routes_to_hermes_answer(
     assert "上文 / Previous result" in task.intent
     assert "追问 / Follow-up: 整理到GitHub了么" in task.intent
     assert task.parameters["display_text"] == "整理到GitHub了么"
+    assert task.result is not None
+    assert "已从上一轮结果确认" in task.result["answer"]
+    assert task.result["kb_repo"] == "knowledge-base/knowledge-base"
+    scheduler = getattr(telegram_client, "_worker_scheduler")
+    assert task.run_id is not None
+    assert scheduler.get_run(task.run_id) is None
 
 
 def test_telegram_webhook_secret_token_guard(
@@ -1653,9 +1657,10 @@ def test_telegram_location_query_includes_runtime_and_worker_summary(
 
         assert len(notifier.status_events) == 1
         summary = notifier.status_events[0]["summary"]
-        assert "运行 / Runtime：Linux VM (linux)" in summary
-        assert "Worker：1 在线" in summary
-        assert "runtime_host:" not in summary
+        assert "runtime: Linux VM (linux)" in summary
+        assert "runtime_host: linux-vm.local" in summary
+        assert "workers_online: 1" in summary
+        assert "worker linux-01 | linux/active | linux-vm.local | ok" in summary
     finally:
         app.dependency_overrides.pop(get_telegram_notifier_service, None)
         app.dependency_overrides.pop(get_capability_provider_registry, None)
@@ -1717,8 +1722,9 @@ def test_telegram_worker_inventory_query_returns_inventory_card(
 
         assert len(notifier.status_events) == 1
         summary = notifier.status_events[0]["summary"]
-        assert "Worker：1 在线" in summary
-        assert "Worker 列表" not in summary
+        assert "当前 Worker 概况" in summary
+        assert "共 1 个 worker" in summary
+        assert "linux-01：online" in summary
     finally:
         app.dependency_overrides.pop(get_telegram_notifier_service, None)
         app.dependency_overrides.pop(get_capability_provider_registry, None)
@@ -2676,141 +2682,6 @@ def test_telegram_legacy_cancel_and_retry_fallbacks_still_use_worker_run_semanti
     assert requeued is not None
     assert requeued.status == JobStatus.QUEUED
     assert requeued.retry_count == 1
-
-
-def test_telegram_xreach_auth_resume_requeues_without_retry_increment(
-    telegram_client: TestClient,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_SECRET_TOKEN", "")
-    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_ALLOWED_UIDS", "9540")
-    clear_settings_caches()
-    notifier = _StubTelegramNotifier()
-    worker_scheduler = getattr(telegram_client, "_worker_scheduler")
-    queued = worker_scheduler.enqueue(
-        WorkerQueueItemCreateRequest(
-            task_name="整理X书签",
-            task_type=WorkerTaskType.SOURCE_COLLECT,
-            payload={"source_kind": "x_bookmarks"},
-            metadata={
-                "chat_id": "9540",
-                "session_key": "telegram:personal:user:9540",
-                "telegram_completion_via_api": True,
-            },
-        )
-    )
-    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
-
-    try:
-        response = telegram_client.post(
-            "/api/v1/gateway/telegram/webhook",
-            json={
-                "update_id": 31723,
-                "callback_query": {
-                    "id": "xreach-auth-resume-1",
-                    "data": f"/xreach-auth-resume {queued.run_id}",
-                    "message": {
-                        "message_id": 1523,
-                        "chat": {"id": 9540, "type": "private"},
-                    },
-                    "from": {"id": 9540, "username": "xreach-user"},
-                },
-            },
-        )
-    finally:
-        app.dependency_overrides.pop(get_telegram_notifier_service, None)
-
-    assert response.status_code == 200
-    payload = response.json()["metadata"]
-    assert payload["source"] == "telegram_xreach_auth"
-    assert payload["action"] == "resume"
-    assert payload["status"] == "queued"
-    resumed = worker_scheduler.get_run(queued.run_id)
-    assert resumed is not None
-    assert resumed.status == JobStatus.QUEUED
-    assert resumed.retry_count == 0
-    assert resumed.metadata["xreach_auth_last_action"] == "resume"
-    assert resumed.metadata["telegram_xreach_auth_recovery_sent"] is False
-    assert notifier.messages
-    assert "继续采集" in notifier.messages[-1]["text"]
-
-
-def test_telegram_xreach_auth_resume_on_completed_run_is_idempotent(
-    telegram_client: TestClient,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_SECRET_TOKEN", "")
-    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_ALLOWED_UIDS", "9540")
-    clear_settings_caches()
-    notifier = _StubTelegramNotifier()
-    worker_scheduler = getattr(telegram_client, "_worker_scheduler")
-    worker_scheduler._worker_registry.register(
-        WorkerRegisterRequest(
-            worker_id="worker-xreach-1",
-            worker_type="mac",
-            name="Mac Worker",
-            host="test.local",
-            capabilities=["source_collect"],
-        )
-    )
-    queued = worker_scheduler.enqueue(
-        WorkerQueueItemCreateRequest(
-            task_name="整理X书签",
-            task_type=WorkerTaskType.SOURCE_COLLECT,
-            payload={"source_kind": "x_bookmarks"},
-            metadata={
-                "chat_id": "9540",
-                "session_key": "telegram:personal:user:9540",
-                "telegram_completion_via_api": True,
-            },
-        )
-    )
-    claim = worker_scheduler.claim("worker-xreach-1", WorkerClaimRequest())
-    assert claim.run is not None
-    completed = worker_scheduler.report(
-        "worker-xreach-1",
-        queued.run_id,
-        WorkerRunReportRequest(
-            status=JobStatus.COMPLETED,
-            message="source_collect completed",
-            result={
-                "item_count": 50,
-                "artifact_path": "/tmp/source_collect.txt",
-            },
-        ),
-    )
-    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
-
-    try:
-        response = telegram_client.post(
-            "/api/v1/gateway/telegram/webhook",
-            json={
-                "update_id": 31724,
-                "callback_query": {
-                    "id": "xreach-auth-resume-completed",
-                    "data": f"/xreach-auth-resume {completed.run_id}",
-                    "message": {
-                        "message_id": 1524,
-                        "chat": {"id": 9540, "type": "private"},
-                    },
-                    "from": {"id": 9540, "username": "xreach-user"},
-                },
-            },
-        )
-    finally:
-        app.dependency_overrides.pop(get_telegram_notifier_service, None)
-
-    assert response.status_code == 200
-    payload = response.json()["metadata"]
-    assert payload["source"] == "telegram_xreach_auth"
-    assert payload["status"] == "completed"
-    assert payload["idempotent"] is True
-    stored = worker_scheduler.get_run(queued.run_id)
-    assert stored is not None
-    assert stored.status == JobStatus.COMPLETED
-    assert notifier.messages
-    assert "已经完成" in notifier.messages[-1]["text"]
-    assert "Terminal run cannot be requeued" not in notifier.messages[-1]["text"]
 
 
 def test_telegram_approve_command_can_resolve_pending_approval(

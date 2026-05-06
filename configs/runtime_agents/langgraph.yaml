@@ -1,0 +1,23 @@
+{
+  "id": "langgraph",
+  "kind": "runtime",
+  "service": "autoresearch.core.services.aep_process_runtime_adapter:AepProcessRuntimeAdapterService",
+  "version": "1.0",
+  "runtime_type": "workflow_worker",
+  "display_name": "LangGraph workflow worker",
+  "enabled": true,
+  "optional_dependencies": ["langgraph"],
+  "capabilities": ["create_session", "run", "stream", "cancel", "status"],
+  "aep_bridge": {
+    "jobspec_inputs": ["run_id", "agent_id", "task", "policy.timeout_sec", "metadata.capability_id"],
+    "result_fields": ["status", "summary", "output_artifacts", "metrics", "error"],
+    "workspace_binding": "RuntimeRunRequest.prompt -> AEP JobSpec.task",
+    "artifact_bindings": ["checkpoint_ref -> RuntimeRunRead.metadata.langgraph.checkpoint_ref"]
+  },
+  "metadata": {
+    "agent_id": "langgraph_order_flow",
+    "lane": "runtime_adapter_v1",
+    "role": "workflow_worker",
+    "checkpoint_policy": "AAS stores checkpoint refs, not framework internals"
+  }
+}

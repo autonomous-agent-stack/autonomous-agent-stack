@@ -1,0 +1,23 @@
+{
+  "id": "crewai",
+  "kind": "runtime",
+  "service": "autoresearch.core.services.aep_process_runtime_adapter:AepProcessRuntimeAdapterService",
+  "version": "1.0",
+  "runtime_type": "multi_agent_worker",
+  "display_name": "CrewAI multi-agent worker",
+  "enabled": true,
+  "optional_dependencies": ["crewai"],
+  "capabilities": ["create_session", "run", "stream", "cancel", "status"],
+  "aep_bridge": {
+    "jobspec_inputs": ["run_id", "agent_id", "task", "policy.timeout_sec", "metadata.capability_id"],
+    "result_fields": ["status", "summary", "changed_paths", "output_artifacts", "metrics", "error"],
+    "workspace_binding": "RuntimeRunRequest.prompt -> AEP JobSpec.task",
+    "artifact_bindings": ["CrewAI output JSON -> DriverResult.output_artifacts"]
+  },
+  "metadata": {
+    "agent_id": "agent_reach_crewai_researcher",
+    "lane": "runtime_adapter_v1",
+    "role": "multi_agent_worker",
+    "optional_dependency_policy": "doctor_degraded_not_core_failure"
+  }
+}

@@ -153,6 +153,8 @@ def _task_display_message(request: ButlerControlPlaneRouteRequest) -> str:
 
 def capability_id_for_decision(decision: ButlerDispatchDecision) -> str:
     canonical = str(decision.canonical_task_type or "").strip().lower()
+    if canonical == ButlerCanonicalTaskType.BUTLER_CONTEXT_STATUS:
+        return "butler_context_status"
     if canonical in {
         ButlerCanonicalTaskType.GITHUB_ISSUE_OPS,
         ButlerCanonicalTaskType.GITHUB_PR_OPS,
@@ -195,6 +197,8 @@ def _risk_tags_for_capability(
 
 
 def _heuristic_risk_tags(message: str, *, capability_id: str) -> set[str]:
+    if capability_id == "butler_context_status":
+        return set()
     normalized = message.lower()
     tags: set[str] = set()
     if capability_id in {"github_assistant", "youtube_autoflow", "mcp", "a2a"}:

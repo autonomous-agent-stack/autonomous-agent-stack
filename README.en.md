@@ -2,6 +2,21 @@
 
 An engineering repository for multi-agent orchestration, workflow triggering, self-integration verification, and zero-trust hardening.
 
+[简体中文](README.zh-CN.md) | [Bilingual overview](README.md)
+
+## Current Status
+
+AAS is now an Evergreen Agent Control Plane moving toward Evergreen OS GA v1.0 through blocking gates, not demo claims. `/api/v2` is the only new main line; `/api/v1/*` remains a compatibility surface only. `SessionEvent` facts are the machine source of truth, while timeline, summary, handoff, audit reports, and replay plans are projections rebuilt from facts.
+
+The GA branch adds hard acceptance surfaces for GA definition, explicit prohibitions, adapter certification, production storage contracts, runtime isolation, bypass tests, connector registration, UI/SDK API wiring, and the aggregated release gate. Any adapter that cannot pass the certification matrix stays `beta` or `experimental`; mock-only, demo-only, fake stream, no-op cancel, fake artifact, or approval-that-only-logs cannot be marked `stable`.
+
+```bash
+make bypass-ga
+make ga-release-gate
+```
+
+For the blocking GA rules, see [GA Definition](docs/ga-definition.md), [GA Prohibitions](docs/ga-prohibitions.md), [Runtime Isolation](docs/runtime-isolation.md), and [Adapter Certification Matrix](docs/certification/adapter-certification-matrix.md).
+
 ## Runtime Requirements
 
 - Python baseline: `3.11+`

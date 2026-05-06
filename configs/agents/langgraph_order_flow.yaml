@@ -1,0 +1,22 @@
+{
+  "id": "langgraph_order_flow",
+  "kind": "process",
+  "entrypoint": "drivers/langgraph_adapter.py",
+  "version": "0.1",
+  "execution_semantics": "patch",
+  "capabilities": ["langgraph", "workflow", "checkpoint", "produce_patchable_changes"],
+  "default_mode": "apply_in_workspace",
+  "policy_defaults": {
+    "timeout_sec": 180,
+    "allowed_paths": ["apps/**", "docs/**", "tests/**"],
+    "forbidden_paths": [".git/**", "logs/**", ".masfactory_runtime/**", "memory/**", "**/*.key", "**/*.pem"],
+    "max_changed_files": 5,
+    "max_patch_lines": 1000,
+    "cleanup_on_success": true,
+    "retain_workspace_on_failure": true
+  },
+  "metadata": {
+    "description": "LangGraph 有状态流程 runtime 演示。 / LangGraph stateful workflow runtime demo.",
+    "optional_dependency": "langgraph"
+  }
+}

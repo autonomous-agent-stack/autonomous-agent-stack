@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import re
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
@@ -26,6 +25,10 @@ from autoresearch.control_plane.contracts import (
 )
 from autoresearch.core.services.session_events import SessionEventService
 from autoresearch.core.services.butler_agent_state import ButlerAgentStateService
+from autoresearch.core.services.butler_failure_review import (
+    ButlerFailureReviewRequest,
+    ButlerFailureReviewService,
+)
 from autoresearch.core.services.butler_tool_broker import (
     ButlerToolBroker,
     ButlerToolResolveRequest,
@@ -83,6 +86,7 @@ class ControlPlaneService:
         capabilities: ControlPlaneCapabilityRegistry | None = None,
         tool_broker: ButlerToolBroker | None = None,
         butler_agent_state: ButlerAgentStateService | None = None,
+        failure_review_service: ButlerFailureReviewService | None = None,
     ) -> None:
         self._repositories = repositories
         self._worker_scheduler = worker_scheduler
@@ -90,6 +94,7 @@ class ControlPlaneService:
         self._capabilities = capabilities or ControlPlaneCapabilityRegistry()
         self._tool_broker = tool_broker or ButlerToolBroker()
         self._butler_agent_state = butler_agent_state
+        self._failure_review_service = failure_review_service
 
     def create_task(self, request: ControlPlaneTaskCreateRequest) -> ControlPlaneTaskRead:
         now = utc_now()
@@ -595,13 +600,15 @@ class ControlPlaneService:
                     **worker_snapshot,
                 },
             )
-        recovery_task = self._maybe_enqueue_xreach_auth_recovery(
-            task=updated_task,
-            source_run=updated_run,
-            worker_run=worker_run,
-        )
-        if recovery_task is not None:
-            updated_task = recovery_task
+        if worker_run.status == JobStatus.FAILED:
+            reviewed_task = self._maybe_review_failed_worker_run(
+                task=updated_task,
+                run=updated_run,
+                worker_run=worker_run,
+                worker_snapshot=worker_snapshot,
+            )
+            if reviewed_task is not None:
+                updated_task = reviewed_task
         downstream_task = self._maybe_enqueue_source_collect_downstream(
             task=updated_task,
             source_run=updated_run,
@@ -611,132 +618,73 @@ class ControlPlaneService:
             return downstream_task
         return updated_task
 
-    def _maybe_enqueue_xreach_auth_recovery(
+    def _maybe_review_failed_worker_run(
         self,
         *,
         task: ControlPlaneTaskRead,
-        source_run: ControlPlaneRunRead,
+        run: ControlPlaneRunRead,
         worker_run: WorkerQueueItemRead,
+        worker_snapshot: dict[str, Any],
     ) -> ControlPlaneTaskRead | None:
-        if worker_run.task_type != WorkerTaskType.SOURCE_COLLECT:
+        if self._failure_review_service is None:
             return None
-        if worker_run.status != JobStatus.RUNNING:
-            return None
-        if not _is_xreach_auth_required(worker_run):
-            return None
-        if task.metadata.get("xreach_auth_recovery_worker_run_id"):
+        try:
+            review = self._failure_review_service.review(
+                ButlerFailureReviewRequest(
+                    message=task.intent or task.name,
+                    task_id=task.task_id,
+                    run_id=run.run_id,
+                    capability_id=task.capability_id,
+                    route_decision=_butler_route_metadata(task.metadata),
+                    worker_error=worker_run.error,
+                    worker_message=worker_run.message,
+                    worker_result=worker_run.result if isinstance(worker_run.result, dict) else None,
+                    worker_metrics=worker_run.metrics if isinstance(worker_run.metrics, dict) else None,
+                    session_id=task.session_id,
+                    usage_entry_id=_optional_metadata_string(task.metadata, "usage_entry_id"),
+                    metadata={
+                        "worker_task_type": worker_run.task_type.value,
+                        "worker_run_id": worker_run.run_id,
+                    },
+                )
+            )
+        except Exception:
+            logger.exception("butler failure review raised for task=%s run=%s", task.task_id, run.run_id)
             return None
 
-        result = worker_run.result if isinstance(worker_run.result, dict) else {}
-        payload = worker_run.payload if isinstance(worker_run.payload, dict) else {}
-        recovery_metadata = {
-            **worker_run.metadata,
-            "control_plane_task_id": task.task_id,
-            "control_plane_session_id": task.session_id,
-            "capability_id": "hermes_openclaw",
-            "source_collect_auth_recovery": True,
-            "parent_control_plane_run_id": source_run.run_id,
-            "parent_worker_run_id": worker_run.run_id,
-            "parent_capability_id": task.capability_id,
-            "target_agent": "butler_orchestrator",
-            "target_agents": ["source_collect", "butler_orchestrator"],
-            "telegram_display_primary_agent": "source_collect",
-            "telegram_display_agent_names": ["source_collect", "hermes"],
+        review_payload = review.model_dump(mode="json")
+        rule_candidate = review.rule_candidate or {}
+        repair_metadata = {
+            "failure_kind": review.failure_kind,
+            "failure_review_id": review.review_id,
+            "route_repair_suggestion": review.suggested_route,
+            "hermes_review_run_id": review.hermes_review_run_id,
+            "rule_candidate_id": rule_candidate.get("candidate_id"),
+            "candidate_skill_summary": review.candidate_skill_summary,
+            "failure_review": review_payload,
         }
-        recovery_payload = {
-            "session_id": task.session_id,
-            "task_id": task.task_id,
-            "capability_id": "hermes_openclaw",
-            "runtime_id": "hermes",
-            "execution_mode": "oneshot",
-            "task_name": f"Hermes recovery: {task.name}",
-            "prompt": _build_xreach_auth_recovery_prompt(
-                task=task,
-                source_run=source_run,
-                worker_run=worker_run,
-            ),
-            "request_text": task.intent or task.name,
-            "chat_id": payload.get("chat_id") or worker_run.metadata.get("chat_id"),
-            "message_thread_id": payload.get("message_thread_id") or worker_run.metadata.get("message_thread_id"),
-            "agent_name": "butler_orchestrator",
-            "target_agent": "butler_orchestrator",
-            "target_agents": ["source_collect", "butler_orchestrator"],
-            "source_collect_run_id": source_run.run_id,
-            "source_collect_worker_run_id": worker_run.run_id,
-            "collector": result.get("collector") or payload.get("collector") or "xreach",
-            "error_kind": result.get("error_kind") or worker_run.metrics.get("error_kind"),
-        }
-        recovery_worker_run = self._worker_scheduler.enqueue(
-            WorkerQueueItemCreateRequest(
-                task_name=f"Hermes recovery: {task.name}",
-                task_type=WorkerTaskType.CLAUDE_RUNTIME,
-                payload=recovery_payload,
-                requested_by=task.requested_by,
-                priority=int(task.metadata.get("priority") or worker_run.priority or 4),
-                max_retries=1,
-                metadata=recovery_metadata,
-            )
-        )
-        recovery_run = ControlPlaneRunRead(
-            run_id=recovery_worker_run.run_id,
-            task_id=task.task_id,
-            session_id=task.session_id,
-            capability_id="hermes_openclaw",
-            status=ControlPlaneRunStatus.QUEUED,
-            worker_run_id=recovery_worker_run.run_id,
-            queued_at=recovery_worker_run.created_at,
-            updated_at=recovery_worker_run.updated_at,
-            metadata={
-                "dispatch_mode": "worker_queue",
-                "worker_task_type": recovery_worker_run.task_type.value,
-                "source_collect_auth_recovery": True,
-                "parent_control_plane_run_id": source_run.run_id,
-                "parent_worker_run_id": worker_run.run_id,
-            },
-        )
-        self._repositories.runs.save(recovery_run.run_id, recovery_run)
-        recovered_source_run = source_run.model_copy(
+        updated_run = run.model_copy(
             update={
                 "metadata": {
-                    **source_run.metadata,
-                    "xreach_auth_recovery_run_id": recovery_run.run_id,
-                    "xreach_auth_recovery_worker_run_id": recovery_worker_run.run_id,
+                    **run.metadata,
+                    **worker_snapshot,
+                    **repair_metadata,
                 },
-                "updated_at": max(source_run.updated_at, recovery_worker_run.updated_at),
             }
         )
-        self._repositories.runs.save(
-            recovered_source_run.run_id,
-            recovered_source_run,
-        )
+        self._repositories.runs.save(updated_run.run_id, updated_run)
+        task_result = dict(task.result or {})
+        task_result["failure_review"] = review_payload
         updated_task = task.model_copy(
             update={
+                "result": task_result,
                 "metadata": {
                     **task.metadata,
-                    "xreach_auth_recovery_run_id": recovery_run.run_id,
-                    "xreach_auth_recovery_worker_run_id": recovery_worker_run.run_id,
-                    "xreach_auth_recovery_status": "queued",
+                    **repair_metadata,
                 },
-                "updated_at": max(task.updated_at, recovery_worker_run.updated_at),
             }
         )
         self._repositories.tasks.save(updated_task.task_id, updated_task)
-        self._record(
-            session_id=task.session_id,
-            subject_type="run",
-            subject_id=recovery_run.run_id,
-            event_type="run.recovery_queued",
-            message="XReach auth recovery dispatched to Hermes.",
-            task_id=task.task_id,
-            run_id=recovery_run.run_id,
-            metadata={
-                "worker_run_id": recovery_worker_run.run_id,
-                "worker_task_type": recovery_worker_run.task_type.value,
-                "capability_id": "hermes_openclaw",
-                "parent_control_plane_run_id": source_run.run_id,
-                "parent_worker_run_id": worker_run.run_id,
-            },
-        )
         return updated_task
 
     def _maybe_enqueue_source_collect_downstream(
@@ -1455,6 +1403,29 @@ def _task_actor_user_id(task: ControlPlaneTaskRead) -> str | None:
     return task.requested_by or None
 
 
+def _butler_route_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in dict(metadata or {}).items()
+        if key.startswith("butler_")
+        or key
+        in {
+            "capability_id",
+            "failure_kind",
+            "route_repair_suggestion",
+            "tool_broker",
+        }
+    }
+
+
+def _optional_metadata_string(metadata: dict[str, Any], key: str) -> str | None:
+    value = dict(metadata or {}).get(key)
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None
+
+
 def _requests_annual_approval_grant(metadata: dict[str, Any], note: str | None) -> bool:
     values = {
         str(metadata.get("approval_grant") or "").strip().lower(),
@@ -1483,71 +1454,6 @@ def _terminal_event_type_from_worker(status: JobStatus) -> str | None:
     if status == JobStatus.CANCELLED:
         return "run.cancelled"
     return None
-
-
-def _is_xreach_auth_required(worker_run: WorkerQueueItemRead) -> bool:
-    metrics = worker_run.metrics if isinstance(worker_run.metrics, dict) else {}
-    result = worker_run.result if isinstance(worker_run.result, dict) else {}
-    pause_reason = str(metrics.get("worker_pause_reason") or "").strip().lower()
-    error_kind = str(metrics.get("error_kind") or result.get("error_kind") or "").strip().lower()
-    return pause_reason == "xreach_auth_required" or error_kind == "collector_auth_required"
-
-
-def _build_xreach_auth_recovery_prompt(
-    *,
-    task: ControlPlaneTaskRead,
-    source_run: ControlPlaneRunRead,
-    worker_run: WorkerQueueItemRead,
-) -> str:
-    result = worker_run.result if isinstance(worker_run.result, dict) else {}
-    metrics = worker_run.metrics if isinstance(worker_run.metrics, dict) else {}
-    attempts = _sanitize_xreach_auth_attempts(result.get("xreach_auth_attempts") or [])
-    return "\n".join(
-        [
-            "你是 Hermes recovery agent。请为 AAS Butler 生成一段可直接发给用户的恢复方案。",
-            "You are the Hermes recovery agent. Produce a user-facing recovery plan for AAS Butler.",
-            "",
-            "目标：X 书签整理的 source_collect run 因本机 xreach 登录态失效而暂停，不要把它当作终局失败。",
-            "Goal: A source_collect run for X bookmarks is paused because local xreach authentication needs recovery; do not treat it as terminal failure.",
-            "",
-            f"task_name: {task.name}",
-            f"task_id: {task.task_id}",
-            f"source_control_plane_run_id: {source_run.run_id}",
-            f"source_worker_run_id: {worker_run.run_id}",
-            f"collector: {result.get('collector') or metrics.get('collector') or 'xreach'}",
-            f"error_kind: {result.get('error_kind') or metrics.get('error_kind') or 'collector_auth_required'}",
-            f"summary: {result.get('summary') or worker_run.message or ''}",
-            f"sanitized_collector_error: {_sanitize_recovery_error(result.get('collector_error'))}",
-            f"xreach_auth_attempts: {attempts}",
-            "",
-            "请输出 JSON，字段为 diagnosis, can_user_resolve, next_actions, user_message_zh, user_message_en, resume_policy。",
-            "Return JSON with diagnosis, can_user_resolve, next_actions, user_message_zh, user_message_en, resume_policy.",
-            "用户侧按钮已有：打开登录页、我已完成，继续采集、重新检测登录态、取消任务。",
-            "The user buttons already available are: open login page, resume collection, recheck auth, cancel task.",
-        ]
-    )
-
-
-def _sanitize_recovery_error(value: Any) -> str:
-    text = str(value or "").strip()
-    if not text:
-        return ""
-    redacted = re.sub(r"(?i)(auth[-_ ]?token|ct0|cookie|authorization)\s*[:=]\s*\S+", r"\1=<redacted>", text)
-    return redacted[:800]
-
-
-def _sanitize_xreach_auth_attempts(value: Any) -> list[dict[str, Any]]:
-    if not isinstance(value, list):
-        return []
-    sanitized: list[dict[str, Any]] = []
-    for attempt in value[:8]:
-        if not isinstance(attempt, dict):
-            continue
-        clean = dict(attempt)
-        if "detail" in clean:
-            clean["detail"] = _sanitize_recovery_error(clean.get("detail"))
-        sanitized.append(clean)
-    return sanitized
 
 
 def _next_retry_sequence(

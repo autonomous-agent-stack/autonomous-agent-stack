@@ -1,9 +1,57 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
+import shlex
+import shutil
 from typing import Any
 
 from autoresearch.core.services.butler_dispatch import ButlerDoctorCheck
+
+
+def build_hermes_cli_readiness_check(command: str | None = None) -> ButlerDoctorCheck:
+    raw_command = (command or os.getenv("AUTORESEARCH_HERMES_COMMAND") or "hermes").strip()
+    metadata: dict[str, Any] = {
+        "command": raw_command,
+        "env_key": "AUTORESEARCH_HERMES_COMMAND",
+    }
+    try:
+        argv = shlex.split(raw_command)
+    except ValueError as exc:
+        metadata["error_kind"] = "invalid_command"
+        return ButlerDoctorCheck(
+            name="Hermes CLI readiness",
+            status="fail",
+            detail=f"Hermes CLI 命令无法解析。 / Hermes CLI command cannot be parsed: {exc}",
+            metadata=metadata,
+        )
+    if not argv:
+        metadata["error_kind"] = "binary_missing"
+        return ButlerDoctorCheck(
+            name="Hermes CLI readiness",
+            status="fail",
+            detail="Hermes CLI 命令为空。 / Hermes CLI command is empty.",
+            metadata=metadata,
+        )
+
+    executable = argv[0]
+    resolved = _resolve_executable(executable)
+    metadata["executable"] = executable
+    metadata["resolved_executable"] = str(resolved) if resolved else None
+    if resolved is None:
+        metadata["error_kind"] = "binary_missing"
+        return ButlerDoctorCheck(
+            name="Hermes CLI readiness",
+            status="fail",
+            detail=f"Hermes executable not found in PATH: {executable}",
+            metadata=metadata,
+        )
+    return ButlerDoctorCheck(
+        name="Hermes CLI readiness",
+        status="ok",
+        detail="Hermes CLI 可执行文件已找到。 / Hermes CLI executable is available.",
+        metadata=metadata,
+    )
 
 
 def build_hermes_interactive_callback_check(
@@ -112,3 +160,13 @@ def _normalize_path(value: Any) -> str:
     if not raw:
         return ""
     return str(Path(raw).expanduser().resolve())
+
+
+def _resolve_executable(executable: str) -> Path | None:
+    path = Path(executable).expanduser()
+    if path.is_absolute() or "/" in executable:
+        if path.exists() and path.is_file() and os.access(path, os.X_OK):
+            return path.resolve()
+        return None
+    resolved = shutil.which(executable)
+    return Path(resolved).resolve() if resolved else None

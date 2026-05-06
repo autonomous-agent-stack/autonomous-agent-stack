@@ -1,0 +1,29 @@
+capability_id: research.agent_reach_crewai
+kind: runtime
+provided_by: crewai
+display_name: "Agent-Reach CrewAI 研究员 / Agent-Reach CrewAI researcher"
+description: "中文：用 Agent-Reach 读取公开资料，并用 CrewAI 风格流程整理研究产物。 English: Reads public material through Agent-Reach and organizes a research artifact with a CrewAI-style workflow."
+enabled: true
+input_schema:
+  type: object
+  properties:
+    prompt:
+      type: string
+    source_url:
+      type: string
+output_schema:
+  type: object
+  properties:
+    summary:
+      type: string
+    sources:
+      type: array
+risk_tier: common_read
+policy_refs:
+  - tool_proxy.read_only
+artifact_types:
+  - report
+lease_enabled: true
+metadata:
+  public_repo_safe: true
+  private_credentials_required: false

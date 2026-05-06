@@ -1,0 +1,22 @@
+{
+  "id": "haystack",
+  "kind": "runtime",
+  "service": "autoresearch.core.services.aep_process_runtime_adapter:AepProcessRuntimeAdapterService",
+  "version": "1.0",
+  "runtime_type": "knowledge_worker",
+  "display_name": "Haystack knowledge worker",
+  "enabled": true,
+  "optional_dependencies": ["haystack"],
+  "capabilities": ["create_session", "run", "stream", "cancel", "status"],
+  "aep_bridge": {
+    "jobspec_inputs": ["run_id", "agent_id", "task", "policy.timeout_sec", "metadata.capability_id"],
+    "result_fields": ["status", "summary", "output_artifacts", "metrics", "error"],
+    "workspace_binding": "RuntimeRunRequest.prompt -> AEP JobSpec.task",
+    "artifact_bindings": ["retrieval citations -> DriverResult.output_artifacts"]
+  },
+  "metadata": {
+    "agent_id": "haystack_demo",
+    "lane": "runtime_adapter_v1",
+    "role": "knowledge_worker"
+  }
+}

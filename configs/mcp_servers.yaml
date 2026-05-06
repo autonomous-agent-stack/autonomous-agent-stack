@@ -49,3 +49,13 @@ servers:
     auth_env: PUBLIC_EXAMPLE_MCP_TOKEN
     tool_allowlist: []
     tools: []
+  - server_id: stdio_example
+    display_name: "stdio MCP 示例（默认关闭） / stdio MCP example (disabled by default)"
+    transport: stdio
+    command: python
+    args: []
+    env: {}
+    enabled: false
+    auth_env: null
+    tool_allowlist: []
+    tools: []
