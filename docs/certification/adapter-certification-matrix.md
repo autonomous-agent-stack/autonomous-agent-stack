@@ -1,55 +1,46 @@
-# Adapter Certification Matrix / Adapter 认证矩阵
+# Adapter Certification Matrix
 
-## 中文
+Generated from live adapter certification evidence. Adapter config declares intent only; stable status is derived from this runner.
 
-所有 adapter 默认 `experimental`。只有通过全部认证项，且存在 live integration path，才可以标记为 `stable`。少一项即降级为 `beta` 或 `experimental`。
+- generated_at: `2026-05-06T23:46:00.834933+00:00`
+- status: `blocked`
+- stable_adapters: `0`
+- blocked_adapters: `16`
 
-认证项：
+| Adapter | Intent | Derived | Status | Missing checks | Blocked reason | Evidence |
+|---|---:|---:|---:|---|---|---|
+| `a2a` | `experimental` | `experimental` | `blocked` | real_doctor, session_binding, real_run, real_stream, real_cancel, real_status, artifact_collection, error_taxonomy, policy_hook, approval_hook, tool_broker_enforcement, model_gateway_enforcement, secret_lease_enforcement, session_event_mapping, live_integration_test, failure_drill | missing live_evidence.json | `artifacts/ga/adapter_certification/a2a/live_evidence.json` |
+| `autogen_ag2` | `experimental` | `experimental` | `blocked` | real_doctor, session_binding, real_run, real_stream, real_cancel, real_status, artifact_collection, error_taxonomy, policy_hook, approval_hook, tool_broker_enforcement, model_gateway_enforcement, secret_lease_enforcement, session_event_mapping, live_integration_test, failure_drill | missing live_evidence.json | `artifacts/ga/adapter_certification/autogen_ag2/live_evidence.json` |
+| `crewai` | `experimental` | `experimental` | `blocked` | real_doctor, session_binding, real_run, real_stream, real_cancel, real_status, artifact_collection, error_taxonomy, policy_hook, approval_hook, tool_broker_enforcement, model_gateway_enforcement, secret_lease_enforcement, session_event_mapping, live_integration_test, failure_drill | missing live_evidence.json | `artifacts/ga/adapter_certification/crewai/live_evidence.json` |
+| `dify` | `experimental` | `experimental` | `blocked` | real_doctor, session_binding, real_run, real_stream, real_cancel, real_status, artifact_collection, error_taxonomy, policy_hook, approval_hook, tool_broker_enforcement, model_gateway_enforcement, secret_lease_enforcement, session_event_mapping, live_integration_test, failure_drill | missing live_evidence.json | `artifacts/ga/adapter_certification/dify/live_evidence.json` |
+| `flowise` | `experimental` | `experimental` | `blocked` | real_doctor, session_binding, real_run, real_stream, real_cancel, real_status, artifact_collection, error_taxonomy, policy_hook, approval_hook, tool_broker_enforcement, model_gateway_enforcement, secret_lease_enforcement, session_event_mapping, live_integration_test, failure_drill | missing live_evidence.json | `artifacts/ga/adapter_certification/flowise/live_evidence.json` |
+| `haystack` | `experimental` | `experimental` | `blocked` | real_doctor, session_binding, real_run, real_stream, real_cancel, real_status, artifact_collection, error_taxonomy, policy_hook, approval_hook, tool_broker_enforcement, model_gateway_enforcement, secret_lease_enforcement, session_event_mapping, live_integration_test, failure_drill | missing live_evidence.json | `artifacts/ga/adapter_certification/haystack/live_evidence.json` |
+| `hermes` | `beta` | `experimental` | `blocked` | real_doctor, session_binding, real_run, real_stream, real_cancel, real_status, artifact_collection, error_taxonomy, policy_hook, approval_hook, tool_broker_enforcement, model_gateway_enforcement, secret_lease_enforcement, session_event_mapping, live_integration_test, failure_drill | missing live_evidence.json | `artifacts/ga/adapter_certification/hermes/live_evidence.json` |
+| `langchain_agents` | `experimental` | `experimental` | `blocked` | real_doctor, session_binding, real_run, real_stream, real_cancel, real_status, artifact_collection, error_taxonomy, policy_hook, approval_hook, tool_broker_enforcement, model_gateway_enforcement, secret_lease_enforcement, session_event_mapping, live_integration_test, failure_drill | missing live_evidence.json | `artifacts/ga/adapter_certification/langchain_agents/live_evidence.json` |
+| `langflow` | `experimental` | `experimental` | `blocked` | real_doctor, session_binding, real_run, real_stream, real_cancel, real_status, artifact_collection, error_taxonomy, policy_hook, approval_hook, tool_broker_enforcement, model_gateway_enforcement, secret_lease_enforcement, session_event_mapping, live_integration_test, failure_drill | missing live_evidence.json | `artifacts/ga/adapter_certification/langflow/live_evidence.json` |
+| `langgraph` | `experimental` | `experimental` | `blocked` | real_doctor, session_binding, real_run, real_stream, real_cancel, real_status, artifact_collection, error_taxonomy, policy_hook, approval_hook, tool_broker_enforcement, model_gateway_enforcement, secret_lease_enforcement, session_event_mapping, live_integration_test, failure_drill | missing live_evidence.json | `artifacts/ga/adapter_certification/langgraph/live_evidence.json` |
+| `llamaindex` | `experimental` | `experimental` | `blocked` | real_doctor, session_binding, real_run, real_stream, real_cancel, real_status, artifact_collection, error_taxonomy, policy_hook, approval_hook, tool_broker_enforcement, model_gateway_enforcement, secret_lease_enforcement, session_event_mapping, live_integration_test, failure_drill | missing live_evidence.json | `artifacts/ga/adapter_certification/llamaindex/live_evidence.json` |
+| `mcp_tool_broker` | `beta` | `experimental` | `blocked` | real_doctor, session_binding, real_run, real_stream, real_cancel, real_status, artifact_collection, error_taxonomy, policy_hook, approval_hook, tool_broker_enforcement, model_gateway_enforcement, secret_lease_enforcement, session_event_mapping, live_integration_test, failure_drill | missing live_evidence.json | `artifacts/ga/adapter_certification/mcp_tool_broker/live_evidence.json` |
+| `microsoft_agent_framework` | `experimental` | `experimental` | `blocked` | real_doctor, session_binding, real_run, real_stream, real_cancel, real_status, artifact_collection, error_taxonomy, policy_hook, approval_hook, tool_broker_enforcement, model_gateway_enforcement, secret_lease_enforcement, session_event_mapping, live_integration_test, failure_drill | missing live_evidence.json | `artifacts/ga/adapter_certification/microsoft_agent_framework/live_evidence.json` |
+| `openclaw` | `beta` | `experimental` | `blocked` | real_doctor, session_binding, real_run, real_stream, real_cancel, real_status, artifact_collection, error_taxonomy, policy_hook, approval_hook, tool_broker_enforcement, model_gateway_enforcement, secret_lease_enforcement, session_event_mapping, live_integration_test, failure_drill | missing live_evidence.json | `artifacts/ga/adapter_certification/openclaw/live_evidence.json` |
+| `openhands` | `beta` | `experimental` | `blocked` | real_doctor, session_binding, real_run, real_stream, real_cancel, real_status, artifact_collection, error_taxonomy, policy_hook, approval_hook, tool_broker_enforcement, model_gateway_enforcement, secret_lease_enforcement, session_event_mapping, live_integration_test, failure_drill | missing live_evidence.json | `artifacts/ga/adapter_certification/openhands/live_evidence.json` |
+| `semantic_kernel` | `experimental` | `experimental` | `blocked` | real_doctor, session_binding, real_run, real_stream, real_cancel, real_status, artifact_collection, error_taxonomy, policy_hook, approval_hook, tool_broker_enforcement, model_gateway_enforcement, secret_lease_enforcement, session_event_mapping, live_integration_test, failure_drill | missing live_evidence.json | `artifacts/ga/adapter_certification/semantic_kernel/live_evidence.json` |
 
-- real doctor
-- real create_session / bind_session
-- real run
-- real stream
-- real cancel
-- real status
-- real artifact collection
-- error taxonomy
-- policy hook
-- approval hook
-- Tool Broker enforcement
-- Model Gateway enforcement
-- Secret Lease enforcement
-- SessionEvent mapping
-- live integration test
-- failure drill
+Required checks:
 
-适用范围：Hermes、OpenClaw、OpenHands、CrewAI、Haystack、LangGraph、LlamaIndex、Dify、AutoGen/AG2、Microsoft Agent Framework、Semantic Kernel、LangChain Agents、Flowise、LangFlow、A2A、MCP Tool Broker。
-
-机器可读来源：`configs/certification/adapters.yaml`。
-
-## English
-
-All adapters default to `experimental`. An adapter may be marked `stable` only when every certification item passes and a live integration path exists. Any missing item downgrades the adapter to `beta` or `experimental`.
-
-Certification items:
-
-- real doctor
-- real create_session / bind_session
-- real run
-- real stream
-- real cancel
-- real status
-- real artifact collection
-- error taxonomy
-- policy hook
-- approval hook
-- Tool Broker enforcement
-- Model Gateway enforcement
-- Secret Lease enforcement
-- SessionEvent mapping
-- live integration test
-- failure drill
-
-Scope: Hermes, OpenClaw, OpenHands, CrewAI, Haystack, LangGraph, LlamaIndex, Dify, AutoGen/AG2, Microsoft Agent Framework, Semantic Kernel, LangChain Agents, Flowise, LangFlow, A2A, and MCP Tool Broker.
-
-Machine-readable source: `configs/certification/adapters.yaml`.
+- `real_doctor`
+- `session_binding`
+- `real_run`
+- `real_stream`
+- `real_cancel`
+- `real_status`
+- `artifact_collection`
+- `error_taxonomy`
+- `policy_hook`
+- `approval_hook`
+- `tool_broker_enforcement`
+- `model_gateway_enforcement`
+- `secret_lease_enforcement`
+- `session_event_mapping`
+- `live_integration_test`
+- `failure_drill`

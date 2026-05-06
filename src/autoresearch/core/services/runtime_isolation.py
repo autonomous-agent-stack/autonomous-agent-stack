@@ -52,6 +52,10 @@ class RuntimeIsolationService:
         if policy_decision != "allow":
             raise RuntimeIsolationViolation("runtime external network requires PolicyDecision allow")
 
+    def assert_control_plane_mutation_allowed(self, *, via_api: bool) -> None:
+        if not via_api:
+            raise RuntimeIsolationViolation("UI/CLI/SDK database mutation must go through /api/v2")
+
 
 def _policy_violations(policy: RuntimeIsolationPolicyRead) -> list[str]:
     checks: dict[str, bool] = {

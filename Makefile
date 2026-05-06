@@ -55,7 +55,7 @@ FEDERATION_CAPABILITY ?= echo
 .PHONY: review-setup review-gates-local assistant-doctor assistant-triage assistant-execute assistant-review-pr assistant-release-plan assistant-schedule
 .PHONY: telegram-butler-start telegram-butler-status telegram-butler-stop telegram-ingress-audit
 .PHONY: butler-start butler-stop butler-restart butler-status agent-list agent-start agent-stop agent-drain agent-restart agent-status
-.PHONY: crewai-setup crewai-new crewai-run crewai-demo mcp-doctor quota-doctor federation-doctor federation-demo runtime-doctor capability-doctor agent-reach-crewai-demo haystack-demo langgraph-demo a2a-demo evergreen-demo bypass-ga ga-release-gate
+.PHONY: crewai-setup crewai-new crewai-run crewai-demo mcp-doctor quota-doctor federation-doctor federation-demo runtime-doctor capability-doctor agent-reach-crewai-demo haystack-demo langgraph-demo a2a-demo evergreen-demo ga-gap-report bypass-ga ga-release-gate furniture-e2e
 
 help:
 	@echo "Autonomous Agent Stack - common commands"
@@ -96,6 +96,7 @@ help:
 	@echo "  make quota-doctor Validate usage quota policy and ledger"
 	@echo "  make federation-doctor Validate federation peer and lease config"
 	@echo "  make federation-demo Run a local bilateral federation lease/task demo"
+	@echo "  make ga-gap-report Emit Evergreen OS GA gap reports"
 	@echo "  make bypass-ga Run Evergreen OS GA bypass security checks"
 	@echo "  make ga-release-gate Run Evergreen OS GA blocking release gate"
 	@echo "  make promote-run PROMOTE_RUN_ID='...' Turn a ready AEP run into branch/commit/draft PR payload"
@@ -272,12 +273,26 @@ evergreen-demo:
 	fi
 	PYTHONPATH=src $(VENV_PYTHON) scripts/evergreen_smoke.py evergreen-demo
 
+ga-gap-report:
+	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \
+		echo "Missing $(VENV_PYTHON). Run 'make setup' first."; \
+		exit 1; \
+	fi
+	PYTHONPATH=src $(VENV_PYTHON) scripts/ga_gap_report.py
+
 bypass-ga:
 	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \
 		echo "Missing $(VENV_PYTHON). Run 'make setup' first."; \
 		exit 1; \
 	fi
 	PYTHONPATH=src $(VENV_PYTHON) scripts/bypass_ga.py
+
+furniture-e2e:
+	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \
+		echo "Missing $(VENV_PYTHON). Run 'make setup' first."; \
+		exit 1; \
+	fi
+	PYTHONPATH=src $(VENV_PYTHON) scripts/furniture_e2e.py
 
 ga-release-gate:
 	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \

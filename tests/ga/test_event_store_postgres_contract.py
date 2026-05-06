@@ -4,7 +4,7 @@ from pathlib import Path
 
 from autoresearch.shared.models import SessionEventCreateRequest
 from autoresearch.storage.events import SQLiteSessionEventStore, verify_event_hash
-from autoresearch.storage.postgres import PostgresStorageProfile
+from autoresearch.storage.postgres import PostgresSessionEventStore, PostgresStorageProfile
 
 
 def test_sqlite_event_store_is_transactional_local_profile_with_idempotency(tmp_path: Path) -> None:
@@ -38,3 +38,18 @@ def test_postgres_profile_declares_required_production_features() -> None:
     assert "transactional_event_append" in profile.required_features
     assert "inbox_dedupe_table" in profile.required_features
 
+
+def test_postgres_event_store_exposes_production_contract() -> None:
+    store_type = PostgresSessionEventStore
+
+    for method in (
+        "append",
+        "list_events",
+        "replay",
+        "migrate",
+        "rollback",
+        "record_inbox",
+        "backup_manifest",
+        "restore_manifest",
+    ):
+        assert callable(getattr(store_type, method))

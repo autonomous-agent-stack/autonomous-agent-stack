@@ -19,6 +19,7 @@ class CertificationStatus(str, Enum):
     MISSING = "missing"
     PARTIAL = "partial"
     CERTIFIED = "certified"
+    BLOCKED = "blocked"
 
 
 class StorageProfileKind(str, Enum):
@@ -62,11 +63,14 @@ class GAStatusRead(StrictModel):
     object_type: str
     contract_version: str = "ga/v1"
     stability: Stability = Stability.EXPERIMENTAL
+    intent_stability: Stability = Stability.EXPERIMENTAL
     certification_status: CertificationStatus = CertificationStatus.MISSING
     certification_profile: str | None = None
     live_test_command: str | None = None
     production_profile_required: bool = True
     missing_checks: list[str] = Field(default_factory=list)
+    evidence_path: str | None = None
+    blocked_reason: str | None = None
 
 
 class PrincipalRead(StrictModel):
@@ -164,6 +168,76 @@ class PolicyDecisionRead(StrictModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class ModelPolicyRead(StrictModel):
+    policy_id: str
+    allowed_modalities: list[str] = Field(default_factory=lambda: ["text"])
+    pii_redaction_required: bool = True
+    max_prompt_chars: int = 8000
+    cost_center: str = "default"
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ModelUsageLedgerRead(StrictModel):
+    usage_id: str
+    invocation_id: str
+    provider_id: str
+    model_id: str
+    modality: str
+    session_id: str | None = None
+    policy_id: str
+    cost_units: int = 0
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class ImageGenerationArtifactRead(StrictModel):
+    artifact_id: str
+    invocation_id: str
+    session_id: str | None = None
+    uri: str
+    mime_type: str = "image/png"
+    prompt_hash: str
+    content_hash: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class DesignPromptAuditRead(StrictModel):
+    audit_id: str
+    invocation_id: str
+    session_id: str | None = None
+    original_prompt: str
+    redacted_prompt: str
+    pii_redacted: bool = False
+    policy_id: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class ImageGenerationRequest(StrictModel):
+    provider_id: str = Field(..., min_length=1)
+    model_id: str = Field(..., min_length=1)
+    prompt: str = Field(..., min_length=1)
+    principal: PrincipalRead = Field(default_factory=lambda: PrincipalRead(principal_id="local-user"))
+    session_id: str | None = None
+    policy_decision_id: str | None = None
+    policy: ModelPolicyRead | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("provider_id", "model_id", "prompt", mode="before")
+    @classmethod
+    def _strip_image_required(cls, value: Any) -> str:
+        return str(value or "").strip()
+
+
+class ImageGenerationRead(StrictModel):
+    invocation: ModelInvocationRead
+    artifact: ImageGenerationArtifactRead
+    design_prompt_audit: DesignPromptAuditRead
+    usage_ledger: ModelUsageLedgerRead
+    session_event: dict[str, Any] = Field(default_factory=dict)
+
+
 class ReleaseGateCheckRead(StrictModel):
     check_id: str
     status: Literal["passed", "failed", "skipped"] = "passed"
@@ -180,4 +254,3 @@ class ReleaseGateReportRead(StrictModel):
     @property
     def failed_checks(self) -> list[ReleaseGateCheckRead]:
         return [check for check in self.checks if check.status == "failed"]
-

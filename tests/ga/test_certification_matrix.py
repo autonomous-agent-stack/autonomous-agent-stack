@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from autoresearch.ga.certification import AdapterCertificationRegistry
-from autoresearch.ga.contracts import Stability
+from autoresearch.ga.contracts import CertificationStatus, Stability
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -23,6 +23,7 @@ def test_demo_only_adapters_are_not_stable() -> None:
     assert statuses["crewai"].stability == Stability.EXPERIMENTAL
     assert statuses["haystack"].stability == Stability.EXPERIMENTAL
     assert statuses["langgraph"].stability == Stability.EXPERIMENTAL
-    assert statuses["mcp_tool_broker"].stability == Stability.BETA
+    assert statuses["mcp_tool_broker"].intent_stability == Stability.BETA
+    assert statuses["mcp_tool_broker"].stability == Stability.EXPERIMENTAL
+    assert statuses["mcp_tool_broker"].certification_status == CertificationStatus.BLOCKED
     assert "live_integration_test" in statuses["mcp_tool_broker"].missing_checks
-

@@ -318,7 +318,7 @@ class GovernedMCPService:
                 )
 
         try:
-            result = self._execute_tool(tool, request.params)
+            result = self._execute_tool(tool, request)
         except Exception as exc:
             if usage_entry_id:
                 self._quota_service.release(usage_entry_id, metadata={"release_reason": "tool_failed"})
@@ -472,9 +472,22 @@ class GovernedMCPService:
                 return tool
         return None
 
-    def _execute_tool(self, tool: GovernedMCPToolRead, params: dict[str, Any]) -> dict[str, Any]:
+    def _execute_tool(self, tool: GovernedMCPToolRead, request: GovernedMCPToolCallRequest) -> dict[str, Any]:
         if not tool.enabled:
             raise RuntimeError("tool is disabled")
+        params = request.params
+        if tool.tier == "external_write":
+            external_write_gate = self._external_write_gate(request)
+            if external_write_gate["mode"] == "dry_run":
+                return {
+                    "tool": tool.tool_id,
+                    "params": params,
+                    "dry_run": True,
+                    "result": "external write dry-run",
+                    "external_write_gate": external_write_gate,
+                }
+            if not external_write_gate["allowed"]:
+                raise RuntimeError(str(external_write_gate["reason"]))
         server = next((item for item in self.list_servers() if item.server_id == tool.server_id), None)
         if server is None:
             raise RuntimeError(f"MCP server not found: {tool.server_id}")
@@ -511,6 +524,37 @@ class GovernedMCPService:
             result = payload.get("result")
             return result if isinstance(result, dict) else {"result": result}
         raise RuntimeError(f"unsupported MCP transport: {server.transport}")
+
+    def _external_write_gate(self, request: GovernedMCPToolCallRequest) -> dict[str, Any]:
+        metadata = dict(request.metadata or {})
+        if os.getenv("EXTERNAL_WRITE_LIVE") != "1":
+            return {"mode": "dry_run", "allowed": True, "reason": "EXTERNAL_WRITE_LIVE is not enabled"}
+        recipient = _optional_string(request.params.get("recipient") or metadata.get("recipient"))
+        allowlist = _external_write_recipient_allowlist(metadata)
+        required = {
+            "live_credentials": metadata.get("live_credentials") is True,
+            "policy_decision": metadata.get("policy_decision") == "allow" and bool(_optional_string(metadata.get("policy_decision_id"))),
+            "approval": self._approval_satisfied(request.approval_id),
+            "recipient_allowlist": bool(recipient and recipient in allowlist),
+            "audit": bool(_optional_string(metadata.get("audit_timeline_id"))),
+            "session_facts": bool(request.session_id and _optional_string(metadata.get("session_facts_id"))),
+        }
+        missing = [key for key, ok in required.items() if not ok]
+        if missing:
+            return {
+                "mode": "live",
+                "allowed": False,
+                "reason": f"external write live gate missing: {', '.join(missing)}",
+                "missing": missing,
+            }
+        return {
+            "mode": "live",
+            "allowed": True,
+            "recipient": recipient,
+            "policy_decision_id": metadata.get("policy_decision_id"),
+            "audit_timeline_id": metadata.get("audit_timeline_id"),
+            "session_facts_id": metadata.get("session_facts_id"),
+        }
 
     def _post_json_rpc(self, server: MCPServerRead, payload: dict[str, Any]) -> dict[str, Any]:
         if not server.endpoint:
@@ -807,6 +851,19 @@ def _optional_string(value: object) -> str | None:
         return None
     normalized = str(value).strip()
     return normalized or None
+
+
+def _external_write_recipient_allowlist(metadata: dict[str, Any]) -> set[str]:
+    raw = metadata.get("recipient_allowlist")
+    if raw is None:
+        raw = os.getenv("EXTERNAL_WRITE_RECIPIENT_ALLOWLIST", "")
+    if isinstance(raw, str):
+        values = raw.split(",")
+    elif isinstance(raw, list):
+        values = raw
+    else:
+        values = []
+    return {str(value).strip() for value in values if str(value).strip()}
 
 
 def _digest(payload: object) -> str:

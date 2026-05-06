@@ -13,16 +13,13 @@ def test_bypass_ga_blocks_required_bypass_paths() -> None:
     statuses = {str(item["check"]): item["status"] for item in checks}
 
     for required in (
-        "runtime direct model key access",
-        "runtime direct .env access",
-        "runtime direct tool call",
-        "Model Gateway bypass",
-        "Tool Broker bypass",
-        "Secret Vault bypass",
-        "approval rejected but action continues",
-        "federation peer without lease",
-        "UI direct DB mutation",
-        "artifact promotion bypassing gate",
+        "direct_env_key_access",
+        "direct_model_call",
+        "direct_tool_call",
+        "approval_rejected_but_action_continues",
+        "federation_without_lease",
+        "unauthorized_package_tool_registration",
+        "direct_db_mutation",
+        "artifact_promotion_bypass",
     ):
         assert statuses[required] == "passed"
-

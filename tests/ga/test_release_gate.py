@@ -17,17 +17,27 @@ from autoresearch.core.services.release_gate import ReleaseGateService
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_release_gate_passes_when_no_uncertified_stable_claims_exist() -> None:
+def test_release_gate_fails_without_full_ga_evidence() -> None:
     report = ReleaseGateService(repo_root=ROOT).run()
 
-    assert report.status == "passed"
+    assert report.status == "failed"
     assert {check.check_id for check in report.checks} >= {
         "ga.required_docs",
+        "ga.gap_report",
         "ga.adapter_certification",
+        "ga.bypass_ga",
         "ga.storage_profiles",
+        "ga.postgres_event_store",
         "ga.runtime_isolation",
         "ga.connector_registry",
+        "ga.v1_compat_shims",
+        "ga.direct_secret_model_tool_paths",
+        "ga.furniture_e2e",
+        "ga.external_write_dry_run",
     }
+    failed = {check.check_id for check in report.failed_checks}
+    assert "ga.adapter_certification" in failed
+    assert "ga.direct_secret_model_tool_paths" in failed
 
 
 def test_v2_ga_surfaces_are_real_api_routes() -> None:
@@ -41,4 +51,3 @@ def test_v2_ga_surfaces_are_real_api_routes() -> None:
     assert client.get("/api/v2/connectors").status_code == 200
     assert client.get("/api/v2/packages").status_code == 200
     assert client.get("/api/v2/health/evergreen").status_code == 200
-

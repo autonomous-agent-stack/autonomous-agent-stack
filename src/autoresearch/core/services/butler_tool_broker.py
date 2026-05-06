@@ -172,6 +172,24 @@ class ButlerToolBroker:
             },
         )
 
+    def assert_package_tool_registration_allowed(
+        self,
+        *,
+        package_id: str,
+        package_stable: bool,
+        policy_decision: str | None,
+        approval_status: str | None,
+    ) -> None:
+        normalized_package = str(package_id or "").strip()
+        if not normalized_package:
+            raise PermissionError("package_id is required for tool registration")
+        if not package_stable:
+            raise PermissionError("package tool registration requires a certified stable package")
+        if policy_decision != "allow":
+            raise PermissionError("package tool registration requires PolicyDecision allow")
+        if approval_status != "approved":
+            raise PermissionError("package tool registration requires approved human approval")
+
     def resolve(self, request: ButlerToolResolveRequest) -> ButlerToolResolutionRead:
         request = ButlerToolResolveRequest.model_validate(request.model_dump(mode="json"))
         requirements = self._normalize_requirements(request.tool_requirements, request.parameters)
