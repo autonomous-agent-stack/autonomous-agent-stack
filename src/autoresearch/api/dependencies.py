@@ -50,10 +50,16 @@ from autoresearch.core.services.claude_runtime_service import ClaudeRuntimeServi
 from autoresearch.core.services.claude_session_records import ClaudeSessionRecordService
 from autoresearch.core.services.evaluations import EvaluationService
 from autoresearch.core.services.executions import ExecutionService
+from autoresearch.core.services.federation import (
+    FederationLeaseRead,
+    FederationService,
+    FederationTaskRead,
+)
 from autoresearch.core.services.github_admin import GitHubAdminService
 from autoresearch.core.services.github_ops import GitHubOpsService
 from autoresearch.core.services.github_issue_service import GitHubIssueService
 from autoresearch.core.services.governance_core import GovernanceCoreService, GovernanceRepositories
+from autoresearch.core.services.governed_mcp import GovernedMCPService, ToolPermissionService
 from autoresearch.core.services.hermes_gateway_bridge import HttpHermesGatewayTransport
 from autoresearch.core.services.mirofish_prediction import MiroFishPredictionService
 from autoresearch.core.services.managed_skill_registry import ManagedSkillRegistryService
@@ -71,6 +77,7 @@ from autoresearch.core.services.reports import ReportService
 from autoresearch.core.services.self_integration import SelfIntegrationService
 from autoresearch.core.services.session_events import SessionEventService
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
+from autoresearch.core.services.usage_quota import UsageLedgerEntryRead, UsageQuotaService
 from autoresearch.core.services.upstream_watcher import UpstreamWatcherService
 from autoresearch.core.services.variants import VariantService
 from autoresearch.core.services.worker_schedule_service import WorkerScheduleService
@@ -611,6 +618,55 @@ def get_session_event_service() -> SessionEventService:
 
 
 @lru_cache(maxsize=1)
+def get_usage_quota_service() -> UsageQuotaService:
+    return UsageQuotaService(
+        repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="usage_ledger",
+            model_cls=UsageLedgerEntryRead,
+        ),
+        policy_path=_repo_root() / "configs" / "quota_policy.yaml",
+        session_events=get_session_event_service(),
+    )
+
+
+@lru_cache(maxsize=1)
+def get_tool_permission_service() -> ToolPermissionService:
+    return ToolPermissionService(policy_path=_repo_root() / "configs" / "tool_permissions.yaml")
+
+
+@lru_cache(maxsize=1)
+def get_governed_mcp_service() -> GovernedMCPService:
+    return GovernedMCPService(
+        servers_path=_repo_root() / "configs" / "mcp_servers.yaml",
+        permission_service=get_tool_permission_service(),
+        quota_service=get_usage_quota_service(),
+        approval_store=get_approval_store_service(),
+        session_events=get_session_event_service(),
+    )
+
+
+@lru_cache(maxsize=1)
+def get_federation_service() -> FederationService:
+    return FederationService(
+        peers_path=_repo_root() / "configs" / "federation_peers.yaml",
+        lease_repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="federation_leases",
+            model_cls=FederationLeaseRead,
+        ),
+        task_repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="federation_tasks",
+            model_cls=FederationTaskRead,
+        ),
+        control_plane=get_control_plane_service(),
+        quota_service=get_usage_quota_service(),
+        session_events=get_session_event_service(),
+    )
+
+
+@lru_cache(maxsize=1)
 def get_hermes_gateway_transport() -> HttpHermesGatewayTransport | None:
     base_url = (os.getenv("AUTORESEARCH_HERMES_GATEWAY_BASE_URL") or "").strip()
     if not base_url:
@@ -812,6 +868,10 @@ def clear_dependency_caches() -> None:
     _safe_cache_clear(get_openclaw_compat_service)
     _safe_cache_clear(get_openclaw_memory_service)
     _safe_cache_clear(get_session_event_service)
+    _safe_cache_clear(get_usage_quota_service)
+    _safe_cache_clear(get_tool_permission_service)
+    _safe_cache_clear(get_governed_mcp_service)
+    _safe_cache_clear(get_federation_service)
     _safe_cache_clear(get_capability_provider_registry)
     _safe_cache_clear(get_managed_skill_registry_service)
     _safe_cache_clear(get_openclaw_skill_service)

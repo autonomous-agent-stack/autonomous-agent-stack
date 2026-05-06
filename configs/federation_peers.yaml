@@ -1,0 +1,32 @@
+# 联邦 peer 注册表 v1：先支持双边静态 peer、租约和受限能力发布。
+# Federation peer registry v1: starts with bilateral static peers, leases, and scoped capability publication.
+peers:
+  - peer_id: demo-peer
+    display_name: "演示企业 peer / Demo enterprise peer"
+    endpoint: null
+    trust_level: L1
+    status: active
+    allowed_capabilities:
+      - echo
+    max_units_per_period: 100
+    metadata:
+      settlement_mode: "信用点演示 / Credit-unit demo"
+  - peer_id: disabled-public-peer
+    display_name: "禁用公共 peer 示例 / Disabled public peer example"
+    endpoint: ""
+    trust_level: L0
+    status: disabled
+    allowed_capabilities: []
+    max_units_per_period: 0
+    metadata:
+      reason: "默认关闭外部联邦入口。 / External federation entrypoints are disabled by default."
+
+published_capabilities:
+  - capability_id: echo
+    name: "回显 worker 时长租用 / Echo worker time lease"
+    lease_required: true
+    risk_tags: []
+    max_duration_seconds: 3600
+    metadata:
+      dispatch_mode: worker_queue
+      result_policy: "只返回结果与审计摘要。 / Returns only results and audit summaries."

@@ -1,0 +1,59 @@
+# 工具权限 v1：按角色、agent 和风险层级控制 MCP 工具调用。
+# Tool permission v1: gates MCP tool calls by role, agent, and risk tier.
+defaults:
+  allowed_roles:
+    - owner
+    - supervisor
+    - operator
+    - member
+  allowed_agents:
+    - "*"
+
+tools:
+  local_demo.echo:
+    enabled: true
+    decision: auto
+    reason: "普通读取工具自动放行。 / Common read tools are allowed automatically."
+    allowed_roles:
+      - owner
+      - supervisor
+      - operator
+      - member
+      - peer
+    allowed_agents:
+      - "*"
+    risk_tags: []
+  local_demo.sensitive_lookup:
+    enabled: true
+    decision: approval_required
+    reason: "敏感读取需要审批。 / Sensitive reads require approval."
+    allowed_roles:
+      - owner
+      - supervisor
+      - operator
+    allowed_agents:
+      - "*"
+    risk_tags:
+      - sensitive_read
+  local_demo.external_write:
+    enabled: true
+    decision: approval_required
+    reason: "外部写入需要审批。 / External writes require approval."
+    allowed_roles:
+      - owner
+      - supervisor
+    allowed_agents:
+      - "*"
+    risk_tags:
+      - external_api
+      - external_write
+  local_demo.destructive_delete:
+    enabled: true
+    decision: blocked
+    reason: "破坏性工具默认阻断。 / Destructive tools are blocked by default."
+    allowed_roles:
+      - owner
+    allowed_agents:
+      - "*"
+    risk_tags:
+      - destructive
