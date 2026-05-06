@@ -83,7 +83,7 @@ from ._guard import _guard_webhook_replay_and_rate, _validate_secret_token
 from ._handlers import (
     _classify_telegram_youtube_ingress,
 )
-from ._messages import _telegram_queue_ack_message
+from ._messages import _build_v2_approval_reply_markup, _telegram_queue_ack_message
 from ._policy import _evaluate_telegram_routing_policy, _resolve_telegram_session_identity
 from ._session import (
     _ensure_admin_channel_visibility,
@@ -653,6 +653,7 @@ def _handle_v2_butler_task(
             chat_id=chat_id,
             text=_control_plane_task_ack_text(task),
             message_thread_id=thread_id,
+            reply_markup=_control_plane_task_ack_reply_markup(task),
         )
 
     openclaw_service.update_metadata(
@@ -703,3 +704,9 @@ def _control_plane_task_ack_text(task) -> str:
         f"status: {task.status.value}\n"
         f"run: {task.run_id or '-'}"
     )
+
+
+def _control_plane_task_ack_reply_markup(task) -> dict[str, Any] | None:
+    if task.status != ControlPlaneTaskStatus.AWAITING_APPROVAL:
+        return None
+    return _build_v2_approval_reply_markup(task.approval_id)
