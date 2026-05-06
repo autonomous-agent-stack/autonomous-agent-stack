@@ -209,10 +209,19 @@ def create_app() -> FastAPI:
         ("autoresearch.api.routers.capabilities", "router", "capabilities"),
         ("autoresearch.api.routers.approvals", "router", "approvals"),
         ("autoresearch.api.routers.sessions", "router", "sessions"),
+        ("autoresearch.api.routers.usage", "router", "usage"),
+        ("autoresearch.api.routers.mcp", "router", "governed mcp"),
+        ("autoresearch.api.routers.federation", "router", "federation"),
         ("autoresearch.api.routers.workers", "router", "workers"),
         ("autoresearch.api.routers.worker_runs", "router", "worker runs"),
         ("autoresearch.api.routers.worker_schedules", "router", "worker schedules"),
         ("autoresearch.api.routers.panel", "router", "panel api"),
+        ("autoresearch.api.routers.ga", "router", "evergreen ga"),
+        ("autoresearch.api.routers.models", "router", "model gateway"),
+        ("autoresearch.api.routers.secrets", "router", "secret vault"),
+        ("autoresearch.api.routers.connectors", "router", "connectors"),
+        ("autoresearch.api.routers.packages", "router", "packages"),
+        ("autoresearch.api.routers.health_evergreen", "router", "evergreen health"),
     ]
 
     # Optional routers - allowed to fail in minimal mode

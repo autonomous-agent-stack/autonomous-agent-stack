@@ -1,0 +1,23 @@
+# 配额策略 v1：默认给本地用户和联邦 peer 分配信用点额度。
+# Quota policy v1: assigns credit-unit budgets to local users and federation peers by default.
+defaults:
+  period_seconds: 86400
+  max_units_per_period: 100
+
+roles:
+  owner:
+    max_units_per_period: 10000
+  supervisor:
+    max_units_per_period: 5000
+  operator:
+    max_units_per_period: 1000
+  member:
+    max_units_per_period: 200
+  peer:
+    max_units_per_period: 100
+
+subjects: {}
+
+peers:
+  demo-peer:
+    max_units_per_period: 100

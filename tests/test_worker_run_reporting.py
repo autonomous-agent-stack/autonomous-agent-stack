@@ -8,6 +8,7 @@ import pytest
 
 from autoresearch.api.dependencies import (
     get_control_plane_service,
+    get_openclaw_compat_service,
     get_telegram_notifier_service,
     get_telegram_settings,
     get_worker_registry_service,
@@ -30,11 +31,14 @@ from autoresearch.control_plane.contracts import (
     ControlPlaneTaskStatus,
 )
 from autoresearch.control_plane.service import ControlPlaneRepositories, ControlPlaneService
+from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.session_events import SessionEventService
 from autoresearch.core.services.worker_registry import WorkerRegistryService
 from autoresearch.core.services.worker_scheduler import WorkerSchedulerService
 from autoresearch.shared.models import (
     JobStatus,
+    OpenClawSessionCreateRequest,
+    OpenClawSessionRead,
     SessionEventRead,
     WorkerClaimRequest,
     WorkerLeaseRead,
@@ -882,6 +886,64 @@ def test_butler_fallback_fires_when_worker_notify_failed(
         app.dependency_overrides.pop(get_telegram_notifier_service, None)
 
 
+def test_butler_completion_is_saved_as_assistant_context_for_followups(
+    worker_client: TestClient,
+    worker_services: tuple[WorkerRegistryService, WorkerSchedulerService],
+    tmp_path: Path,
+) -> None:
+    """Telegram completion cards should become session context for the next short follow-up."""
+    from autoresearch.api.dependencies import get_telegram_notifier_service
+    from autoresearch.api.main import app
+
+    registry, scheduler = worker_services
+    _register_worker(registry, worker_id="mac-mini-01")
+    openclaw_service = OpenClawCompatService(
+        repository=SQLiteModelRepository(
+            db_path=tmp_path / "worker-openclaw-context.sqlite3",
+            table_name="openclaw_sessions_worker_context_test",
+            model_cls=OpenClawSessionRead,
+        )
+    )
+    session = openclaw_service.create_session(
+        OpenClawSessionCreateRequest(
+            channel="telegram",
+            external_id="777",
+            title="Telegram 777",
+            session_key="telegram:personal:user:777",
+        )
+    )
+    run_id = _enqueue_and_claim_claude_runtime(
+        scheduler,
+        extra_metadata={"control_plane_session_id": session.session_id},
+    )
+
+    notifier = _StubNotifier()
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+    app.dependency_overrides[get_openclaw_compat_service] = lambda: openclaw_service
+    try:
+        report = worker_client.post(
+            f"/api/v1/workers/mac-mini-01/runs/{run_id}/report",
+            json={
+                "status": "completed",
+                "message": "ok",
+                "metrics": {"telegram_notify_status": "failed"},
+            },
+        )
+        assert report.status_code == 200
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+        app.dependency_overrides.pop(get_openclaw_compat_service, None)
+
+    refreshed = openclaw_service.get_session(session.session_id)
+    assert refreshed is not None
+    assistant_events = [event for event in refreshed.events if event.get("role") == "assistant"]
+    assert assistant_events
+    latest = assistant_events[-1]
+    assert "管家兜底" in latest["content"]
+    assert latest["metadata"]["source"] == "telegram_butler_fallback_completion"
+    assert latest["metadata"]["run_id"] == run_id
+
+
 def test_butler_fallback_explains_source_collect_auth_failure(
     worker_client: TestClient,
     worker_services: tuple[WorkerRegistryService, WorkerSchedulerService],
@@ -998,6 +1060,15 @@ def test_butler_fallback_describes_source_collect_content_kb_completion(
                     "repo": "knowledge-base/knowledge-base",
                     "directory": "knowledge-base/ai-status-and-outlook",
                     "files_written": ["knowledge-base/ai-status-and-outlook/normalized_subtitle.txt"],
+                    "source_collect_answer": "有，发现新增 2 条 X 书签。\nYes, found 2 new X bookmark(s).",
+                    "source_collect_item_count": 50,
+                    "source_collect_new_item_count": 2,
+                    "source_collect_known_item_count": 48,
+                    "source_collect_previous_run_id": "run_source_collect_previous",
+                    "source_collect_new_source_urls": [
+                        "https://twitter.com/alice/status/222",
+                        "https://twitter.com/bob/status/333",
+                    ],
                 },
                 "metrics": {"files_written": 1, "indexes_built": 3},
             },
@@ -1006,9 +1077,14 @@ def test_butler_fallback_describes_source_collect_content_kb_completion(
         assert len(notifier.edits) == 1
         text = str(notifier.edits[0]["text"])
         assert notifier.edits[0]["parse_mode"] == "MarkdownV2"
-        assert "知识库入库" in text
-        assert "Completed knowledge\\-base ingestion" in text
-        assert "knowledge\\-base/knowledge\\-base" in text
+        assert "X 书签：采集结果已同步到知识库" in text
+        assert "X bookmarks: collection synced to the knowledge base" in text
+        assert "回答 / Answer" in text
+        assert "新增 2 条 X 书签" in text
+        assert "统计 / Stats：采集 50；新增 2；已知 48" in text
+        assert "run\\_source\\_collect\\_previous" not in text
+        assert "twitter\\.com/alice/status/222" in text
+        assert "知识库 / KB：knowledge\\-base/knowledge\\-base · ai\\-status\\-and\\-outlook" in text
         assert "normalized\\_subtitle\\.txt" in text
         assert "worker 未能直接送达" not in text
         assert "管家兜底" not in text
@@ -1018,6 +1094,28 @@ def test_butler_fallback_describes_source_collect_content_kb_completion(
         assert stored.metadata.get("telegram_butler_fallback_reason") == "missing_status"
     finally:
         app.dependency_overrides.pop(get_telegram_notifier_service, None)
+
+
+def test_source_collect_new_item_details_are_compact() -> None:
+    from autoresearch.api.routers.workers import _display_new_item_details
+
+    lines = _display_new_item_details(
+        [
+            {
+                "title": "X bookmark by @alice",
+                "author": "Alice",
+                "url": "https://twitter.com/alice/status/222",
+                "text": "A" * 260,
+            }
+        ]
+    )
+
+    text = "\n".join(lines)
+    assert "内容 / Text" not in text
+    assert "摘要 / Summary" not in text
+    assert "Alice：" in text
+    assert "https://twitter.com/alice/status/222" in text
+    assert len(text) < 260
 
 
 def test_butler_primary_edits_ack_when_worker_delegates_card(

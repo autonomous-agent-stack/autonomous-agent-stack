@@ -90,6 +90,28 @@ class TestButlerIntentClassification:
             assert canonical == ButlerCanonicalTaskType.SOURCE_COLLECT, phrase
             assert worker_task_type_for_canonical(canonical) == "source_collect"
 
+    def test_contextual_followup_routes_by_followup_not_previous_result(self) -> None:
+        router = ButlerIntentRouter()
+        prompt = (
+            "请结合上文回答用户追问，不要把追问当成全新的独立任务。\n"
+            "上文 / Previous result:\n"
+            "回答 / Answer：有，发现新增 4 条 X 书签。\n\n"
+            "追问 / Follow-up:\n整理到GitHub了么"
+        )
+        result = router.classify(prompt)
+        assert result.task_type == ButlerTaskType.UNKNOWN
+
+    def test_contextual_bookmark_detail_followup_still_routes_to_bookmarks(self) -> None:
+        router = ButlerIntentRouter()
+        prompt = (
+            "请结合上文回答用户追问，不要把追问当成全新的独立任务。\n"
+            "上文 / Previous result:\n"
+            "回答 / Answer：有，发现新增 1 条 X 书签。\n\n"
+            "追问 / Follow-up:\n新增的x书签详情是什么"
+        )
+        result = router.classify(prompt)
+        assert result.task_type == ButlerTaskType.BOOKMARK
+
     def test_unknown_returns_default(self) -> None:
         router = ButlerIntentRouter()
         result = router.classify("今天天气怎么样")

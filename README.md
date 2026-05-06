@@ -136,6 +136,8 @@ Control Plane v2 is the new production core path:
   `POST /api/v2/butler/tasks`: Butler natural-language task entrypoint; selects capability, risk tags, and priority before handing off to the v2 control plane.
 - Telegram 管家任务卡片使用 MarkdownV2 展示入队、运行中、完成与取消状态，并标明负责 agent 与参与 agents。
   Telegram Butler task cards use MarkdownV2 for queued, running, completed, and cancellation states, and show the primary agent plus participating agents.
+- Telegram 上下文追问使用原始追问做路由和任务标题，`/status` 只展示会话、worker 和最近任务摘要，避免泄露执行噪声。
+  Telegram contextual follow-ups use the original follow-up for routing and task titles, while `/status` only shows session, worker, and recent-task summaries to avoid execution noise.
 - `scripts/butlerctl` 与 `make butler-*` / `make agent-*` 提供本机一键启停和 Butler agent 热拔插。
   `scripts/butlerctl` plus `make butler-*` / `make agent-*` provide local one-command service control and Butler agent hot-plugging.
 - `POST /api/v2/tasks`: create a governed task
@@ -149,6 +151,9 @@ Control Plane v2 is the new production core path:
 The v2 path uses the existing worker claim/report/lease scheduler as the
 execution backbone. A2A, MCP, and future ADK integrations are modeled as
 capability adapters and remain disabled until explicitly configured.
+
+联邦就绪 v1 已加入 CrewAI-compatible agent adapter、受控 MCP 调用、用户/peer 配额账本、静态 peer 注册、agent/worker 租约和联邦任务 API。详见 [docs/federation-ready-v1.md](docs/federation-ready-v1.md)。
+Federation-ready v1 now includes the CrewAI-compatible agent adapter, governed MCP calls, user/peer quota ledger, static peer registry, agent/worker leases, and federation task APIs. See [docs/federation-ready-v1.md](docs/federation-ready-v1.md).
 
 Legacy governance MVP endpoints remain during the migration window:
 

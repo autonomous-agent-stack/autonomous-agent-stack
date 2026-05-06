@@ -1,0 +1,62 @@
+version: 1
+connectors:
+  github:
+    type: tool
+    stability: experimental
+    secret_scope: connector:github
+  google_drive:
+    type: data
+    stability: experimental
+    secret_scope: connector:google_drive
+  gmail:
+    type: messaging
+    stability: experimental
+    secret_scope: connector:gmail
+  google_calendar:
+    type: data
+    stability: experimental
+    secret_scope: connector:google_calendar
+  notion:
+    type: data
+    stability: experimental
+    secret_scope: connector:notion
+  slack:
+    type: messaging
+    stability: experimental
+    secret_scope: connector:slack
+  feishu:
+    type: messaging
+    stability: experimental
+    secret_scope: connector:feishu
+  telegram:
+    type: messaging
+    stability: experimental
+    secret_scope: connector:telegram
+  whatsapp:
+    type: messaging
+    stability: experimental
+    secret_scope: connector:whatsapp
+  erp:
+    type: workflow
+    stability: experimental
+    secret_scope: connector:erp
+  crm:
+    type: workflow
+    stability: experimental
+    secret_scope: connector:crm
+  excel:
+    type: tool
+    stability: beta
+    secret_scope: connector:excel
+  obsidian:
+    type: data
+    stability: experimental
+    secret_scope: connector:obsidian
+  webdav:
+    type: data
+    stability: experimental
+    secret_scope: connector:webdav
+  s3_minio:
+    type: data
+    stability: experimental
+    secret_scope: connector:s3_minio

@@ -1,0 +1,51 @@
+# MCP server 注册表 v1：外部 server 默认关闭，本地 demo 用于 smoke 与集成测试。
+# MCP server registry v1: external servers are disabled by default; local demo supports smoke and integration tests.
+servers:
+  - server_id: local_demo
+    display_name: "本地 MCP 演示 / Local MCP demo"
+    transport: local
+    endpoint: null
+    enabled: true
+    auth_env: null
+    tool_allowlist: []
+    tools:
+      - tool_id: local_demo.echo
+        name: echo
+        description: "回显输入参数，用于治理链路 smoke。 / Echoes input params for governed smoke tests."
+        tier: common_read
+        enabled: true
+        input_schema:
+          type: object
+          additionalProperties: true
+      - tool_id: local_demo.sensitive_lookup
+        name: sensitive_lookup
+        description: "模拟敏感读取，默认需要审批。 / Simulates a sensitive read that requires approval."
+        tier: sensitive_read
+        enabled: true
+        input_schema:
+          type: object
+          additionalProperties: true
+      - tool_id: local_demo.external_write
+        name: external_write
+        description: "模拟外部写入，默认需要审批。 / Simulates an external write that requires approval."
+        tier: external_write
+        enabled: true
+        input_schema:
+          type: object
+          additionalProperties: true
+      - tool_id: local_demo.destructive_delete
+        name: destructive_delete
+        description: "模拟破坏性操作，默认阻断。 / Simulates a destructive action that is blocked by default."
+        tier: destructive
+        enabled: true
+        input_schema:
+          type: object
+          additionalProperties: true
+  - server_id: public_example
+    display_name: "公共 MCP 示例（默认关闭） / Public MCP example (disabled by default)"
+    transport: http
+    endpoint: ""
+    enabled: false
+    auth_env: PUBLIC_EXAMPLE_MCP_TOKEN
+    tool_allowlist: []
+    tools: []

@@ -463,17 +463,42 @@ class AgentExecutionRunner:
         return any(check.id in blocked_checks and not check.passed for check in validation.checks)
 
     def _snapshot_repo_to_baseline(self, baseline_dir: Path) -> None:
-        ignore = shutil.ignore_patterns(
+        shutil.copytree(
+            self._repo_root,
+            baseline_dir,
+            dirs_exist_ok=True,
+            ignore=self._snapshot_ignore,
+        )
+
+    def _snapshot_ignore(self, directory: str, names: list[str]) -> set[str]:
+        ignored_names = {
             ".git",
             ".venv",
-            "node_modules",
+            ".claude",
+            ".mypy_cache",
             ".pytest_cache",
             ".ruff_cache",
-            "panel/out",
-            "dashboard/.next",
+            ".uv-cache",
+            "__pycache__",
+            "build",
+            "dist",
+            "node_modules",
             ".masfactory_runtime",
-        )
-        shutil.copytree(self._repo_root, baseline_dir, dirs_exist_ok=True, ignore=ignore)
+        }
+        ignored_paths = {"panel/out", "dashboard/.next"}
+        try:
+            rel_dir = Path(directory).resolve().relative_to(self._repo_root)
+        except ValueError:
+            rel_dir = Path(".")
+
+        ignored: set[str] = set()
+        for name in names:
+            rel_path = (rel_dir / name).as_posix() if rel_dir.as_posix() != "." else name
+            if name.startswith(".") and name != ".github":
+                ignored.add(name)
+            elif name in ignored_names or rel_path in ignored_paths:
+                ignored.add(name)
+        return ignored
 
     def _snapshot_baseline_to_workspace(self, baseline_dir: Path, workspace_dir: Path) -> None:
         if workspace_dir.exists():
@@ -671,6 +696,9 @@ class AgentExecutionRunner:
 
         stdout_log = artifacts_dir / "stdout.log"
         stderr_log = artifacts_dir / "stderr.log"
+        adapter_command = [str(entrypoint)]
+        if entrypoint.suffix == ".py":
+            adapter_command = [sys.executable, str(entrypoint)]
 
         started = time.perf_counter()
         completed: subprocess.CompletedProcess[str] | None = None
@@ -702,7 +730,7 @@ class AgentExecutionRunner:
             stderr_handle.flush()
 
             process = subprocess.Popen(
-                [str(entrypoint)],
+                adapter_command,
                 cwd=self._repo_root,
                 env=env,
                 stdout=stdout_handle,
@@ -722,7 +750,7 @@ class AgentExecutionRunner:
                 duration_ms = int((now - started) * 1000)
                 if returncode is not None:
                     completed = subprocess.CompletedProcess(
-                        args=[str(entrypoint)],
+                        args=adapter_command,
                         returncode=returncode,
                         stdout="",
                         stderr="",

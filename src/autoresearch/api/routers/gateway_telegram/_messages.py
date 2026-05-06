@@ -278,63 +278,171 @@ def _build_status_summary_lines(
     workers: list[Any],
     worker_inventory,
 ) -> list[str]:
-    descriptors = capability_registry.list_descriptors()
-    skill_provider_count = len([item for item in descriptors if item.domain == CapabilityDomain.SKILL])
     runtime_display = runtime_identity["runtime_display"]
-    runtime_host = runtime_identity["runtime_host"]
-    runtime_platform = runtime_identity["runtime_platform"]
     if session is None:
         lines = [
-            f"chat_id: {chat_id}",
-            f"runtime: {runtime_display}",
-            f"runtime_host: {runtime_host}",
-            f"runtime_platform: {runtime_platform}",
-            f"scope: {session_identity.scope.value}",
-            f"session_key: {session_identity.session_key}",
-            f"providers: {len(descriptors)}",
-            f"skill_providers: {skill_provider_count}",
-            "当前没有历史会话。",
-            "发送任务文本后系统会自动创建会话并执行。",
+            "会话 / Session：暂无历史会话 / no history yet",
+            f"范围 / Scope：{session_identity.scope.value}",
+            f"运行 / Runtime：{runtime_display}",
         ]
-        _append_worker_summary_lines(lines, workers)
         _append_worker_inventory_lines(lines, worker_inventory)
         return lines
 
     runtime_display = str(session.metadata.get("runtime_display") or runtime_display)
-    runtime_host = str(session.metadata.get("runtime_host") or runtime_host)
-    runtime_platform = str(session.metadata.get("runtime_platform") or runtime_platform)
+    effective_session_status = _effective_session_status(
+        session=session,
+        runs=runs,
+        worker_inventory=worker_inventory,
+        session_key=session.session_key or session_identity.session_key,
+    )
+    active_worker_runs = sum(int(getattr(worker, "active_tasks", 0) or 0) for worker in getattr(worker_inventory, "workers", []) or [])
+    active_runs = sum(1 for run in runs if run.status.value in {"queued", "running"}) + active_worker_runs
     lines = [
-        f"chat_id: {chat_id}",
-        f"runtime: {runtime_display}",
-        f"runtime_host: {runtime_host}",
-        f"runtime_platform: {runtime_platform}",
-        f"scope: {session.scope.value}",
-        f"session_key: {session.session_key or session_identity.session_key}",
-        f"session: {session.session_id}",
-        f"session_status: {session.status.value}",
-        f"active_runs: {sum(1 for run in runs if run.status.value in {'queued', 'running'})}",
-        f"providers: {len(descriptors)}",
-        f"skill_providers: {skill_provider_count}",
+        f"会话 / Session：{_status_text(effective_session_status)}；运行中 {active_runs} 个 / active {active_runs}",
+        f"范围 / Scope：{session.scope.value}",
+        f"运行 / Runtime：{runtime_display}",
     ]
     previous_runtime = str(session.metadata.get("runtime_previous_display") or "").strip()
     switched_at = str(session.metadata.get("runtime_switched_at") or "").strip()
     if previous_runtime and switched_at:
-        lines.append(f"runtime_switched: {previous_runtime} -> {runtime_display} @ {switched_at}")
-    if memory_bundle is not None:
-        lines.append(f"personal_memories: {len(memory_bundle.personal_memories)}")
-        lines.append(f"shared_memories: {len(memory_bundle.shared_memories)}")
-    if session.actor is not None:
-        lines.append(f"actor_role: {session.actor.role.value}")
-    _append_worker_summary_lines(lines, workers)
+        lines.append(f"切换 / Switched：{previous_runtime} -> {runtime_display}")
     _append_worker_inventory_lines(lines, worker_inventory)
-    if not runs:
-        lines.append("最近任务: 暂无")
+    worker_recent = _worker_recent_task_lines(
+        worker_inventory,
+        session_key=session.session_key or session_identity.session_key,
+    )
+    worker_latest_at = _worker_latest_updated_at(
+        worker_inventory,
+        session_key=session.session_key or session_identity.session_key,
+    )
+    agent_recent = [
+        f"- {_status_text(run.status.value)} · {_truncate_inline(str(run.task_name or '未命名任务'), limit=52)}"
+        for run in runs
+        if not _agent_run_shadowed_by_worker_success(run, worker_latest_at)
+    ]
+    recent_lines = (worker_recent + agent_recent)[:5]
+    if not recent_lines:
+        lines.append("最近任务 / Recent：暂无 / none")
         return lines
 
-    lines.append("最近任务:")
-    for run in runs[:3]:
-        lines.append(f"- {run.agent_run_id} | {run.status.value} | {run.task_name}")
+    lines.append("最近任务 / Recent:")
+    lines.extend(recent_lines)
     return lines
+
+
+def _effective_session_status(
+    *,
+    session: OpenClawSessionRead,
+    runs: list[Any],
+    worker_inventory,
+    session_key: str,
+) -> str:
+    latest = _worker_latest_summary(worker_inventory, session_key=session_key)
+    if latest is None:
+        return session.status.value
+    worker_updated_at = getattr(latest, "updated_at", None)
+    agent_updated_at = _latest_agent_updated_at(runs)
+    if _datetime_lt(worker_updated_at, agent_updated_at):
+        return session.status.value
+    status = getattr(getattr(latest, "status", None), "value", getattr(latest, "status", ""))
+    if status == JobStatus.COMPLETED.value:
+        return "succeeded"
+    if status in {JobStatus.QUEUED.value, JobStatus.RUNNING.value}:
+        return "running"
+    if status == JobStatus.CANCELLED.value:
+        return "cancelled"
+    if status == JobStatus.FAILED.value:
+        return "failed"
+    return session.status.value
+
+
+def _worker_recent_task_lines(worker_inventory, *, session_key: str) -> list[str]:
+    summaries = _worker_latest_summaries(worker_inventory, session_key=session_key)
+    lines: list[str] = []
+    for _worker_id, latest in summaries[:3]:
+        status = getattr(getattr(latest, "status", None), "value", getattr(latest, "status", "unknown"))
+        suffix = _worker_delivery_suffix(latest)
+        lines.append(f"- {_status_text(status)} · {_compact_task_name(latest)}{suffix}")
+    return lines
+
+
+def _worker_latest_updated_at(worker_inventory, *, session_key: str):
+    latest = _worker_latest_summary(worker_inventory, session_key=session_key)
+    return getattr(latest, "updated_at", None) if latest is not None else None
+
+
+def _worker_latest_summary(worker_inventory, *, session_key: str):
+    summaries = _worker_latest_summaries(worker_inventory, session_key=session_key)
+    return summaries[0][1] if summaries else None
+
+
+def _worker_latest_summaries(worker_inventory, *, session_key: str) -> list[tuple[str, Any]]:
+    workers = list(getattr(worker_inventory, "workers", []) or [])
+    summaries: list[tuple[str, Any]] = []
+    for worker in workers:
+        latest = getattr(worker, "latest_task_summary", None)
+        if latest is None:
+            continue
+        metadata = getattr(latest, "metadata", {}) or {}
+        latest_session_key = str(metadata.get("session_key") or "").strip()
+        if latest_session_key and latest_session_key != session_key:
+            continue
+        summaries.append((str(getattr(worker, "worker_id", "worker")), latest))
+    return sorted(
+        summaries,
+        key=lambda item: (_datetime_sort_key(getattr(item[1], "updated_at", None)), item[1].run_id),
+        reverse=True,
+    )
+
+
+def _agent_run_shadowed_by_worker_success(run: Any, worker_latest_at: Any) -> bool:
+    if worker_latest_at is None:
+        return False
+    status = getattr(getattr(run, "status", None), "value", getattr(run, "status", ""))
+    if status != "failed":
+        return False
+    task_name = str(getattr(run, "task_name", "") or "").strip().lower()
+    if "hermes recovery" not in task_name and task_name != "telegram_hermes":
+        return False
+    return _datetime_lte(getattr(run, "updated_at", None), worker_latest_at)
+
+
+def _latest_agent_updated_at(runs: list[Any]):
+    values = [getattr(run, "updated_at", None) for run in runs if getattr(run, "updated_at", None) is not None]
+    if not values:
+        return None
+    return max(values)
+
+
+def _datetime_lt(left: Any, right: Any) -> bool:
+    if left is None or right is None:
+        return False
+    try:
+        return left < right
+    except TypeError:
+        if isinstance(left, datetime) and isinstance(right, datetime):
+            return left.replace(tzinfo=None) < right.replace(tzinfo=None)
+        return False
+
+
+def _datetime_lte(left: Any, right: Any) -> bool:
+    if left is None or right is None:
+        return False
+    try:
+        return left <= right
+    except TypeError:
+        if isinstance(left, datetime) and isinstance(right, datetime):
+            return left.replace(tzinfo=None) <= right.replace(tzinfo=None)
+        return False
+
+
+def _datetime_sort_key(value: Any) -> float:
+    if isinstance(value, datetime):
+        normalized = value
+        if value.tzinfo is None:
+            normalized = value.replace(tzinfo=timezone.utc)
+        return normalized.timestamp()
+    return 0.0
 
 
 def _append_worker_summary_lines(lines: list[str], workers: list[Any]) -> None:
@@ -359,12 +467,13 @@ def _append_worker_inventory_lines(lines: list[str], inventory) -> None:
     workers = list(getattr(inventory, "workers", []) or [])
     if summary is None:
         return
-    lines.extend(
-        [
-            "当前 Worker 概况",
-            f"- 共 {summary.total_workers} 个 worker",
-            f"- 在线 {summary.online_workers} 个，忙碌 {summary.busy_workers} 个，异常 {summary.degraded_workers} 个，离线 {summary.offline_workers} 个",
-        ]
+    lines.append(
+        "Worker："
+        f"{summary.online_workers} 在线，{summary.busy_workers} 忙碌，"
+        f"{summary.degraded_workers} 异常，{summary.offline_workers} 离线"
+        " / "
+        f"{summary.online_workers} online, {summary.busy_workers} busy, "
+        f"{summary.degraded_workers} degraded, {summary.offline_workers} offline"
     )
     nonactive_agents = []
     summary_metadata = getattr(summary, "metadata", {}) or {}
@@ -373,7 +482,7 @@ def _append_worker_inventory_lines(lines: list[str], inventory) -> None:
         if isinstance(raw_nonactive, list):
             nonactive_agents = [item for item in raw_nonactive if isinstance(item, dict)]
     if nonactive_agents:
-        lines.append("暂停中的 agents")
+        lines.append("暂停 agents / Paused agents:")
         for agent in nonactive_agents[:8]:
             name = str(agent.get("agent_name") or "").strip() or "unknown"
             state = str(agent.get("status") or "").strip() or "unknown"
@@ -381,23 +490,71 @@ def _append_worker_inventory_lines(lines: list[str], inventory) -> None:
             suffix = f"，原因 {reason}" if reason else ""
             lines.append(f"- {name}：{state}{suffix}")
     if not workers:
-        lines.append("- 当前没有已注册 worker")
+        lines.append("- 当前没有已注册 worker / no registered workers")
         return
-    lines.append("Worker 列表")
-    for worker in workers[:4]:
-        latest = worker.latest_task_summary
-        last_task = latest.task_name if latest is not None else "当前空闲"
+    notable = [
+        worker
+        for worker in workers
+        if worker.display_status != "online" or int(getattr(worker, "active_tasks", 0) or 0) > 0
+    ]
+    for worker in notable[:3]:
         lines.append(
-            f"- {worker.worker_id}：{worker.display_status}，队列 {worker.queue_depth}，活跃任务 {worker.active_tasks}，最近任务 {last_task}"
+            f"- {worker.worker_id}：{worker.display_status}，队列 {worker.queue_depth}，活跃 {worker.active_tasks}"
         )
-        if latest is None:
-            continue
-        runtime_hint = _status_diag_value(latest, ("dispatch_runtime", "runtime_id"), default="unknown")
-        phase_hint = _status_diag_value(latest, ("telegram_live_phase", "status"), default=latest.status.value)
-        exit_hint = _status_diag_value(latest, ("exit_reason", "error_kind"), default="n/a")
-        lines.append(
-            f"  诊断: runtime={runtime_hint}, phase={phase_hint}, exit={exit_hint}"
-        )
+
+
+def _compact_task_name(latest: Any) -> str:
+    metadata = latest.metadata if isinstance(getattr(latest, "metadata", None), dict) else {}
+    for key in ("display_task_name", "telegram_original_text"):
+        text = " ".join(str(metadata.get(key) or "").split())
+        if text:
+            return _truncate_inline(text, limit=52)
+    text = " ".join(str(getattr(latest, "task_name", "") or "").split())
+    marker = "追问 / Follow-up:"
+    index = text.rfind(marker)
+    if index >= 0:
+        followup = " ".join(text[index + len(marker) :].split())
+        if followup:
+            text = followup
+    return _truncate_inline(text or "未命名任务", limit=52)
+
+
+def _worker_delivery_suffix(latest: Any) -> str:
+    status = getattr(getattr(latest, "status", None), "value", getattr(latest, "status", ""))
+    if status != JobStatus.COMPLETED.value:
+        return ""
+    metadata = latest.metadata if isinstance(getattr(latest, "metadata", None), dict) else {}
+    metrics = latest.metrics if isinstance(getattr(latest, "metrics", None), dict) else {}
+    notify_state = str(metrics.get("telegram_notify_status") or "").strip().lower()
+    if metadata.get("telegram_butler_primary_sent") or metadata.get("telegram_butler_fallback_sent"):
+        return ""
+    if notify_state in {"sent", "edited", "delivered"}:
+        return ""
+    if notify_state == "deferred":
+        return "（等待下游结果 / waiting for downstream result）"
+    return "（结果投递未确认 / delivery unconfirmed）"
+
+
+def _status_text(status: str) -> str:
+    normalized = str(status or "").strip().lower()
+    return {
+        "queued": "已入队",
+        "running": "运行中",
+        "completed": "已完成",
+        "succeeded": "已完成",
+        "failed": "失败",
+        "interrupted": "中断",
+        "cancelled": "已取消",
+        "canceled": "已取消",
+        "cancel_requested": "取消中",
+    }.get(normalized, normalized or "未知")
+
+
+def _truncate_inline(text: str, *, limit: int) -> str:
+    normalized = " ".join(str(text or "").split())
+    if len(normalized) <= limit:
+        return normalized
+    return normalized[: max(1, limit - 1)].rstrip() + "…"
 
 
 def _status_diag_value(

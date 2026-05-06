@@ -989,8 +989,8 @@ def test_notify_telegram_skips_worker_http_when_delegated_to_api(
     assert outcome.result.get("telegram_completion_card_parse_mode") == "MarkdownV2"
     card = str(outcome.result.get("telegram_completion_card_text"))
     assert "worker stdout" in card
-    assert "诊断" in card
-    assert "runtime\\=claude" in card
+    assert "诊断" not in card
+    assert "runtime\\=claude" not in card
 
 
 def test_notify_telegram_does_not_build_terminal_card_for_running_pause(

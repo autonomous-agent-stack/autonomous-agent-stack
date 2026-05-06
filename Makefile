@@ -43,12 +43,19 @@ PROMOTE_BASE_REF ?= main
 PROMOTE_BRANCH_PREFIX ?= codex/auto-upgrade
 PROMOTE_PUSH ?= 0
 PROMOTE_OPEN_DRAFT_PR ?= 0
+CREWAI_AGENT ?= aas_crewai_demo
+CREWAI_TASK ?= Produce a governed CrewAI demo artifact.
+AGENT ?= $(CREWAI_AGENT)
+TASK ?= $(CREWAI_TASK)
+FEDERATION_PEER ?= demo-peer
+FEDERATION_CAPABILITY ?= echo
 
 .PHONY: help setup doctor doctor-linux start test-quick smoke-local smoke-cpv2 validate-req4 clean
 .PHONY: ai-lab ai-lab-setup ai-lab-check ai-lab-up ai-lab-down ai-lab-status ai-lab-shell ai-lab-run masfactory-flight hygiene-check openhands openhands-dry-run openhands-controlled openhands-controlled-dry-run openhands-demo agent-run promote-run
 .PHONY: review-setup review-gates-local assistant-doctor assistant-triage assistant-execute assistant-review-pr assistant-release-plan assistant-schedule
 .PHONY: telegram-butler-start telegram-butler-status telegram-butler-stop telegram-ingress-audit
 .PHONY: butler-start butler-stop butler-restart butler-status agent-list agent-start agent-stop agent-drain agent-restart agent-status
+.PHONY: crewai-setup crewai-new crewai-run crewai-demo mcp-doctor quota-doctor federation-doctor federation-demo bypass-ga ga-release-gate
 
 help:
 	@echo "Autonomous Agent Stack - common commands"
@@ -75,6 +82,15 @@ help:
 	@echo "  make openhands-controlled-dry-run Preview controlled backend chain with dry-run OpenHands"
 	@echo "  make openhands-demo OH_BACKEND=mock Run minimal closed-loop demo (contract + failure policy)"
 	@echo "  make agent-run AEP_AGENT=openhands AEP_TASK='...' Run AEP v0 runner entrypoint"
+	@echo "  make crewai-demo Run the governed CrewAI-compatible demo agent"
+	@echo "  make crewai-new AGENT='...' Scaffold a CrewAI-compatible AAS agent"
+	@echo "  make crewai-run AGENT='...' TASK='...' Run a CrewAI-compatible AAS agent"
+	@echo "  make mcp-doctor Validate governed MCP registry and policy"
+	@echo "  make quota-doctor Validate usage quota policy and ledger"
+	@echo "  make federation-doctor Validate federation peer and lease config"
+	@echo "  make federation-demo Run a local bilateral federation lease/task demo"
+	@echo "  make bypass-ga Run Evergreen OS GA bypass security checks"
+	@echo "  make ga-release-gate Run Evergreen OS GA blocking release gate"
 	@echo "  make promote-run PROMOTE_RUN_ID='...' Turn a ready AEP run into branch/commit/draft PR payload"
 	@echo "  make assistant-doctor Validate GitHub assistant template setup"
 	@echo "  make assistant-triage REPO='owner/repo' ISSUE=123 Triage a managed issue"
@@ -143,6 +159,76 @@ test-quick:
 	fi
 	PYTHONPATH=src $(VENV_PYTHON) tests/test_workflow_quick.py
 	PYTHONPATH=src $(VENV_PYTHON) scripts/test_registry_simple.py
+
+crewai-setup:
+	@if [[ ! -x "$(VENV_PIP)" ]]; then \
+		echo "Missing $(VENV_PIP). Run 'make setup' first."; \
+		exit 1; \
+	fi
+	$(VENV_PIP) install "crewai>=0.100"
+
+crewai-new:
+	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \
+		echo "Missing $(VENV_PYTHON). Run 'make setup' first."; \
+		exit 1; \
+	fi
+	PYTHONPATH=src $(VENV_PYTHON) scripts/crewai_scaffold.py $(AGENT)
+
+crewai-run:
+	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \
+		echo "Missing $(VENV_PYTHON). Run 'make setup' first."; \
+		exit 1; \
+	fi
+	PYTHONPATH=src $(VENV_PYTHON) scripts/agent_run.py --agent $(AGENT) --task "$(TASK)" --no-human-review
+
+crewai-demo:
+	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \
+		echo "Missing $(VENV_PYTHON). Run 'make setup' first."; \
+		exit 1; \
+	fi
+	PYTHONPATH=src $(VENV_PYTHON) scripts/crewai_demo_smoke.py --task "$(CREWAI_TASK)"
+
+mcp-doctor:
+	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \
+		echo "Missing $(VENV_PYTHON). Run 'make setup' first."; \
+		exit 1; \
+	fi
+	PYTHONPATH=src $(VENV_PYTHON) scripts/federation_ready_smoke.py mcp-doctor
+
+quota-doctor:
+	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \
+		echo "Missing $(VENV_PYTHON). Run 'make setup' first."; \
+		exit 1; \
+	fi
+	PYTHONPATH=src $(VENV_PYTHON) scripts/federation_ready_smoke.py quota-doctor
+
+federation-doctor:
+	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \
+		echo "Missing $(VENV_PYTHON). Run 'make setup' first."; \
+		exit 1; \
+	fi
+	PYTHONPATH=src $(VENV_PYTHON) scripts/federation_ready_smoke.py federation-doctor
+
+federation-demo:
+	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \
+		echo "Missing $(VENV_PYTHON). Run 'make setup' first."; \
+		exit 1; \
+	fi
+	PYTHONPATH=src $(VENV_PYTHON) scripts/federation_ready_smoke.py federation-demo --peer-id $(FEDERATION_PEER) --capability-id $(FEDERATION_CAPABILITY)
+
+bypass-ga:
+	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \
+		echo "Missing $(VENV_PYTHON). Run 'make setup' first."; \
+		exit 1; \
+	fi
+	PYTHONPATH=src $(VENV_PYTHON) scripts/bypass_ga.py
+
+ga-release-gate:
+	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \
+		echo "Missing $(VENV_PYTHON). Run 'make setup' first."; \
+		exit 1; \
+	fi
+	PYTHONPATH=src $(VENV_PYTHON) scripts/ga_release_gate.py
 
 smoke-local:
 	@if [[ ! -x "$(VENV_PYTHON)" ]]; then \

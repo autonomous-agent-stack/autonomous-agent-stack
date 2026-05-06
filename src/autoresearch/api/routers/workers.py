@@ -9,6 +9,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, status
 
 from autoresearch.api.dependencies import (
     get_control_plane_service,
+    get_openclaw_compat_service,
     get_telegram_notifier_service,
     get_telegram_settings,
     get_worker_inventory_service,
@@ -26,6 +27,7 @@ from autoresearch.core.services.telegram_completion_format import (
     resolve_telegram_agent_attribution,
 )
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
+from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.worker_inventory import WorkerInventoryService
 from autoresearch.core.services.worker_scheduler import (
     WorkerClaimError,
@@ -44,6 +46,7 @@ from autoresearch.shared.models import (
     WorkerQueueItemRead,
     WorkerRegisterRequest,
     WorkerRegistrationRead,
+    OpenClawSessionEventAppendRequest,
     WorkerRunReportRequest,
 )
 
@@ -135,6 +138,7 @@ def report_worker_run(
     control_plane_service: ControlPlaneService = Depends(get_control_plane_service),
     telegram_settings: TelegramSettings = Depends(get_telegram_settings),
     notifier: TelegramNotifierService = Depends(get_telegram_notifier_service),
+    openclaw_service: OpenClawCompatService = Depends(get_openclaw_compat_service),
 ) -> WorkerQueueItemRead:
     try:
         stored = service.report(worker_id, run_id, payload)
@@ -155,6 +159,7 @@ def report_worker_run(
                     stored,
                     notifier=notifier,
                     scheduler=service,
+                    openclaw_service=openclaw_service,
                 )
             except Exception:
                 logger.exception("butler primary completion raised for run=%s", stored.run_id)
@@ -170,6 +175,7 @@ def report_worker_run(
                     notifier=notifier,
                     settings=telegram_settings,
                     scheduler=service,
+                    openclaw_service=openclaw_service,
                 )
             except Exception:
                 # Fallback is a best-effort safety net; never let it break /report.
@@ -188,6 +194,7 @@ def report_worker_run(
                         notifier=notifier,
                         settings=telegram_settings,
                         scheduler=service,
+                        openclaw_service=openclaw_service,
                     )
                 except Exception:
                     logger.exception("xreach auth recovery card raised for run=%s", stored.run_id)
@@ -218,6 +225,7 @@ def _maybe_send_xreach_auth_recovery_card(
     notifier: TelegramNotifierService,
     settings: TelegramSettings,
     scheduler: WorkerSchedulerService,
+    openclaw_service: OpenClawCompatService | None = None,
 ) -> None:
     if not notifier.enabled:
         return
@@ -247,6 +255,12 @@ def _maybe_send_xreach_auth_recovery_card(
         reply_markup=_xreach_auth_recovery_reply_markup(run.run_id),
     )
     if delivered:
+        _append_telegram_assistant_context(
+            run=run,
+            text=text,
+            openclaw_service=openclaw_service,
+            source="telegram_xreach_auth_recovery",
+        )
         scheduler.merge_queue_metadata(
             run.run_id,
             {
@@ -401,6 +415,7 @@ def _try_deliver_butler_completion_primary(
     *,
     notifier: TelegramNotifierService,
     scheduler: WorkerSchedulerService,
+    openclaw_service: OpenClawCompatService | None = None,
 ) -> None:
     """Edit the queue-ack bubble via the API bot when the worker delegated the card (Hermes path)."""
     if not notifier.enabled:
@@ -454,6 +469,12 @@ def _try_deliver_butler_completion_primary(
             parse_mode=parse_mode,
         )
     if delivered:
+        _append_telegram_assistant_context(
+            run=run,
+            text=text,
+            openclaw_service=openclaw_service,
+            source="telegram_butler_primary_completion",
+        )
         try:
             scheduler.merge_queue_metadata(
                 run.run_id,
@@ -473,6 +494,7 @@ def _maybe_send_butler_completion_fallback(
     notifier: TelegramNotifierService,
     settings: TelegramSettings,
     scheduler: WorkerSchedulerService,
+    openclaw_service: OpenClawCompatService | None = None,
 ) -> None:
     """Send a brief brand-prefixed summary if the worker did not deliver the bubble itself.
 
@@ -539,6 +561,12 @@ def _maybe_send_butler_completion_fallback(
         )
 
     if delivered:
+        _append_telegram_assistant_context(
+            run=run,
+            text=text,
+            openclaw_service=openclaw_service,
+            source="telegram_butler_fallback_completion",
+        )
         try:
             scheduler.merge_queue_metadata(
                 run.run_id,
@@ -553,6 +581,43 @@ def _maybe_send_butler_completion_fallback(
                 run.run_id,
                 exc_info=True,
             )
+
+
+def _append_telegram_assistant_context(
+    *,
+    run: WorkerQueueItemRead,
+    text: str,
+    openclaw_service: OpenClawCompatService | None,
+    source: str,
+) -> None:
+    if openclaw_service is None:
+        return
+    metadata = run.metadata if isinstance(run.metadata, dict) else {}
+    payload = run.payload if isinstance(run.payload, dict) else {}
+    session_id = str(
+        metadata.get("control_plane_session_id")
+        or metadata.get("session_id")
+        or payload.get("session_id")
+        or ""
+    ).strip()
+    if not session_id:
+        return
+    try:
+        openclaw_service.append_event(
+            session_id=session_id,
+            request=OpenClawSessionEventAppendRequest(
+                role="assistant",
+                content=text[:3900],
+                metadata={
+                    "source": source,
+                    "run_id": run.run_id,
+                    "task_type": str(getattr(run.task_type, "value", run.task_type)),
+                    "status": run.status.value,
+                },
+            ),
+        )
+    except Exception:
+        logger.warning("failed to append Telegram assistant context for run=%s", run.run_id, exc_info=True)
 
 
 def _compose_butler_fallback_text(
@@ -637,24 +702,64 @@ def _content_kb_downstream_completion_body(
     if run.status != JobStatus.COMPLETED:
         return ""
 
-    lines = [
-        "已完成 X 书签采集后的知识库入库。",
-        "Completed knowledge-base ingestion after X bookmark collection.",
-    ]
+    detail_lookup = bool(result.get("source_collect_detail_lookup") or payload.get("source_collect_detail_lookup"))
+    if detail_lookup:
+        lines = [
+            "X 书签详情：已同步到知识库。",
+            "X bookmark details: synced to the knowledge base.",
+        ]
+    else:
+        lines = [
+            "X 书签：采集结果已同步到知识库。",
+            "X bookmarks: collection synced to the knowledge base.",
+        ]
+    answer = str(result.get("source_collect_answer") or payload.get("source_collect_answer") or "").strip()
+    item_count = _optional_int(_first_present(result.get("source_collect_item_count"), payload.get("source_collect_item_count")))
+    new_count = _optional_int(
+        _first_present(result.get("source_collect_new_item_count"), payload.get("source_collect_new_item_count"))
+    )
+    known_count = _optional_int(
+        _first_present(result.get("source_collect_known_item_count"), payload.get("source_collect_known_item_count"))
+    )
+    new_urls = _display_urls(
+        result.get("source_collect_new_source_urls") or payload.get("source_collect_new_source_urls")
+    )
+    new_items = _display_new_item_details(
+        result.get("source_collect_new_items") or payload.get("source_collect_new_items")
+    )
+    if answer and not new_items:
+        lines.extend(["", "回答 / Answer：", answer])
+    stats: list[str] = []
+    if item_count is not None:
+        stats.append(f"采集 {item_count}")
+    if new_count is not None:
+        if new_count == 0:
+            stats.append("新增 0")
+        else:
+            stats.append(f"新增 {new_count}")
+    if known_count is not None:
+        stats.append(f"已知 {known_count}")
+    if stats:
+        lines.append(f"统计 / Stats：{'；'.join(stats)}")
+    if new_count == 0:
+        lines.append("结论 / Result：没有发现新书签。 / No new bookmarks found.")
+    if new_items:
+        lines.append("新增摘要 / New:")
+        lines.extend(new_items)
+    if new_urls and not new_items:
+        lines.append("新增来源 / New sources：")
+        lines.extend(f"- {url}" for url in new_urls)
     repo = str(result.get("repo") or "").strip()
     topic = str(result.get("topic") or payload.get("topic") or "").strip()
     directory = str(result.get("directory") or "").strip()
     files = _display_file_names(result.get("files_written"))
-    if repo:
-        lines.append(f"知识库 / Knowledge base：{repo}")
-    if topic:
-        lines.append(f"主题 / Topic：{topic}")
-    if directory:
-        lines.append(f"目录 / Directory：{directory}")
+    kb_parts = [part for part in (repo, topic) if part]
+    if kb_parts:
+        lines.append(f"知识库 / KB：{' · '.join(kb_parts)}")
+    elif directory:
+        lines.append(f"知识库 / KB：{directory}")
     if files:
         lines.append(f"文件 / Files：{', '.join(files)}")
-    if summary:
-        lines.extend(["", summary])
     return "\n".join(lines)
 
 
@@ -679,3 +784,71 @@ def _display_file_names(value: Any) -> list[str]:
             continue
         names.append(text.rsplit("/", 1)[-1])
     return names
+
+
+def _display_urls(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    urls: list[str] = []
+    seen: set[str] = set()
+    for item in value[:3]:
+        text = str(item or "").strip()
+        if not text or text in seen:
+            continue
+        urls.append(text)
+        seen.add(text)
+    return urls
+
+
+def _display_new_item_details(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    lines: list[str] = []
+    for index, item in enumerate(value[:3], start=1):
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title") or f"Item {index}").strip()
+        url = str(item.get("url") or item.get("source_url") or "").strip()
+        author = str(item.get("author") or "").strip()
+        text = str(item.get("text") or item.get("content") or item.get("body") or "").strip()
+        label = _compact_item_label(title=title, author=author, text=text)
+        lines.append(f"{index}. {label}")
+        if author:
+            lines.append(f"   作者 / Author：{author}")
+        if url:
+            lines.append(f"   {url}")
+    return lines
+
+
+def _compact_item_label(*, title: str, author: str, text: str) -> str:
+    clean_title = title.strip()
+    if clean_title.lower().startswith("x bookmark by @"):
+        clean_title = ""
+    prefix = author.strip() or clean_title or "X bookmark"
+    summary = _compact_text(text, limit=72)
+    if summary and summary != prefix:
+        return f"{prefix}：{summary}"
+    return prefix
+
+
+def _compact_text(text: str, *, limit: int) -> str:
+    normalized = " ".join(str(text or "").split())
+    if len(normalized) <= limit:
+        return normalized
+    return normalized[: max(1, limit - 1)].rstrip() + "…"
+
+
+def _optional_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _first_present(*values: Any) -> Any:
+    for value in values:
+        if value is not None:
+            return value
+    return None

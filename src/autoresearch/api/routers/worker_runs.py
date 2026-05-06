@@ -59,6 +59,17 @@ class ContentKBIngestRequest(BaseModel):
     owner: str = Field("knowledge-base", description="GitHub owner/org")
     default_repo: str = Field("knowledge-base", description="Default target repo name")
     open_draft_pr: bool = Field(False, description="Signal draft PR creation intent")
+    request_text: str = Field("", description="原始用户请求 / Original user request")
+    source_collect_run_id: str | None = Field(None, description="采集 run id / Source collect run id")
+    source_kind: str = Field("", description="采集来源类型 / Source kind")
+    source_collect_answer: str = Field("", description="采集回答 / Source collect answer")
+    source_collect_item_count: int | None = Field(None, ge=0, description="采集总数 / Total collected")
+    source_collect_previous_item_count: int | None = Field(None, ge=0, description="上次采集总数 / Previous total")
+    source_collect_known_item_count: int | None = Field(None, ge=0, description="已知条目数 / Known item count")
+    source_collect_new_item_count: int | None = Field(None, ge=0, description="新增条目数 / New item count")
+    source_collect_has_new_items: bool | None = Field(None, description="是否有新增 / Whether new items exist")
+    source_collect_new_source_urls: list[str] = Field(default_factory=list, description="新增来源 / New sources")
+    source_collect_previous_run_id: str = Field("", description="对比基线 run id / Baseline run id")
     requested_by: str | None = None
     metadata: dict = Field(default_factory=dict)
 
@@ -78,6 +89,7 @@ class SourceCollectRequest(BaseModel):
     owner: str = Field("knowledge-base", description="Knowledge base owner/org")
     default_repo: str = Field("knowledge-base", description="Default target repo name")
     downstream_capability_id: str = Field("content_kb", description="Downstream capability")
+    request_text: str = Field("", description="原始用户请求 / Original user request")
     requested_by: str | None = None
     metadata: dict = Field(default_factory=dict)
 

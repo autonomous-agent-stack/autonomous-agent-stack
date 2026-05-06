@@ -89,6 +89,7 @@ def build_task_request_from_decision(
     capabilities: Sequence[ControlPlaneCapabilityRead],
 ) -> ControlPlaneTaskCreateRequest:
     capability_id = capability_id_for_decision(decision)
+    display_message = _task_display_message(request)
     capability_risk_tags = _risk_tags_for_capability(capability_id, capabilities)
     risk_tags = sorted(
         {
@@ -101,6 +102,9 @@ def build_task_request_from_decision(
         **extracted_params,
         "message": request.message,
         "request_text": request.message,
+        "display_text": display_message,
+        "original_message": request.metadata.get("telegram_original_text") or display_message,
+        "contextual_followup": bool(request.metadata.get("telegram_contextual_followup")),
         "extracted_params": extracted_params,
         "task_type": decision.task_type,
         "canonical_task_type": decision.canonical_task_type,
@@ -117,7 +121,7 @@ def build_task_request_from_decision(
         parameters["model_fill_error"] = decision.model_fill_error
 
     return ControlPlaneTaskCreateRequest(
-        name=_summarize_message(request.message),
+        name=_summarize_message(display_message),
         intent=request.message,
         session_id=request.session_id or create_resource_id("session"),
         capability_id=capability_id,
@@ -136,6 +140,15 @@ def build_task_request_from_decision(
             "butler_canonical_task_type": decision.canonical_task_type,
         },
     )
+
+
+def _task_display_message(request: ButlerControlPlaneRouteRequest) -> str:
+    for key in ("telegram_original_text", "display_message", "original_message"):
+        value = request.metadata.get(key)
+        text = " ".join(str(value or "").split())
+        if text:
+            return text
+    return request.message
 
 
 def capability_id_for_decision(decision: ButlerDispatchDecision) -> str:

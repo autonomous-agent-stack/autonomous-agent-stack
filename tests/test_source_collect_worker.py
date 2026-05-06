@@ -157,6 +157,184 @@ def test_source_collect_x_bookmarks_uses_xreach_and_builds_content_kb_payload(
     assert outcome.metrics["defer_completion_until"] == "content_kb_ingest"
 
 
+def test_source_collect_x_bookmarks_reports_delta_since_previous_collection(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    previous_dir = tmp_path / "artifacts" / "source_collect" / "run_previous"
+    previous_dir.mkdir(parents=True)
+    previous_dir.joinpath("metadata.json").write_text(
+        json.dumps(
+            {
+                "collector": "xreach",
+                "source_kind": "x_bookmarks",
+                "item_count": 1,
+                "source_urls": ["https://twitter.com/alice/status/111"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    bin_dir = tmp_path / "bin"
+    _write_fake_xreach(
+        bin_dir,
+        json.dumps(
+            {
+                "items": [
+                    {"id": "111", "text": "Known bookmark", "user": {"screenName": "alice"}},
+                    {"id": "222", "text": "Fresh bookmark", "user": {"screenName": "alice"}},
+                ]
+            }
+        ),
+    )
+    monkeypatch.setenv("PATH", str(bin_dir))
+
+    _, outcome = _run_source_collect(
+        tmp_path,
+        {
+            "source_kind": "x_bookmarks",
+            "request_text": "上次整理X书签后有新的么",
+        },
+    )
+
+    assert outcome.status == JobStatus.COMPLETED
+    assert outcome.result["item_count"] == 2
+    assert outcome.result["previous_source_collect_run_id"] == "run_previous"
+    assert outcome.result["new_item_count"] == 1
+    assert outcome.result["known_item_count"] == 1
+    assert outcome.result["new_source_urls"] == ["https://twitter.com/alice/status/222"]
+    assert "发现新增 1 条 X 书签" in outcome.result["answer"]
+    content_payload = outcome.result["content_kb_payload"]
+    assert content_payload["source_collect_new_item_count"] == 1
+    assert content_payload["source_collect_known_item_count"] == 1
+    assert content_payload["source_collect_previous_run_id"] == "run_previous"
+    metadata = json.loads(Path(outcome.result["metadata_path"]).read_text(encoding="utf-8"))
+    assert metadata["new_item_count"] == 1
+    assert metadata["answer"] == outcome.result["answer"]
+
+
+def test_source_collect_x_bookmarks_ignores_fixture_baseline_for_xreach(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    fixture_previous = tmp_path / "artifacts" / "source_collect" / "run_fixture_previous"
+    fixture_previous.mkdir(parents=True)
+    fixture_previous.joinpath("metadata.json").write_text(
+        json.dumps(
+            {
+                "collector": "fixture",
+                "source_kind": "x_bookmarks",
+                "item_count": 2,
+                "source_urls": ["fixture://aas/source-smoke/known-001"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    real_previous = tmp_path / "artifacts" / "source_collect" / "run_real_previous"
+    real_previous.mkdir(parents=True)
+    real_previous.joinpath("metadata.json").write_text(
+        json.dumps(
+            {
+                "collector": "xreach",
+                "source_kind": "x_bookmarks",
+                "item_count": 1,
+                "source_urls": ["https://twitter.com/alice/status/111"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    bin_dir = tmp_path / "bin"
+    _write_fake_xreach(
+        bin_dir,
+        json.dumps(
+            {
+                "items": [
+                    {"id": "111", "text": "Known bookmark", "user": {"screenName": "alice"}},
+                    {"id": "222", "text": "Fresh bookmark", "user": {"screenName": "alice"}},
+                ]
+            }
+        ),
+    )
+    monkeypatch.setenv("PATH", str(bin_dir))
+
+    _, outcome = _run_source_collect(
+        tmp_path,
+        {
+            "source_kind": "x_bookmarks",
+            "request_text": "上次整理X书签后有新的么",
+        },
+    )
+
+    assert outcome.status == JobStatus.COMPLETED
+    assert outcome.result["collector"] == "xreach"
+    assert outcome.result["previous_source_collect_run_id"] == "run_real_previous"
+    assert outcome.result["new_item_count"] == 1
+    assert outcome.result["new_source_urls"] == ["https://twitter.com/alice/status/222"]
+
+
+def test_source_collect_x_bookmarks_detail_followup_uses_previous_delta_context(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    previous_dir = tmp_path / "artifacts" / "source_collect" / "run_previous_delta"
+    previous_dir.mkdir(parents=True)
+    artifact_path = previous_dir / "normalized_subtitle.txt"
+    artifact_path.write_text(
+        "# source_collect x_bookmarks\n\n"
+        "## 1. X bookmark by @alice\n"
+        "Source: https://twitter.com/alice/status/111\n"
+        "Author: Alice\n"
+        "Created: Wed May 06 10:00:00 +0000 2026\n"
+        "Known bookmark\n\n"
+        "## 2. X bookmark by @alice\n"
+        "Source: https://twitter.com/alice/status/222\n"
+        "Author: Alice\n"
+        "Created: Wed May 06 10:05:00 +0000 2026\n"
+        "Fresh bookmark detail\n",
+        encoding="utf-8",
+    )
+    previous_dir.joinpath("metadata.json").write_text(
+        json.dumps(
+            {
+                "collector": "xreach",
+                "source_kind": "x_bookmarks",
+                "item_count": 2,
+                "previous_item_count": 1,
+                "previous_source_collect_run_id": "run_baseline",
+                "new_item_count": 1,
+                "new_source_urls": ["https://twitter.com/alice/status/222"],
+                "source_urls": [
+                    "https://twitter.com/alice/status/111",
+                    "https://twitter.com/alice/status/222",
+                ],
+                "artifact_path": str(artifact_path),
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PATH", str(tmp_path / "empty-bin"))
+
+    _, outcome = _run_source_collect(
+        tmp_path,
+        {
+            "source_kind": "x_bookmarks",
+            "request_text": "新增的x书签详情是什么",
+        },
+    )
+
+    assert outcome.status == JobStatus.COMPLETED
+    assert outcome.result["collector"] == "context_lookup"
+    assert outcome.result["source_collect_context_run_id"] == "run_previous_delta"
+    assert outcome.result["previous_source_collect_run_id"] == "run_baseline"
+    assert outcome.result["new_item_count"] == 1
+    assert outcome.result["new_source_urls"] == ["https://twitter.com/alice/status/222"]
+    assert outcome.result["new_items"][0]["text"] == "Fresh bookmark detail"
+    assert "Fresh bookmark detail" in outcome.result["answer"]
+    content_payload = outcome.result["content_kb_payload"]
+    assert content_payload["source_collect_detail_lookup"] is True
+    assert content_payload["source_collect_context_run_id"] == "run_previous_delta"
+    assert content_payload["source_collect_new_items"][0]["url"] == "https://twitter.com/alice/status/222"
+
+
 def test_source_collect_fixture_path_takes_precedence_over_xreach(
     tmp_path: Path,
     monkeypatch,

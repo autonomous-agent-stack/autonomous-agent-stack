@@ -179,6 +179,18 @@ class MacWorkerExecutor:
                     "error_kind": "unsupported_source_kind",
                 },
             )
+        request_text = str(payload.get("request_text") or run.task_name or "").strip()
+        collector = str(payload.get("collector") or "xreach").strip().lower() or "xreach"
+        if _source_collect_asks_for_new_details(request_text):
+            detail_outcome = self._execute_source_collect_new_details(
+                run=run,
+                payload=payload,
+                source_kind=source_kind,
+                collector=collector,
+                request_text=request_text,
+            )
+            if detail_outcome is not None:
+                return detail_outcome
         try:
             loaded = _load_source_collect_items(payload=payload, source_kind=source_kind)
         except _SourceCollectLoadError as exc:
@@ -273,13 +285,33 @@ class MacWorkerExecutor:
         normalized = _render_source_collect_text(items=items, source_kind=source_kind)
         artifact_path.write_text(normalized, encoding="utf-8")
         source_urls = _source_collect_urls(items, payload)
+        collector = str(loaded.metadata.get("collector") or "fixture").strip().lower() or "fixture"
+        delta = _source_collect_delta(
+            artifact_root=self._config.housekeeping_root / "artifacts" / "source_collect",
+            current_run_id=run.run_id,
+            source_kind=source_kind,
+            collector=collector,
+            source_urls=source_urls,
+        )
+        new_items = _source_collect_items_for_urls(items, delta["new_source_urls"])
+        answer = _source_collect_user_answer(
+            request_text=request_text,
+            source_kind=source_kind,
+            item_count=len(items),
+            delta=delta,
+            new_items=new_items,
+        )
         metadata = {
             **loaded.metadata,
+            "run_id": run.run_id,
             "source_kind": source_kind,
             "item_count": len(items),
             "source_urls": source_urls,
             "artifact_path": str(artifact_path),
-            "request_text": payload.get("request_text") or "",
+            "request_text": request_text,
+            "answer": answer,
+            "new_items": new_items,
+            **delta,
         }
         metadata_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -294,9 +326,24 @@ class MacWorkerExecutor:
             "owner": str(payload.get("owner") or "knowledge-base").strip() or "knowledge-base",
             "default_repo": str(payload.get("default_repo") or "knowledge-base").strip() or "knowledge-base",
             "open_draft_pr": bool(payload.get("open_draft_pr")),
+            "request_text": request_text,
             "source_collect_run_id": run.run_id,
             "source_kind": source_kind,
+            "source_collect_answer": answer,
+            "source_collect_item_count": len(items),
+            "source_collect_previous_item_count": delta["previous_item_count"],
+            "source_collect_known_item_count": delta["known_item_count"],
+            "source_collect_new_item_count": delta["new_item_count"],
+            "source_collect_has_new_items": delta["has_new_items"],
+            "source_collect_new_source_urls": delta["new_source_urls"],
+            "source_collect_new_items": new_items,
+            "source_collect_previous_run_id": delta["previous_source_collect_run_id"],
         }
+        new_count = delta["new_item_count"]
+        if delta["previous_source_collect_run_id"]:
+            summary = f"Collected {len(items)} item(s); {new_count} new since previous collection."
+        else:
+            summary = f"Collected {len(items)} item(s); no previous collection found."
         return MacWorkerExecutionResult(
             message=f"source_collect: {source_kind} → local artifact",
             result={
@@ -304,14 +351,137 @@ class MacWorkerExecutor:
                 "artifact_type": "text",
                 "metadata_path": str(metadata_path),
                 "source_kind": source_kind,
-                "collector": loaded.metadata.get("collector", "fixture"),
+                "collector": collector,
                 "item_count": len(items),
                 "source_urls": source_urls,
+                "previous_source_collect_run_id": delta["previous_source_collect_run_id"],
+                "previous_item_count": delta["previous_item_count"],
+                "known_item_count": delta["known_item_count"],
+                "new_item_count": new_count,
+                "has_new_items": delta["has_new_items"],
+                "new_source_urls": delta["new_source_urls"],
+                "new_items": new_items,
+                "answer": answer,
                 "content_kb_payload": content_kb_payload,
-                "summary": f"Collected {len(items)} item(s) into {artifact_path.name}",
+                "summary": summary,
             },
             metrics={
                 "items_collected": len(items),
+                "new_items_collected": new_count,
+                "known_items_collected": delta["known_item_count"],
+                "telegram_notify_status": "deferred",
+                "defer_completion_until": WorkerTaskType.CONTENT_KB_INGEST.value,
+            },
+        )
+
+    def _execute_source_collect_new_details(
+        self,
+        *,
+        run: WorkerQueueItemRead,
+        payload: dict[str, Any],
+        source_kind: str,
+        collector: str,
+        request_text: str,
+    ) -> MacWorkerExecutionResult | None:
+        context = _latest_source_collect_new_detail_context(
+            artifact_root=self._config.housekeeping_root / "artifacts" / "source_collect",
+            current_run_id=run.run_id,
+            source_kind=source_kind,
+            collector=collector,
+        )
+        if context is None:
+            return None
+
+        out_dir = self._config.housekeeping_root / "artifacts" / "source_collect" / run.run_id
+        out_dir.mkdir(parents=True, exist_ok=True)
+        artifact_path = out_dir / "normalized_subtitle.txt"
+        metadata_path = out_dir / "metadata.json"
+        detail_items = context["new_items"]
+        normalized = _render_source_collect_text(items=detail_items, source_kind=source_kind)
+        artifact_path.write_text(normalized, encoding="utf-8")
+
+        source_urls = _source_collect_urls(detail_items, payload)
+        answer = _source_collect_details_answer(source_kind=source_kind, items=detail_items, context=context)
+        previous_run_id = str(context.get("previous_source_collect_run_id") or "")
+        source_run_id = str(context.get("source_collect_run_id") or "")
+        item_count = _metadata_int(context.get("item_count"))
+        new_count = len(detail_items)
+        metadata = {
+            "collector": "context_lookup",
+            "context_collector": collector,
+            "source_kind": source_kind,
+            "run_id": run.run_id,
+            "source_collect_run_id": source_run_id,
+            "source_collect_context_run_id": source_run_id,
+            "previous_source_collect_run_id": previous_run_id,
+            "previous_item_count": _metadata_int(context.get("previous_item_count")),
+            "item_count": item_count,
+            "known_item_count": max(0, item_count - new_count),
+            "new_item_count": new_count,
+            "has_new_items": bool(detail_items),
+            "source_urls": source_urls,
+            "new_source_urls": source_urls,
+            "new_items": detail_items,
+            "artifact_path": str(artifact_path),
+            "request_text": request_text,
+            "answer": answer,
+            "detail_lookup": True,
+        }
+        metadata_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        title = str(payload.get("title") or request_text or "X bookmark detail lookup").strip()
+        content_kb_payload = {
+            "subtitle_text_path": str(artifact_path),
+            "title": title,
+            "topic": str(payload.get("topic") or "").strip(),
+            "source_url": source_urls[0] if source_urls else "",
+            "speakers": [],
+            "created_at": "",
+            "owner": str(payload.get("owner") or "knowledge-base").strip() or "knowledge-base",
+            "default_repo": str(payload.get("default_repo") or "knowledge-base").strip() or "knowledge-base",
+            "open_draft_pr": bool(payload.get("open_draft_pr")),
+            "request_text": request_text,
+            "source_collect_run_id": run.run_id,
+            "source_collect_context_run_id": source_run_id,
+            "source_kind": source_kind,
+            "source_collect_answer": answer,
+            "source_collect_item_count": item_count,
+            "source_collect_previous_item_count": _metadata_int(context.get("previous_item_count")),
+            "source_collect_known_item_count": max(0, item_count - new_count),
+            "source_collect_new_item_count": new_count,
+            "source_collect_has_new_items": bool(detail_items),
+            "source_collect_new_source_urls": source_urls,
+            "source_collect_new_items": detail_items,
+            "source_collect_previous_run_id": previous_run_id,
+            "source_collect_detail_lookup": True,
+        }
+        return MacWorkerExecutionResult(
+            message=f"source_collect: {source_kind} new bookmark details",
+            result={
+                "artifact_path": str(artifact_path),
+                "artifact_type": "text",
+                "metadata_path": str(metadata_path),
+                "source_kind": source_kind,
+                "collector": "context_lookup",
+                "context_collector": collector,
+                "source_collect_context_run_id": source_run_id,
+                "previous_source_collect_run_id": previous_run_id,
+                "item_count": item_count,
+                "new_item_count": new_count,
+                "known_item_count": max(0, item_count - new_count),
+                "has_new_items": bool(detail_items),
+                "source_urls": source_urls,
+                "new_source_urls": source_urls,
+                "new_items": detail_items,
+                "answer": answer,
+                "content_kb_payload": content_kb_payload,
+                "summary": f"Found {new_count} previous new X bookmark detail(s).",
+            },
+            metrics={
+                "items_collected": item_count,
+                "new_items_collected": new_count,
+                "known_items_collected": max(0, item_count - new_count),
+                "source_collect_detail_lookup": True,
                 "telegram_notify_status": "deferred",
                 "defer_completion_until": WorkerTaskType.CONTENT_KB_INGEST.value,
             },
@@ -529,9 +699,19 @@ class MacWorkerExecutor:
         Optionally signals a draft PR should be opened via result metadata.
         The actual PR creation is a downstream concern (github_assistant or DAG).
         """
-        from content_kb.index_builder import build_speaker_index, build_timeline_index, build_topic_index
+        from content_kb.index_builder import (
+            build_speaker_index,
+            build_timeline_index,
+            build_topic_index,
+            write_index_file,
+        )
         from content_kb.repo_selector import resolve_repo_selection
-        from content_kb.subtitle_ingest import infer_topic_from_subtitle, ingest_subtitle
+        from content_kb.subtitle_ingest import (
+            infer_topic_from_subtitle,
+            ingest_subtitle,
+            normalize_subtitle,
+            read_subtitle,
+        )
 
         payload = run.payload
         file_path = payload.get("subtitle_text_path", "")
@@ -590,18 +770,67 @@ class MacWorkerExecutor:
         speaker_idx = build_speaker_index(None, [entry])
         timeline_idx = build_timeline_index(None, [entry])
 
+        artifact_root = (
+            self._config.housekeeping_root / "artifacts" / "content_kb" / repo_selection.recommended_repo
+        )
+        artifact_dir = artifact_root / repo_selection.recommended_directory
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        normalized_text = normalize_subtitle(read_subtitle(path))
+        normalized_path = artifact_dir / "normalized_subtitle.txt"
+        metadata_path = artifact_dir / "metadata.json"
+        topic_index_path = artifact_root / "indexes" / "topics.json"
+        speaker_index_path = artifact_root / "indexes" / "speakers.json"
+        timeline_index_path = artifact_root / "indexes" / "timeline.json"
+
+        normalized_path.write_text(normalized_text, encoding="utf-8")
+        source_collect_stats = _source_collect_stats_from_payload(payload)
+        metadata_path.write_text(
+            json.dumps(
+                {
+                    "job_id": ingest_result.job_id,
+                    "run_id": run.run_id,
+                    "source_collect_run_id": payload.get("source_collect_run_id"),
+                    "source_kind": payload.get("source_kind"),
+                    "source_path": str(path),
+                    "title": title,
+                    "topic": topic,
+                    "repo": repo_selection.recommended_repo,
+                    "directory": repo_selection.recommended_directory,
+                    "source_url": source_url,
+                    "source_collect": source_collect_stats,
+                    "metadata": ingest_result.metadata,
+                },
+                ensure_ascii=False,
+                indent=2,
+                default=str,
+            ),
+            encoding="utf-8",
+        )
+        write_index_file(topic_index_path, topic_idx)
+        write_index_file(speaker_index_path, speaker_idx)
+        write_index_file(timeline_index_path, timeline_idx)
+
         # 5. Assemble result
         result_data = {
             "job_id": ingest_result.job_id,
             "topic": topic,
             "repo": repo_selection.recommended_repo,
             "directory": repo_selection.recommended_directory,
-            "files_written": ingest_result.files_written,
+            "artifact_root": str(artifact_root),
+            "artifact_directory": str(artifact_dir),
+            "files_written": [str(normalized_path)],
+            "metadata_path": str(metadata_path),
+            "index_paths": {
+                "topic": str(topic_index_path),
+                "speaker": str(speaker_index_path),
+                "timeline": str(timeline_index_path),
+            },
             "indexes": {
                 "topic": topic_idx.model_dump(),
                 "speaker": speaker_idx.model_dump(),
                 "timeline": timeline_idx.model_dump(),
             },
+            **source_collect_stats,
         }
 
         # 6. PR callback hook — signal intent for downstream orchestration
@@ -1211,6 +1440,331 @@ def _source_collect_urls(items: list[dict[str, Any]], payload: dict[str, Any]) -
         seen.add(url)
         out.append(url)
     return out
+
+
+def _source_collect_delta(
+    *,
+    artifact_root: Path,
+    current_run_id: str,
+    source_kind: str,
+    collector: str,
+    source_urls: list[str],
+) -> dict[str, Any]:
+    previous = _latest_source_collect_metadata(
+        artifact_root=artifact_root,
+        current_run_id=current_run_id,
+        source_kind=source_kind,
+        collector=collector,
+    )
+    previous_urls = _metadata_url_list(previous.get("source_urls") if previous else None)
+    previous_seen = set(previous_urls)
+    new_urls = [url for url in source_urls if url and url not in previous_seen]
+    previous_count = _metadata_int(previous.get("item_count") if previous else None)
+    previous_run_id = str(previous.get("run_id") or "") if previous else ""
+    known_count = max(0, len(source_urls) - len(new_urls)) if previous else 0
+    return {
+        "previous_source_collect_run_id": previous_run_id,
+        "previous_item_count": previous_count,
+        "known_item_count": known_count,
+        "new_item_count": len(new_urls) if previous else len(source_urls),
+        "has_new_items": bool(new_urls) if previous else bool(source_urls),
+        "new_source_urls": new_urls if previous else list(source_urls),
+    }
+
+
+def _latest_source_collect_new_detail_context(
+    *,
+    artifact_root: Path,
+    current_run_id: str,
+    source_kind: str,
+    collector: str,
+) -> dict[str, Any] | None:
+    if not artifact_root.exists():
+        return None
+    candidates: list[tuple[float, str, dict[str, Any]]] = []
+    normalized_collector = collector.strip().lower()
+    for path in artifact_root.glob("run_*/metadata.json"):
+        run_id = path.parent.name
+        if run_id == current_run_id:
+            continue
+        try:
+            metadata = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(metadata, dict):
+            continue
+        if str(metadata.get("source_kind") or "").strip().lower() != source_kind:
+            continue
+        if str(metadata.get("collector") or "").strip().lower() != normalized_collector:
+            continue
+        new_urls = _metadata_url_list(metadata.get("new_source_urls"))
+        if not new_urls:
+            continue
+        candidates.append((path.stat().st_mtime, run_id, {"run_id": run_id, **metadata}))
+    if not candidates:
+        return None
+    _, run_id, metadata = max(candidates, key=lambda item: (item[0], item[1]))
+    items = _source_collect_new_items_from_metadata(metadata)
+    if not items:
+        items = _source_collect_items_for_urls(
+            _source_collect_items_from_artifact(metadata.get("artifact_path")),
+            _metadata_url_list(metadata.get("new_source_urls")),
+        )
+    if not items:
+        return None
+    return {
+        **metadata,
+        "source_collect_run_id": run_id,
+        "new_items": items,
+    }
+
+
+def _latest_source_collect_metadata(
+    *,
+    artifact_root: Path,
+    current_run_id: str,
+    source_kind: str,
+    collector: str,
+) -> dict[str, Any] | None:
+    if not artifact_root.exists():
+        return None
+    candidates: list[tuple[float, str, dict[str, Any]]] = []
+    normalized_collector = collector.strip().lower()
+    for path in artifact_root.glob("run_*/metadata.json"):
+        run_id = path.parent.name
+        if run_id == current_run_id:
+            continue
+        try:
+            metadata = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(metadata, dict):
+            continue
+        if str(metadata.get("source_kind") or "").strip().lower() != source_kind:
+            continue
+        candidate_collector = str(metadata.get("collector") or "").strip().lower()
+        if normalized_collector and candidate_collector != normalized_collector:
+            continue
+        if normalized_collector != "fixture" and (
+            candidate_collector == "fixture" or _metadata_url_list(metadata.get("source_urls")) == []
+        ):
+            continue
+        candidates.append((path.stat().st_mtime, run_id, metadata))
+    if not candidates:
+        return None
+    _, run_id, metadata = max(candidates, key=lambda item: (item[0], item[1]))
+    return {"run_id": run_id, **metadata}
+
+
+def _source_collect_new_items_from_metadata(metadata: dict[str, Any]) -> list[dict[str, Any]]:
+    raw = metadata.get("new_items")
+    if not isinstance(raw, list):
+        return []
+    items: list[dict[str, Any]] = []
+    for index, item in enumerate(raw, start=1):
+        if not isinstance(item, dict):
+            continue
+        items.append(_normalize_source_collect_item(item, source_kind=str(metadata.get("source_kind") or ""), index=index))
+    return items
+
+
+def _source_collect_items_from_artifact(value: Any) -> list[dict[str, Any]]:
+    path = Path(str(value or "")).expanduser()
+    if not path.exists():
+        return []
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    items: list[dict[str, Any]] = []
+    current: dict[str, Any] | None = None
+    body_lines: list[str] = []
+
+    def flush() -> None:
+        nonlocal current, body_lines
+        if current is None:
+            return
+        body = "\n".join(line for line in body_lines if line.strip()).strip()
+        if body:
+            current["text"] = body
+        items.append(current)
+        current = None
+        body_lines = []
+
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("## "):
+            flush()
+            title = stripped.split(".", 1)[-1].strip() if "." in stripped else stripped[3:].strip()
+            current = {"title": title}
+            body_lines = []
+            continue
+        if current is None:
+            continue
+        if stripped.startswith("Source:"):
+            current["url"] = stripped.split(":", 1)[1].strip()
+        elif stripped.startswith("Author:"):
+            current["author"] = stripped.split(":", 1)[1].strip()
+        elif stripped.startswith("Created:"):
+            current["created_at"] = stripped.split(":", 1)[1].strip()
+        elif stripped and not stripped.startswith("#"):
+            body_lines.append(line)
+    flush()
+    return items
+
+
+def _source_collect_items_for_urls(items: list[dict[str, Any]], urls: list[str]) -> list[dict[str, Any]]:
+    wanted = set(urls)
+    if not wanted:
+        return []
+    matched: list[dict[str, Any]] = []
+    for item in items:
+        url = str(item.get("url") or item.get("source_url") or "").strip()
+        if url in wanted:
+            matched.append(item)
+    return matched
+
+
+def _metadata_url_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    urls: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        text = str(item or "").strip()
+        if not text or text in seen:
+            continue
+        urls.append(text)
+        seen.add(text)
+    return urls
+
+
+def _metadata_int(value: Any) -> int:
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _source_collect_user_answer(
+    *,
+    request_text: str,
+    source_kind: str,
+    item_count: int,
+    delta: dict[str, Any],
+    new_items: list[dict[str, Any]],
+) -> str:
+    label_zh = "X 书签" if source_kind == "x_bookmarks" else "资料"
+    label_en = "X bookmark(s)" if source_kind == "x_bookmarks" else "source item(s)"
+    previous_run_id = str(delta.get("previous_source_collect_run_id") or "").strip()
+    new_count = _metadata_int(delta.get("new_item_count"))
+    asks_delta = _source_collect_asks_for_delta(request_text)
+    if asks_delta and previous_run_id:
+        if new_count > 0:
+            detail = _source_collect_detail_lines(new_items, max_items=3)
+            suffix = f"\n\n新增详情 / New details：\n{detail}" if detail else ""
+            return f"有，发现新增 {new_count} 条 {label_zh}。\nYes, found {new_count} new {label_en}.{suffix}"
+        return f"没有发现新增 {label_zh}。\nNo new {label_en} found."
+    if asks_delta:
+        return (
+            f"这是首次可比对采集，本次保存 {item_count} 条 {label_zh}作为后续基线。\n"
+            f"This is the first comparable collection; saved {item_count} {label_en} as the baseline."
+        )
+    return f"已采集 {item_count} 条 {label_zh}。\nCollected {item_count} {label_en}."
+
+
+def _source_collect_details_answer(*, source_kind: str, items: list[dict[str, Any]], context: dict[str, Any]) -> str:
+    label_zh = "X 书签" if source_kind == "x_bookmarks" else "资料"
+    label_en = "X bookmark(s)" if source_kind == "x_bookmarks" else "source item(s)"
+    detail = _source_collect_detail_lines(items, max_items=10)
+    source_run_id = str(context.get("source_collect_run_id") or context.get("run_id") or "").strip()
+    source_line = f"\n来源运行 / Source run：{source_run_id}" if source_run_id else ""
+    if not detail:
+        return f"上一轮没有可展示的新增{label_zh}详情。\nNo previous new {label_en} details are available.{source_line}"
+    count = len(items)
+    return (
+        f"上一轮发现新增 {count} 条 {label_zh}，详情如下：\n"
+        f"Last run found {count} new {label_en}; details below:{source_line}\n\n"
+        f"{detail}"
+    )
+
+
+def _source_collect_detail_lines(items: list[dict[str, Any]], *, max_items: int) -> str:
+    lines: list[str] = []
+    for index, item in enumerate(items[:max_items], start=1):
+        title = str(item.get("title") or f"Item {index}").strip()
+        url = str(item.get("url") or item.get("source_url") or "").strip()
+        author = str(item.get("author") or "").strip()
+        text = str(item.get("text") or item.get("content") or item.get("body") or "").strip()
+        label = _source_collect_compact_item_label(title=title, author=author, text=text)
+        lines.append(f"{index}. {label}")
+        if author:
+            lines.append(f"   作者 / Author：{author}")
+        if url:
+            lines.append(f"   {url}")
+        lines.append("")
+    return "\n".join(lines).strip()
+
+
+def _source_collect_compact_item_label(*, title: str, author: str, text: str) -> str:
+    clean_title = title.strip()
+    if clean_title.lower().startswith("x bookmark by @"):
+        clean_title = ""
+    prefix = author.strip() or clean_title or "X bookmark"
+    summary = _source_collect_compact_text(text, limit=80)
+    if summary and summary != prefix:
+        return f"{prefix}：{summary}"
+    return prefix
+
+
+def _source_collect_compact_text(text: str, *, limit: int) -> str:
+    normalized = " ".join(str(text or "").split())
+    if len(normalized) <= limit:
+        return normalized
+    return normalized[: max(1, limit - 1)].rstrip() + "…"
+
+
+def _source_collect_asks_for_new_details(request_text: str) -> bool:
+    text = request_text.strip().lower()
+    if not text:
+        return False
+    has_new = any(token in request_text for token in ("新增", "新的", "新书签")) or any(
+        token in text for token in ("new", "latest")
+    )
+    asks_detail = any(token in request_text for token in ("详情", "内容", "是什么", "哪条", "哪些", "发了什么")) or any(
+        token in text for token in ("detail", "details", "what", "which", "content")
+    )
+    has_bookmark = any(token in request_text for token in ("书签", "收藏")) or "bookmark" in text
+    return has_new and asks_detail and has_bookmark
+
+
+def _source_collect_asks_for_delta(request_text: str) -> bool:
+    text = request_text.strip().lower()
+    if not text:
+        return False
+    zh_tokens = ("上次", "新的", "新增", "新书签", "有没有", "之后", "以后")
+    en_tokens = ("new", "since last", "since previous", "after last", "anything new")
+    return any(token in request_text for token in zh_tokens) or any(token in text for token in en_tokens)
+
+
+def _source_collect_stats_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    keys = (
+        "request_text",
+        "source_collect_run_id",
+        "source_kind",
+        "source_collect_answer",
+        "source_collect_item_count",
+        "source_collect_previous_item_count",
+        "source_collect_known_item_count",
+        "source_collect_new_item_count",
+        "source_collect_has_new_items",
+        "source_collect_new_source_urls",
+        "source_collect_new_items",
+        "source_collect_context_run_id",
+        "source_collect_detail_lookup",
+        "source_collect_previous_run_id",
+    )
+    return {key: payload.get(key) for key in keys if key in payload}
 
 
 def _normalize_source_collect_item(item: dict[str, Any], *, source_kind: str, index: int) -> dict[str, Any]:

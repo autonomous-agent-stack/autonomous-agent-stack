@@ -27,6 +27,11 @@ class RuntimeAdapterManifest(StrictModel):
     kind: Literal["runtime"] = "runtime"
     service: str
     version: str = "0.1"
+    stability: Literal["experimental", "beta", "stable"] = "experimental"
+    certification_status: Literal["missing", "partial", "certified"] = "missing"
+    certification_profile: str | None = None
+    live_test_command: str | None = None
+    isolation_profile: str = "default_runtime_sandbox"
     capabilities: list[Literal["create_session", "run", "stream", "cancel", "status"]] = Field(
         default_factory=list
     )

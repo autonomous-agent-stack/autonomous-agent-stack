@@ -474,6 +474,7 @@ def _handle_telegram_webhook(
         update=update,
         extracted=extracted,
         text=resolved_prompt,
+        original_text=text,
         background_tasks=background_tasks,
         openclaw_service=openclaw_service,
         notifier=notifier,
@@ -557,6 +558,7 @@ def _handle_v2_butler_task(
     update: dict[str, Any],
     extracted: dict[str, Any],
     text: str,
+    original_text: str | None = None,
     background_tasks: BackgroundTasks,
     openclaw_service: OpenClawCompatService,
     notifier: TelegramNotifierService,
@@ -572,6 +574,8 @@ def _handle_v2_butler_task(
     session_id: str,
 ) -> TelegramWebhookAck:
     requested_by = session_identity.actor.user_id or str(extracted.get("from_user_id") or chat_id)
+    display_text = (original_text or text).strip()
+    contextual_followup = bool(display_text and display_text != text.strip())
     route_request = ButlerControlPlaneRouteRequest(
         message=text,
         session_id=session_id,
@@ -590,6 +594,8 @@ def _handle_v2_butler_task(
             "actor_role": session_identity.actor.role.value,
             "actor_user_id": session_identity.actor.user_id,
             "actor_username": session_identity.actor.username,
+            "telegram_original_text": display_text,
+            "telegram_contextual_followup": contextual_followup,
         },
     )
     routed = route_butler_message(
@@ -645,7 +651,7 @@ def _handle_v2_butler_task(
         }
         if notifier.enabled:
             ack_text = _telegram_queue_ack_message(
-                task_name=task.name,
+                task_name=str(task.parameters.get("display_text") or task.name),
                 run_id=task.run_id,
                 worker_brand=telegram_worker_display_name,
                 runtime_id=task.capability_id,

@@ -103,7 +103,8 @@ class ButlerIntentRouter:
         Returns the best-matching task type with confidence score.
         If no keywords match, returns UNKNOWN.
         """
-        text_lower = text.lower()
+        classification_text = _classification_text(text)
+        text_lower = classification_text.lower()
         scores: dict[str, int] = {}
 
         for task_type, keywords in self._keyword_map.items():
@@ -111,8 +112,11 @@ class ButlerIntentRouter:
             if score > 0:
                 scores[task_type] = score
 
+        if _looks_like_github_status_question(classification_text):
+            scores.pop(ButlerTaskType.GITHUB_ADMIN, None)
+
         if not scores:
-            urls = _URL_RE.findall(text)
+            urls = _URL_RE.findall(classification_text)
             extracted: dict[str, Any] = {}
             if urls:
                 extracted["urls"] = urls
@@ -126,10 +130,10 @@ class ButlerIntentRouter:
         confidence = round(scores[best_type] / total, 2) if total > 0 else 0.0
 
         # Extract file paths
-        file_paths = _FILE_PATH_RE.findall(text)
+        file_paths = _FILE_PATH_RE.findall(classification_text)
 
         # Extract URLs
-        urls = _URL_RE.findall(text)
+        urls = _URL_RE.findall(classification_text)
 
         extracted_params: dict[str, Any] = {}
         if file_paths:
@@ -142,6 +146,41 @@ class ButlerIntentRouter:
             confidence=confidence,
             extracted_params=extracted_params,
         )
+
+
+def _classification_text(text: str) -> str:
+    """Use the actual follow-up for routing when context was prepended."""
+    normalized = str(text or "").strip()
+    marker = "追问 / Follow-up:"
+    index = normalized.rfind(marker)
+    if index >= 0:
+        followup = normalized[index + len(marker) :].strip()
+        if followup:
+            return followup
+    return normalized
+
+
+def _looks_like_github_status_question(text: str) -> bool:
+    normalized = str(text or "").strip().lower()
+    if "github" not in normalized:
+        return False
+    if "github.com/" in normalized or "git@github.com:" in normalized:
+        return False
+    question_tokens = ("?", "？", "么", "吗", "是否", "有没有", "done", "did it")
+    status_tokens = (
+        "了",
+        "done",
+        "整理到",
+        "提交到",
+        "推送到",
+        "同步到",
+        "pushed",
+        "committed",
+        "synced",
+    )
+    return any(token in text or token in normalized for token in question_tokens) and any(
+        token in text or token in normalized for token in status_tokens
+    )
 
 
 _CANONICAL_TO_LEGACY_TASK_TYPE: dict[str, str] = {

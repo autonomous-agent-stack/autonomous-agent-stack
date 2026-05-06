@@ -157,22 +157,24 @@ def format_butler_completion_message(
     runtime = _clean_value(runtime_id or "claude")
     capability = _clean_value(capability_id or runtime)
     execution = _execution_line_text(runtime, capability, primary=primary, agents=agents)
+    is_completed = status.strip().lower() in {"completed", "succeeded"}
     task_rows: list[tuple[str, str]] = [
         ("任务", task_name),
-        ("状态", _status_display_text(status)),
         ("Agent", _agent_line_text(primary, agents)),
-        ("run id", run_id),
     ]
-    if execution:
+    if not is_completed:
+        task_rows.append(("状态", _status_display_text(status)))
+        task_rows.append(("run id", run_id))
+    if execution and not is_completed:
         task_rows.append(("执行面", execution))
-    if phase:
+    if phase and not is_completed:
         task_rows.append(("阶段", phase))
     detail_rows: list[tuple[str, str]] = []
-    if diagnostics:
+    if diagnostics and not is_completed:
         detail_rows.append(("诊断", diagnostics))
-    if notify_state:
+    if notify_state and not is_completed:
         detail_rows.append(("投递", notify_state))
-    if summary:
+    if summary and not is_completed:
         detail_rows.append(("摘要", summary))
 
     clean_body = _clean_value(body) or "（无文本输出）"

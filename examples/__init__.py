@@ -1,2 +1,1 @@
-# Examples package marker.
-
+"""Example integrations for local AAS smoke tests."""

@@ -132,6 +132,25 @@ def test_content_kb_ingest_full_lifecycle(
     assert "indexes" in run.result
     assert "topic" in run.result["indexes"]
     assert run.result["indexes"]["topic"]["topics"]["ai-status-and-outlook"]["count"] == 1
+    written_paths = [Path(path) for path in run.result["files_written"]]
+    assert written_paths == [
+        tmp_path
+        / "artifacts"
+        / "content_kb"
+        / "knowledge-base"
+        / "knowledge-base"
+        / "subtitles"
+        / "ai-status-and-outlook"
+        / "ai-weekly-report"
+        / "normalized_subtitle.txt"
+    ]
+    assert written_paths[0].exists()
+    assert "人工智能和深度学习最新进展" in written_paths[0].read_text(encoding="utf-8")
+    metadata_path = Path(run.result["metadata_path"])
+    assert metadata_path.exists()
+    assert run.result["artifact_directory"].endswith("subtitles/ai-status-and-outlook/ai-weekly-report")
+    for index_path in run.result["index_paths"].values():
+        assert Path(index_path).exists()
 
 
 def test_content_kb_ingest_with_explicit_topic(
