@@ -58,8 +58,8 @@ https://patient-constructed-sake-gsm.trycloudflare.com
 
 ```bash
 # 启动 API 服务
-cd /Volumes/PS1008/Github/autonomous-agent-stack
-PYTHONPATH=/Volumes/PS1008/Github/autonomous-agent-stack/src:$PYTHONPATH \
+cd $AAS_REPO_ROOT
+PYTHONPATH=$AAS_REPO_ROOT/src:$PYTHONPATH \
 .venv/bin/python -m uvicorn autoresearch.api.main:app \
   --host 127.0.0.1 --port 8001
 ```
@@ -224,8 +224,8 @@ tail -50 /tmp/autoresearch_8001.log
 pkill -f "uvicorn autoresearch.api.main:app --port 8001"
 
 # 重启服务
-cd /Volumes/PS1008/Github/autonomous-agent-stack
-PYTHONPATH=/Volumes/PS1008/Github/autonomous-agent-stack/src:$PYTHONPATH \
+cd $AAS_REPO_ROOT
+PYTHONPATH=$AAS_REPO_ROOT/src:$PYTHONPATH \
 .venv/bin/python -m uvicorn autoresearch.api.main:app \
   --host 127.0.0.1 --port 8001 > /tmp/autoresearch_8001.log 2>&1 &
 ```

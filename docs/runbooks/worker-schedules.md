@@ -18,7 +18,7 @@
 ## 1. 先把单机基线跑通
 
 ```bash
-cd /Volumes/AI_LAB/Github/autonomous-agent-stack
+cd $AAS_REPO_ROOT
 make setup
 make doctor
 AUTORESEARCH_MODE=minimal make start

@@ -1,318 +1,207 @@
 # Architecture
 
-Compatibility mirror for legacy documentation links.
+[Simplified Chinese](architecture.zh-CN.md)
 
-Canonical source: [`../ARCHITECTURE.md`](../ARCHITECTURE.md)
+This document is the canonical architecture handoff for the current `autonomous-agent-stack` repository. It describes the system that exists now, not the older aspirational diagrams preserved in archived reports.
 
-This file intentionally mirrors the current architecture in a docs-relative location because older docs, reports, and completeness checks still expect `docs/architecture.md` to exist. Keep this file aligned with the root `ARCHITECTURE.md`.
+If an archived document disagrees with this file, trust this file first and verify against code.
 
-## Current System Summary
+## What This Repository Is Now
 
-`autonomous-agent-stack` is currently a bounded control plane for autonomous repository changes, not an unconstrained self-editing agent.
+Autonomous Agent Stack (AAS) is an evergreen control plane for governed agent execution. It is not an unconstrained self-editing agent and it is not a replacement for every agent framework. It sits above execution surfaces such as OpenHands, Hermes, OpenClaw, CrewAI, LangGraph, Haystack, MCP, A2A, local deterministic tools, and future adapters.
 
-The stable path is:
+The control plane owns durable state, policy, approvals, audit, capability routing, worker leases, artifacts, and promotion. Runtimes provide execution capacity; they do not become the source of truth.
 
-1. plan a bounded repository improvement,
-2. execute it inside isolation,
-3. validate the patch,
-4. re-check promotion conditions,
-5. emit either a patch artifact or a Draft PR.
-
-That means the system is optimized for controlled mutation, not unrestricted autonomy.
-
-## Canonical Mainline
-
-### Control Plane v2
-
-The production convergence path is now Control Plane v2:
+The current convergence path is:
 
 ```text
 Session -> Task -> Policy/Approval -> Capability Routing -> Worker/Adapter Execution -> Audit/Event Log -> Artifact/Promotion
 ```
 
-The `/api/v2/*` surface is the new development target. It treats Session as the
-fact spine, Task as intent, Run as execution projection, and Capability as the
-stable abstraction for workers, local deterministic tools, GitHub assistant,
-Hermes/OpenClaw, MCP, A2A, and future ADK workflow agents.
+New development should target `/api/v2/*`. Legacy `/api/v1/*` and MVP governance endpoints remain only as compatibility surfaces while consumers migrate.
 
-The worker claim/report/lease scheduler remains the execution backbone. Protocol
-systems such as MCP, A2A, and ADK are capability adapters, not separate
-schedulers. Legacy v1 and MVP governance endpoints remain only as migration
-surfaces while consumers move to `/api/v2/*`.
+## Core Model
+
+### Session
+
+`Session` is durable execution history, not a copy of a context window. Summaries, timelines, handoff notes, prompt bundles, patches, and PR descriptions are projections from machine facts. Recovery and replay should start from facts rather than from prompt reconstruction.
+
+### Task
+
+`Task` captures intent and governance metadata. It is the unit that policy evaluates, approvals guard, workers claim, and users inspect. A task may have multiple runs over time, especially after retry or recovery.
+
+### Run
+
+`Run` is an execution projection. It records the attempt made by a worker or adapter, including status, events, artifacts, errors, and retry relationships. Retry creates a new run rather than rewriting the old one.
+
+### Capability
+
+`Capability` is the stable abstraction for something the system can route to: a worker-backed executor, deterministic tool, MCP server, federated peer, knowledge runtime, browser surface, or coding adapter.
+
+### Policy
+
+`Policy` decides boundaries: allowed paths, forbidden paths, network mode, approval requirements, risk tags, runtime limits, and promotion rules. Policies are replaceable seams, not hard-coded model assumptions.
+
+### Artifact
+
+`Artifact` is the result surface: patches, reports, citations, logs intended for review, generated files, or delivery payloads. Runtime state is not automatically a source artifact.
+
+### Promotion
+
+`Promotion` is the explicit gate that upgrades an artifact into a higher-privilege state such as a patch handoff, draft PR, release candidate, or production-facing output.
+
+## Canonical Pipeline
 
 ```mermaid
 flowchart TD
-    A["Repo Scan<br/>AutoResearch Planner"] --> B["Worker Contract<br/>strict OpenHands or AEP job"]
-    B --> C["Isolated Workspace<br/>baseline + workspace + artifacts"]
-    C --> D["Validation Gate<br/>tests + path policy + artifact filtering"]
-    D --> E["Git Promotion Gate<br/>writer lease + approval + draft PR checks"]
-    E --> F["Patch Artifact"]
-    E --> G["Draft PR"]
+    A["Intent or repo scan"] --> B["Task and policy envelope"]
+    B --> C["Capability routing"]
+    C --> D["Worker or adapter execution"]
+    D --> E["Validation and audit"]
+    E --> F["Artifact"]
+    F --> G["Promotion gate"]
+    G --> H["Patch handoff"]
+    G --> I["Draft PR"]
+    G --> J["Rejected or needs approval"]
 ```
 
-The architectural principle is simple:
+The pipeline is intentionally asymmetric:
 
 - planning may select work,
-- workers may edit in isolation,
+- execution may produce a bounded result,
+- validation may judge the result,
 - promotion may upgrade the result,
-- but no single layer owns all three powers.
+- no single layer owns every power at once.
 
-## Zero-Trust Rules
+That separation is the primary safety mechanism.
+
+## Zero-Trust Invariants
 
 ### Brain and Hand Separation
 
-OpenHands and other workers are execution hands, not the control plane.
+Planning, execution, validation, and promotion are separate responsibilities. A worker runtime can edit inside an isolated workspace, but it does not own repository authority, approval authority, or production promotion.
 
-The control plane lives in the repository code:
+OpenHands, Codex, Hermes, OpenClaw, CrewAI, LangGraph, and similar integrations are execution hands. AAS remains the control plane above them.
 
-- planner services,
-- execution contracts,
-- validation logic,
-- promotion gates,
-- approval flows,
-- writer leases.
+### Patch-Only by Default
 
-### Patch-Only Default
+Autonomous coding work should default to patch-only execution. Workers can propose bounded source changes, but they should not directly run high-privilege git mutations such as committing, pushing, merging, rebasing, resetting, or checking out arbitrary branches.
 
-Autonomous edits should default to patch-only mode.
-
-The OpenHands worker prompt built by `src/autoresearch/core/services/openhands_worker.py` explicitly forbids direct git mutation commands such as commit, push, merge, rebase, reset, and checkout. The worker is expected to produce the smallest possible patch inside `allowed_paths`.
+The OpenHands worker prompt and the AEP runner both enforce this posture: produce the smallest reviewable patch inside the allowed scope, then let validation and promotion decide what happens next.
 
 ### Deny-Wins Policy Merge
 
-The AEP layer merges policy with deny-wins behavior:
+Policy composition is conservative:
 
 - forbidden paths widen,
 - allowed paths narrow,
 - stricter network mode wins,
-- smaller mutation limits win.
+- smaller mutation limits win,
+- stricter approval requirements win,
+- lower resource limits win.
 
-This prevents a single request from widening safety boundaries beyond the manifest defaults.
+A permissive request cannot override a stricter manifest, adapter default, or runtime policy.
 
-### Single Writer Rule
+### Single Writer for Mutable State
 
-`WriterLeaseService` is the repository's single-writer lock for dangerous mutable transitions.
+`WriterLeaseService` is the single-writer lock for dangerous mutable transitions. It is used for git promotion finalization, managed skill activation, approval-linked mutation flows, and other state changes where concurrent writers would create ambiguous history.
 
-It is used in the current codebase for:
+If a lease cannot be acquired, the system blocks rather than guessing.
 
-- git promotion finalization,
-- managed skill promotion,
-- approval-linked mutation paths,
-- and any place where two concurrent writers would create ambiguous state.
+### Runtime Artifacts Never Promote Implicitly
 
-If a lease is unavailable, the system should block rather than guess.
-
-### Runtime Artifacts Never Promote
-
-The promotion path rejects runtime/control artifacts from source promotion. The active deny prefixes include:
+Runtime and control-plane artifacts do not become source changes by accident. Current deny prefixes include:
 
 - `logs/`
 - `.masfactory_runtime/`
 - `memory/`
 - `.git/`
 
-This rule exists in both the AEP patch filtering logic and the git promotion gate.
+This rule exists in both patch filtering and promotion checks. A file may only be promoted when it is intentionally part of the source artifact boundary.
 
 ### Clean Base Requirement
 
-Two current operations enforce a clean checkout:
-
-- OpenHands CLI execution in `OpenHandsControlledBackendService`
-- Draft PR upgrade in `GitPromotionGateService`
-
-This prevents unrelated local changes from being mixed into agent output.
+Draft PR promotion requires a clean base checkout. Controlled execution also refuses unsafe paths when unrelated local edits would be mixed into agent output. This prevents accidental promotion of human work, runtime debris, or unrelated local changes.
 
 ## Physical and Sandbox Topology
 
-The physical environment is part of the architecture, not just an ops footnote.
+The implementation is designed to avoid depending on a single developer machine layout. Operators should configure paths through environment variables or repo-relative defaults rather than hard-coded absolute paths.
 
-### Host Layout
+Recommended variables:
 
-- host: MacBook Air M1
-- runtime: Colima / Docker
-- repository path: `/Volumes/AI_LAB/Github/autonomous-agent-stack`
-- ai-lab writable roots:
-  - `/Volumes/AI_LAB/ai_lab/workspace`
-  - `/Volumes/AI_LAB/ai_lab/logs`
-  - `/Volumes/AI_LAB/ai_lab/.cache`
+- `AAS_REPO_ROOT`: checkout root for this repository.
+- `AAS_WORKSPACE_ROOT`: writable execution workspace root.
+- `AAS_LOG_ROOT`: runtime log root.
+- `AAS_CACHE_ROOT`: cache root for sandboxed tools.
+- `AAS_STORAGE_ROOT`: optional external storage root.
 
-`ai_lab.env` binds the current environment to those external disk paths and points Docker to the Colima socket. Capacity, cleanup, and mount behavior all assume that external-disk layout.
+The launcher and runbooks should refer to these variables or to paths relative to the current checkout. Machine-specific examples belong in private local notes, not public docs.
 
-### Mount Behavior
+### Mount Model
 
-`scripts/launch_ai_lab.sh` builds a layered mount strategy:
+The controlled execution model has two separate isolation phases:
 
-1. host source checkout remains the baseline,
-2. the selected host root is mounted into the container at `/workspace` as read-only,
-3. when OpenHands controlled execution needs a writable surface, an extra writable mount is attached at `/opt/workspace`,
-4. controlled execution still snapshots into its own per-run baseline/workspace/artifact directories before validation or promotion.
+1. Execution isolation creates a per-run baseline, writable workspace, and artifacts directory.
+2. Promotion isolation creates a separate review or worktree surface before any result is upgraded.
 
-In practical handoff language:
+Conceptually:
 
-`Mac host source -> Colima -> ai-lab writable roots on /Volumes/AI_LAB -> isolated workspace -> isolated promotion worktree`
+```text
+host checkout
+  -> runtime or container boundary
+    -> configured writable workspace root
+      -> per-run isolated workspace
+        -> promotion worktree or patch artifact
+```
 
-### Execution Isolation
+The important property is not the exact host path. The important property is that source truth, execution workspace, and promotion workspace are distinct.
 
-`OpenHandsControlledBackendService` creates:
+### Temporary Worktrees
 
-- `baseline/`
-- `workspace/`
-- `artifacts/`
+Promotion worktrees may use salted paths under the operating system temporary directory, derived from repository identity. The salt prevents repositories with the same basename from colliding. Public docs should describe this as `$TMPDIR/<repo-id>/...` rather than embedding a developer-specific absolute path.
 
-under a per-run root. The main repo checkout is copied, not edited in place.
+## Runtime and Adapter Boundary
 
-### Promotion Isolation
+Runtime adapters expose common lifecycle operations:
 
-`GitPromotionGateService` and `GitPromotionService` create git worktrees under salted `/tmp` paths derived from the repo root hash. That salt is there to stop same-named repos from colliding.
+- create or bind a session,
+- run work,
+- stream or report progress,
+- cancel when supported,
+- report status,
+- expose doctor information.
 
-Examples of the current patterns:
+An adapter that cannot honestly support one of these semantics must mark the gap clearly. Mock-only runs, fake streams, no-op cancel, fake artifacts, or approval paths that only log without blocking are not stable behavior.
 
-- `/tmp/<repo-name>-<repo-hash>/promotion-worktrees/<run-id>`
-- `/tmp/repo-<repo-hash>/promotions/<promotion-id>/worktree`
+## Governed MCP and Tools
 
-This separation matters because promotion is intentionally a second isolation hop, not a continuation of execution isolation.
+MCP and tool calls are routed through a governed broker. The broker is responsible for permission checks, quota checks, approval gates, audit events, and result capture before execution is treated as part of the system record.
 
-## Trust State Machines
+This keeps tools below the control plane. A tool can perform useful work, but it should not silently become an independent authority boundary.
 
-### Managed Skill Ladder
+## Federation Boundary
 
-Managed skills advance through:
+Federation-ready v1 is intentionally bounded. It supports static peers, bilateral capability publication, worker or agent leases, quota ledgers, audit summaries, and governed task delivery.
 
-`pending -> quarantined -> cold_validated -> promoted`
+It does not claim to implement an open marketplace, real-money settlement, dynamic bidding, or full dispute arbitration. Future market layers should reuse the same ledgers, lease records, and audit events rather than bypassing them.
 
-Interpretation:
+## Current Code Entry Points
 
-- `pending`: request has been accepted but not yet trusted
-- `quarantined`: copied into holding
-- `cold_validated`: static and contract checks passed
-- `promoted`: copied into the active skill root
+Start with these areas when changing behavior:
 
-Promotion to active runtime is guarded by a writer lease. The system is intentionally biased toward rejection or stalling over unsafe activation.
+- FastAPI assembly and routers under `src/autoresearch/api/`.
+- Control-plane task and run logic under `src/autoresearch/control_plane/`.
+- Runtime and capability models under `src/autoresearch/agent_protocol/`.
+- Worker, adapter, governance, and promotion services under `src/autoresearch/core/services/`.
+- Runtime and capability configuration under `configs/`.
+- Focused regression tests under `tests/` and `tests/ga/`.
 
-### Patch Promotion Ladder
+## Documentation Boundary
 
-Patch promotion begins with a patch artifact and then computes a preflight report.
+Current public docs are language-separated:
 
-Patch-level checks include:
+- English canonical docs use `.md`.
+- Simplified Chinese mirrors use `.zh-CN.md`.
+- Historical reports and old checklists live under `docs/archive/**` and are not maintained as live architecture sources.
 
-- patch exists,
-- forbidden paths are untouched,
-- runtime artifacts are excluded,
-- changed file count limit,
-- patch line limit,
-- no binary changes unless explicitly allowed,
-- no direct write to the base branch,
-- writer lease is available.
-
-Draft PR adds stricter checks:
-
-- remote is healthy,
-- base repo is clean,
-- credentials are available,
-- target base branch exists,
-- approval is granted.
-
-If Draft PR cannot be safely upgraded but patch checks pass, the system degrades to patch mode.
-
-## Controlled Execution Loop
-
-### Planner
-
-`AutoResearchPlannerService` is the current active-seeking layer.
-
-It scans the repo for bounded, patch-friendly work. The current heuristics are intentionally simple and auditable:
-
-- high-signal backlog markers such as `FIXME`, `BUG`, `HACK`, `XXX`, `TODO`
-- source hotspots without a direct regression test
-
-The planner emits three downstream-ready contracts:
-
-- `OpenHandsWorkerJobSpec`
-- `ControlledExecutionRequest`
-- AEP `JobSpec`
-
-This means downstream execution does not need to reinterpret a vague natural-language task. The contract is explicit from the start.
-
-### Worker Contract
-
-`OpenHandsWorkerService` turns the selected plan into a strict worker prompt:
-
-- modify only allowed paths,
-- never touch forbidden paths,
-- do not perform git branching or commit actions,
-- keep the patch minimal,
-- leave promotion to the gate.
-
-### Controlled Backend
-
-`OpenHandsControlledBackendService` is the narrowest end-to-end path:
-
-- snapshot repo,
-- run backend,
-- collect changed files,
-- write patch artifact,
-- detect scope violations,
-- run validation command,
-- hand result to promotion gate only if policy and validation pass.
-
-If the repo root is dirty and the backend is OpenHands CLI, execution is blocked before it starts.
-
-### AEP Runner
-
-`AgentExecutionRunner` provides a contract-first execution path using:
-
-`JobSpec -> driver adapter -> DriverResult -> validation -> promotion patch -> decision`
-
-Both execution paths converge on the same architectural principle: promotion is downstream of validation and never worker-owned.
-
-## Persistent State and Artifacts
-
-The control plane stores typed metadata in SQLite repositories. This includes:
-
-- approvals,
-- managed skill installs,
-- AutoResearch plans,
-- execution runs,
-- evaluations,
-- capability snapshots,
-- other API-visible state.
-
-Per-run artifacts live on disk under runtime directories and include:
-
-- specs,
-- policies,
-- logs,
-- validation artifacts,
-- patch files,
-- summary JSON,
-- event streams.
-
-These runtime artifacts are intentionally excluded from promotion.
-
-## Canonical Files to Read During Handoff
-
-Start here when reloading context:
-
-- `ARCHITECTURE.md`
-- `memory/SOP/MASFactory_Strict_Execution_v1.md`
-- `src/autoresearch/core/services/autoresearch_planner.py`
-- `src/autoresearch/core/services/openhands_worker.py`
-- `src/autoresearch/core/services/openhands_controlled_backend.py`
-- `src/autoresearch/executions/runner.py`
-- `src/autoresearch/core/services/git_promotion_gate.py`
-- `src/autoresearch/core/services/managed_skill_registry.py`
-- `src/autoresearch/core/services/writer_lease.py`
-- `scripts/launch_ai_lab.sh`
-
-## Red Lines
-
-The current architecture is specifically designed to prevent:
-
-- direct pushes to `main` by workers,
-- direct activation of untrusted skill bundles,
-- concurrent mutation of shared promotion state,
-- runtime artifacts leaking into source patches,
-- uncontrolled widening of worker scope,
-- dirty local changes being mistaken for clean autonomous output.
-
-Those are not future features to "unlock". They are intentional safety boundaries.
+When updating architecture, update this file and `docs/architecture.zh-CN.md` together.

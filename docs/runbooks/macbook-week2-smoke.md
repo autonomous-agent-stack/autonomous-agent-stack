@@ -26,7 +26,7 @@ Useful overrides:
 
 ```bash
 PORT=8001 \
-CLEANUP_ROOT=/Volumes/AI_LAB/Github \
+CLEANUP_ROOT=$AAS_CODE_ROOT \
 WORKER_ID=macbook-week2 \
 scripts/macbook-week2-smoke.sh
 ```

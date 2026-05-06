@@ -65,7 +65,7 @@
 
 **数据库**: `src/memory/evolution_history.sqlite`
 
-**报告位置**: `docs/audit_reports/`
+**报告位置**: `docs/archive/audit_reports/`
 
 ---
 
@@ -121,7 +121,7 @@ OpenClaw Cron 调度器
 ### 测试 P4 Auditor
 
 ```bash
-cd /Volumes/PS1008/Github/autonomous-agent-stack
+cd $AAS_REPO_ROOT
 python3 src/opensage/p4_auditor.py
 ```
 

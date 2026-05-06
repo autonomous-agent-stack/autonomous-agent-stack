@@ -28,7 +28,7 @@
 ssh iCloud_GZ@<M1的IP>
 
 # 2. 进入项目目录
-cd /Volumes/PS1008/Github/autonomous-agent-stack
+cd $AAS_REPO_ROOT
 
 # 3. 执行零信任加固脚本
 bash scripts/zero-trust-dependencies.sh

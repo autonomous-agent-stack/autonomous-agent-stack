@@ -48,7 +48,7 @@ cat ~/.openclaw/openclaw.json | jq '.channels[] | select(.type == "telegram") | 
 #### Step 3：配置 .env
 
 ```bash
-cd /Volumes/PS1008/Github/autonomous-agent-stack
+cd $AAS_REPO_ROOT
 
 # 备份原文件
 cp .env .env.backup
@@ -67,7 +67,7 @@ nano .env
 pkill uvicorn
 
 # 启动新进程
-cd /Volumes/PS1008/Github/autonomous-agent-stack
+cd $AAS_REPO_ROOT
 nohup uvicorn src.autoresearch.api.main:app --host 0.0.0.0 --port 8000 &
 
 # 验证

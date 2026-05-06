@@ -5,7 +5,7 @@
 ## 1) 一次性初始化
 
 ```bash
-cd /Volumes/PS1008/Github/autonomous-agent-stack
+cd $AAS_REPO_ROOT
 
 # 安装并登录 Cloudflare
 brew install cloudflared

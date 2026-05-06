@@ -143,7 +143,7 @@ async def status_redirect():
 ### 步骤 3：构建前端
 
 ```bash
-cd /Volumes/PS1008/Github/autonomous-agent-stack/panel
+cd $AAS_REPO_ROOT/panel
 
 # 安装依赖
 npm install

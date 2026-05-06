@@ -46,7 +46,7 @@
 ### 步骤 1：更新面板
 
 ```bash
-cd /Volumes/PS1008/Github/autonomous-agent-stack/panel
+cd $AAS_REPO_ROOT/panel
 
 # 安装依赖（如果还没有）
 npm install
@@ -63,10 +63,10 @@ npm run build
 ### 步骤 2：执行测试
 
 ```bash
-cd /Volumes/PS1008/Github/autonomous-agent-stack
+cd $AAS_REPO_ROOT
 
 # 运行测试
-PYTHONPATH=/Volumes/PS1008/Github/autonomous-agent-stack/src:$PYTHONPATH \
+PYTHONPATH=$AAS_REPO_ROOT/src:$PYTHONPATH \
 .venv/bin/python -m pytest tests/test_v2_core.py -v
 ```
 

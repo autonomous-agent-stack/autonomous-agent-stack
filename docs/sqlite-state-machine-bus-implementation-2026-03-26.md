@@ -182,7 +182,7 @@ event_bus = StateMachineBus("data/event_bus.sqlite")
 ### 步骤 3：运行测试
 
 ```bash
-PYTHONPATH=/Volumes/PS1008/Github/autonomous-agent-stack/src:$PYTHONPATH \
+PYTHONPATH=$AAS_REPO_ROOT/src:$PYTHONPATH \
 .venv/bin/python -m pytest tests/test_state_machine_bus.py -v
 ```
 

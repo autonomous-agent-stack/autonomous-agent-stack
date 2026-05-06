@@ -38,7 +38,7 @@ Useful overrides:
 
 ```bash
 WORKER_ID=mac-mini-01 \
-HOUSEKEEPING_ROOT=/Volumes/AI_LAB/Github \
+HOUSEKEEPING_ROOT=$AAS_CODE_ROOT \
 WORKER_DRY_RUN=1 \
 scripts/start-mac-worker.sh
 ```
@@ -81,7 +81,7 @@ curl -sS \
     "queue_name": "housekeeping",
     "task_type": "cleanup_appledouble",
     "payload": {
-      "root_path": "/Volumes/AI_LAB/Github",
+      "root_path": "$AAS_CODE_ROOT",
       "recursive": true,
       "dry_run": true
     },

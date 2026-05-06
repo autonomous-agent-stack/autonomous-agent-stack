@@ -4,7 +4,7 @@
 
 <a id="quick-start-three-commands"></a>
 ```bash
-cd /Volumes/AI_LAB/Github/autonomous-agent-stack
+cd $AAS_REPO_ROOT
 make setup
 make doctor
 make start

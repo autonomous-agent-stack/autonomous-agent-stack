@@ -42,7 +42,7 @@ openhands --exp --headless -t "your task"
 - 本地 `OpenHands CLI 1.5.0` smoke checks 确认 `--exp --headless` 对于管道使用会自动干净退出，而 plain `--headless` 完成任务但可能保持附加到提示符
 - 相同的本地 smoke checks 确认 `--headless` 和 `-t`，但不是 `--json`，因此 JSON 模式仅对于实际暴露该标志的 CLI 构建是可选的
 - `ai-lab` 运行时有意识地在容器内默认为 `openhands`，而不是重用仅主机的二进制路径
-- 如果你的会话无法访问配置的 Docker/Colima socket，launcher 首先尝试安全的 Colima fallback：配置时的 repo 管理的外部存储，否则当前用户自己的 `~/.colima/<profile>` socket。当前用户 fallback 还会在该外部工作区根目录存在时添加 `/Volumes/AI_LAB` 作为 Colima 挂载；在共享机器上，使用专用配置文件（如 `COLIMA_PROFILE=ai-lab`）是最低风险的路径
+- 如果你的会话无法访问配置的 Docker/Colima socket，launcher 首先尝试安全的 Colima fallback：配置时的 repo 管理的外部存储，否则当前用户自己的 `~/.colima/<profile>` socket。当前用户 fallback 还会在该外部工作区根目录存在时添加 `$AAS_STORAGE_ROOT` 作为 Colima 挂载；在共享机器上，使用专用配置文件（如 `COLIMA_PROFILE=ai-lab`）是最低风险的路径
 - process 提供程序在操作上有用，但比完整的容器沙箱弱，因此应将其视为显式 fallback，而不是最终状态的隔离模型
 
 ## 运行时布局

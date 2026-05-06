@@ -197,7 +197,7 @@ logger.info("[Router-Gate] Token sanitized for audit log")
 
 ```bash
 # 创建分支
-cd /Volumes/PS1008/Github/autonomous-agent-stack
+cd $AAS_REPO_ROOT
 git checkout -b feature/topic-routing-gateway
 
 # 启动 4 个子代理

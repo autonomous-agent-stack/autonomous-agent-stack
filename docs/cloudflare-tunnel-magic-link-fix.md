@@ -51,14 +51,14 @@ TUNNEL_URL="https://patient-constructed-sake-gsm.trycloudflare.com"
 
 # 重启服务命令
 ```bash
-cd /Volumes/PS1008/Github/autonomous-agent-stack
+cd $AAS_REPO_ROOT
 pkill -f "uvicorn autoresearch.api.main:app --port 8001"
 
 export AUTORESEARCH_BASE_URL="https://patient-constructed-sake-gsm.trycloudflare.com"
 export AUTORESEARCH_BIND_HOST="127.0.0.1"
 export AUTORESEARCH_API_PORT=8001
 
-PYTHONPATH=/Volumes/PS1008/Github/autonomous-agent-stack/src:$PYTHONPATH \
+PYTHONPATH=$AAS_REPO_ROOT/src:$PYTHONPATH \
 nohup .venv/bin/python -m uvicorn autoresearch.api.main:app \
   --host 127.0.0.1 --port 8001 > /tmp/autoresearch_8001.log 2>&1 &
 ```

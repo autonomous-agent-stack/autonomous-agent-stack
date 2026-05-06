@@ -42,7 +42,7 @@ Notes:
 - The local `OpenHands CLI 1.5.0` smoke checks confirmed that `--exp --headless` auto-exits cleanly for pipeline use, while plain `--headless` completes the task but can remain attached to the prompt.
 - The same local smoke checks confirmed `--headless` and `-t`, but not `--json`, so JSON mode is opt-in only for CLI builds that actually expose that flag.
 - `ai-lab` runtime intentionally defaults to `openhands` inside the container, instead of reusing a host-only binary path.
-- If your session cannot access the configured Docker/Colima socket, the launcher first tries a safe Colima fallback: repo-managed external store when configured, otherwise the current user's own `~/.colima/<profile>` socket. The current-user fallback also adds `/Volumes/AI_LAB` as a Colima mount when that external workspace root exists; on shared machines, using a dedicated profile such as `COLIMA_PROFILE=ai-lab` is the lowest-risk path.
+- If your session cannot access the configured Docker/Colima socket, the launcher first tries a safe Colima fallback: repo-managed external store when configured, otherwise the current user's own `~/.colima/<profile>` socket. The current-user fallback also adds `$AAS_STORAGE_ROOT` as a Colima mount when that external workspace root exists; on shared machines, using a dedicated profile such as `COLIMA_PROFILE=ai-lab` is the lowest-risk path.
 - The process provider is operationally useful but weaker than the full container sandbox, so it should be treated as an explicit fallback rather than the end-state isolation model.
 
 ## Runtime Layout

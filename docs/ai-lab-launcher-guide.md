@@ -3,7 +3,7 @@
 `scripts/launch_ai_lab.sh` 把常见动作串起来了：
 
 1. 检查 Docker 是否可用
-2. 检查 `/Users/ai_lab/workspace` 是否存在
+2. 检查 `$AAS_WORKSPACE_ROOT` 是否存在
 3. 运行守卫检查
 4. 启动 Docker Compose
 5. 进入交互式容器 shell

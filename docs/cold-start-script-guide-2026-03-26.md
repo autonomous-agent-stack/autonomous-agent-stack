@@ -50,7 +50,7 @@ from bridge import health_router, blitz_router  # 使用 health_router
 ### 步骤 1：修复 bridge/__init__.py
 
 ```bash
-cat > /Volumes/PS1008/Github/autonomous-agent-stack/src/bridge/__init__.py << 'EOF'
+cat > $AAS_REPO_ROOT/src/bridge/__init__.py << 'EOF'
 """Bridge package - 系统健康状态 + Blitz Router"""
 
 from __future__ import annotations
@@ -71,17 +71,17 @@ EOF
 sed -i '' '1a\
 import logging\
 logger = logging.getLogger(__name__)
-' /Volumes/PS1008/Github/autonomous-agent-stack/src/autoresearch/api/main.py
+' $AAS_REPO_ROOT/src/autoresearch/api/main.py
 
 # 删除重复的 logging 导入
-sed -i '' '/^import logging$/d' /Volumes/PS1008/Github/autonomous-agent-stack/src/autoresearch/api/main.py
-sed -i '' '/^logger = logging.getLogger(__name__)$/d' /Volumes/PS1008/Github/autonomous-agent-stack/src/autoresearch/api/main.py
+sed -i '' '/^import logging$/d' $AAS_REPO_ROOT/src/autoresearch/api/main.py
+sed -i '' '/^logger = logging.getLogger(__name__)$/d' $AAS_REPO_ROOT/src/autoresearch/api/main.py
 
 # 再次在开头添加（确保只添加一次）
 sed -i '' '1a\
 import logging\
 logger = logging.getLogger(__name__)
-' /Volumes/PS1008/Github/autonomous-agent-stack/src/autoresearch/api/main.py
+' $AAS_REPO_ROOT/src/autoresearch/api/main.py
 ```
 
 ---
@@ -89,14 +89,14 @@ logger = logging.getLogger(__name__)
 ### 步骤 3：运行冷启动脚本
 
 ```bash
-bash /Volumes/PS1008/Github/autonomous-agent-stack/scripts/cold-start.sh
+bash $AAS_REPO_ROOT/scripts/cold-start.sh
 ```
 
 ---
 
 ## 📁 脚本位置
 
-**脚本路径**：`/Volumes/PS1008/Github/autonomous-agent-stack/scripts/cold-start.sh`
+**脚本路径**：`$AAS_REPO_ROOT/scripts/cold-start.sh`
 
 **功能**：
 - ✅ 清理端口（8001）

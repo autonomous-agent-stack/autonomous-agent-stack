@@ -141,7 +141,7 @@ curl http://127.0.0.1:8001/api/v1/system/health
     "apple_double_cleaned": 82,
     "ast_blocks": 14,
     "sandbox_type": "Docker",
-    "storage_path": "/Volumes/PS1008"
+    "storage_path": "$AAS_STORAGE_ROOT"
   }
 }
 ```

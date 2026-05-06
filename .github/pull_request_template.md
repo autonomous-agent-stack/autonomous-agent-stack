@@ -1,30 +1,33 @@
 <!--
-与仓库 AGENTS.md「中英并列」一致：同一主题先简体中文、后英文；标题可用「English | 中文」。
-Draft PR 可不填完整；转为 Ready for review 前请补全双语。
+Active repository docs are language-separated. If this single PR body needs both
+languages, keep them in clearly separated sections instead of inline mixed blocks.
+Draft PRs can be brief; ready PRs should include enough context for review.
 -->
-## Title convention | 标题约定
+## Summary
 
-建议在 PR 标题同时体现两种语言，例如：`feat: English summary | 功能摘要`
+(Background, goal, and main changes.)
 
-## Summary | 摘要
+## 中文摘要
 
-**中文：** （背景、目标、主要改动）
+（背景、目标、主要改动。）
 
-**English:** (Background, goal, main changes.)
+## Test Plan
 
-## Test plan | 测试说明
+(How this was verified; include local commands or scenarios.)
 
-**中文：** （如何验证、本地命令或场景）
+## 测试说明
 
-**English:** (How to verify; commands or scenarios.)
+（如何验证；包含本地命令或场景。）
 
-## Risk / rollout | 风险与发布
+## Risk / Rollout
 
-**中文：** （兼容性、回滚、需运维知会事项；无则写「无」）
+(Compatibility, rollback, or operations notes; write "None" if there are none.)
 
-**English:** (Compatibility, rollback, ops notes; or "None".)
+## 风险与发布
 
-## Checklist | 检查项
+（兼容性、回滚或运维注意事项；无则写“无”。）
 
-- [ ] 已阅读并遵守 `AGENTS.md` 中英并列约定（对外说明性文字）。
-- [ ] 关联 Issue（如有）：#
+## Checklist
+
+- [ ] I followed the language-separated documentation policy in `AGENTS.md`.
+- [ ] Linked issue, if any: #

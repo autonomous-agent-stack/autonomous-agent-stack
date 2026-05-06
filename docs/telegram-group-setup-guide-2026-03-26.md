@@ -94,7 +94,7 @@ AUTORESEARCH_TOPIC_BUSINESS=40
 #### 步骤 1：启动服务
 
 ```bash
-cd /Volumes/PS1008/Github/autonomous-agent-stack
+cd $AAS_REPO_ROOT
 
 # 设置环境变量
 export AUTORESEARCH_TELEGRAM_BOT_TOKEN="your-bot-token"
@@ -102,7 +102,7 @@ export AUTORESEARCH_API_HOST="127.0.0.1"
 export AUTORESEARCH_API_PORT="8001"
 
 # 启动服务
-PYTHONPATH=/Volumes/PS1008/Github/autonomous-agent-stack/src:$PYTHONPATH \
+PYTHONPATH=$AAS_REPO_ROOT/src:$PYTHONPATH \
 nohup .venv/bin/python -m uvicorn autoresearch.api.main:app \
   --host 127.0.0.1 --port 8001 > /tmp/autoresearch_8001.log 2>&1 &
 ```
@@ -274,13 +274,13 @@ env | grep AUTORESEARCH_TOPIC
 
 ```bash
 # 一键启动（包含所有配置）
-cd /Volumes/PS1008/Github/autonomous-agent-stack
+cd $AAS_REPO_ROOT
 
 # 1. 加载环境变量
 source .env
 
 # 2. 启动服务
-PYTHONPATH=/Volumes/PS1008/Github/autonomous-agent-stack/src:$PYTHONPATH \
+PYTHONPATH=$AAS_REPO_ROOT/src:$PYTHONPATH \
 nohup .venv/bin/python -m uvicorn autoresearch.api.main:app \
   --host 127.0.0.1 --port 8001 > /tmp/autoresearch_8001.log 2>&1 &
 
