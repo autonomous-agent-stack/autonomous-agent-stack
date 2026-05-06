@@ -557,6 +557,32 @@ def _build_v2_approval_detail_message(
     return "\n".join(lines).strip()
 
 
+def _build_v2_approval_reply_markup(approval_id: str | None) -> dict[str, Any] | None:
+    normalized = str(approval_id or "").strip()
+    if not normalized:
+        return None
+    return {
+        "inline_keyboard": [
+            [
+                {
+                    "text": "批准 / Approve",
+                    "callback_data": f"/approve {normalized} approve",
+                },
+                {
+                    "text": "拒绝 / Reject",
+                    "callback_data": f"/approve {normalized} reject",
+                },
+            ],
+            [
+                {
+                    "text": "详情 / Details",
+                    "callback_data": f"/approve {normalized}",
+                }
+            ],
+        ]
+    }
+
+
 def _build_approval_detail_message(approval: Any) -> str:
     lines = [
         "[Approval Detail]",

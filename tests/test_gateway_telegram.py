@@ -176,6 +176,7 @@ class _StubTelegramNotifier:
             {
                 "chat_id": chat_id,
                 "text": text,
+                "reply_markup": reply_markup,
                 "message_thread_id": message_thread_id,
                 "parse_mode": parse_mode,
             }
@@ -948,6 +949,40 @@ def test_telegram_youtube_link_creates_v2_approval_and_tracks_session(
         assert len(notifier.messages) == 1
         assert "Task requires approval" in notifier.messages[0]["text"]
         assert payload["metadata"]["approval_id"] in notifier.messages[0]["text"]
+        reply_markup = notifier.messages[0]["reply_markup"]
+        assert reply_markup is not None
+        approve_button = reply_markup["inline_keyboard"][0][0]
+        reject_button = reply_markup["inline_keyboard"][0][1]
+        assert approve_button["text"] == "批准 / Approve"
+        assert reject_button["text"] == "拒绝 / Reject"
+        assert approve_button["callback_data"] == f"/approve {payload['metadata']['approval_id']} approve"
+
+        approve_response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 13151,
+                "callback_query": {
+                    "id": "approve-callback-1",
+                    "data": approve_button["callback_data"],
+                    "from": {"id": 9710, "username": "youtube-user"},
+                    "message": {
+                        "message_id": 188,
+                        "chat": {"id": 9710, "type": "private"},
+                    },
+                },
+            },
+        )
+        assert approve_response.status_code == 200
+        approve_payload = approve_response.json()["metadata"]
+        assert approve_payload["source"] == "telegram_approve_decision"
+        assert approve_payload["approval_id"] == payload["metadata"]["approval_id"]
+        assert approve_payload["status"] == ControlPlaneTaskStatus.QUEUED.value
+        assert approve_payload["run_id"]
+        queued_run = worker_scheduler.get_run(approve_payload["run_id"])
+        assert queued_run is not None
+        assert queued_run.metadata["telegram_completion_via_api"] is True
+        assert queued_run.metadata["chat_id"] == "9710"
+        assert queued_run.metadata["control_plane_task_id"] == payload["metadata"]["control_plane_task_id"]
     finally:
         app.dependency_overrides.pop(get_telegram_notifier_service, None)
 
