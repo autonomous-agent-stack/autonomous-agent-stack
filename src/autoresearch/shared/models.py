@@ -267,6 +267,11 @@ class SessionEventCreateRequest(StrictModel):
     session_id: str = Field(..., min_length=1)
     source: str = Field(..., min_length=1)
     event_type: str = Field(..., min_length=1)
+    event_version: str = "v1"
+    actor_type: str = "system"
+    actor_id: str = "aas"
+    causation_id: str | None = None
+    correlation_id: str | None = None
     role: Literal["system", "user", "assistant", "tool", "status"] = "status"
     content: str = ""
     status: str | None = None
@@ -276,14 +281,24 @@ class SessionEventCreateRequest(StrictModel):
     worker_id: str | None = None
     external_event_id: str | None = None
     idempotency_key: str | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
+    artifact_refs: list[dict[str, Any]] = Field(default_factory=list)
+    policy_decision_id: str | None = None
+    content_hash: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class SessionEventRead(StrictModel):
     event_id: str
     session_id: str
+    sequence_no: int = 0
     source: str
     event_type: str
+    event_version: str = "v1"
+    actor_type: str = "system"
+    actor_id: str = "aas"
+    causation_id: str | None = None
+    correlation_id: str | None = None
     role: Literal["system", "user", "assistant", "tool", "status"] = "status"
     content: str = ""
     status: str | None = None
@@ -293,6 +308,10 @@ class SessionEventRead(StrictModel):
     worker_id: str | None = None
     external_event_id: str | None = None
     idempotency_key: str | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
+    artifact_refs: list[dict[str, Any]] = Field(default_factory=list)
+    policy_decision_id: str | None = None
+    content_hash: str = ""
     metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
 

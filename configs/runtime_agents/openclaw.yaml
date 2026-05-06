@@ -3,6 +3,11 @@
   "kind": "runtime",
   "service": "autoresearch.core.services.openclaw_runtime_adapter:OpenClawRuntimeAdapterService",
   "version": "0.1",
+  "stability": "beta",
+  "certification_status": "partial",
+  "certification_profile": "adapter-certification-matrix",
+  "live_test_command": "make live-openclaw",
+  "isolation_profile": "default_runtime_sandbox",
   "capabilities": [
     "create_session",
     "run",

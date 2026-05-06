@@ -1,0 +1,26 @@
+version: 1
+profiles:
+  local:
+    driver: sqlite
+    production: false
+    allowed_for_ga: false
+    notes: "Local development only."
+  dev:
+    driver: sqlite
+    production: false
+    allowed_for_ga: false
+    notes: "Developer and test profile only."
+  production:
+    driver: postgresql
+    production: true
+    allowed_for_ga: true
+    required_features:
+      - transactional_event_append
+      - sequence_no_allocation
+      - idempotency_key_unique_constraint
+      - content_hash_verification
+      - event_replay
+      - backup_restore
+      - migration_rollback
+      - outbox_table
+      - inbox_dedupe_table

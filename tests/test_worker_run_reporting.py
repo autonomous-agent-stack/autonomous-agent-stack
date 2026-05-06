@@ -8,11 +8,16 @@ import pytest
 
 from autoresearch.api.dependencies import (
     get_control_plane_service,
+    get_openclaw_compat_service,
+    get_telegram_notifier_service,
+    get_telegram_settings,
     get_worker_registry_service,
     get_worker_scheduler_service,
 )
 from autoresearch.api.main import app
+from autoresearch.api.settings import TelegramSettings
 from autoresearch.control_plane.contracts import (
+    ControlPlaneApprovalDecisionRequest,
     ControlPlaneApprovalGrantRead,
     ControlPlaneApprovalRead,
     ControlPlaneArtifactRead,
@@ -26,11 +31,14 @@ from autoresearch.control_plane.contracts import (
     ControlPlaneTaskStatus,
 )
 from autoresearch.control_plane.service import ControlPlaneRepositories, ControlPlaneService
+from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.session_events import SessionEventService
 from autoresearch.core.services.worker_registry import WorkerRegistryService
 from autoresearch.core.services.worker_scheduler import WorkerSchedulerService
 from autoresearch.shared.models import (
     JobStatus,
+    OpenClawSessionCreateRequest,
+    OpenClawSessionRead,
     SessionEventRead,
     WorkerClaimRequest,
     WorkerLeaseRead,
@@ -44,6 +52,37 @@ from autoresearch.shared.models import (
     utc_now,
 )
 from autoresearch.shared.store import SQLiteModelRepository
+
+
+class _StubTelegramNotifier:
+    def __init__(self) -> None:
+        self.messages: list[dict[str, object]] = []
+
+    @property
+    def enabled(self) -> bool:
+        return True
+
+    def send_message(
+        self,
+        *,
+        chat_id: str,
+        text: str,
+        disable_web_page_preview: bool = True,
+        reply_markup: dict[str, object] | None = None,
+        message_thread_id: int | None = None,
+        reply_to_message_id: int | None = None,
+        parse_mode: str | None = None,
+    ) -> bool:
+        self.messages.append(
+            {
+                "chat_id": chat_id,
+                "text": text,
+                "reply_markup": reply_markup,
+                "message_thread_id": message_thread_id,
+                "parse_mode": parse_mode,
+            }
+        )
+        return True
 
 
 @pytest.fixture
@@ -272,6 +311,111 @@ def test_report_terminal_control_plane_run_updates_v2_state(
     timeline = session_events.timeline(session_id="session-worker-report-sync")
     event_types = [event.event_type for event in timeline.events]
     assert "run.succeeded" in event_types
+
+
+def test_report_xreach_auth_pause_queues_hermes_recovery_and_sends_card(
+    worker_client: TestClient,
+    worker_services: tuple[WorkerRegistryService, WorkerSchedulerService],
+    tmp_path: Path,
+) -> None:
+    registry, scheduler = worker_services
+    _register_worker(registry, worker_id="mac-mini-01")
+    control_plane, session_events = _build_control_plane_service(tmp_path, scheduler)
+    task = control_plane.create_task(
+        ControlPlaneTaskCreateRequest(
+            name="整理X书签",
+            intent="整理X书签",
+            session_id="session-xreach-auth-pause",
+            capability_id="source_collect",
+            parameters={
+                "canonical_task_type": "source_collect.collect",
+                "source_kind": "x_bookmarks",
+                "downstream_capability_id": "content_kb",
+            },
+            requested_by="9536",
+        )
+    )
+    approved = control_plane.decide_task(
+        task.task_id,
+        ControlPlaneApprovalDecisionRequest(decision="approved", decided_by="9536"),
+    )
+    assert approved is not None
+    assert approved.run_id is not None
+    scheduler.merge_queue_metadata(
+        approved.run_id,
+        {
+            "telegram_completion_via_api": True,
+            "chat_id": "9536",
+            "session_key": "telegram:personal:user:9536",
+            "telegram_queue_ack_message_id": 123,
+        },
+    )
+    claimed = scheduler.claim("mac-mini-01", WorkerClaimRequest(), now=utc_now())
+    assert claimed.run is not None
+    notifier = _StubTelegramNotifier()
+
+    app.dependency_overrides[get_control_plane_service] = lambda: control_plane
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+    app.dependency_overrides[get_telegram_settings] = lambda: TelegramSettings(
+        bot_token="fake-token",
+        allowed_uids={"9536"},
+    )
+    try:
+        response = worker_client.post(
+            f"/api/v1/workers/mac-mini-01/runs/{approved.run_id}/report",
+            json={
+                "status": "running",
+                "message": "source_collect waiting for X auth recovery",
+                "result": {
+                    "summary": "X 书签采集需要恢复本机登录态，管家已交给 Hermes 兜底。",
+                    "collector": "xreach",
+                    "error_kind": "collector_auth_required",
+                    "collector_error": "GraphQL Error: Could not authenticate you",
+                    "xreach_auth_attempts": [{"step": "auth check", "returncode": 1}],
+                },
+                "metrics": {
+                    "worker_pause_reason": "xreach_auth_required",
+                    "error_kind": "collector_auth_required",
+                    "collector": "xreach",
+                    "telegram_notify_status": "deferred",
+                },
+            },
+        )
+        assert response.status_code == 200
+    finally:
+        app.dependency_overrides.pop(get_control_plane_service, None)
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+        app.dependency_overrides.pop(get_telegram_settings, None)
+
+    stored = scheduler.get_run(approved.run_id)
+    assert stored is not None
+    assert stored.status == JobStatus.RUNNING
+    assert stored.metadata["telegram_xreach_auth_recovery_sent"] is True
+    leases = scheduler.list_leases()
+    assert len(leases) == 1
+    assert leases[0].active is False
+
+    projected = control_plane.get_task(task.task_id)
+    assert projected is not None
+    assert projected.status == ControlPlaneTaskStatus.RUNNING
+    assert projected.metadata["xreach_auth_recovery_worker_run_id"]
+    recovery_run = scheduler.get_run(projected.metadata["xreach_auth_recovery_worker_run_id"])
+    assert recovery_run is not None
+    assert recovery_run.task_type.value == "claude_runtime"
+    assert recovery_run.payload["runtime_id"] == "hermes"
+
+    assert notifier.messages
+    recovery_message = notifier.messages[-1]
+    text = str(recovery_message["text"])
+    assert "需要你配合恢复 X 书签采集" in text
+    assert "Could not authenticate" not in text
+    reply_markup = recovery_message["reply_markup"]
+    assert isinstance(reply_markup, dict)
+    buttons = reply_markup["inline_keyboard"]
+    assert buttons[0][0]["callback_data"] == f"/xreach-auth-open {approved.run_id}"
+    assert buttons[0][1]["callback_data"] == f"/xreach-auth-resume {approved.run_id}"
+    event_types = [event.event_type for event in session_events.timeline(session_id="session-xreach-auth-pause").events]
+    assert "run.recovery_queued" in event_types
 
 
 def test_report_control_plane_sync_failure_does_not_break_report(
@@ -742,6 +886,64 @@ def test_butler_fallback_fires_when_worker_notify_failed(
         app.dependency_overrides.pop(get_telegram_notifier_service, None)
 
 
+def test_butler_completion_is_saved_as_assistant_context_for_followups(
+    worker_client: TestClient,
+    worker_services: tuple[WorkerRegistryService, WorkerSchedulerService],
+    tmp_path: Path,
+) -> None:
+    """Telegram completion cards should become session context for the next short follow-up."""
+    from autoresearch.api.dependencies import get_telegram_notifier_service
+    from autoresearch.api.main import app
+
+    registry, scheduler = worker_services
+    _register_worker(registry, worker_id="mac-mini-01")
+    openclaw_service = OpenClawCompatService(
+        repository=SQLiteModelRepository(
+            db_path=tmp_path / "worker-openclaw-context.sqlite3",
+            table_name="openclaw_sessions_worker_context_test",
+            model_cls=OpenClawSessionRead,
+        )
+    )
+    session = openclaw_service.create_session(
+        OpenClawSessionCreateRequest(
+            channel="telegram",
+            external_id="777",
+            title="Telegram 777",
+            session_key="telegram:personal:user:777",
+        )
+    )
+    run_id = _enqueue_and_claim_claude_runtime(
+        scheduler,
+        extra_metadata={"control_plane_session_id": session.session_id},
+    )
+
+    notifier = _StubNotifier()
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+    app.dependency_overrides[get_openclaw_compat_service] = lambda: openclaw_service
+    try:
+        report = worker_client.post(
+            f"/api/v1/workers/mac-mini-01/runs/{run_id}/report",
+            json={
+                "status": "completed",
+                "message": "ok",
+                "metrics": {"telegram_notify_status": "failed"},
+            },
+        )
+        assert report.status_code == 200
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+        app.dependency_overrides.pop(get_openclaw_compat_service, None)
+
+    refreshed = openclaw_service.get_session(session.session_id)
+    assert refreshed is not None
+    assistant_events = [event for event in refreshed.events if event.get("role") == "assistant"]
+    assert assistant_events
+    latest = assistant_events[-1]
+    assert "管家兜底" in latest["content"]
+    assert latest["metadata"]["source"] == "telegram_butler_fallback_completion"
+    assert latest["metadata"]["run_id"] == run_id
+
+
 def test_butler_fallback_explains_source_collect_auth_failure(
     worker_client: TestClient,
     worker_services: tuple[WorkerRegistryService, WorkerSchedulerService],
@@ -809,6 +1011,111 @@ def test_butler_fallback_explains_source_collect_auth_failure(
         assert "Could not authenticate you" not in text
     finally:
         app.dependency_overrides.pop(get_telegram_notifier_service, None)
+
+
+def test_butler_fallback_describes_source_collect_content_kb_completion(
+    worker_client: TestClient,
+    worker_services: tuple[WorkerRegistryService, WorkerSchedulerService],
+) -> None:
+    """source_collect downstream content_kb completion should read like success, not failed delivery."""
+    from autoresearch.api.dependencies import get_telegram_notifier_service
+    from autoresearch.api.main import app
+
+    registry, scheduler = worker_services
+    _register_worker(registry, worker_id="mac-mini-01")
+    queued = scheduler.enqueue(
+        WorkerQueueItemCreateRequest(
+            task_name="整理X书签",
+            task_type="content_kb_ingest",
+            payload={
+                "chat_id": "777",
+                "runtime_id": "content_kb",
+                "capability_id": "content_kb",
+                "agent_name": "content_kb",
+                "target_agents": ["source_collect", "content_kb"],
+                "topic": "ai-status-and-outlook",
+            },
+            metadata={
+                "telegram_queue_ack_message_id": 4242,
+                "telegram_completion_via_api": True,
+                "capability_id": "content_kb",
+                "source_collect_downstream": True,
+                "source_collect_worker_run_id": "run_source_collect_001",
+            },
+        ),
+        now=utc_now(),
+    )
+    scheduler.claim("mac-mini-01", WorkerClaimRequest(), now=utc_now() + timedelta(seconds=1))
+
+    notifier = _StubNotifier()
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+    try:
+        report = worker_client.post(
+            f"/api/v1/workers/mac-mini-01/runs/{queued.run_id}/report",
+            json={
+                "status": "completed",
+                "message": "content_kb_ingest: ai-status-and-outlook → knowledge-base/knowledge-base",
+                "result": {
+                    "topic": "ai-status-and-outlook",
+                    "repo": "knowledge-base/knowledge-base",
+                    "directory": "knowledge-base/ai-status-and-outlook",
+                    "files_written": ["knowledge-base/ai-status-and-outlook/normalized_subtitle.txt"],
+                    "source_collect_answer": "有，发现新增 2 条 X 书签。\nYes, found 2 new X bookmark(s).",
+                    "source_collect_item_count": 50,
+                    "source_collect_new_item_count": 2,
+                    "source_collect_known_item_count": 48,
+                    "source_collect_previous_run_id": "run_source_collect_previous",
+                    "source_collect_new_source_urls": [
+                        "https://twitter.com/alice/status/222",
+                        "https://twitter.com/bob/status/333",
+                    ],
+                },
+                "metrics": {"files_written": 1, "indexes_built": 3},
+            },
+        )
+        assert report.status_code == 200
+        assert len(notifier.edits) == 1
+        text = str(notifier.edits[0]["text"])
+        assert notifier.edits[0]["parse_mode"] == "MarkdownV2"
+        assert "X 书签：采集结果已同步到知识库" in text
+        assert "X bookmarks: collection synced to the knowledge base" in text
+        assert "回答 / Answer" in text
+        assert "新增 2 条 X 书签" in text
+        assert "统计 / Stats：采集 50；新增 2；已知 48" in text
+        assert "run\\_source\\_collect\\_previous" not in text
+        assert "twitter\\.com/alice/status/222" in text
+        assert "知识库 / KB：knowledge\\-base/knowledge\\-base · ai\\-status\\-and\\-outlook" in text
+        assert "normalized\\_subtitle\\.txt" in text
+        assert "worker 未能直接送达" not in text
+        assert "管家兜底" not in text
+        stored = scheduler.get_run(queued.run_id)
+        assert stored is not None
+        assert stored.metadata.get("telegram_butler_fallback_sent") is True
+        assert stored.metadata.get("telegram_butler_fallback_reason") == "missing_status"
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+
+
+def test_source_collect_new_item_details_are_compact() -> None:
+    from autoresearch.api.routers.workers import _display_new_item_details
+
+    lines = _display_new_item_details(
+        [
+            {
+                "title": "X bookmark by @alice",
+                "author": "Alice",
+                "url": "https://twitter.com/alice/status/222",
+                "text": "A" * 260,
+            }
+        ]
+    )
+
+    text = "\n".join(lines)
+    assert "内容 / Text" not in text
+    assert "摘要 / Summary" not in text
+    assert "Alice：" in text
+    assert "https://twitter.com/alice/status/222" in text
+    assert len(text) < 260
 
 
 def test_butler_primary_edits_ack_when_worker_delegates_card(

@@ -13,12 +13,10 @@ from autoresearch.core.services.worker_registry import WorkerRegistryService
 from autoresearch.core.services.worker_scheduler import WorkerSchedulerService
 from autoresearch.shared.models import (
     WorkerClaimRequest,
-    WorkerLeaseRead,
     WorkerHealth,
     WorkerHeartbeatRequest,
     WorkerMode,
     WorkerQueueItemCreateRequest,
-    WorkerQueueItemRead,
     WorkerRegisterRequest,
     WorkerRegistrationRead,
     WorkerRunReportRequest,
@@ -343,6 +341,136 @@ def test_worker_inventory_projects_active_tasks_and_latest_summary(
     detail2 = worker_client.get("/api/v1/workers/mac-mini-01")
     assert detail2.status_code == 200
     assert detail2.json()["display_status"] == "busy"
+
+
+def test_worker_inventory_projects_external_resume_pause_as_online(
+    worker_client: TestClient,
+    worker_service: WorkerRegistryService,
+) -> None:
+    worker_service.register(
+        WorkerRegisterRequest(
+            worker_id="mac-mini-01",
+            worker_type=WorkerType.MAC,
+            mode=WorkerMode.STANDBY,
+            role="housekeeper",
+            capabilities=["source_collect"],
+        ),
+    )
+    scheduler = getattr(worker_client, "_worker_scheduler")
+    queued = scheduler.enqueue(
+        WorkerQueueItemCreateRequest(
+            task_type="source_collect",
+            task_name="collect bookmarks",
+            payload={"source_kind": "x_bookmarks"},
+        ),
+        now=utc_now(),
+    )
+    scheduler.claim("mac-mini-01", WorkerClaimRequest(), now=utc_now())
+    scheduler.report(
+        "mac-mini-01",
+        queued.run_id,
+        WorkerRunReportRequest(
+            status="running",
+            message="waiting for X auth recovery",
+            metrics={"worker_pause_reason": "xreach_auth_required"},
+        ),
+        now=utc_now(),
+    )
+
+    payload = worker_client.get("/api/v1/workers/mac-mini-01").json()
+    assert payload["active_tasks"] == 0
+    assert payload["display_status"] == "online"
+    assert payload["latest_task_summary"]["status"] == "running"
+
+
+def test_worker_inventory_ignores_stale_heartbeat_active_run_marker(
+    worker_client: TestClient,
+    worker_service: WorkerRegistryService,
+) -> None:
+    worker_service.register(
+        WorkerRegisterRequest(
+            worker_id="mac-mini-01",
+            worker_type=WorkerType.MAC,
+            mode=WorkerMode.STANDBY,
+            role="housekeeper",
+            capabilities=["source_collect"],
+        ),
+    )
+    scheduler = getattr(worker_client, "_worker_scheduler")
+    queued = scheduler.enqueue(
+        WorkerQueueItemCreateRequest(
+            task_type="source_collect",
+            task_name="collect bookmarks",
+            payload={"source_kind": "x_bookmarks"},
+        ),
+        now=utc_now(),
+    )
+    scheduler.claim("mac-mini-01", WorkerClaimRequest(), now=utc_now())
+    scheduler.report(
+        "mac-mini-01",
+        queued.run_id,
+        WorkerRunReportRequest(
+            status="completed",
+            message="source_collect completed",
+        ),
+        now=utc_now(),
+    )
+    worker_service.heartbeat(
+        "mac-mini-01",
+        WorkerHeartbeatRequest(
+            health=WorkerHealth.OK,
+            load=1.0,
+            queue_depth=1,
+            accepting_work=False,
+            metadata={"active_run_id": queued.run_id},
+        ),
+        now=utc_now(),
+    )
+
+    payload = worker_client.get("/api/v1/workers/mac-mini-01").json()
+    assert payload["active_tasks"] == 0
+    assert payload["queue_depth"] == 0
+    assert payload["display_status"] == "online"
+    assert payload["dispatch_rules"]["accepting_work"] is True
+    assert "active_run_id" not in payload["metadata"]
+    summary = worker_client.get("/api/v1/workers/summary").json()
+    assert summary["online_workers"] == 1
+    assert summary["busy_workers"] == 0
+
+
+def test_worker_inventory_hides_shadowed_stale_duplicate_registration(
+    worker_client: TestClient,
+    worker_service: WorkerRegistryService,
+) -> None:
+    runtime_metadata = {"runtime_fingerprint": "mac:mini.local"}
+    worker_service.register(
+        WorkerRegisterRequest(
+            worker_id="mac-old-id",
+            worker_type=WorkerType.MAC,
+            mode=WorkerMode.STANDBY,
+            role="housekeeper",
+            capabilities=["source_collect"],
+            metadata=runtime_metadata,
+        ),
+        now=utc_now() - timedelta(seconds=120),
+    )
+    worker_service.register(
+        WorkerRegisterRequest(
+            worker_id="mac-mini-01",
+            worker_type=WorkerType.MAC,
+            mode=WorkerMode.STANDBY,
+            role="housekeeper",
+            capabilities=["source_collect"],
+            metadata=runtime_metadata,
+        ),
+        now=utc_now(),
+    )
+
+    payload = worker_client.get("/api/v1/workers").json()
+    assert payload["summary"]["total_workers"] == 1
+    assert payload["summary"]["online_workers"] == 1
+    assert payload["summary"]["offline_workers"] == 0
+    assert payload["workers"][0]["worker_id"] == "mac-mini-01"
 
 
 def test_worker_inventory_projects_agent_and_execution_mode_counts(

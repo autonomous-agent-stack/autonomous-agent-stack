@@ -3,6 +3,11 @@
   "kind": "runtime",
   "service": "autoresearch.core.services.hermes_runtime_adapter:HermesRuntimeAdapterService",
   "version": "1.0",
+  "stability": "beta",
+  "certification_status": "partial",
+  "certification_profile": "adapter-certification-matrix",
+  "live_test_command": "make live-hermes",
+  "isolation_profile": "default_runtime_sandbox",
   "capabilities": [
     "create_session",
     "run",

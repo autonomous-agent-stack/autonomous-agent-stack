@@ -302,6 +302,56 @@ def test_daemon_executes_excel_audit_with_v2_payload_defaults(
     assert "excel_audit" in run.message
 
 
+def test_daemon_executes_excel_audit_with_real_workbook(
+    tmp_path: Path,
+    worker_services: tuple[WorkerRegistryService, WorkerSchedulerService],
+) -> None:
+    openpyxl = pytest.importorskip("openpyxl")
+    workbook_path = tmp_path / "sales.xlsx"
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "Sales"
+    sheet.append(["order_id", "status", "sales", "rate", "commission"])
+    sheet.append(["A-001", "done", 1000, 0.1, 100])
+    sheet.append(["A-002", "done", 500, 0.1, 50])
+    workbook.save(workbook_path)
+    workbook.close()
+
+    scheduler = worker_services[1]
+    daemon = _build_daemon(tmp_path, worker_services=worker_services)
+    queued = scheduler.enqueue(
+        WorkerQueueItemCreateRequest(
+            task_type=WorkerTaskType.EXCEL_AUDIT,
+            payload={
+                "source_files": [str(workbook_path)],
+                "rules": [
+                    {
+                        "id": "commission",
+                        "name": "commission",
+                        "when": "status == done",
+                        "formula": "sales * rate",
+                    }
+                ],
+                "sheet_mapping": {"source": "Sales"},
+                "outputs": {"expected_column": "commission"},
+            },
+            requested_by="telegram-user",
+        ),
+        now=utc_now(),
+    )
+
+    processed = daemon.run_once(now=utc_now())
+
+    assert processed is True
+    run = scheduler.get_run(queued.run_id)
+    assert run is not None
+    assert run.status == JobStatus.COMPLETED
+    assert run.result is not None
+    assert run.result["rows_checked"] == 2
+    assert run.result["rows_mismatched"] == 0
+    assert run.result["artifacts"]
+
+
 def test_daemon_executes_youtube_action_through_bridge(
     tmp_path: Path,
     worker_services: tuple[WorkerRegistryService, WorkerSchedulerService],
@@ -939,8 +989,8 @@ def test_notify_telegram_skips_worker_http_when_delegated_to_api(
     assert outcome.result.get("telegram_completion_card_parse_mode") == "MarkdownV2"
     card = str(outcome.result.get("telegram_completion_card_text"))
     assert "worker stdout" in card
-    assert "诊断" in card
-    assert "runtime\\=claude" in card
+    assert "诊断" not in card
+    assert "runtime\\=claude" not in card
 
 
 def test_notify_telegram_does_not_build_terminal_card_for_running_pause(

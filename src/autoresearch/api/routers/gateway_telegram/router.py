@@ -64,6 +64,7 @@ from ._commands import (
     _handle_skills_command,
     _handle_status_query,
     _handle_task_command,
+    _handle_xreach_auth_command,
 )
 from ._extract import (
     _is_approve_command,
@@ -77,6 +78,7 @@ from ._extract import (
     _is_skills_command,
     _is_status_query,
     _is_task_command,
+    _is_xreach_auth_command,
     _safe_int,
 )
 from ._guard import _guard_webhook_replay_and_rate, _validate_secret_token
@@ -398,6 +400,18 @@ def _handle_telegram_webhook(
 
     if _is_retry_command(text):
         return _handle_retry_command(
+            chat_id=chat_id,
+            update=update,
+            extracted=extracted,
+            background_tasks=background_tasks,
+            worker_scheduler=worker_scheduler,
+            control_plane_service=control_plane_service,
+            notifier=notifier,
+            session_identity=session_identity,
+        )
+
+    if _is_xreach_auth_command(text):
+        return _handle_xreach_auth_command(
             chat_id=chat_id,
             update=update,
             extracted=extracted,

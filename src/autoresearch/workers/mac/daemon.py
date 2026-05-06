@@ -356,49 +356,49 @@ class MacWorkerDaemon:
     def _process_run(self, run: WorkerQueueItemRead) -> None:
         logger.info("Claimed run %s (%s)", run.run_id, run.task_type.value)
         self._current_run_id = run.run_id
-        self._client.report_run(
-            self._config.worker_id,
-            run.run_id,
-            WorkerRunReportRequest(
-                status=JobStatus.RUNNING,
-                message=f"started {run.task_type.value}",
-            ),
-        )
-        if self._is_cancel_requested(run.run_id):
-            self._client.report_run(
-                self._config.worker_id,
-                run.run_id,
-                WorkerRunReportRequest(
-                    status=JobStatus.CANCELLED,
-                    message="cancelled before execution",
-                    error="cancelled by user",
-                    metrics={"exit_reason": "cancelled"},
-                ),
-            )
-            self._current_run_id = None
-            return
         try:
-            outcome = self._executor.execute(run)
-        except Exception as exc:
-            logger.exception("Run %s failed", run.run_id)
             self._client.report_run(
                 self._config.worker_id,
                 run.run_id,
                 WorkerRunReportRequest(
-                    status=JobStatus.FAILED,
-                    message=f"{run.task_type.value} failed",
-                    error=str(exc),
+                    status=JobStatus.RUNNING,
+                    message=f"started {run.task_type.value}",
                 ),
             )
-            self._current_run_id = None
-            return
+            if self._is_cancel_requested(run.run_id):
+                self._client.report_run(
+                    self._config.worker_id,
+                    run.run_id,
+                    WorkerRunReportRequest(
+                        status=JobStatus.CANCELLED,
+                        message="cancelled before execution",
+                        error="cancelled by user",
+                        metrics={"exit_reason": "cancelled"},
+                    ),
+                )
+                return
+            try:
+                outcome = self._executor.execute(run)
+            except Exception as exc:
+                logger.exception("Run %s failed", run.run_id)
+                self._client.report_run(
+                    self._config.worker_id,
+                    run.run_id,
+                    WorkerRunReportRequest(
+                        status=JobStatus.FAILED,
+                        message=f"{run.task_type.value} failed",
+                        error=str(exc),
+                    ),
+                )
+                return
 
-        delivery = self._notify_telegram_result(run=run, outcome=outcome)
-        if delivery:
-            outcome.metrics = {**outcome.metrics, **delivery}
-        self._report_outcome(run=run, outcome=outcome)
-        self._maybe_promote_content_kb(run=run, outcome=outcome)
-        self._current_run_id = None
+            delivery = self._notify_telegram_result(run=run, outcome=outcome)
+            if delivery:
+                outcome.metrics = {**outcome.metrics, **delivery}
+            self._report_outcome(run=run, outcome=outcome)
+            self._maybe_promote_content_kb(run=run, outcome=outcome)
+        finally:
+            self._current_run_id = None
 
     def _is_cancel_requested(self, run_id: str) -> bool:
         latest = self._client.get_run(run_id)

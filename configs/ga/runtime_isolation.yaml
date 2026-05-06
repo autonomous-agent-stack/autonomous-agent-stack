@@ -1,0 +1,27 @@
+version: 1
+profiles:
+  default_runtime_sandbox:
+    filesystem_sandbox: true
+    network_egress_policy: deny_by_default
+    env_allowlist:
+      - PATH
+      - HOME
+      - TMPDIR
+    process_isolation: true
+    secret_injection: lease_only
+    artifact_output_directory_only: true
+    workspace_mount_policy: workspace_only
+    deny_dotenv: true
+    deny_host_home: true
+    docker_sandbox_optional: true
+  connector_sandbox:
+    filesystem_sandbox: true
+    network_egress_policy: policy_required
+    env_allowlist: []
+    process_isolation: false
+    secret_injection: lease_only
+    artifact_output_directory_only: true
+    workspace_mount_policy: none
+    deny_dotenv: true
+    deny_host_home: true
+    docker_sandbox_optional: false

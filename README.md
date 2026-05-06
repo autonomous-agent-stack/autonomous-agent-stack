@@ -4,6 +4,8 @@
 
 **English:** Autonomous Agent Stack (AAS) is now positioned as an **Evergreen Agent Control Plane**. It is not another all-in-one agent framework; it is the enterprise control plane above CrewAI, LangGraph, Hermes, OpenHands, Haystack, MCP, A2A, and future agent frameworks.
 
+[English](README.en.md) | [简体中文](README.zh-CN.md)
+
 [![CI](https://github.com/autonomous-agent-stack/autonomous-agent-stack/workflows/CI/badge.svg)](https://github.com/autonomous-agent-stack/autonomous-agent-stack/actions/workflows/ci.yml)
 [![Quality Gates](https://github.com/autonomous-agent-stack/autonomous-agent-stack/workflows/Quality%20Gates/badge.svg)](https://github.com/autonomous-agent-stack/autonomous-agent-stack/actions/workflows/quality-gates.yml)
 [![RFC](https://img.shields.io/badge/RFC-4%20Draft-orange)](docs/rfc/)
@@ -149,6 +151,29 @@ make start
 
 ---
 
+## Control Plane v2 入口 / Control Plane v2 Entry Points
+
+**中文：** `/api/v2` 是新主线，`/api/v1/*` 只保留迁移兼容。当前常用入口：
+
+**English:** `/api/v2` is the new main line, while `/api/v1/*` remains for migration compatibility only. Common entry points:
+
+- `POST /api/v2/butler/route`：管家自然语言路由预览，只生成任务草稿，不创建任务。
+  `POST /api/v2/butler/route`: Butler natural-language route preview; creates a task draft without creating a task.
+- `POST /api/v2/butler/tasks`：管家自然语言任务入口，自动选择 capability、风险标签和优先级后交给 v2 控制面。
+  `POST /api/v2/butler/tasks`: Butler natural-language task entrypoint; selects capability, risk tags, and priority before handing off to the v2 control plane.
+- `POST /api/v2/tasks`：创建受治理任务。 / Create a governed task.
+- `GET /api/v2/tasks/{id}`：查看 task projection。 / Inspect task projection.
+- `POST /api/v2/tasks/{id}/approval`：批准或拒绝高风险任务。 / Approve or reject high-risk tasks.
+- `GET /api/v2/sessions/{id}/facts`：读取 SessionEvent 机器事实源。 / Read the SessionEvent machine fact source.
+- `GET /api/v2/sessions/{id}/timeline`：从 facts 投影人类可读时间线。 / Project a human-readable timeline from facts.
+- `GET /api/v2/capabilities`：列出 worker-backed 和 protocol-boundary capabilities。 / List worker-backed and protocol-boundary capabilities.
+- `GET /api/v2/runs/{id}`：查看 execution projection。 / Inspect the execution projection.
+- `GET /api/v2/runs/{id}/events`：查看 task/run/audit events。 / Inspect task/run/audit events.
+
+**中文：** Telegram 管家任务卡片使用 MarkdownV2 展示入队、运行中、完成与取消状态，并标明负责 agent 与参与 agents；上下文追问使用原始追问做路由和任务标题，`/status` 只展示会话、worker 和最近任务摘要，避免泄露执行噪声。`scripts/butlerctl` 与 `make butler-*` / `make agent-*` 提供本机一键启停和 Butler agent 热拔插。
+
+**English:** Telegram Butler task cards use MarkdownV2 for queued, running, completed, and cancellation states, and show the primary agent plus participating agents. Contextual follow-ups use the original follow-up for routing and task titles, while `/status` only shows session, worker, and recent-task summaries to avoid execution noise. `scripts/butlerctl` plus `make butler-*` / `make agent-*` provide local one-command service control and Butler agent hot-plugging.
+
 ## Evergreen 验证命令 / Evergreen Validation Commands
 
 **中文：** 这些命令用于验证当前 Evergreen Agent Control Plane 主线：
@@ -165,6 +190,15 @@ make langgraph-demo
 make a2a-demo
 make federation-demo
 make evergreen-demo
+```
+
+**中文：** Evergreen OS GA v1.0 额外加入阻断性门禁：认证矩阵、不可绕过测试、生产存储契约、运行隔离、Secret Vault、Model Gateway、Tool Broker、UI/API 接入和兼容矩阵都会被 `make ga-release-gate` 聚合。不能通过认证矩阵的 adapter 只能标 `beta` 或 `experimental`，不得伪装为 `stable`。
+
+**English:** Evergreen OS GA v1.0 adds blocking gates: the certification matrix, bypass tests, production storage contracts, runtime isolation, Secret Vault, Model Gateway, Tool Broker, UI/API wiring, and the compatibility matrix are aggregated by `make ga-release-gate`. Adapters that do not pass the certification matrix must remain `beta` or `experimental`; they must not be presented as `stable`.
+
+```bash
+make bypass-ga
+make ga-release-gate
 ```
 
 **中文：** 常规本地验证：

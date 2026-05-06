@@ -99,12 +99,40 @@ def test_local_dev_start_checks_port_and_uses_windows_python(monkeypatch, tmp_pa
         "127.0.0.1",
         "--port",
         "8001",
-        "--reload",
     ]
     env = captured["env"]
     assert env is not None
     assert "src" in env["PYTHONPATH"]
     assert env["FROM_ENV_FILE"] == "1"
+
+
+def test_local_dev_start_can_enable_reload(monkeypatch, tmp_path: Path):
+    local_dev = _load_script("local_dev_script_start_reload", "scripts/local_dev.py")
+    repo_root = tmp_path
+    python_exe = repo_root / ".venv" / "bin" / "python"
+    python_exe.parent.mkdir(parents=True, exist_ok=True)
+    python_exe.write_text("", encoding="utf-8")
+
+    monkeypatch.setattr(local_dev, "REPO_ROOT", repo_root)
+    monkeypatch.setattr(local_dev.os, "name", "posix")
+    monkeypatch.setattr(local_dev, "run_doctor", lambda **kwargs: 0)
+    monkeypatch.setattr(local_dev, "_port_in_use", lambda host, port: False)
+    monkeypatch.setattr(local_dev, "_load_env_files", lambda repo_root: {"AUTORESEARCH_API_RELOAD": "1"})
+
+    captured: dict[str, object] = {}
+
+    def fake_run(command: list[str], *, env=None, cwd=None):
+        captured["command"] = command
+        captured["env"] = env
+        captured["cwd"] = cwd
+        return 0
+
+    monkeypatch.setattr(local_dev, "_run", fake_run)
+
+    exit_code = local_dev.run_start(venv_name=".venv", host="127.0.0.1", port=8001)
+
+    assert exit_code == 0
+    assert captured["command"][-1] == "--reload"
 
 
 def test_local_dev_doctor_dispatches_with_windows_python(monkeypatch, tmp_path: Path):

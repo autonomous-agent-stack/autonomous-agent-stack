@@ -85,6 +85,7 @@ class ButlerModelFillDecision(StrictModel):
             "youtube_ops",
             "source_collect",
             "content_kb",
+            "source_collect",
         }
         normalized = str(value or "").strip()
         if normalized not in allowed:
@@ -95,7 +96,7 @@ class ButlerModelFillDecision(StrictModel):
     @classmethod
     def _validate_runtime_id(cls, value: str) -> str:
         normalized = str(value or "").strip().lower()
-        if normalized not in {"claude", "hermes"}:
+        if normalized not in {"claude", "hermes", "source_collect"}:
             raise ValueError(f"unsupported runtime_id: {value}")
         return normalized
 
@@ -333,6 +334,7 @@ class ButlerDispatchCenter:
                 execution_mode = hermes_execution_mode
                 max_retries = 1 if execution_mode == "interactive" else 2
         elif task_type == ButlerTaskType.BOOKMARK:
+            runtime_id = "source_collect"
             target_agent = "source_collect"
             action = "source_collect.collect"
             priority = 4
@@ -377,7 +379,21 @@ class ButlerDispatchCenter:
         execution_mode = "oneshot"
         max_retries = 2
         priority = 2
-        if route == ButlerRoute.HERMES or runtime_id == "hermes":
+        canonical_task_type = (
+            model_decision.canonical_task_type
+            or canonical_task_type_for(model_decision.task_type, action=model_decision.action)
+        )
+        if canonical_task_type == ButlerCanonicalTaskType.SOURCE_COLLECT:
+            route = ButlerRoute.WORKER
+            runtime_id = "source_collect"
+            model_decision = model_decision.model_copy(
+                update={
+                    "target_agent": "source_collect",
+                    "action": "source_collect.collect",
+                }
+            )
+            priority = 4
+        elif route == ButlerRoute.HERMES or runtime_id == "hermes":
             route = ButlerRoute.HERMES
             runtime_id = "hermes"
             execution_mode = hermes_execution_mode
@@ -390,10 +406,6 @@ class ButlerDispatchCenter:
             priority = 4
 
         params: dict[str, Any] = _extract_github_reference(text)
-        canonical_task_type = (
-            model_decision.canonical_task_type
-            or canonical_task_type_for(model_decision.task_type, action=model_decision.action)
-        )
         return ButlerDispatchDecision(
             task_type=model_decision.task_type,
             canonical_task_type=canonical_task_type,
@@ -447,7 +459,7 @@ _MODEL_FILL_SYSTEM_PROMPT = """You are a strict router. Return one JSON object o
 Allowed legacy task_type values: excel_audit, github_admin, content_kb, bookmark, youtube, context_status, unknown.
 Allowed canonical task_type values: source_collect.collect, youtube.autoflow, github.issue_ops, github.pr_ops, excel.commission, butler.context_status, hermes.general.
 Allowed route values: direct, worker, hermes, reject.
-Allowed runtime_id values: claude, hermes.
+Allowed runtime_id values: claude, hermes, source_collect.
 Allowed target_agent values: butler_orchestrator, excel_audit, github_ops_accountA, github_ops_accountB, youtube_ops, source_collect, content_kb.
 Never answer the user's request. Only classify and route."""
 
@@ -585,7 +597,7 @@ def _bookmark_source_kind(text: str) -> str:
 
 def _normalize_runtime_id(value: str) -> str:
     normalized = str(value or "claude").strip().lower()
-    return normalized if normalized in {"claude", "hermes"} else "claude"
+    return normalized if normalized in {"claude", "hermes", "source_collect"} else "claude"
 
 
 def _normalize_execution_mode(value: str) -> str:

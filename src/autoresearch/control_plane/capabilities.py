@@ -546,12 +546,15 @@ _TEXT_PATH_SUFFIXES = (".srt", ".vtt", ".txt", ".md")
 
 def _base_worker_metadata(task: ControlPlaneTaskRead) -> dict[str, Any]:
     primary_agent, agent_names = _agent_attribution_for_task(task)
+    display_text = str(task.parameters.get("display_text") or task.name).strip() or task.name
     metadata = {
         "aas_session_id": task.session_id,
         "control_plane_task_id": task.task_id,
         "control_plane_session_id": task.session_id,
         "capability_id": task.capability_id,
         "control_plane_v2": True,
+        "display_task_name": display_text,
+        "telegram_original_text": str(task.parameters.get("original_message") or display_text),
         "target_agent": primary_agent,
         "target_agents": agent_names,
         "telegram_display_primary_agent": primary_agent,

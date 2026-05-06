@@ -266,6 +266,91 @@ def get_session_timeline(
     return service.session_timeline(session_id=session_id, limit=limit)
 
 
+@router.get("/sessions/{session_id}/facts")
+def get_session_facts(
+    session_id: str,
+    limit: int = Query(default=1000, ge=1, le=1000),
+    service: ControlPlaneService = Depends(get_control_plane_service_dependency),
+) -> dict[str, object]:
+    timeline = service.session_timeline(session_id=session_id, limit=limit)
+    events = [event.model_dump(mode="json") for event in timeline.events]
+    return {
+        "session_id": session_id,
+        "fact_count": len(events),
+        "facts": events,
+        "correlations": timeline.correlations,
+        "summary": {
+            **timeline.summary,
+            "source": "SessionEvent facts",
+            "projection": "facts",
+        },
+    }
+
+@router.get("/sessions/{session_id}/artifacts")
+def get_session_artifacts(
+    session_id: str,
+    limit: int = Query(default=1000, ge=1, le=1000),
+    service: ControlPlaneService = Depends(get_control_plane_service_dependency),
+) -> dict[str, object]:
+    timeline = service.session_timeline(session_id=session_id, limit=limit)
+    artifacts: list[dict[str, object]] = []
+    for event in timeline.events:
+        artifacts.extend(dict(item) for item in event.artifact_refs)
+    return {"session_id": session_id, "artifacts": artifacts, "artifact_count": len(artifacts)}
+
+
+@router.post("/sessions/{session_id}/summary")
+def build_session_summary(
+    session_id: str,
+    service: ControlPlaneService = Depends(get_control_plane_service_dependency),
+) -> dict[str, object]:
+    timeline = service.session_timeline(session_id=session_id, limit=1000)
+    return {
+        "session_id": session_id,
+        "source": "SessionEvent facts",
+        "event_count": len(timeline.events),
+        "latest_event_type": timeline.latest_event.event_type if timeline.latest_event else None,
+        "correlations": timeline.correlations,
+    }
+
+
+@router.post("/sessions/{session_id}/handoff")
+def build_session_handoff(
+    session_id: str,
+    service: ControlPlaneService = Depends(get_control_plane_service_dependency),
+) -> dict[str, object]:
+    timeline = service.session_timeline(session_id=session_id, limit=1000)
+    return {
+        "session_id": session_id,
+        "source": "SessionEvent facts",
+        "handoff": [
+            {
+                "sequence_no": event.sequence_no,
+                "event_type": event.event_type,
+                "status": event.status,
+                "content": event.content,
+            }
+            for event in timeline.events
+        ],
+    }
+
+
+@router.post("/sessions/{session_id}/replay-plan")
+def build_session_replay_plan(
+    session_id: str,
+    service: ControlPlaneService = Depends(get_control_plane_service_dependency),
+) -> dict[str, object]:
+    timeline = service.session_timeline(session_id=session_id, limit=1000)
+    terminal = timeline.latest_event.event_type if timeline.latest_event else None
+    return {
+        "session_id": session_id,
+        "source": "SessionEvent facts",
+        "replayable": bool(timeline.events),
+        "latest_event_type": terminal,
+        "next_action": "inspect_failed_run" if terminal and terminal.endswith("failed") else "continue_from_latest_fact",
+    }
+
+
 @router.get("/capabilities", response_model=list[ControlPlaneCapabilityRead])
 def list_capabilities(
     service: ControlPlaneService = Depends(get_control_plane_service_dependency),

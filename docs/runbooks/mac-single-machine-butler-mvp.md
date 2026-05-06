@@ -74,6 +74,7 @@ launch/start-all.sh
 - API 日志写入 `${HOME}/aas/data/logs/aas-api.log`
 - Mac worker 日志写入 `${HOME}/aas/data/logs/mac-worker.log`
 - 如需启动 Hermes gateway，先设置 `HERMES_GATEWAY_COMMAND`
+- 上线前确认 `.env.example` 只包含占位值；真实 token、真实 UID 与个人入口地址只放在已忽略的 `.env.local`
 
 ## Start Commands
 
@@ -89,6 +90,7 @@ Default state:
 - API logs go to `${HOME}/aas/data/logs/aas-api.log`
 - Mac worker logs go to `${HOME}/aas/data/logs/mac-worker.log`
 - To start the Hermes gateway, set `HERMES_GATEWAY_COMMAND` first
+- Before rollout, confirm `.env.example` contains placeholders only; real tokens, real UIDs, and personal entrypoint addresses belong only in ignored `.env.local`
 
 ## Butler 路由
 
@@ -113,6 +115,7 @@ X 书签链路：
 - Butler 创建 `source_collect` task 并等待审批
 - 审批后 worker queue 使用 `task_type=source_collect`
 - worker 收集并写入本地文本 artifact
+- 如果 `xreach` 本机登录态需要恢复，原 run 会暂停并触发 Hermes recovery，Telegram 提供继续采集按钮
 - `source_collect` 成功回报后自动排入 `content_kb_ingest`
 
 ## Butler Routing
@@ -138,6 +141,7 @@ X bookmark flow:
 - Butler creates a `source_collect` task and waits for approval
 - After approval, the worker queue uses `task_type=source_collect`
 - The worker collects items and writes a local text artifact
+- If the local `xreach` login state needs recovery, the original run pauses and triggers Hermes recovery with Telegram resume buttons
 - After `source_collect` reports success, `content_kb_ingest` is queued automatically
 
 ## GitHub Ops

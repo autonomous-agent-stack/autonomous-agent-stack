@@ -128,6 +128,48 @@ def test_dispatch_hermes_uses_registry() -> None:
     assert req.prompt == "ping"
 
 
+def test_dispatch_hermes_binary_missing_generates_xreach_recovery_plan() -> None:
+    claude_rt = MagicMock(spec=ClaudeRuntimeService)
+    claude_rt.session_record_service = MagicMock()
+    adapter = MagicMock()
+    now = datetime.now(timezone.utc)
+    adapter.run.return_value = RuntimeRunRead(
+        runtime_id="hermes",
+        run_id="run-h",
+        session_id="sess-h",
+        task_name="Hermes recovery: collect bookmarks",
+        status=JobStatus.FAILED,
+        summary="Hermes executable is unavailable.",
+        timeout_seconds=60,
+        error="Hermes executable not found",
+        created_at=now,
+        updated_at=now,
+        metadata={"error_kind": "binary_missing"},
+    )
+    registry = MagicMock()
+    registry.get.return_value = adapter
+
+    dispatch = WorkerRuntimeDispatchService(claude_runtime=claude_rt, registry=registry)
+    out = dispatch.execute_payload(
+        {
+            "runtime_id": "hermes",
+            "prompt": "recover",
+            "task_name": "Hermes recovery: collect bookmarks",
+            "source_collect_auth_recovery": True,
+            "source_collect_run_id": "run-source",
+            "source_collect_worker_run_id": "run-worker",
+        },
+        worker_id="w1",
+        queue_metadata=None,
+    )
+
+    assert out.status == JobStatus.COMPLETED
+    assert out.error is None
+    assert out.result["source_collect_auth_recovery"] is True
+    assert out.result["source_collect_worker_run_id"] == "run-worker"
+    assert out.metrics["error_kind"] == "hermes_binary_missing_recovered"
+
+
 def test_dispatch_hermes_polls_until_terminal_status() -> None:
     claude_rt = MagicMock(spec=ClaudeRuntimeService)
     claude_rt.session_record_service = MagicMock()
