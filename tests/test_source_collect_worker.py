@@ -76,6 +76,40 @@ def _write_fake_xreach_auth_extract_success(bin_dir: Path) -> None:
     os.chmod(script, 0o755)
 
 
+def _write_fake_xreach_bookmarks_auth_retry_success(bin_dir: Path) -> None:
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    script = bin_dir / "xreach"
+    marker = bin_dir / ".xreach-refreshed"
+    bookmarks = json.dumps({"items": [{"id": "789", "text": "Retried bookmark", "user": {"screenName": "chen"}}]})
+    script.write_text(
+        "#!/bin/sh\n"
+        f"MARKER='{marker}'\n"
+        "if [ \"$1\" = 'auth' ] && [ \"$2\" = 'check' ]; then\n"
+        "  echo '✓ Authenticated'\n"
+        "  exit 0\n"
+        "fi\n"
+        "if [ \"$1\" = 'auth' ] && [ \"$2\" = 'browsers' ]; then\n"
+        "  echo 'browser=chrome, profile=Default'\n"
+        "  exit 0\n"
+        "fi\n"
+        "if [ \"$1\" = 'auth' ] && [ \"$2\" = 'extract' ]; then\n"
+        "  : > \"$MARKER\"\n"
+        "  exit 0\n"
+        "fi\n"
+        "if [ \"$1\" = 'bookmarks' ]; then\n"
+        "  if [ -f \"$MARKER\" ]; then\n"
+        f"    printf '%s\\n' '{bookmarks}'\n"
+        "    exit 0\n"
+        "  fi\n"
+        "  echo 'Error: GraphQL Error: Could not authenticate you'\n"
+        "  exit 1\n"
+        "fi\n"
+        "exit 1\n",
+        encoding="utf-8",
+    )
+    os.chmod(script, 0o755)
+
+
 def test_source_collect_x_bookmarks_uses_xreach_and_builds_content_kb_payload(
     tmp_path: Path,
     monkeypatch,
@@ -200,6 +234,22 @@ def test_source_collect_x_bookmarks_recovers_when_xreach_auth_extract_succeeds(
     assert outcome.result["collector"] == "xreach"
     assert outcome.result["item_count"] == 1
     assert outcome.result["source_urls"] == ["https://twitter.com/bob/status/456"]
+
+
+def test_source_collect_x_bookmarks_refreshes_auth_when_check_passes_but_bookmarks_fails(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    bin_dir = tmp_path / "bin"
+    _write_fake_xreach_bookmarks_auth_retry_success(bin_dir)
+    monkeypatch.setenv("PATH", str(bin_dir))
+
+    _, outcome = _run_source_collect(tmp_path, {"source_kind": "x_bookmarks"})
+
+    assert outcome.status == JobStatus.COMPLETED
+    assert outcome.result["collector"] == "xreach"
+    assert outcome.result["item_count"] == 1
+    assert outcome.result["source_urls"] == ["https://twitter.com/chen/status/789"]
 
 
 def test_source_collect_x_bookmarks_fails_on_invalid_collector_json(

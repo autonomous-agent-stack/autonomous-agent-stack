@@ -1417,6 +1417,15 @@ def _handle_xreach_auth_command(
             backoff_seconds=1,
             increment_retry=False,
         )
+        requeued = worker_scheduler.merge_queue_metadata(
+            requeued.run_id,
+            {
+                "telegram_xreach_auth_recovery_sent": False,
+                "telegram_xreach_auth_recovery_card": "pending_after_requeue",
+                "xreach_auth_last_action": action,
+                "xreach_auth_requeued_at": _utc_now(),
+            },
+        )
     except WorkerReportError as exc:
         return _telegram_operator_rejected_ack(
             chat_id=chat_id,

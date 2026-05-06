@@ -839,38 +839,34 @@ def _load_x_bookmark_items_from_xreach(payload: dict[str, Any]) -> _SourceCollec
     auth_metadata = _prepare_xreach_auth(executable=executable, payload=payload)
     limit = _bounded_int(payload.get("limit"), default=50, minimum=1, maximum=500)
     max_pages = _optional_bounded_int(payload.get("max_pages"), default=1, minimum=1, maximum=100)
-    command = [executable, "bookmarks", "--json", "-n", str(limit)]
-    if max_pages is not None:
-        command.extend(["--max-pages", str(max_pages)])
-    try:
-        completed = subprocess.run(
-            command,
-            capture_output=True,
-            check=False,
-            text=True,
-            timeout=90,
-        )
-    except FileNotFoundError as exc:
-        raise _SourceCollectLoadError(
-            "xreach collector is not installed or not on PATH",
-            error_kind="collector_missing",
-            collector="xreach",
-        ) from exc
-    except subprocess.TimeoutExpired as exc:
-        raise _SourceCollectLoadError(
-            "xreach bookmarks timed out",
-            error_kind="collector_failed",
-            collector="xreach",
-        ) from exc
+    completed = _run_xreach_bookmarks_command(executable=executable, limit=limit, max_pages=max_pages)
     if completed.returncode != 0:
-        detail = (completed.stderr or completed.stdout or "").strip()
+        detail = _redact_xreach_auth_detail(completed.stderr or completed.stdout or "").strip()
         error_kind = _classify_xreach_error_kind(detail)
-        raise _SourceCollectLoadError(
-            detail[:500] or f"xreach bookmarks exited with code {completed.returncode}",
-            error_kind=error_kind,
-            collector="xreach",
-            metadata=auth_metadata,
-        )
+        if error_kind == "collector_auth_failed":
+            refresh_metadata = _prepare_xreach_auth(
+                executable=executable,
+                payload=payload,
+                force_extract=True,
+            )
+            auth_metadata = _merge_xreach_auth_metadata(auth_metadata, refresh_metadata)
+            completed = _run_xreach_bookmarks_command(executable=executable, limit=limit, max_pages=max_pages)
+            if completed.returncode == 0:
+                auth_metadata = {
+                    **auth_metadata,
+                    "xreach_auth_status": "recovered",
+                    "xreach_auth_retry_after_bookmarks_auth_failed": True,
+                }
+            else:
+                detail = _redact_xreach_auth_detail(completed.stderr or completed.stdout or "").strip()
+                error_kind = _classify_xreach_error_kind(detail)
+        if completed.returncode != 0:
+            raise _SourceCollectLoadError(
+                detail[:500] or f"xreach bookmarks exited with code {completed.returncode}",
+                error_kind=error_kind,
+                collector="xreach",
+                metadata=auth_metadata,
+            )
     try:
         raw = json.loads(completed.stdout)
     except json.JSONDecodeError as exc:
@@ -900,11 +896,47 @@ def _load_x_bookmark_items_from_xreach(payload: dict[str, Any]) -> _SourceCollec
     )
 
 
-def _prepare_xreach_auth(*, executable: str, payload: dict[str, Any]) -> dict[str, Any]:
+def _run_xreach_bookmarks_command(
+    *,
+    executable: str,
+    limit: int,
+    max_pages: int | None,
+) -> subprocess.CompletedProcess[str]:
+    command = [executable, "bookmarks", "--json", "-n", str(limit)]
+    if max_pages is not None:
+        command.extend(["--max-pages", str(max_pages)])
+    try:
+        return subprocess.run(
+            command,
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=90,
+        )
+    except FileNotFoundError as exc:
+        raise _SourceCollectLoadError(
+            "xreach collector is not installed or not on PATH",
+            error_kind="collector_missing",
+            collector="xreach",
+        ) from exc
+    except subprocess.TimeoutExpired as exc:
+        raise _SourceCollectLoadError(
+            "xreach bookmarks timed out",
+            error_kind="collector_failed",
+            collector="xreach",
+        ) from exc
+
+
+def _prepare_xreach_auth(
+    *,
+    executable: str,
+    payload: dict[str, Any],
+    force_extract: bool = False,
+) -> dict[str, Any]:
     attempts: list[dict[str, Any]] = []
     check = _run_xreach_command(executable, ["auth", "check"], timeout=20)
     attempts.append(_xreach_attempt("auth check", check))
-    if check.returncode == 0:
+    if check.returncode == 0 and not force_extract:
         return {"xreach_auth_status": "ok", "xreach_auth_attempts": attempts}
 
     browsers = _run_xreach_command(executable, ["auth", "browsers"], timeout=20)
@@ -924,6 +956,9 @@ def _prepare_xreach_auth(*, executable: str, payload: dict[str, Any]) -> dict[st
         if recheck.returncode == 0:
             return {"xreach_auth_status": "recovered", "xreach_auth_attempts": attempts}
 
+    if check.returncode == 0:
+        return {"xreach_auth_status": "ok", "xreach_auth_attempts": attempts}
+
     detail = _redact_xreach_auth_detail(check.stderr or check.stdout or "").strip()
     raise _SourceCollectLoadError(
         detail[:500] or "xreach authentication is required",
@@ -934,6 +969,19 @@ def _prepare_xreach_auth(*, executable: str, payload: dict[str, Any]) -> dict[st
             "xreach_auth_attempts": attempts,
         },
     )
+
+
+def _merge_xreach_auth_metadata(*metadata_items: dict[str, Any]) -> dict[str, Any]:
+    merged: dict[str, Any] = {}
+    attempts: list[dict[str, Any]] = []
+    for metadata in metadata_items:
+        merged.update(metadata)
+        raw_attempts = metadata.get("xreach_auth_attempts")
+        if isinstance(raw_attempts, list):
+            attempts.extend(item for item in raw_attempts if isinstance(item, dict))
+    if attempts:
+        merged["xreach_auth_attempts"] = attempts
+    return merged
 
 
 def _run_xreach_command(executable: str, args: list[str], *, timeout: int) -> subprocess.CompletedProcess[str]:

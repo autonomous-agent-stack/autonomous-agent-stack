@@ -2608,6 +2608,8 @@ def test_telegram_xreach_auth_resume_requeues_without_retry_increment(
     assert resumed is not None
     assert resumed.status == JobStatus.QUEUED
     assert resumed.retry_count == 0
+    assert resumed.metadata["xreach_auth_last_action"] == "resume"
+    assert resumed.metadata["telegram_xreach_auth_recovery_sent"] is False
     assert notifier.messages
     assert "继续采集" in notifier.messages[-1]["text"]
 
