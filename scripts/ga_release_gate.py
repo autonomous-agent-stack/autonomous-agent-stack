@@ -14,6 +14,9 @@ GA_TESTS = [
     "tests/ga/test_event_store_postgres_contract.py",
     "tests/ga/test_runtime_isolation.py",
     "tests/ga/test_bypass_ga.py",
+    "tests/ga/test_external_write_gate.py",
+    "tests/ga/test_furniture_e2e.py",
+    "tests/ga/test_model_gateway_image.py",
     "tests/ga/test_release_gate.py",
 ]
 

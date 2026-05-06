@@ -136,6 +136,8 @@ from autoresearch.shared.excel_audit_contract import ExcelAuditRead
 from autoresearch.core.services.excel_ops import ExcelOpsService
 from autoresearch.shared.manager_agent_contract import ManagerDispatchRead
 from autoresearch.shared.store import SQLiteModelRepository
+from autoresearch.storage.events import SQLiteSessionEventStore
+from autoresearch.storage.postgres import PostgresSessionEventStore
 from github_admin.contracts import GitHubAdminRunRead
 from autoresearch.train.services.experiments import ExperimentService
 from autoresearch.train.services.optimizations import OptimizationService
@@ -716,6 +718,14 @@ def get_approval_store_service() -> ApprovalStoreService:
 
 @lru_cache(maxsize=1)
 def get_session_event_service() -> SessionEventService:
+    settings = get_runtime_settings()
+    postgres_dsn = os.getenv("AUTORESEARCH_POSTGRES_DSN", "").strip()
+    if settings.is_production:
+        if not postgres_dsn:
+            raise RuntimeError("production SessionEvent store requires AUTORESEARCH_POSTGRES_DSN")
+        return SessionEventService(event_store=PostgresSessionEventStore(postgres_dsn))
+    if os.getenv("AUTORESEARCH_SESSION_EVENT_STORE", "").strip().lower() == "sqlite":
+        return SessionEventService(event_store=SQLiteSessionEventStore(_api_db_path()))
     return SessionEventService(
         repository=SQLiteModelRepository(
             db_path=_api_db_path(),

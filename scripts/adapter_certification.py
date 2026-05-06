@@ -1,0 +1,170 @@
+from __future__ import annotations
+
+import json
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+from autoresearch.github_assistant.config import load_yaml_object
+
+
+REPORT_PATH = Path("adapter_certification_report.json")
+LOCK_PATH = Path("stable_adapters.lock")
+MATRIX_PATH = Path("docs/certification/adapter-certification-matrix.md")
+EVIDENCE_ROOT = Path("artifacts/ga/adapter_certification")
+
+
+def main() -> int:
+    repo_root = Path(__file__).resolve().parents[1]
+    report = build_report(repo_root)
+    (repo_root / REPORT_PATH).write_text(
+        json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    (repo_root / LOCK_PATH).write_text(_render_lock(report), encoding="utf-8")
+    (repo_root / MATRIX_PATH).write_text(_render_matrix(report), encoding="utf-8")
+    print(json.dumps({"status": report["status"], "stable": report["stable_adapters"]}, sort_keys=True))
+    return 0 if report["status"] in {"passed", "blocked"} else 1
+
+
+def build_report(repo_root: Path) -> dict[str, Any]:
+    payload = _yaml(repo_root / "configs/certification/adapters.yaml")
+    required_checks = [str(item).strip() for item in payload.get("required_checks") or [] if str(item).strip()]
+    adapters = payload.get("adapters") if isinstance(payload.get("adapters"), dict) else {}
+    report_items: dict[str, Any] = {}
+    stable_adapters: list[str] = []
+    blocked_adapters: list[str] = []
+
+    for adapter_id, raw in sorted(adapters.items()):
+        item = dict(raw or {})
+        evidence_path = repo_root / EVIDENCE_ROOT / str(adapter_id) / "live_evidence.json"
+        evidence = _load_evidence(evidence_path)
+        checks = _check_evidence(required_checks, evidence)
+        missing = [check_id for check_id, passed in checks.items() if not passed]
+        blocked_reason = _blocked_reason(item, evidence_path=evidence_path, evidence=evidence, missing=missing)
+        stability = "stable" if not missing and blocked_reason is None else "experimental"
+        certification_status = "certified" if stability == "stable" else "blocked"
+        if stability == "stable":
+            stable_adapters.append(str(adapter_id))
+        else:
+            blocked_adapters.append(str(adapter_id))
+        report_items[str(adapter_id)] = {
+            "adapter_id": str(adapter_id),
+            "display_name": str(item.get("display_name") or adapter_id),
+            "intent_stability": str(item.get("stability") or "experimental"),
+            "stability": stability,
+            "certification_status": certification_status,
+            "evidence_path": str(evidence_path.relative_to(repo_root)),
+            "live_evidence_present": evidence_path.exists(),
+            "checks": checks,
+            "missing_checks": missing,
+            "blocked_reason": blocked_reason,
+            "live_test_command": item.get("live_test_command"),
+        }
+
+    status = "passed" if adapters and len(stable_adapters) == len(adapters) else "blocked"
+    return {
+        "report_id": "adapter-certification-v1",
+        "generated_at": datetime.now(UTC).isoformat(),
+        "status": status,
+        "required_checks": required_checks,
+        "stable_adapters": stable_adapters,
+        "blocked_adapters": blocked_adapters,
+        "adapters": report_items,
+    }
+
+
+def _check_evidence(required_checks: list[str], evidence: dict[str, Any]) -> dict[str, bool]:
+    checks_payload = evidence.get("checks") if isinstance(evidence.get("checks"), dict) else {}
+    out: dict[str, bool] = {}
+    for check_id in required_checks:
+        raw = checks_payload.get(check_id) if isinstance(checks_payload, dict) else None
+        if isinstance(raw, dict):
+            out[check_id] = raw.get("passed") is True
+        else:
+            out[check_id] = raw is True
+    return out
+
+
+def _blocked_reason(
+    config_item: dict[str, Any],
+    *,
+    evidence_path: Path,
+    evidence: dict[str, Any],
+    missing: list[str],
+) -> str | None:
+    if not evidence_path.exists():
+        return "missing live_evidence.json"
+    if evidence.get("blocked_reason"):
+        return str(evidence["blocked_reason"])
+    if evidence.get("live") is not True:
+        return "live evidence is not marked live=true"
+    if missing:
+        return "missing certification checks"
+    if config_item.get("missing_checks"):
+        return "config still declares missing checks"
+    return None
+
+
+def _load_evidence(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {"blocked_reason": "live_evidence.json is invalid JSON"}
+    return payload if isinstance(payload, dict) else {"blocked_reason": "live_evidence.json is not an object"}
+
+
+def _render_lock(report: dict[str, Any]) -> str:
+    lines = [
+        "# generated by scripts/adapter_certification.py",
+        f"# generated_at={report['generated_at']}",
+    ]
+    lines.extend(report["stable_adapters"])
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _render_matrix(report: dict[str, Any]) -> str:
+    lines = [
+        "# Adapter Certification Matrix",
+        "",
+        "Generated from live adapter certification evidence. Adapter config declares intent only; stable status is derived from this runner.",
+        "",
+        f"- generated_at: `{report['generated_at']}`",
+        f"- status: `{report['status']}`",
+        f"- stable_adapters: `{len(report['stable_adapters'])}`",
+        f"- blocked_adapters: `{len(report['blocked_adapters'])}`",
+        "",
+        "| Adapter | Intent | Derived | Status | Missing checks | Blocked reason | Evidence |",
+        "|---|---:|---:|---:|---|---|---|",
+    ]
+    for adapter_id, item in sorted(report["adapters"].items()):
+        missing = ", ".join(item["missing_checks"]) or "-"
+        reason = item["blocked_reason"] or "-"
+        evidence = item["evidence_path"]
+        lines.append(
+            f"| `{adapter_id}` | `{item['intent_stability']}` | `{item['stability']}` | "
+            f"`{item['certification_status']}` | {missing} | {reason} | `{evidence}` |"
+        )
+    lines.extend(
+        [
+            "",
+            "Required checks:",
+            "",
+            *[f"- `{check_id}`" for check_id in report["required_checks"]],
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def _yaml(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    payload = load_yaml_object(path)
+    return payload if isinstance(payload, dict) else {}
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
