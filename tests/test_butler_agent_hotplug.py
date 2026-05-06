@@ -178,3 +178,24 @@ def test_butlerctl_service_dry_run_lists_service_scripts() -> None:
     assert "status-api-daemon.sh" in completed.stdout
     assert "status-telegram-poller.sh" in completed.stdout
     assert "status-mac-worker-daemon.sh" in completed.stdout
+
+
+def test_butlerctl_restart_all_uses_safe_stop_then_start_order() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    completed = subprocess.run(
+        [sys.executable, "scripts/butlerctl", "--dry-run", "restart", "all"],
+        cwd=repo_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    scripts = [line.rsplit("/", 1)[-1] for line in completed.stdout.splitlines() if line.startswith("bash ")]
+    assert scripts == [
+        "stop-mac-worker-daemon.sh",
+        "stop-telegram-poller.sh",
+        "stop-api-daemon.sh",
+        "start-api-daemon.sh",
+        "start-telegram-poller.sh",
+        "start-mac-worker-daemon.sh",
+    ]
