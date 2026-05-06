@@ -1410,6 +1410,28 @@ def _handle_xreach_auth_command(
             },
         )
 
+    if run.status == JobStatus.COMPLETED:
+        if (run.metadata or {}).get("control_plane_task_id"):
+            try:
+                control_plane_service.sync_worker_run(run)
+            except Exception:
+                pass
+        message = _compose_xreach_auth_already_completed_message(run)
+        if notifier.enabled:
+            background_tasks.add_task(notifier.send_message, chat_id=chat_id, text=message)
+        return TelegramWebhookAck(
+            accepted=True,
+            update_id=_safe_int(update.get("update_id")),
+            chat_id=chat_id,
+            metadata={
+                "source": "telegram_xreach_auth",
+                "action": action,
+                "run_id": run.run_id,
+                "status": run.status.value,
+                "idempotent": True,
+            },
+        )
+
     try:
         requeued = worker_scheduler.requeue_run(
             run_id,
@@ -1472,6 +1494,22 @@ def _handle_xreach_auth_command(
             "retry_count": requeued.retry_count,
         },
     )
+
+
+def _compose_xreach_auth_already_completed_message(run: WorkerQueueItemRead) -> str:
+    result = run.result if isinstance(run.result, dict) else {}
+    item_count = result.get("item_count")
+    artifact_path = str(result.get("artifact_path") or "").strip()
+    lines = [
+        "这条 X 书签采集已经完成，无需重新入队。",
+        "This X bookmark collection is already complete; no requeue is needed.",
+        f"run_id: {run.run_id}",
+    ]
+    if item_count is not None:
+        lines.append(f"items: {item_count}")
+    if artifact_path:
+        lines.append(f"artifact: {artifact_path}")
+    return "\n".join(lines)
 
 
 def _try_open_x_login_page() -> tuple[bool, str]:
