@@ -1,116 +1,136 @@
 # Autonomous Agent Stack
 
-**A governed, session-centered control plane for long-running agents.**
+**中文：** Autonomous Agent Stack（AAS）现在定位为 **Evergreen Agent Control Plane**：它不是另一个“万能 Agent 框架”，而是运行在 CrewAI、LangGraph、Hermes、OpenHands、Haystack、MCP、A2A 和后续框架之上的企业控制面。
 
-Run coding agents under zero-trust execution, durable session history, isolated capabilities, and explicit promotion gates instead of handing repository ownership to a single runtime.
+**English:** Autonomous Agent Stack (AAS) is now positioned as an **Evergreen Agent Control Plane**. It is not another all-in-one agent framework; it is the enterprise control plane above CrewAI, LangGraph, Hermes, OpenHands, Haystack, MCP, A2A, and future agent frameworks.
 
-[![CI](https://github.com/srxly888-creator/autonomous-agent-stack/workflows/CI/badge.svg)](https://github.com/srxly888-creator/autonomous-agent-stack/actions/workflows/ci.yml)
-[![Quality Gates](https://github.com/srxly888-creator/autonomous-agent-stack/workflows/Quality%20Gates/badge.svg)](https://github.com/srxly888-creator/autonomous-agent-stack/actions/workflows/quality-gates.yml)
+[![CI](https://github.com/autonomous-agent-stack/autonomous-agent-stack/workflows/CI/badge.svg)](https://github.com/autonomous-agent-stack/autonomous-agent-stack/actions/workflows/ci.yml)
+[![Quality Gates](https://github.com/autonomous-agent-stack/autonomous-agent-stack/workflows/Quality%20Gates/badge.svg)](https://github.com/autonomous-agent-stack/autonomous-agent-stack/actions/workflows/quality-gates.yml)
 [![RFC](https://img.shields.io/badge/RFC-4%20Draft-orange)](docs/rfc/)
-
-**English** | [简体中文](README.zh-CN.md)
 
 ---
 
-## What AAS Is
+## 最新状态 / Current Status
 
-Autonomous Agent Stack (AAS) is a governed control plane for long-running agent execution.
+**中文：** 最新里程碑交付的是 Federation-Ready / Evergreen v1：AAS Core 保持小而稳定，外部框架全部通过 adapter、runtime、tool、knowledge service 或 federated agent 接入。已经落地的主线包括 RuntimeAdapter v1、CapabilityManifest v1、Tool Proxy + MCP Host、CrewAI 示例、Haystack 示例、LangGraph 示例和 A2A server/client 桥接。
 
-It separates durable session history, execution capabilities, orchestration policies, and promotion authority so that no single model runtime gets to discover work, edit code, approve its own output, and publish it.
+**English:** The latest milestone delivers Federation-Ready / Evergreen v1. AAS Core stays small and stable while external frameworks plug in through adapters, runtimes, tools, knowledge services, or federated agents. The implemented main line includes RuntimeAdapter v1, CapabilityManifest v1, Tool Proxy + MCP Host, a CrewAI example, a Haystack example, a LangGraph example, and an A2A server/client bridge.
 
-AAS is not a generic AI agent demo. It is built for teams that want to integrate tools such as OpenHands, Codex, or custom agents without collapsing trust boundaries. In AAS, those tools are execution surfaces, not the system of record.
+**中文：** 单机版和单企业内部路径已经可以作为开箱基线使用：`make setup -> make doctor -> make start` 启动控制面，`make evergreen-demo` 验证 Evergreen runtime/capability/tool/federation demo。CrewAI、Haystack、LangGraph、A2A 等成熟框架仍是可选依赖；未安装时 doctor 会返回 `degraded`，但不会阻止 AAS 启动。
 
-Today, AAS is focused on a high-value vertical: governed repository changes. Long term, the same control-plane model is intended to support broader agent work across heterogeneous runtimes, tools, and environments.
+**English:** The single-machine and single-enterprise path is usable as the default baseline: `make setup -> make doctor -> make start` starts the control plane, and `make evergreen-demo` validates the Evergreen runtime/capability/tool/federation demos. CrewAI, Haystack, LangGraph, A2A, and similar frameworks remain optional dependencies; when they are not installed, doctor reports `degraded` without blocking AAS startup.
 
-AAS is evolving toward a more Agent OS-like control layer, but today it should first be understood as a governed control plane for long-running agents.
+**中文：** v1 不做开放市场、真钱结算、动态竞价或完整争议仲裁。现在的边界是双边联邦、静态 peer、租约、额度、审计、审批和结果交付；后续市场层会复用这些账本和治理事件。
 
-Over time, agent distribution may look increasingly app-like, with installable and removable agent packages, tools, or skills. But that is the distribution layer. AAS is concerned with the system layer beneath it: session, capability, policy, and promotion.
+**English:** v1 does not implement an open marketplace, real-money settlement, dynamic bidding, or full dispute arbitration. The current boundary is bilateral federation, static peers, leases, quota, audit, approvals, and result delivery; future marketplace layers should reuse these ledgers and governance events.
 
-In federated settings, agents are not just app-like packages. They also behave like dispatched workers: scoped, leased, auditable, and recallable across trust boundaries. Capabilities may look like apps, agents behave more like workers, and AAS exists as the control plane that governs both.
+---
 
-## Why This Matters
+## AAS 是什么 / What AAS Is
 
-As agents take on work that spans many context windows, the hard problem is no longer just "can the model code?"
+**中文：** AAS 是面向长时运行 Agent 的受治理控制面。它回答企业长期不会过时的问题：谁能用、能用什么、用到什么数据、做了什么动作、谁批准、产出了什么、出了问题能不能追溯、结果能不能发布给客户或进入生产流程。
 
-The hard problem is:
+**English:** AAS is a governed control plane for long-running agents. It answers enterprise questions that do not go out of date: who can use the system, what they can use, what data was touched, what actions were taken, who approved them, what artifacts were produced, whether failures are traceable, and whether a result can be promoted to a customer-facing or production workflow.
 
-- Can the system preserve progress across sessions?
-- Can it recover state after failure or handoff?
-- Can it isolate capabilities without making one runtime the trusted core?
-- Can it promote privileged changes explicitly instead of implicitly?
+**中文：** AAS 不把任一 Agent 框架当成 trusted core。CrewAI 可以负责多角色 persona，LangGraph 可以负责有状态 workflow，Hermes / OpenClaw 可以做交互入口和执行 worker，OpenHands 可以做 coding worker，Haystack 可以做 knowledge/RAG，MCP 可以提供工具，A2A 可以连接外部 agent；AAS 负责统一治理。
 
-Most agent stacks hard-code temporary model limitations into permanent architecture. AAS takes the opposite approach: keep the system abstractions stable, and keep the harness replaceable.
+**English:** AAS does not treat any agent framework as the trusted core. CrewAI can provide multi-role personas, LangGraph can run stateful workflows, Hermes / OpenClaw can act as interactive gateways and workers, OpenHands can run coding work, Haystack can provide knowledge/RAG, MCP can provide tools, and A2A can connect external agents; AAS governs them all.
 
-## Core Model
+---
+
+## 长期稳定抽象 / Long-Lived Abstractions
+
+**中文：** AAS Core 只固定这些长期抽象：
+
+**English:** AAS Core keeps only these long-lived abstractions stable:
+
+- `Session`：可恢复的执行历史。 / Recoverable execution history.
+- `Capability`：可被调用、租用或发布的能力。 / Callable, leasable, or publishable capability.
+- `Runtime`：执行任务的外部或本地 runtime。 / External or local task runtime.
+- `Policy`：权限、边界、风险和验证规则。 / Permission, boundary, risk, and validation rules.
+- `Approval`：敏感动作的人审入口。 / Human approval for sensitive actions.
+- `Audit`：谁、何时、用什么、做了什么的事实日志。 / Factual log of who did what, when, and with what.
+- `Artifact`：结果、补丁、报告、引用和交付物。 / Results, patches, reports, citations, and deliverables.
+- `Workspace`：隔离执行空间。 / Isolated execution workspace.
+- `Promotion`：把结果上线、发出或写回系统的显式门。 / Explicit gate for publishing, sending, or writing results back.
+- `Lease`：跨企业或跨团队租用 agent/worker 的边界。 / Boundary for renting agent/worker capacity across teams or enterprises.
+
+---
+
+## 当前已经落地 / What Is Implemented Now
+
+**中文：** 当前实现已经包含：
+
+**English:** The current implementation includes:
+
+- **RuntimeAdapter v1：** `create_session`、`run`、`stream`、`cancel`、`status`、`doctor` 统一合同；`/api/v1/runtime` 统一发现 Hermes、OpenClaw、OpenHands、CrewAI、Haystack、LangGraph、A2A 等 runtime。
+  **RuntimeAdapter v1:** unified `create_session`, `run`, `stream`, `cancel`, `status`, and `doctor` contract; `/api/v1/runtime` discovers Hermes, OpenClaw, OpenHands, CrewAI, Haystack, LangGraph, A2A, and other runtimes through one path.
+
+- **CapabilityManifest v1：** `configs/capabilities/*.yaml` 解耦 capability 与具体框架；本地调用和 federation 发布复用同一 registry。
+  **CapabilityManifest v1:** `configs/capabilities/*.yaml` decouples capabilities from concrete frameworks; local calls and federation publishing reuse the same registry.
+
+- **Tool Proxy + MCP Host：** 受控 MCP 支持 `local`、`http`、`stdio` discovery 和 `tools/call`，工具调用前经过 permission、quota、approval、audit。
+  **Tool Proxy + MCP Host:** governed MCP supports `local`, `http`, and `stdio` discovery plus `tools/call`, guarded by permission, quota, approval, and audit before execution.
+
+- **CrewAI Adapter 示例：** `agent_reach_crewai_researcher` 展示 CrewAI 作为多角色 worker、Agent-Reach 作为公开资料读取工具、AAS 作为治理层的闭环。
+  **CrewAI Adapter Example:** `agent_reach_crewai_researcher` demonstrates CrewAI as a multi-role worker, Agent-Reach as a public research tool, and AAS as the governance layer.
+
+- **Haystack Adapter 示例：** Haystack 作为 knowledge/RAG runtime，输出带引用的 artifact。
+  **Haystack Adapter Example:** Haystack acts as a knowledge/RAG runtime and emits citation-backed artifacts.
+
+- **LangGraph Adapter 示例：** LangGraph 作为有状态 workflow runtime，checkpoint / interrupt / resume 映射到 AAS artifact 与 approval 语义。
+  **LangGraph Adapter Example:** LangGraph acts as a stateful workflow runtime, with checkpoint / interrupt / resume mapped to AAS artifact and approval semantics.
+
+- **A2A Server / Client 桥接：** AAS 可发布 capability card，也可把外部 A2A agent 包成 runtime；调用复用 federation peer、lease、quota、audit。
+  **A2A Server / Client Bridge:** AAS can publish capability cards and wrap external A2A agents as runtimes; calls reuse federation peers, leases, quota, and audit.
+
+- **Federation-ready v1：** 支持静态 peer、双边 capability 发布、agent/worker lease、联邦任务、额度账本和审计摘要。
+  **Federation-ready v1:** supports static peers, bilateral capability publishing, agent/worker leases, federation tasks, quota ledger, and audit summaries.
+
+---
+
+## 架构位置 / Architecture Position
 
 ```text
-Session -> policy -> isolated capability -> validation -> promotion
+用户 / API / Telegram / Web Panel / 外部企业
+User / API / Telegram / Web Panel / External Enterprise
+                  |
+                  v
+          AAS Agent Control Plane
+  Session / Capability / Runtime / Policy
+  Approval / Audit / Artifact / Promotion / Lease
+                  |
+      +-----------+-----------+-----------+
+      |           |           |           |
+      v           v           v           v
+   Runtime      Tool       Knowledge   Federation
+   Adapter      Proxy      Runtime     Gateway
+      |           |           |           |
+      v           v           v           v
+CrewAI/LangGraph MCP       Haystack    A2A / Peer
+Hermes/OpenHands Tools     RAG         Agent Lease
+OpenClaw/Codex
 ```
 
-Current implementation focus:
+**中文：** AAS 的价值不是把这些框架写死在 core 里，而是把它们降级成可替换执行面。框架越多，AAS 越有价值，因为企业真正需要长期保留的是身份、权限、会话、审批、审计、隔离、产物和晋升。
 
-```text
-Planner -> isolated worker -> validation gate -> promotion gate -> patch artifact or draft PR
-```
+**English:** AAS does not hard-code these frameworks into core. It demotes them into replaceable execution surfaces. The more agent frameworks exist, the more valuable AAS becomes, because enterprises need identity, permission, session, approval, audit, isolation, artifacts, and promotion to remain stable over time.
 
-Core invariants:
+---
 
-- Patch-only by default
-- Deny-wins policy merging
-- Single-writer promotion for mutable state
-- Runtime artifacts never promote into source
-- Clean-base checks before draft PR promotion
+## 快速开始 / Quick Start
 
-Deep implementation details live in [ARCHITECTURE.md](ARCHITECTURE.md) and the RFC index in [docs/rfc/README.en.md](docs/rfc/README.en.md).
+**中文：** 基础环境：
 
-## Stable Abstractions
+**English:** Basic requirements:
 
-### Session
-
-A durable execution history, not a mirror of the context window.
-
-### Capability
-
-Sandboxes, remote workers, MCP servers, browsers, and git proxies treated as isolated hands.
-
-### Policy
-
-Replaceable orchestration rules for context assembly, retries, evaluation, escalation, and routing.
-
-### Promotion
-
-Explicit, auditable state transitions for any privileged change.
-
-## What Makes AAS Different
-
-| Traditional agent stack | AAS |
-|---|---|
-| Agent gets repository write authority | Worker produces a bounded patch candidate |
-| Planning, execution, and merge authority live in one runtime | Policy, execution, and promotion are separated |
-| Validation is optional or ad hoc | Validation and promotion rules are on the main path |
-| External tools become the de facto control plane | Tools plug into a governed control plane |
-| Runtime state leaks into source changes | Runtime artifacts and source promotion are isolated |
-| Trust is implicit | Zero-trust invariants are explicit and auditable |
-
-## Design Principles
-
-- Do not turn temporary model weaknesses into permanent system architecture.
-- Do not let a single runtime become the trusted core.
-- Do not rely on the model being "not clever enough" for security.
-- Keep orchestration replaceable.
-- Keep privileged changes explicit.
-- Preserve recoverable history outside the context window.
-
-## Quick Start
-
-Requirements:
-
-- Python 3.11+
+- Python `3.11+`
 - `make`
-- Docker or Colima for `ai-lab` and sandbox-backed flows (optional for basic local startup)
+- SQLite（默认本地存储） / SQLite for default local storage
+- Docker 或 Colima 仅在运行沙箱相关流程时需要 / Docker or Colima only for sandbox-backed flows
 
 ```bash
-git clone https://github.com/srxly888-creator/autonomous-agent-stack.git
+git clone https://github.com/autonomous-agent-stack/autonomous-agent-stack.git
 cd autonomous-agent-stack
 
 make setup
@@ -118,53 +138,38 @@ make doctor
 make start
 ```
 
-Environment files: `make setup` creates `.env` from [`.env.example`](.env.example) when `.env` is missing. Prefer `.env.local` for secrets (gitignored). Do not commit real tokens.
+**中文：** 启动后常用入口：
 
-Open after startup:
+**English:** Common local entry points after startup:
 
 - API docs: `http://127.0.0.1:8001/docs`
-- Control Plane v2 console: `http://127.0.0.1:8001/control-plane`
+- Control Plane v2: `http://127.0.0.1:8001/control-plane`
 - Admin panel: `http://127.0.0.1:8001/panel`
-- Legacy governance MVP panel: `http://127.0.0.1:8001/governance`
 - Health check: `http://127.0.0.1:8001/health`
 
-Control Plane v2 is the new production core path:
+---
 
-- `POST /api/v2/butler/route`: 管家自然语言路由预览，只生成任务草稿，不创建任务。
-  `POST /api/v2/butler/route`: Butler natural-language route preview; creates a task draft without creating a task.
-- `POST /api/v2/butler/tasks`: 管家自然语言任务入口，自动选择 capability、风险标签和优先级后交给 v2 控制面。
-  `POST /api/v2/butler/tasks`: Butler natural-language task entrypoint; selects capability, risk tags, and priority before handing off to the v2 control plane.
-- Telegram 管家任务卡片使用 MarkdownV2 展示入队、运行中、完成与取消状态，并标明负责 agent 与参与 agents。
-  Telegram Butler task cards use MarkdownV2 for queued, running, completed, and cancellation states, and show the primary agent plus participating agents.
-- `scripts/butlerctl` 与 `make butler-*` / `make agent-*` 提供本机一键启停和 Butler agent 热拔插。
-  `scripts/butlerctl` plus `make butler-*` / `make agent-*` provide local one-command service control and Butler agent hot-plugging.
-- `POST /api/v2/tasks`: create a governed task
-- `GET /api/v2/tasks/{id}`: inspect task projection
-- `POST /api/v2/tasks/{id}/approval`: approve or reject high-risk tasks
-- `GET /api/v2/sessions/{id}/timeline`: replay the session fact log
-- `GET /api/v2/capabilities`: list worker-backed and protocol-boundary capabilities
-- `GET /api/v2/runs/{id}`: inspect the execution projection
-- `GET /api/v2/runs/{id}/events`: inspect task/run/audit events
+## Evergreen 验证命令 / Evergreen Validation Commands
 
-The v2 path uses the existing worker claim/report/lease scheduler as the
-execution backbone. A2A, MCP, and future ADK integrations are modeled as
-capability adapters and remain disabled until explicitly configured.
+**中文：** 这些命令用于验证当前 Evergreen Agent Control Plane 主线：
 
-联邦就绪 v1 已加入 CrewAI-compatible agent adapter、受控 MCP 调用、用户/peer 配额账本、静态 peer 注册、agent/worker 租约和联邦任务 API。详见 [docs/federation-ready-v1.md](docs/federation-ready-v1.md)。
-Federation-ready v1 now includes the CrewAI-compatible agent adapter, governed MCP calls, user/peer quota ledger, static peer registry, agent/worker leases, and federation task APIs. See [docs/federation-ready-v1.md](docs/federation-ready-v1.md).
+**English:** These commands validate the current Evergreen Agent Control Plane path:
 
-Legacy governance MVP endpoints remain during the migration window:
+```bash
+make runtime-doctor
+make capability-doctor
+make mcp-doctor
+make agent-reach-crewai-demo
+make haystack-demo
+make langgraph-demo
+make a2a-demo
+make federation-demo
+make evergreen-demo
+```
 
-- `POST /tasks`: create a governed task
-- `GET /tasks/{id}`: inspect task state
-- `POST /tasks/{id}/approve`: approve or reject high-risk tasks
-- `GET /runs/{id}/events`: inspect run audit events
-- `GET /adapters`: list local and protocol-boundary adapters
+**中文：** 常规本地验证：
 
-New development should use `/api/v2/*`. The old `/tasks` surface is kept only as
-a compatibility shim while downstream callers migrate.
-
-Validate the local setup:
+**English:** Regular local validation:
 
 ```bash
 make test-quick
@@ -172,188 +177,106 @@ make smoke-local
 make hygiene-check
 ```
 
-For detailed setup and troubleshooting, read [docs/QUICK_START.md](docs/QUICK_START.md). For remote or multi-machine execution, start with [docs/linux-remote-worker.md](docs/linux-remote-worker.md). If you want to run Hermes on Windows through WSL2 and let the base control plane take over, read [docs/windows-wsl2-hermes-control-plane.md](docs/windows-wsl2-hermes-control-plane.md).
+---
 
-Native Windows support is currently limited to the minimal local control-plane path:
-`make setup`, `make doctor`, and `make start`. Other targets still assume Bash and/or macOS/Linux tooling.
+## 主要 API / Main APIs
 
-## Stable Single-Machine Mode
+**中文：** Evergreen v1 暴露的核心 API：
 
-**v0.1.0-stable** establishes a verified baseline for running AAS on a single machine without external dependencies.
+**English:** Core APIs exposed by Evergreen v1:
 
-The default mode is **minimal** (stable), which:
-- Starts reliably with core features only
-- Makes optional routers non-blocking
-- Disables experimental features by default
-- Suitable for local development and testing
+- `GET /api/v1/runtime`
+- `GET /api/v1/runtime/{runtime_id}/manifest`
+- `POST /api/v1/runtime/{runtime_id}/runs`
+- `GET /api/v1/runtime/{runtime_id}/status`
+- `GET /api/v1/capabilities`
+- `GET /api/v1/capabilities/{capability_id}`
+- `POST /api/v1/capabilities/{capability_id}/runs`
+- `GET /api/v1/mcp/servers`
+- `GET /api/v1/mcp/tools`
+- `POST /api/v1/mcp/tools/{tool_id}/call`
+- `GET /api/v1/federation/peers`
+- `GET /api/v1/federation/capabilities`
+- `POST /api/v1/federation/tasks`
+- `POST /api/v1/federation/leases`
+- `GET /api/v1/a2a/agent-card`
+- `POST /api/v1/a2a/tasks`
 
-```bash
-# Default: minimal mode (stable)
-AUTORESEARCH_MODE=minimal make start
+**中文：** Control Plane v2 仍是本地任务治理主路径，负责 Butler task、run projection、approval 和 timeline：
 
-# Full mode: all features (experimental)
-AUTORESEARCH_MODE=full make start
-```
+**English:** Control Plane v2 remains the main local governance path for Butler tasks, run projections, approvals, and timelines:
 
-### What Works in Stable Mode
-
-| Feature | Status |
-|---------|--------|
-| FastAPI application | ✅ Starts at `http://127.0.0.1:8001` |
-| SQLite control plane | ✅ `artifacts/api/*.sqlite3` |
-| AEP runner (mock) | ✅ End-to-end execution |
-| Worker schedules | ✅ APScheduler-backed `once` / `interval` schedules via `/api/v1/worker-schedules` |
-| Runtime artifact exclusion | ✅ Patch hygiene enforced |
-| Health/docs endpoints | ✅ All respond correctly |
-
-### What's Explicitly Out of Scope
-
-- Distributed execution (requires queue infrastructure)
-- Telegram integration (requires bot token)
-- WebAuthn (requires additional setup)
-- Cluster mode (distributed coordination only)
-- Complex cron syntax and multi-node scheduling
-
-See [STATUS_AND_RELEASE_NOTES.md](STATUS_AND_RELEASE_NOTES.md) for complete details.
-
-## Requirement #4 Ready Baseline
-
-**Branch**: `feat/single-machine-aas-ready-for-req4`
-**Status**: ✅ Engineering Scaffold Complete - **NOT Production Complete**
-
-This branch provides a **complete engineering scaffold** for requirement #4 (Excel commission processing). All preparation is done - business logic implementation can start immediately when required assets arrive.
-
-⚠️ **This is a "stable single-machine requirement-4 ready baseline"** - engineering scaffold is complete and verified, but business logic implementation is blocked awaiting business assets.
-
-### What's Ready
-
-| Component | File | Status |
-|-----------|------|--------|
-| Commission Engine | `src/autoresearch/core/services/commission_engine.py` | ✅ Deterministic interface |
-| Excel Jobs Repository | `src/autoresearch/core/repositories/excel_jobs.py` | ✅ SQLite-backed |
-| Excel Ops Service | `src/autoresearch/core/services/excel_ops.py` | ✅ Orchestration layer |
-| Excel Ops Router | `src/autoresearch/api/routers/excel_ops.py` | ✅ REST API |
-| Models & Contracts | `src/autoresearch/shared/excel_ops_models.py` | ✅ Schemas defined |
-| Contract Tests | `tests/test_excel_ops_service.py` | ✅ Verify blocking |
-| Validation Script | `scripts/validate_stable_baseline.sh` | ✅ `make validate-req4` |
-
-### Awaiting Business Assets
-
-| Asset | Purpose | Location |
-|-------|---------|----------|
-| Excel contracts | File schemas, column mappings | `tests/fixtures/requirement4_contracts/` |
-| Ambiguity checklist | 7 categories of edge case decisions | `tests/fixtures/requirement4_contracts/` |
-| Sample Excel files | Real input data for testing | `tests/fixtures/requirement4_samples/` |
-| Golden outputs | Expected calculation results | `tests/fixtures/requirement4_golden/` |
-
-### Validate Scaffold
-
-```bash
-# Validate requirement #4 readiness
-make validate-req4
-
-# Run contract tests
-pytest tests/test_excel_ops_service.py -v
-
-# Check readiness status
-cat docs/requirement4/IMPLEMENTATION_READY_CHECKLIST.md
-```
-
-### Safety Guarantees
-
-- **No Silent Calculations**: Blocks without valid contracts
-- **Deterministic Only**: No LLM reasoning in production path
-- **Audit Trail**: Job state tracked in SQLite
-- **Runtime Artifact Exclusion**: Patches exclude `.masfactory_runtime/`, `logs/`, `memory/`
-
-**See**: [docs/requirement4/](docs/requirement4/) for complete preparation details.
-
-**For implementation**:
-- English: [docs/requirement4/CLAUDE_CODE_BEST_PRACTICES.md](docs/requirement4/CLAUDE_CODE_BEST_PRACTICES.md)
-- 中文: [docs/requirement4/CLAUDE_CODE_BEST_PRACTICES_ZH.md](docs/requirement4/CLAUDE_CODE_BEST_PRACTICES_ZH.md)
-- **资产到达后的行动指南**: [docs/requirement4/ACTION_PLAN_WHEN_ASSETS_ARRIVE_ZH.md](docs/requirement4/ACTION_PLAN_WHEN_ASSETS_ARRIVE_ZH.md) ⭐ **推荐** - 包含 4 个必需资产的详细说明和示例
+- `POST /api/v2/butler/route`
+- `POST /api/v2/butler/tasks`
+- `POST /api/v2/tasks`
+- `GET /api/v2/tasks/{id}`
+- `POST /api/v2/tasks/{id}/approval`
+- `GET /api/v2/sessions/{id}/timeline`
+- `GET /api/v2/capabilities`
+- `GET /api/v2/runs/{id}`
+- `GET /api/v2/runs/{id}/events`
 
 ---
 
-## Controlled Integrations
+## 配置入口 / Configuration Entry Points
 
-## Controlled Integrations
+**中文：** 主要配置文件：
 
-AAS is designed to integrate agent runtimes without turning them into the trusted core:
+**English:** Main configuration files:
 
-- OpenHands as a constrained worker behind patch-only contracts and promotion gates
-- Codex and custom adapters through controlled execution and AEP-style job specs
-- Remote workers for machine-specific capabilities, credentials, or isolated execution surfaces
-- GitHub and chat-triggered workflows routed back into the same control plane
+- `configs/runtime_agents/*.yaml`：注册 runtime / registers runtimes
+- `configs/capabilities/*.yaml`：注册 capability / registers capabilities
+- `configs/agents/*.yaml`：AEP process agent demo / AEP process agent demos
+- `configs/mcp_servers.yaml`：MCP server registry
+- `configs/tool_permissions.yaml`：tool permission and risk policy
+- `configs/quota_policy.yaml`：user/peer quota policy
+- `configs/federation_peers.yaml`：static federation peer registry
 
-See [docs/openhands-cli-integration.md](docs/openhands-cli-integration.md), [docs/agent-execution-protocol.md](docs/agent-execution-protocol.md), and [docs/linux-remote-worker.md](docs/linux-remote-worker.md).
+**中文：** 所有外部能力默认应显式配置后启用；敏感读取、外部写入和破坏性动作必须经过工具权限、额度、审批和审计路径。
 
-## Documentation
+**English:** External capabilities should be explicitly configured before use. Sensitive reads, external writes, and destructive actions must go through tool permission, quota, approval, and audit paths.
 
-Start here:
+---
 
-- [WHY_AAS.md](WHY_AAS.md): project motivation and design direction
-- [docs/QUICK_START.md](docs/QUICK_START.md): detailed setup and troubleshooting
-- [CONTRIBUTING.md](CONTRIBUTING.md): contribution workflow and expectations
+## 文档导航 / Documentation Map
 
-Go deeper:
+**中文：** 先读这些：
 
-- [ARCHITECTURE.md](ARCHITECTURE.md): canonical current architecture
-- [docs/agent-execution-protocol.md](docs/agent-execution-protocol.md): execution contract and policy model
-- [docs/api-reference.md](docs/api-reference.md): API surface
+**English:** Start here:
 
-Explore integrations and evolution:
+- [Evergreen Agent Control Plane](docs/evergreen-agent-control-plane.md)
+- [RuntimeAdapter v1](docs/runtime-adapter-v1.md)
+- [CapabilityManifest v1](docs/capability-manifest-v1.md)
+- [Tool Proxy + MCP Host](docs/tool-proxy-mcp-host.md)
+- [Adapter Examples v1](docs/adapter-examples-v1.md)
+- [Federation-ready v1](docs/federation-ready-v1.md)
+- [Architecture](ARCHITECTURE.md)
+- [Agent Execution Protocol](docs/agent-execution-protocol.md)
+- [OpenHands Controlled Backend Integration](docs/openhands-cli-integration.md)
+- [Windows WSL2 Hermes Control Plane](docs/windows-wsl2-hermes-control-plane.md)
 
-- [docs/openhands-cli-integration.md](docs/openhands-cli-integration.md): OpenHands as a controlled worker
-- [docs/github-assistant-quickstart.md](docs/github-assistant-quickstart.md): GitHub assistant flows
-- [docs/rfc/README.en.md](docs/rfc/README.en.md): RFC index and design process
+---
 
-## Roadmap
+## 什么还不是 v1 目标 / What v1 Does Not Claim
 
-### Now
+**中文：** 当前 v1 不声称已经完成：
 
-A stable single-repo control plane with isolated execution and promotion checks.
+**English:** The current v1 does not claim to complete:
 
-### Next
+- 开放式 agent marketplace / Open agent marketplace
+- 真实资金清结算 / Real-money clearing or settlement
+- 动态竞价和自动撮合 / Dynamic bidding or automated matching
+- 完整跨企业争议仲裁 / Full cross-enterprise dispute arbitration
+- 每个外部框架的全功能托管平台 / Full managed platform coverage for every external framework
 
-- Session-first recovery and replay
-- Capability registry for heterogeneous workers and tools
-- Policy seams for orchestration strategies
-- Fast policy router vs slow orchestration (butler: rules-first, model fill-in, Hermes for heavy work) — [docs/decisions/fast-policy-router-and-slow-orchestration-v1.md](docs/decisions/fast-policy-router-and-slow-orchestration-v1.md)
-- Distributed execution with durable queues, leases, and heartbeats
+**中文：** v1 的重点是把底座合同、治理路径、registry、doctor、demo 和审计闭环跑通，后续 Dify、LlamaIndex、更多 MCP server、更多 A2A peer 都应按同一 RuntimeAdapter / CapabilityManifest 模型接入。
 
-### Long Term
+**English:** v1 focuses on making the base contracts, governance paths, registries, doctors, demos, and audit loop work. Future Dify, LlamaIndex, additional MCP servers, and additional A2A peers should plug in through the same RuntimeAdapter / CapabilityManifest model.
 
-A governed runtime substrate for long-running agent work across multiple models, multiple hands, and multiple trust boundaries.
+---
 
-## Who This Is For
+## 一句话 / One Sentence
 
-AAS is for teams that want:
+**中文：** AAS 不是最大的 Agent 框架；它是管理所有 Agent 框架的企业控制系统。
 
-- autonomous execution without repository ownership
-- durable progress across long-running tasks
-- zero-trust safety boundaries
-- auditable promotion workflows
-- multi-runtime interoperability without surrendering control
-
-## Contributing
-
-If you want to contribute, start with [CONTRIBUTING.md](CONTRIBUTING.md) and [ARCHITECTURE.md](ARCHITECTURE.md). Small documentation fixes and focused bug fixes are good first contributions. Architectural changes should start as an RFC in [docs/rfc/](docs/rfc/).
-
-A typical local loop is:
-
-```bash
-make review-setup
-make test-quick
-make hygiene-check
-make review-gates-local
-```
-
-`make review-setup` installs mypy, bandit, and semgrep into `.venv-review` so the
-main `.venv` can stay aligned with `make setup`.
-
-Open an issue or discussion if you want to validate a design direction before implementation.
-
-## License
-
-[MIT](LICENSE)
+**English:** AAS is not the biggest agent framework; it is the enterprise control system for governing all agent frameworks.
