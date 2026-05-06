@@ -39,10 +39,10 @@ class WorkerInventoryService:
         as_of: datetime | None = None,
     ) -> WorkerInventoryListRead:
         current = as_of or utc_now()
-        workers = [
+        workers = self._dedupe_shadowed_stale_workers([
             self._build_inventory_item(worker, as_of=current)
             for worker in self._worker_registry.list_workers(as_of=current)
-        ]
+        ])
         workers.sort(key=lambda item: (item.display_status, item.worker_id))
         return WorkerInventoryListRead(
             summary=self._build_summary(workers, issued_at=current),
@@ -67,18 +67,24 @@ class WorkerInventoryService:
         as_of: datetime | None = None,
     ) -> WorkerInventorySummaryRead:
         current = as_of or utc_now()
-        workers = [
+        workers = self._dedupe_shadowed_stale_workers([
             self._build_inventory_item(worker, as_of=current)
             for worker in self._worker_registry.list_workers(as_of=current)
-        ]
+        ])
         return self._build_summary(workers, issued_at=current)
 
     def _build_inventory_item(self, worker, *, as_of: datetime) -> WorkerInventoryRead:
         runs = [item for item in self._worker_scheduler.list_queue() if item.assigned_worker_id == worker.worker_id]
-        active_tasks = sum(1 for item in runs if item.status in {JobStatus.QUEUED, JobStatus.RUNNING})
+        active_runs = [
+            item
+            for item in runs
+            if item.status in {JobStatus.QUEUED, JobStatus.RUNNING}
+            and not self._run_waiting_for_external_resume(item)
+        ]
+        active_tasks = len(active_runs)
         latest_run = max(runs, key=lambda item: (item.updated_at, item.run_id), default=None)
-        queued_task_types = sorted({item.task_type.value for item in runs if item.status in {JobStatus.QUEUED, JobStatus.RUNNING}})
-        queue_names = sorted({item.queue_name.value for item in runs if item.status in {JobStatus.QUEUED, JobStatus.RUNNING}})
+        queued_task_types = sorted({item.task_type.value for item in active_runs})
+        queue_names = sorted({item.queue_name.value for item in active_runs})
         preferred_run_ids = sorted(
             item.run_id
             for item in runs
@@ -179,6 +185,31 @@ class WorkerInventoryService:
             return "degraded"
         return "online"
 
+    @staticmethod
+    def _run_waiting_for_external_resume(run) -> bool:
+        metrics = run.metrics if isinstance(run.metrics, dict) else {}
+        if metrics.get("hermes_interactive_waiting_for_approval") is True:
+            return True
+        reason = str(metrics.get("worker_pause_reason") or "").strip().lower()
+        return reason in {"hermes_interactive_approval", "xreach_auth_required"}
+
+    @staticmethod
+    def _dedupe_shadowed_stale_workers(workers: list[WorkerInventoryRead]) -> list[WorkerInventoryRead]:
+        active_runtime_keys = {
+            key
+            for item in workers
+            if item.display_status != "offline"
+            for key in (_worker_runtime_key(item),)
+            if key
+        }
+        if not active_runtime_keys:
+            return workers
+        return [
+            item
+            for item in workers
+            if item.display_status != "offline" or _worker_runtime_key(item) not in active_runtime_keys
+        ]
+
     def _summary_metadata(self) -> dict[str, object]:
         if self._butler_agent_state is None:
             return {}
@@ -207,3 +238,14 @@ class WorkerInventoryService:
             metadata=self._summary_metadata(),
             issued_at=issued_at,
         )
+
+
+def _worker_runtime_key(worker: WorkerInventoryRead) -> str:
+    metadata = worker.metadata if isinstance(worker.metadata, dict) else {}
+    for key in ("runtime_fingerprint", "runtime_host", "runtime_display"):
+        value = metadata.get(key)
+        if value is not None:
+            normalized = str(value).strip().lower()
+            if normalized:
+                return normalized
+    return str(worker.host or "").strip().lower()

@@ -426,6 +426,14 @@ class WorkerRuntimeDispatchService:
                 metrics=metrics,
             )
 
+        if _should_use_deterministic_xreach_recovery(payload=payload, read=final_read):
+            return _deterministic_xreach_recovery_result(
+                payload=payload,
+                worker_id=worker_id,
+                error=final_read.error,
+                runtime_run_id=final_read.run_id,
+            )
+
         outcome = runtime_run_read_to_claude_execution_result(final_read)
         result, metrics = _merge_dispatch_diagnostics(
             result=outcome.result,
@@ -534,4 +542,64 @@ def _telegram_hint_for_value_error() -> str:
     return (
         "当前 Hermes 模式不支持该请求（例如图片、技能列表或 command_override）。"
         " / This Hermes mode does not support that request (e.g. images, skill lists, or command_override)."
+    )
+
+
+def _should_use_deterministic_xreach_recovery(*, payload: dict[str, Any], read: RuntimeRunRead) -> bool:
+    if not bool(payload.get("source_collect_auth_recovery")):
+        return False
+    if read.status == JobStatus.COMPLETED:
+        return False
+    metadata = read.metadata if isinstance(read.metadata, dict) else {}
+    error_kind = str(metadata.get("error_kind") or "").strip()
+    return error_kind == "binary_missing"
+
+
+def _deterministic_xreach_recovery_result(
+    *,
+    payload: dict[str, Any],
+    worker_id: str | None,
+    error: str | None,
+    runtime_run_id: str,
+) -> ClaudeRuntimeExecutionResult:
+    source_worker_run_id = str(payload.get("source_collect_worker_run_id") or "").strip()
+    source_run_id = str(payload.get("source_collect_run_id") or "").strip()
+    message_zh = (
+        "X 书签采集已暂停等待本机登录态恢复。请先完成 XReach 登录恢复，"
+        "然后点击“我已完成，继续采集”让原任务重新进入采集。"
+    )
+    message_en = (
+        "X bookmark collection is paused until the local XReach login state is restored. "
+        "Restore the login first, then choose resume collection so the original task can continue."
+    )
+    result = {
+        "runtime_id": "hermes",
+        "runtime_run_id": runtime_run_id,
+        "source_collect_auth_recovery": True,
+        "source_collect_run_id": source_run_id,
+        "source_collect_worker_run_id": source_worker_run_id,
+        "diagnosis": "local_xreach_auth_required",
+        "can_user_resolve": True,
+        "next_actions": ["open_login", "resume_after_login", "recheck_auth", "cancel"],
+        "user_message_zh": message_zh,
+        "user_message_en": message_en,
+        "resume_policy": "resume_source_collect_after_auth",
+        "summary": "XReach auth recovery plan generated without Hermes binary.",
+    }
+    metrics = {
+        "dispatch_runtime": "hermes",
+        "exit_reason": "deterministic_xreach_recovery",
+        "error_kind": "hermes_binary_missing_recovered",
+    }
+    if worker_id:
+        result["worker_id"] = worker_id
+        metrics["dispatch_worker_id"] = worker_id
+    if error:
+        result["hermes_preflight_error"] = error
+    return ClaudeRuntimeExecutionResult(
+        message="xreach auth recovery plan ready",
+        status=JobStatus.COMPLETED,
+        error=None,
+        result=result,
+        metrics=metrics,
     )

@@ -16,6 +16,7 @@ done
 
 HOST="${HOST:-127.0.0.1}"
 PORT="${PORT:-${AUTORESEARCH_API_PORT:-8001}}"
+API_RELOAD="${AUTORESEARCH_API_RELOAD:-0}"
 
 echo "==> Autonomous Agent Stack local startup"
 echo "    root: ${PROJECT_ROOT}"
@@ -49,9 +50,18 @@ echo "==> Starting API service..."
 echo "    Docs:   http://${HOST}:${PORT}/docs"
 echo "    Health: http://${HOST}:${PORT}/health"
 echo "    Panel:  http://${HOST}:${PORT}/panel"
+if [[ "${API_RELOAD}" =~ ^(1|true|TRUE|yes|YES|on|ON)$ ]]; then
+  echo "    Reload: enabled"
+  echo
+  exec "${VENV_PYTHON}" -m uvicorn autoresearch.api.main:app \
+    --host "${HOST}" \
+    --port "${PORT}" \
+    --reload
+else
+  echo "    Reload: disabled"
+fi
 echo
 
 exec "${VENV_PYTHON}" -m uvicorn autoresearch.api.main:app \
   --host "${HOST}" \
-  --port "${PORT}" \
-  --reload
+  --port "${PORT}"

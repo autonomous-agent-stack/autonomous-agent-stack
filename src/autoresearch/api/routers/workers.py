@@ -21,6 +21,7 @@ from autoresearch.core.services.telegram_completion_format import (
     TELEGRAM_MARKDOWN_V2_PARSE_MODE,
     format_butler_completion_message,
     format_butler_live_status_message,
+    markdown_v2_escape,
     polish_butler_completion_card,
     resolve_telegram_agent_attribution,
 )
@@ -174,7 +175,23 @@ def report_worker_run(
                 # Fallback is a best-effort safety net; never let it break /report.
                 logger.exception("butler completion fallback raised for run=%s", stored.run_id)
     elif stored.status == JobStatus.RUNNING:
-        if telegram_settings.butler_live_updates_enabled:
+        if _is_xreach_auth_recovery_pause(stored):
+            if (stored.metadata or {}).get("control_plane_task_id"):
+                try:
+                    control_plane_service.sync_worker_run(stored)
+                except Exception:
+                    logger.exception("control-plane v2 xreach recovery sync raised for worker run=%s", stored.run_id)
+            if telegram_settings.butler_api_completion_enabled:
+                try:
+                    _maybe_send_xreach_auth_recovery_card(
+                        stored,
+                        notifier=notifier,
+                        settings=telegram_settings,
+                        scheduler=service,
+                    )
+                except Exception:
+                    logger.exception("xreach auth recovery card raised for run=%s", stored.run_id)
+        elif telegram_settings.butler_live_updates_enabled:
             try:
                 _try_deliver_butler_live_edit(
                     stored,
@@ -185,6 +202,111 @@ def report_worker_run(
             except Exception:
                 logger.exception("butler live edit raised for run=%s", stored.run_id)
     return stored
+
+
+def _is_xreach_auth_recovery_pause(run: WorkerQueueItemRead) -> bool:
+    metrics = run.metrics if isinstance(run.metrics, dict) else {}
+    result = run.result if isinstance(run.result, dict) else {}
+    pause_reason = str(metrics.get("worker_pause_reason") or "").strip().lower()
+    error_kind = str(metrics.get("error_kind") or result.get("error_kind") or "").strip().lower()
+    return pause_reason == "xreach_auth_required" or error_kind == "collector_auth_required"
+
+
+def _maybe_send_xreach_auth_recovery_card(
+    run: WorkerQueueItemRead,
+    *,
+    notifier: TelegramNotifierService,
+    settings: TelegramSettings,
+    scheduler: WorkerSchedulerService,
+) -> None:
+    if not notifier.enabled:
+        return
+    metadata = run.metadata if isinstance(run.metadata, dict) else {}
+    if not metadata.get("telegram_completion_via_api"):
+        return
+    if metadata.get("telegram_xreach_auth_recovery_sent"):
+        return
+    payload = run.payload if isinstance(run.payload, dict) else {}
+    chat_id = str(payload.get("chat_id") or metadata.get("chat_id") or "").strip()
+    if not chat_id:
+        return
+    thread_raw = payload.get("message_thread_id") or metadata.get("message_thread_id")
+    thread_id: int | None = None
+    if thread_raw is not None and str(thread_raw).strip() != "":
+        try:
+            thread_id = int(thread_raw)
+        except (TypeError, ValueError):
+            thread_id = None
+
+    text = _compose_xreach_auth_recovery_text(run=run, settings=settings)
+    delivered = notifier.send_message(
+        chat_id=chat_id,
+        text=text,
+        message_thread_id=thread_id,
+        parse_mode=TELEGRAM_MARKDOWN_V2_PARSE_MODE,
+        reply_markup=_xreach_auth_recovery_reply_markup(run.run_id),
+    )
+    if delivered:
+        scheduler.merge_queue_metadata(
+            run.run_id,
+            {
+                "telegram_xreach_auth_recovery_sent": True,
+                "telegram_xreach_auth_recovery_card": "sent",
+            },
+        )
+
+
+def _compose_xreach_auth_recovery_text(
+    *,
+    run: WorkerQueueItemRead,
+    settings: TelegramSettings,
+) -> str:
+    brand = (settings.telegram_worker_display_name or "AAS Worker").strip() or "AAS Worker"
+    task_name = (run.task_name or run.task_type.value or "整理X书签").strip() or "整理X书签"
+    result = run.result if isinstance(run.result, dict) else {}
+    attempts = result.get("xreach_auth_attempts") if isinstance(result.get("xreach_auth_attempts"), list) else []
+    attempt_lines: list[str] = []
+    for attempt in attempts[:4]:
+        if not isinstance(attempt, dict):
+            continue
+        step = str(attempt.get("step") or "").strip()
+        code = str(attempt.get("returncode") or "").strip()
+        if step:
+            attempt_lines.append(f"- {step}: {code or '?'}")
+    attempt_text = "\n".join(attempt_lines) if attempt_lines else "- auth check: needs user action"
+    title = f"{brand} · 需要你配合恢复 X 书签采集"
+    body = "\n".join(
+        [
+            "Hermes 兜底判断：这不是整理失败，是本机 X 登录态需要恢复。原采集 run 已暂停，完成恢复后可以继续同一个 run。",
+            "Hermes recovery: this is not a terminal collection failure. The local X login state needs recovery; the original run is paused and can continue after recovery.",
+            "",
+            f"任务：{task_name}",
+            f"run id：{run.run_id}",
+            "状态：等待用户配合 / waiting for user action",
+            "",
+            "已尝试 / Attempts",
+            attempt_text,
+            "",
+            "下一步：点“打开登录页”，在本机浏览器完成登录后点“我已完成，继续采集”。也可以先点“重新检测登录态”。",
+            "Next: tap Open login page, finish login locally, then tap Resume collection. You can also tap Recheck auth first.",
+        ]
+    )
+    return "\n".join([markdown_v2_escape(title), "", markdown_v2_escape(body)])[:3900]
+
+
+def _xreach_auth_recovery_reply_markup(run_id: str) -> dict[str, Any]:
+    return {
+        "inline_keyboard": [
+            [
+                {"text": "打开登录页", "callback_data": f"/xreach-auth-open {run_id}"},
+                {"text": "我已完成，继续采集", "callback_data": f"/xreach-auth-resume {run_id}"},
+            ],
+            [
+                {"text": "重新检测登录态", "callback_data": f"/xreach-auth-check {run_id}"},
+                {"text": "取消任务", "callback_data": f"/cancel {run_id}"},
+            ],
+        ]
+    }
 
 
 def _try_deliver_butler_live_edit(

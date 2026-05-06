@@ -42,6 +42,12 @@ def _port_in_use(host: str, port: int) -> bool:
         return sock.connect_ex((host, port)) == 0
 
 
+def _env_truthy(value: str | None) -> bool:
+    if value is None:
+        return False
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _run(command: list[str], *, env: dict[str, str] | None = None, cwd: Path | None = None) -> int:
     result = subprocess.run(command, cwd=str(cwd or REPO_ROOT), env=env, check=False)
     return int(result.returncode)
@@ -113,21 +119,21 @@ def run_start(*, venv_name: str, host: str, port: int) -> int:
     print(f"    Docs:   http://{host}:{port}/docs")
     print(f"    Health: http://{host}:{port}/health")
     print(f"    Panel:  http://{host}:{port}/panel")
+    print(f"    Reload: {'enabled' if _env_truthy(env.get('AUTORESEARCH_API_RELOAD')) else 'disabled'}")
     print()
-    return _run(
-        [
-            str(venv_python),
-            "-m",
-            "uvicorn",
-            "autoresearch.api.main:app",
-            "--host",
-            host,
-            "--port",
-            str(port),
-            "--reload",
-        ],
-        env=env,
-    )
+    command = [
+        str(venv_python),
+        "-m",
+        "uvicorn",
+        "autoresearch.api.main:app",
+        "--host",
+        host,
+        "--port",
+        str(port),
+    ]
+    if _env_truthy(env.get("AUTORESEARCH_API_RELOAD")):
+        command.append("--reload")
+    return _run(command, env=env)
 
 
 def build_parser() -> argparse.ArgumentParser:

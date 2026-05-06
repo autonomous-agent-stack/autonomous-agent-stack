@@ -213,6 +213,23 @@ def _is_retry_command(text: str) -> bool:
     return lowered == "/retry" or lowered.startswith("/retry ")
 
 
+def _is_xreach_auth_command(text: str) -> bool:
+    normalized = text.strip().lower()
+    return normalized.startswith("/xreach-auth-")
+
+
+def _parse_xreach_auth_command(text: str) -> tuple[str, str]:
+    normalized = text.strip()
+    lowered = normalized.lower()
+    for action in ("open", "resume", "check"):
+        prefix = f"/xreach-auth-{action}"
+        if lowered == prefix:
+            return action, ""
+        if lowered.startswith(f"{prefix} "):
+            return action, normalized.split(" ", 1)[1].strip()
+    return "", ""
+
+
 def _is_force_fail_command(text: str) -> bool:
     normalized = text.strip().lower()
     return normalized == "/force-fail" or normalized.startswith("/force-fail ")

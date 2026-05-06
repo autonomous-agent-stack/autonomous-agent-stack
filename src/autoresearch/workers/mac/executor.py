@@ -4,7 +4,9 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 import json
+import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 from typing import Any
@@ -23,6 +25,8 @@ from autoresearch.agent_protocol.runtime_models import RuntimeRunRead
 from autoresearch.shared.models import JobStatus, WorkerQueueItemRead, WorkerTaskType, utc_now
 from autoresearch.workers.mac.config import MacWorkerConfig
 from autoresearch.core.services.worker_runtime_dispatch import WorkerRuntimeDispatchService
+
+_XREACH_BROWSER_NAMES = {"arc", "brave", "chrome", "chromium", "edge", "firefox", "opera", "safari", "vivaldi"}
 
 
 @dataclass(slots=True)
@@ -178,6 +182,49 @@ class MacWorkerExecutor:
         try:
             loaded = _load_source_collect_items(payload=payload, source_kind=source_kind)
         except _SourceCollectLoadError as exc:
+            if exc.error_kind == "collector_auth_failed":
+                user_summary = "X 书签采集需要恢复本机登录态，管家已交给 Hermes 兜底。"
+                user_hint = (
+                    "Hermes 会给出可继续执行的恢复步骤；完成后点“我已完成，继续采集”。"
+                )
+                auth_attempts = list(exc.metadata.get("xreach_auth_attempts") or [])
+                return MacWorkerExecutionResult(
+                    message="source_collect waiting for X auth recovery",
+                    status=JobStatus.RUNNING,
+                    error=None,
+                    result={
+                        "task_type": WorkerTaskType.SOURCE_COLLECT.value,
+                        "source_kind": source_kind,
+                        "collector": exc.collector,
+                        "error_kind": "collector_auth_required",
+                        "exit_reason": "collector_auth_required",
+                        "summary": user_summary,
+                        "telegram_hint": user_hint,
+                        "collector_error": str(exc),
+                        "collector_error_kind": exc.error_kind,
+                        "request_text": payload.get("request_text") or "",
+                        "xreach_auth_status": "required",
+                        "xreach_auth_attempts": auth_attempts,
+                        "xreach_auth_next_actions": [
+                            "open_login",
+                            "resume_after_login",
+                            "recheck_auth",
+                            "cancel",
+                        ],
+                    },
+                    metrics={
+                        "error_kind": "collector_auth_required",
+                        "exit_reason": "collector_auth_required",
+                        "collector": exc.collector,
+                        "worker_pause_reason": "xreach_auth_required",
+                        "telegram_notify_status": "deferred",
+                        "xreach_auth_status": "required",
+                        "xreach_auth_attempt_count": len(auth_attempts),
+                        "telegram_display_runtime_id": "source_collect",
+                        "telegram_display_primary_agent": "source_collect",
+                        "telegram_display_agent_names": ["source_collect", "hermes"],
+                    },
+                )
             user_summary = _source_collect_failure_summary(exc)
             user_hint = _source_collect_failure_hint(exc)
             return MacWorkerExecutionResult(
@@ -437,11 +484,13 @@ class MacWorkerExecutor:
             outputs=payload.get("outputs", {}),
         )
 
-        report = run_audit(dsl, job_id=run.run_id)
+        output_dir = self._config.housekeeping_root / "artifacts" / "excel_audit" / run.run_id
+        report = run_audit(dsl, job_id=run.run_id, output_dir=output_dir)
         return MacWorkerExecutionResult(
             message=f"excel_audit {report.status}",
             status=JobStatus.COMPLETED if report.status == "completed" else JobStatus.FAILED,
             result={
+                "task_type": WorkerTaskType.EXCEL_AUDIT.value,
                 "rows_checked": report.result.rows_checked,
                 "rows_mismatched": report.result.rows_mismatched,
                 "mismatch_amount_total": report.result.mismatch_amount_total,
@@ -713,10 +762,18 @@ class _SourceCollectLoadResult:
 
 
 class _SourceCollectLoadError(RuntimeError):
-    def __init__(self, message: str, *, error_kind: str, collector: str) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        error_kind: str,
+        collector: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
         super().__init__(message)
         self.error_kind = error_kind
         self.collector = collector
+        self.metadata = dict(metadata or {})
 
 
 def _load_source_collect_items(*, payload: dict[str, Any], source_kind: str) -> _SourceCollectLoadResult:
@@ -779,6 +836,7 @@ def _load_x_bookmark_items_from_xreach(payload: dict[str, Any]) -> _SourceCollec
             collector="xreach",
         )
 
+    auth_metadata = _prepare_xreach_auth(executable=executable, payload=payload)
     limit = _bounded_int(payload.get("limit"), default=50, minimum=1, maximum=500)
     max_pages = _optional_bounded_int(payload.get("max_pages"), default=1, minimum=1, maximum=100)
     command = [executable, "bookmarks", "--json", "-n", str(limit)]
@@ -811,6 +869,7 @@ def _load_x_bookmark_items_from_xreach(payload: dict[str, Any]) -> _SourceCollec
             detail[:500] or f"xreach bookmarks exited with code {completed.returncode}",
             error_kind=error_kind,
             collector="xreach",
+            metadata=auth_metadata,
         )
     try:
         raw = json.loads(completed.stdout)
@@ -831,6 +890,7 @@ def _load_x_bookmark_items_from_xreach(payload: dict[str, Any]) -> _SourceCollec
     return _SourceCollectLoadResult(
         items=items,
         metadata={
+            **auth_metadata,
             "collector": "xreach",
             "collector_command": ["xreach", "bookmarks", "--json", "-n", str(limit)]
             + ([] if max_pages is None else ["--max-pages", str(max_pages)]),
@@ -838,6 +898,145 @@ def _load_x_bookmark_items_from_xreach(payload: dict[str, Any]) -> _SourceCollec
             "max_pages": max_pages,
         },
     )
+
+
+def _prepare_xreach_auth(*, executable: str, payload: dict[str, Any]) -> dict[str, Any]:
+    attempts: list[dict[str, Any]] = []
+    check = _run_xreach_command(executable, ["auth", "check"], timeout=20)
+    attempts.append(_xreach_attempt("auth check", check))
+    if check.returncode == 0:
+        return {"xreach_auth_status": "ok", "xreach_auth_attempts": attempts}
+
+    browsers = _run_xreach_command(executable, ["auth", "browsers"], timeout=20)
+    attempts.append(_xreach_attempt("auth browsers", browsers))
+    candidates = _xreach_auth_extract_candidates(payload=payload, browsers_output=browsers.stdout)
+    for browser, profile in candidates:
+        extract = _run_xreach_command(
+            executable,
+            ["auth", "extract", "--browser", browser, "--profile", profile],
+            timeout=45,
+        )
+        attempts.append(_xreach_attempt(f"auth extract {browser}/{profile}", extract))
+        if extract.returncode != 0:
+            continue
+        recheck = _run_xreach_command(executable, ["auth", "check"], timeout=20)
+        attempts.append(_xreach_attempt("auth check after extract", recheck))
+        if recheck.returncode == 0:
+            return {"xreach_auth_status": "recovered", "xreach_auth_attempts": attempts}
+
+    detail = _redact_xreach_auth_detail(check.stderr or check.stdout or "").strip()
+    raise _SourceCollectLoadError(
+        detail[:500] or "xreach authentication is required",
+        error_kind="collector_auth_failed",
+        collector="xreach",
+        metadata={
+            "xreach_auth_status": "required",
+            "xreach_auth_attempts": attempts,
+        },
+    )
+
+
+def _run_xreach_command(executable: str, args: list[str], *, timeout: int) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(
+            [executable, *args],
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return subprocess.CompletedProcess(
+            [executable, *args],
+            returncode=124,
+            stdout=exc.stdout or "",
+            stderr=exc.stderr or "xreach command timed out",
+        )
+
+
+def _xreach_attempt(label: str, completed: subprocess.CompletedProcess[str]) -> dict[str, Any]:
+    safe_label = _redact_xreach_auth_detail(label).strip()
+    detail = _redact_xreach_auth_detail(completed.stderr or completed.stdout or "").strip()
+    return {
+        "step": safe_label,
+        "returncode": completed.returncode,
+        "detail": detail[:300],
+    }
+
+
+def _redact_xreach_auth_detail(value: str) -> str:
+    redacted = re.sub(
+        r"(?i)\b(auth[-_ ]?token|ct0|cookie|authorization)\s*[:=]\s*\S+",
+        r"\1: <redacted>",
+        value,
+    )
+    return re.sub(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]+", "Bearer <redacted>", redacted)
+
+
+def _xreach_auth_extract_candidates(
+    *,
+    payload: dict[str, Any],
+    browsers_output: str,
+) -> list[tuple[str, str]]:
+    configured_browser = str(
+        payload.get("xreach_auth_browser")
+        or os.getenv("XREACH_AUTH_BROWSER")
+        or ""
+    ).strip()
+    configured_profile = str(
+        payload.get("xreach_auth_profile")
+        or os.getenv("XREACH_AUTH_PROFILE")
+        or ""
+    ).strip()
+    candidates: list[tuple[str, str]] = []
+    if configured_browser:
+        candidates.append((configured_browser, configured_profile or "Default"))
+    candidates.extend(
+        [
+            ("chrome", "Default"),
+            ("arc", "Default"),
+            ("safari", "Default"),
+            ("edge", "Default"),
+        ]
+    )
+    for line in browsers_output.splitlines():
+        browser, profile = _parse_xreach_browser_candidate(line)
+        if browser:
+            candidates.append((browser, profile or "Default"))
+    return _dedupe_xreach_candidates(candidates)
+
+
+def _parse_xreach_browser_candidate(line: str) -> tuple[str, str]:
+    text = line.strip()
+    if not text:
+        return "", ""
+    parts = [part.strip(" -:\t") for part in re.split(r"[,|]", text) if part.strip(" -:\t")]
+    browser = ""
+    profile = ""
+    for part in parts:
+        lowered = part.lower()
+        if lowered.startswith("browser"):
+            browser = part.split("=", 1)[-1].split(":", 1)[-1].strip()
+        elif lowered.startswith("profile"):
+            profile = part.split("=", 1)[-1].split(":", 1)[-1].strip()
+    if browser and browser.lower() in _XREACH_BROWSER_NAMES:
+        return browser.lower(), profile or "Default"
+    tokens = text.split()
+    if tokens and tokens[0].lower() in _XREACH_BROWSER_NAMES:
+        return tokens[0].lower(), " ".join(tokens[1:]).strip() or "Default"
+    return "", ""
+
+
+def _dedupe_xreach_candidates(candidates: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    seen: set[tuple[str, str]] = set()
+    deduped: list[tuple[str, str]] = []
+    for browser, profile in candidates:
+        key = (browser.strip().lower(), profile.strip() or "Default")
+        if not key[0] or key in seen:
+            continue
+        seen.add(key)
+        deduped.append(key)
+    return deduped[:8]
 
 
 def _source_collect_items_from_raw(raw: Any, *, source_kind: str) -> list[dict[str, Any]]:

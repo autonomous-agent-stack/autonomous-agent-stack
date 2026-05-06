@@ -16,6 +16,10 @@ Validate the first end-to-end `mac` standby worker flow on the Python/FastAPI co
 scripts/dev-start.sh
 ```
 
+中文：`scripts/dev-start.sh` 默认以稳定模式启动 API，不启用 `uvicorn --reload`；如需开发热重载，设置 `AUTORESEARCH_API_RELOAD=1 scripts/dev-start.sh`。
+
+English: `scripts/dev-start.sh` starts the API in stable mode by default without `uvicorn --reload`; set `AUTORESEARCH_API_RELOAD=1 scripts/dev-start.sh` when development hot reload is needed.
+
 Default docs URL:
 
 - `http://127.0.0.1:8001/docs`
@@ -39,9 +43,9 @@ WORKER_DRY_RUN=1 \
 scripts/start-mac-worker.sh
 ```
 
-中文：启动后检查 worker inventory，期望至少有一个在线 worker，且 capabilities 包含 `source_collect`、`youtube_autoflow` 与 `content_kb_ingest`。
+中文：启动后检查 worker inventory，期望至少有一个在线或忙碌 worker，且 capabilities 包含 `source_collect`、`youtube_autoflow` 与 `content_kb_ingest`。同一台 Mac 的旧 worker id 如果已经心跳过期，会被当前活跃注册折叠，不应再把健康检查拖成离线。
 
-English: After startup, inspect worker inventory and expect at least one online worker with `source_collect`, `youtube_autoflow`, and `content_kb_ingest` in capabilities.
+English: After startup, inspect worker inventory and expect at least one online or busy worker with `source_collect`, `youtube_autoflow`, and `content_kb_ingest` in capabilities. A stale old worker id for the same Mac is folded behind the current active registration and should not drag health into offline.
 
 ```bash
 curl -sS http://127.0.0.1:8001/api/v1/workers
@@ -147,9 +151,9 @@ Expected result:
 - worker claims the run
 - final run result includes `artifact_path`, `metadata_path`, `collector=fixture`, `item_count=1`, and `content_kb_payload.subtitle_text_path`
 
-中文：真实 X 书签采集使用 `xreach bookmarks --json`。如果本机登录态失效，失败结果会标记 `error_kind=collector_auth_failed`，Telegram 卡片会提示先重新完成 `xreach` 登录；原始采集器错误保留在 `collector_error` 里。
+中文：真实 X 书签采集使用 `xreach auth check` / `xreach auth extract` 预检后再运行 `xreach bookmarks --json`。如果本机登录态仍需恢复，`source_collect` 不会直接进入失败终态，而是以 `worker_pause_reason=xreach_auth_required` 暂停原 run，Control Plane 会排入 Hermes recovery，并在 Telegram 发送“打开登录页 / 我已完成，继续采集 / 重新检测登录态 / 取消任务”恢复卡片；原始采集器错误只保留在 `collector_error` 里。
 
-English: Real X bookmark collection uses `xreach bookmarks --json`. If the local login state is invalid, the failed result is marked with `error_kind=collector_auth_failed`, the Telegram card asks the operator to re-authenticate `xreach`, and the raw collector output remains in `collector_error`.
+English: Real X bookmark collection runs `xreach auth check` / `xreach auth extract` before `xreach bookmarks --json`. If the local login state still needs recovery, `source_collect` does not enter a terminal failure; it pauses the original run with `worker_pause_reason=xreach_auth_required`, the Control Plane queues Hermes recovery, and Telegram sends an action card with “open login page / resume collection / recheck auth / cancel task”; the raw collector output stays only in `collector_error`.
 
 ## 7. Enqueue a manual YouTube bridge action
 

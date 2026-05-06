@@ -2557,6 +2557,61 @@ def test_telegram_legacy_cancel_and_retry_fallbacks_still_use_worker_run_semanti
     assert requeued.retry_count == 1
 
 
+def test_telegram_xreach_auth_resume_requeues_without_retry_increment(
+    telegram_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_SECRET_TOKEN", "")
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_ALLOWED_UIDS", "9540")
+    clear_settings_caches()
+    notifier = _StubTelegramNotifier()
+    worker_scheduler = getattr(telegram_client, "_worker_scheduler")
+    queued = worker_scheduler.enqueue(
+        WorkerQueueItemCreateRequest(
+            task_name="整理X书签",
+            task_type=WorkerTaskType.SOURCE_COLLECT,
+            payload={"source_kind": "x_bookmarks"},
+            metadata={
+                "chat_id": "9540",
+                "session_key": "telegram:personal:user:9540",
+                "telegram_completion_via_api": True,
+            },
+        )
+    )
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+
+    try:
+        response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 31723,
+                "callback_query": {
+                    "id": "xreach-auth-resume-1",
+                    "data": f"/xreach-auth-resume {queued.run_id}",
+                    "message": {
+                        "message_id": 1523,
+                        "chat": {"id": 9540, "type": "private"},
+                    },
+                    "from": {"id": 9540, "username": "xreach-user"},
+                },
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+
+    assert response.status_code == 200
+    payload = response.json()["metadata"]
+    assert payload["source"] == "telegram_xreach_auth"
+    assert payload["action"] == "resume"
+    assert payload["status"] == "queued"
+    resumed = worker_scheduler.get_run(queued.run_id)
+    assert resumed is not None
+    assert resumed.status == JobStatus.QUEUED
+    assert resumed.retry_count == 0
+    assert notifier.messages
+    assert "继续采集" in notifier.messages[-1]["text"]
+
+
 def test_telegram_approve_command_can_resolve_pending_approval(
     telegram_client: TestClient,
     monkeypatch: pytest.MonkeyPatch,

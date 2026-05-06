@@ -359,7 +359,8 @@ def create_app() -> FastAPI:
                 "degraded": summary.degraded_workers,
                 "offline": summary.offline_workers,
             }
-            if summary.online_workers == 0 and summary.total_workers > 0:
+            active_workers = summary.online_workers + summary.busy_workers
+            if active_workers == 0 and summary.total_workers > 0:
                 overall = "degraded"
         except Exception:
             checks["workers"] = {"status": "unavailable"}

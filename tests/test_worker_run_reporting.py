@@ -8,11 +8,15 @@ import pytest
 
 from autoresearch.api.dependencies import (
     get_control_plane_service,
+    get_telegram_notifier_service,
+    get_telegram_settings,
     get_worker_registry_service,
     get_worker_scheduler_service,
 )
 from autoresearch.api.main import app
+from autoresearch.api.settings import TelegramSettings
 from autoresearch.control_plane.contracts import (
+    ControlPlaneApprovalDecisionRequest,
     ControlPlaneApprovalGrantRead,
     ControlPlaneApprovalRead,
     ControlPlaneArtifactRead,
@@ -44,6 +48,37 @@ from autoresearch.shared.models import (
     utc_now,
 )
 from autoresearch.shared.store import SQLiteModelRepository
+
+
+class _StubTelegramNotifier:
+    def __init__(self) -> None:
+        self.messages: list[dict[str, object]] = []
+
+    @property
+    def enabled(self) -> bool:
+        return True
+
+    def send_message(
+        self,
+        *,
+        chat_id: str,
+        text: str,
+        disable_web_page_preview: bool = True,
+        reply_markup: dict[str, object] | None = None,
+        message_thread_id: int | None = None,
+        reply_to_message_id: int | None = None,
+        parse_mode: str | None = None,
+    ) -> bool:
+        self.messages.append(
+            {
+                "chat_id": chat_id,
+                "text": text,
+                "reply_markup": reply_markup,
+                "message_thread_id": message_thread_id,
+                "parse_mode": parse_mode,
+            }
+        )
+        return True
 
 
 @pytest.fixture
@@ -272,6 +307,111 @@ def test_report_terminal_control_plane_run_updates_v2_state(
     timeline = session_events.timeline(session_id="session-worker-report-sync")
     event_types = [event.event_type for event in timeline.events]
     assert "run.succeeded" in event_types
+
+
+def test_report_xreach_auth_pause_queues_hermes_recovery_and_sends_card(
+    worker_client: TestClient,
+    worker_services: tuple[WorkerRegistryService, WorkerSchedulerService],
+    tmp_path: Path,
+) -> None:
+    registry, scheduler = worker_services
+    _register_worker(registry, worker_id="mac-mini-01")
+    control_plane, session_events = _build_control_plane_service(tmp_path, scheduler)
+    task = control_plane.create_task(
+        ControlPlaneTaskCreateRequest(
+            name="整理X书签",
+            intent="整理X书签",
+            session_id="session-xreach-auth-pause",
+            capability_id="source_collect",
+            parameters={
+                "canonical_task_type": "source_collect.collect",
+                "source_kind": "x_bookmarks",
+                "downstream_capability_id": "content_kb",
+            },
+            requested_by="9536",
+        )
+    )
+    approved = control_plane.decide_task(
+        task.task_id,
+        ControlPlaneApprovalDecisionRequest(decision="approved", decided_by="9536"),
+    )
+    assert approved is not None
+    assert approved.run_id is not None
+    scheduler.merge_queue_metadata(
+        approved.run_id,
+        {
+            "telegram_completion_via_api": True,
+            "chat_id": "9536",
+            "session_key": "telegram:personal:user:9536",
+            "telegram_queue_ack_message_id": 123,
+        },
+    )
+    claimed = scheduler.claim("mac-mini-01", WorkerClaimRequest(), now=utc_now())
+    assert claimed.run is not None
+    notifier = _StubTelegramNotifier()
+
+    app.dependency_overrides[get_control_plane_service] = lambda: control_plane
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+    app.dependency_overrides[get_telegram_settings] = lambda: TelegramSettings(
+        bot_token="fake-token",
+        allowed_uids={"9536"},
+    )
+    try:
+        response = worker_client.post(
+            f"/api/v1/workers/mac-mini-01/runs/{approved.run_id}/report",
+            json={
+                "status": "running",
+                "message": "source_collect waiting for X auth recovery",
+                "result": {
+                    "summary": "X 书签采集需要恢复本机登录态，管家已交给 Hermes 兜底。",
+                    "collector": "xreach",
+                    "error_kind": "collector_auth_required",
+                    "collector_error": "GraphQL Error: Could not authenticate you",
+                    "xreach_auth_attempts": [{"step": "auth check", "returncode": 1}],
+                },
+                "metrics": {
+                    "worker_pause_reason": "xreach_auth_required",
+                    "error_kind": "collector_auth_required",
+                    "collector": "xreach",
+                    "telegram_notify_status": "deferred",
+                },
+            },
+        )
+        assert response.status_code == 200
+    finally:
+        app.dependency_overrides.pop(get_control_plane_service, None)
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+        app.dependency_overrides.pop(get_telegram_settings, None)
+
+    stored = scheduler.get_run(approved.run_id)
+    assert stored is not None
+    assert stored.status == JobStatus.RUNNING
+    assert stored.metadata["telegram_xreach_auth_recovery_sent"] is True
+    leases = scheduler.list_leases()
+    assert len(leases) == 1
+    assert leases[0].active is False
+
+    projected = control_plane.get_task(task.task_id)
+    assert projected is not None
+    assert projected.status == ControlPlaneTaskStatus.RUNNING
+    assert projected.metadata["xreach_auth_recovery_worker_run_id"]
+    recovery_run = scheduler.get_run(projected.metadata["xreach_auth_recovery_worker_run_id"])
+    assert recovery_run is not None
+    assert recovery_run.task_type.value == "claude_runtime"
+    assert recovery_run.payload["runtime_id"] == "hermes"
+
+    assert notifier.messages
+    recovery_message = notifier.messages[-1]
+    text = str(recovery_message["text"])
+    assert "需要你配合恢复 X 书签采集" in text
+    assert "Could not authenticate" not in text
+    reply_markup = recovery_message["reply_markup"]
+    assert isinstance(reply_markup, dict)
+    buttons = reply_markup["inline_keyboard"]
+    assert buttons[0][0]["callback_data"] == f"/xreach-auth-open {approved.run_id}"
+    assert buttons[0][1]["callback_data"] == f"/xreach-auth-resume {approved.run_id}"
+    event_types = [event.event_type for event in session_events.timeline(session_id="session-xreach-auth-pause").events]
+    assert "run.recovery_queued" in event_types
 
 
 def test_report_control_plane_sync_failure_does_not_break_report(

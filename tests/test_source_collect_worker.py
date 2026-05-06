@@ -45,6 +45,37 @@ def _write_fake_xreach(bin_dir: Path, stdout: str, *, exit_code: int = 0) -> Non
     os.chmod(script, 0o755)
 
 
+def _write_fake_xreach_auth_extract_success(bin_dir: Path) -> None:
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    script = bin_dir / "xreach"
+    marker = bin_dir / ".xreach-authed"
+    bookmarks = json.dumps({"items": [{"id": "456", "text": "Recovered bookmark", "user": {"screenName": "bob"}}]})
+    script.write_text(
+        "#!/bin/sh\n"
+        f"MARKER='{marker}'\n"
+        "if [ \"$1\" = 'auth' ] && [ \"$2\" = 'check' ]; then\n"
+        "  [ -f \"$MARKER\" ] && exit 0\n"
+        "  echo 'Error: GraphQL Error: Could not authenticate you'\n"
+        "  exit 1\n"
+        "fi\n"
+        "if [ \"$1\" = 'auth' ] && [ \"$2\" = 'browsers' ]; then\n"
+        "  echo 'browser=chrome, profile=Default'\n"
+        "  exit 0\n"
+        "fi\n"
+        "if [ \"$1\" = 'auth' ] && [ \"$2\" = 'extract' ]; then\n"
+        "  : > \"$MARKER\"\n"
+        "  exit 0\n"
+        "fi\n"
+        "if [ \"$1\" = 'bookmarks' ]; then\n"
+        f"  printf '%s\\n' '{bookmarks}'\n"
+        "  exit 0\n"
+        "fi\n"
+        "exit 1\n",
+        encoding="utf-8",
+    )
+    os.chmod(script, 0o755)
+
+
 def test_source_collect_x_bookmarks_uses_xreach_and_builds_content_kb_payload(
     tmp_path: Path,
     monkeypatch,
@@ -133,21 +164,42 @@ def test_source_collect_x_bookmarks_classifies_xreach_auth_failure(
     bin_dir = tmp_path / "bin"
     _write_fake_xreach(
         bin_dir,
-        "Error: GraphQL Error: Could not authenticate you",
+        "Error: GraphQL Error: Could not authenticate you\nAuth Token: secret-token\nCT0: secret-ct0",
         exit_code=1,
     )
     monkeypatch.setenv("PATH", str(bin_dir))
 
     _, outcome = _run_source_collect(tmp_path, {"source_kind": "x_bookmarks"})
 
-    assert outcome.status == JobStatus.FAILED
-    assert outcome.error == "X 书签采集器 xreach 鉴权失败，无法读取书签。"
-    assert outcome.result["error_kind"] == "collector_auth_failed"
-    assert outcome.result["exit_reason"] == "collector_auth_failed"
+    assert outcome.status == JobStatus.RUNNING
+    assert outcome.error is None
+    assert outcome.result["error_kind"] == "collector_auth_required"
+    assert outcome.result["exit_reason"] == "collector_auth_required"
     assert outcome.result["collector"] == "xreach"
-    assert "重新完成 xreach 登录" in outcome.result["telegram_hint"]
+    assert "Hermes" in outcome.result["telegram_hint"]
     assert "Could not authenticate you" in outcome.result["collector_error"]
-    assert outcome.metrics["error_kind"] == "collector_auth_failed"
+    assert "secret-token" not in outcome.result["collector_error"]
+    assert "secret-ct0" not in outcome.result["collector_error"]
+    assert "secret-token" not in json.dumps(outcome.result["xreach_auth_attempts"])
+    assert "secret-ct0" not in json.dumps(outcome.result["xreach_auth_attempts"])
+    assert outcome.metrics["error_kind"] == "collector_auth_required"
+    assert outcome.metrics["worker_pause_reason"] == "xreach_auth_required"
+
+
+def test_source_collect_x_bookmarks_recovers_when_xreach_auth_extract_succeeds(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    bin_dir = tmp_path / "bin"
+    _write_fake_xreach_auth_extract_success(bin_dir)
+    monkeypatch.setenv("PATH", str(bin_dir))
+
+    _, outcome = _run_source_collect(tmp_path, {"source_kind": "x_bookmarks"})
+
+    assert outcome.status == JobStatus.COMPLETED
+    assert outcome.result["collector"] == "xreach"
+    assert outcome.result["item_count"] == 1
+    assert outcome.result["source_urls"] == ["https://twitter.com/bob/status/456"]
 
 
 def test_source_collect_x_bookmarks_fails_on_invalid_collector_json(

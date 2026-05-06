@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import inspect
+import subprocess
+import sys
 import time
 from datetime import datetime, timezone
 from typing import Any
@@ -67,6 +69,7 @@ from ._extract import (
     _extract_skill_query,
     _parse_approve_query,
     _parse_task_command,
+    _parse_xreach_auth_command,
     _safe_int,
 )
 from ._messages import (
@@ -1324,6 +1327,159 @@ def _handle_retry_command(
         chat_id=chat_id,
         metadata={"source": "telegram_retry", "run_id": run.run_id, "status": run.status.value},
     )
+
+
+def _handle_xreach_auth_command(
+    *,
+    chat_id: str,
+    update: dict[str, Any],
+    extracted: dict[str, Any],
+    background_tasks: BackgroundTasks,
+    worker_scheduler: WorkerSchedulerService,
+    control_plane_service: ControlPlaneService,
+    notifier: TelegramNotifierService,
+    session_identity: TelegramSessionIdentityRead,
+) -> TelegramWebhookAck:
+    action, run_id = _parse_xreach_auth_command(extracted["text"])
+    if not action or not run_id:
+        return _telegram_operator_rejected_ack(
+            chat_id=chat_id,
+            update=update,
+            background_tasks=background_tasks,
+            notifier=notifier,
+            source="telegram_xreach_auth",
+            reason="缺少 run_id，无法恢复 X 书签采集。 / Missing run_id for X bookmark recovery.",
+            metadata={"status": "missing_run_id", "action": action or None},
+        )
+
+    run = worker_scheduler.get_run(run_id)
+    if run is None:
+        return _telegram_operator_rejected_ack(
+            chat_id=chat_id,
+            update=update,
+            background_tasks=background_tasks,
+            notifier=notifier,
+            source="telegram_xreach_auth",
+            reason=f"未找到任务。 / Run not found: {run_id}",
+            metadata={"status": "not_found", "run_id": run_id, "action": action},
+        )
+    if not _worker_run_matches_chat(run, chat_id=chat_id, session_key=session_identity.session_key):
+        return _telegram_operator_rejected_ack(
+            chat_id=chat_id,
+            update=update,
+            background_tasks=background_tasks,
+            notifier=notifier,
+            source="telegram_xreach_auth",
+            reason=f"未找到任务。 / Run not found: {run_id}",
+            metadata={"status": "not_found", "run_id": run_id, "action": action},
+        )
+
+    if action == "open":
+        opened, detail = _try_open_x_login_page()
+        worker_scheduler.merge_queue_metadata(
+            run_id,
+            {
+                "xreach_auth_open_requested_at": _utc_now(),
+                "xreach_auth_open_status": "opened" if opened else "unavailable",
+                "xreach_auth_open_detail": detail,
+            },
+        )
+        message = (
+            "已尝试在本机打开 X 登录页。\n"
+            "Tried to open the X login page locally.\n\n"
+            "完成登录后点“我已完成，继续采集”。\n"
+            "After login, tap Resume collection."
+            if opened
+            else (
+                "本机无法自动打开登录页，请手动打开 X 并完成登录。\n"
+                "Could not open the login page automatically; please open X locally and log in.\n\n"
+                f"detail: {detail}"
+            )
+        )
+        if notifier.enabled:
+            background_tasks.add_task(notifier.send_message, chat_id=chat_id, text=message)
+        return TelegramWebhookAck(
+            accepted=True,
+            update_id=_safe_int(update.get("update_id")),
+            chat_id=chat_id,
+            metadata={
+                "source": "telegram_xreach_auth",
+                "action": action,
+                "run_id": run_id,
+                "open_status": "opened" if opened else "unavailable",
+            },
+        )
+
+    try:
+        requeued = worker_scheduler.requeue_run(
+            run_id,
+            reason=f"xreach auth {action} from Telegram",
+            backoff_seconds=1,
+            increment_retry=False,
+        )
+    except WorkerReportError as exc:
+        return _telegram_operator_rejected_ack(
+            chat_id=chat_id,
+            update=update,
+            background_tasks=background_tasks,
+            notifier=notifier,
+            source="telegram_xreach_auth",
+            reason=f"暂时无法继续采集。 / Cannot resume collection yet: {exc.detail}",
+            metadata={"status": "rejected", "run_id": run_id, "action": action},
+        )
+    except KeyError:
+        return _telegram_operator_rejected_ack(
+            chat_id=chat_id,
+            update=update,
+            background_tasks=background_tasks,
+            notifier=notifier,
+            source="telegram_xreach_auth",
+            reason=f"未找到任务。 / Run not found: {run_id}",
+            metadata={"status": "not_found", "run_id": run_id, "action": action},
+        )
+
+    if (requeued.metadata or {}).get("control_plane_task_id"):
+        try:
+            control_plane_service.sync_worker_run(requeued)
+        except Exception:
+            pass
+    verb = "重新检测登录态" if action == "check" else "继续采集"
+    message = (
+        f"已重新入队：{verb}。\n"
+        f"Requeued: {verb}.\n"
+        f"run_id: {requeued.run_id}"
+    )
+    if notifier.enabled:
+        background_tasks.add_task(notifier.send_message, chat_id=chat_id, text=message)
+    return TelegramWebhookAck(
+        accepted=True,
+        update_id=_safe_int(update.get("update_id")),
+        chat_id=chat_id,
+        metadata={
+            "source": "telegram_xreach_auth",
+            "action": action,
+            "run_id": requeued.run_id,
+            "status": requeued.status.value,
+            "retry_count": requeued.retry_count,
+        },
+    )
+
+
+def _try_open_x_login_page() -> tuple[bool, str]:
+    if sys.platform != "darwin":
+        return False, "local open command is only available on macOS"
+    try:
+        completed = subprocess.run(
+            ["open", "https://x.com/login"],
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return False, str(exc)
+    detail = (completed.stderr or completed.stdout or "").strip()
+    return completed.returncode == 0, detail[:300]
 
 
 def _handle_force_fail_command(

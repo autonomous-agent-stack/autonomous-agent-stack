@@ -284,6 +284,16 @@ class TestButlerDispatchCenter:
         assert decision.extracted_params["repo"] == "acme/demo"
         assert decision.extracted_params["pr_number"] == 7
 
+    def test_x_bookmark_rule_dispatch_uses_source_collect_runtime(self) -> None:
+        center = ButlerDispatchCenter(model_fill=ButlerModelFillService(enabled=False))
+        decision = center.dispatch("整理X书签")
+
+        assert decision.task_type == ButlerTaskType.BOOKMARK
+        assert decision.canonical_task_type == ButlerCanonicalTaskType.SOURCE_COLLECT
+        assert decision.target_agent == "source_collect"
+        assert decision.runtime_id == "source_collect"
+        assert decision.action == "source_collect.collect"
+
     def test_model_fill_invalid_json_escalates_to_hermes(self) -> None:
         backend = _FakeModelBackend("not json")
         center = ButlerDispatchCenter(

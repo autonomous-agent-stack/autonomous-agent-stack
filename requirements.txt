@@ -23,6 +23,7 @@ litellm>=1.83.0
 python-dotenv>=1.0.0
 PyYAML>=6.0
 cryptography>=46.0.7
+openpyxl>=3.1.5
 
 # Vision
 Pillow>=12.2.0

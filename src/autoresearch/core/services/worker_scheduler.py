@@ -24,6 +24,12 @@ from autoresearch.shared.models import (
 from autoresearch.shared.store import Repository, create_resource_id
 
 logger = logging.getLogger(__name__)
+_EXTERNAL_RESUME_PAUSE_REASONS = frozenset(
+    {
+        "hermes_interactive_approval",
+        "xreach_auth_required",
+    }
+)
 
 
 class WorkerClaimError(RuntimeError):
@@ -639,13 +645,15 @@ def _cancelled_result_card(run: WorkerQueueItemRead, *, reason: str) -> dict[str
 def _is_waiting_for_external_resume(request: WorkerRunReportRequest) -> bool:
     if request.metrics.get("hermes_interactive_waiting_for_approval") is True:
         return True
-    return str(request.metrics.get("worker_pause_reason") or "").strip() == "hermes_interactive_approval"
+    reason = str(request.metrics.get("worker_pause_reason") or "").strip().lower()
+    return reason in _EXTERNAL_RESUME_PAUSE_REASONS
 
 
 def _run_waiting_for_external_resume(run: WorkerQueueItemRead) -> bool:
     if run.metrics.get("hermes_interactive_waiting_for_approval") is True:
         return True
-    return str(run.metrics.get("worker_pause_reason") or "").strip() == "hermes_interactive_approval"
+    reason = str(run.metrics.get("worker_pause_reason") or "").strip().lower()
+    return reason in _EXTERNAL_RESUME_PAUSE_REASONS
 
 
 def _optional_string(value: object) -> str | None:
