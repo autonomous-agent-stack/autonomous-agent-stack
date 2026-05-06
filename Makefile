@@ -48,6 +48,7 @@ PROMOTE_OPEN_DRAFT_PR ?= 0
 .PHONY: ai-lab ai-lab-setup ai-lab-check ai-lab-up ai-lab-down ai-lab-status ai-lab-shell ai-lab-run masfactory-flight hygiene-check openhands openhands-dry-run openhands-controlled openhands-controlled-dry-run openhands-demo agent-run promote-run
 .PHONY: review-setup review-gates-local assistant-doctor assistant-triage assistant-execute assistant-review-pr assistant-release-plan assistant-schedule
 .PHONY: telegram-butler-start telegram-butler-status telegram-butler-stop telegram-ingress-audit
+.PHONY: butler-start butler-stop butler-restart butler-status agent-list agent-start agent-stop agent-drain agent-restart agent-status
 
 help:
 	@echo "Autonomous Agent Stack - common commands"
@@ -84,6 +85,15 @@ help:
 	@echo "  make telegram-butler-start Start API daemon + Telegram poller"
 	@echo "  make telegram-butler-status Show API daemon + Telegram poller status"
 	@echo "  make telegram-butler-stop Stop API daemon + Telegram poller"
+	@echo "  make butler-start SERVICE=all Start Butler service layer"
+	@echo "  make butler-stop SERVICE=all Stop Butler service layer"
+	@echo "  make butler-restart SERVICE=all Restart Butler service layer"
+	@echo "  make butler-status SERVICE=all Show Butler service layer status"
+	@echo "  make agent-list List hot-pluggable Butler agents"
+	@echo "  make agent-start AGENT=source_collect Enable a Butler agent"
+	@echo "  make agent-stop AGENT=source_collect Disable a Butler agent"
+	@echo "  make agent-drain AGENT=source_collect Drain a Butler agent"
+	@echo "  make agent-restart AGENT=source_collect Drain then enable a Butler agent"
 	@echo "  make hygiene-check FAIL_ON_FINDINGS=1 Run prompt hygiene audit for src/"
 	@echo "  make review-setup Create .venv-review with mypy/bandit/semgrep"
 	@echo "  make review-gates-local Run mypy/bandit/semgrep on reviewer core modules"
@@ -330,6 +340,40 @@ telegram-butler-status:
 telegram-butler-stop:
 	bash migration/openclaw/scripts/stop-telegram-poller.sh
 	bash migration/openclaw/scripts/stop-api-daemon.sh
+
+butler-start:
+	scripts/butlerctl start $(or $(SERVICE),all)
+
+butler-stop:
+	scripts/butlerctl stop $(or $(SERVICE),all)
+
+butler-restart:
+	scripts/butlerctl restart $(or $(SERVICE),all)
+
+butler-status:
+	scripts/butlerctl status $(or $(SERVICE),all)
+
+agent-list:
+	scripts/butlerctl agent list
+
+agent-status:
+	scripts/butlerctl agent status $(AGENT)
+
+agent-start:
+	@if [[ -z "$(strip $(AGENT))" ]]; then echo "Usage: make agent-start AGENT=source_collect"; exit 1; fi
+	scripts/butlerctl agent start "$(AGENT)"
+
+agent-stop:
+	@if [[ -z "$(strip $(AGENT))" ]]; then echo "Usage: make agent-stop AGENT=source_collect"; exit 1; fi
+	scripts/butlerctl agent stop "$(AGENT)"
+
+agent-drain:
+	@if [[ -z "$(strip $(AGENT))" ]]; then echo "Usage: make agent-drain AGENT=source_collect"; exit 1; fi
+	scripts/butlerctl agent drain "$(AGENT)"
+
+agent-restart:
+	@if [[ -z "$(strip $(AGENT))" ]]; then echo "Usage: make agent-restart AGENT=source_collect"; exit 1; fi
+	scripts/butlerctl agent restart "$(AGENT)"
 
 # 最近日志中的 409 / conflict 线索 + worker_run_queue 里 Hermes runtime 占比（默认 24h）
 # Recent log hints for 409/conflict + Hermes runtime share in worker_run_queue (default 24h)

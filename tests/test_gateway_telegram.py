@@ -46,6 +46,7 @@ from autoresearch.core.services.openclaw_memory import OpenClawMemoryService
 from autoresearch.core.services.panel_access import PanelAccessService
 from autoresearch.control_plane.contracts import (
     ControlPlaneApprovalDecisionRequest,
+    ControlPlaneApprovalGrantRead,
     ControlPlaneApprovalRead,
     ControlPlaneArtifactRead,
     ControlPlaneAuditEventRead,
@@ -487,6 +488,11 @@ def telegram_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClie
                 db_path=db_path,
                 table_name="control_plane_approvals_gateway_it",
                 model_cls=ControlPlaneApprovalRead,
+            ),
+            approval_grants=SQLiteModelRepository(
+                db_path=db_path,
+                table_name="control_plane_approval_grants_gateway_it",
+                model_cls=ControlPlaneApprovalGrantRead,
             ),
             artifacts=SQLiteModelRepository(
                 db_path=db_path,
@@ -2900,21 +2906,22 @@ def test_telegram_reset_preserves_mode_preference_for_followup_messages(
     assert current_payload["metadata"]["telegram_mode_preference"] == "shared"
 
 
-def test_telegram_queue_ack_message_includes_table_and_status_hint() -> None:
+def test_telegram_queue_ack_message_includes_agent_and_status_hint() -> None:
     from autoresearch.api.routers import gateway_telegram as gt
 
     text = gt._telegram_queue_ack_message(
         task_name="tg_6421432917_48",
         run_id="run_0b88e9edbe3e",
-        worker_brand="初代worker",
+        worker_brand="AAS Worker",
     )
     assert "管家已接单" in text
     assert "tg\\_6421432917\\_48" in text
     assert "run\\_0b88e9edbe3e" in text
     assert "/status" in text
-    assert "负责 agent" in text
-    assert "参与 agents" in text
-    assert "执行面 \\| Runtime" in text
+    assert "Agent" in text
+    assert "负责 agent" not in text
+    assert "参与 agents" not in text
+    assert "Butler queued" not in text
     assert "claude" in text
 
 
@@ -2962,8 +2969,9 @@ def test_telegram_webhook_sends_queue_notice_with_table(
         body = notifier.messages[-1]["text"]
         assert notifier.messages[-1]["parse_mode"] == "MarkdownV2"
         assert "管家已接单" in body
-        assert "负责 agent" in body
-        assert "参与 agents" in body
+        assert "Agent" in body
+        assert "负责 agent" not in body
+        assert "参与 agents" not in body
         assert str(run_id).replace("_", "\\_") in body
         assert "/status" in body
         assert notifier.sent_message_ids

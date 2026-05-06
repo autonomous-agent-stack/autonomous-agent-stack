@@ -1419,6 +1419,42 @@ class WorkerHealth(str, Enum):
     ERROR = "error"
 
 
+class ButlerAgentStatus(str, Enum):
+    ACTIVE = "active"
+    DRAINING = "draining"
+    DISABLED = "disabled"
+
+
+class ButlerAgentStatusChangeRequest(StrictModel):
+    actor: str = "butlerctl"
+    reason: str | None = None
+    wait_seconds: int = Field(default=30, ge=0, le=300)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("actor", mode="before")
+    @classmethod
+    def _strip_actor(cls, value: Any) -> str:
+        return str(value or "butlerctl").strip() or "butlerctl"
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def _strip_reason(cls, value: Any) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
+
+class ButlerAgentStateRead(StrictModel):
+    agent_name: str
+    status: ButlerAgentStatus = ButlerAgentStatus.ACTIVE
+    capability_id: str
+    reason: str | None = None
+    actor: str = "system"
+    updated_at: datetime = Field(default_factory=utc_now)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class WorkerRegisterRequest(StrictModel):
     worker_id: str = Field(..., min_length=1)
     worker_type: WorkerType
@@ -1532,6 +1568,7 @@ class WorkerInventorySummaryRead(StrictModel):
     busy_workers: int = 0
     degraded_workers: int = 0
     offline_workers: int = 0
+    metadata: dict[str, Any] = Field(default_factory=dict)
     issued_at: datetime
 
 
@@ -1548,6 +1585,7 @@ class WorkerTaskType(str, Enum):
     NOOP = "noop"
     CLEANUP_APPLEDOUBLE = "cleanup_appledouble"
     CLEANUP_TMP = "cleanup_tmp"
+    SOURCE_COLLECT = "source_collect"
     YOUTUBE_ACTION = "youtube_action"
     YOUTUBE_AUTOFLOW = "youtube_autoflow"
     GITHUB_OPS = "github_ops"

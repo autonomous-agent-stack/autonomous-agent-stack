@@ -9,6 +9,8 @@ from autoresearch.core.services.butler_router import (
     ButlerCanonicalTaskType,
     ButlerIntentRouter,
     ButlerTaskType,
+    canonical_task_type_for,
+    worker_task_type_for_canonical,
 )
 from autoresearch.core.services.butler_dispatch import (
     ButlerDispatchCenter,
@@ -72,8 +74,8 @@ class TestButlerIntentClassification:
         result = router.classify("把这个字幕入库知识库")
         assert result.task_type == ButlerTaskType.CONTENT_KB
 
-    def test_content_kb_x_bookmarks_curation_phrase(self) -> None:
-        """管家口语：整理 X 书签 → content_kb（与字幕/知识库同类意图）。"""
+    def test_x_bookmarks_curation_phrase_routes_to_source_collect_legacy_bookmark(self) -> None:
+        """管家口语：整理 X 书签 → bookmark legacy type → source_collect canonical task."""
         router = ButlerIntentRouter()
         for phrase in (
             "整理X书签",
@@ -82,8 +84,11 @@ class TestButlerIntentClassification:
             "organize my twitter bookmarks for kb",
         ):
             result = router.classify(phrase)
-            assert result.task_type == ButlerTaskType.CONTENT_KB, phrase
+            assert result.task_type == ButlerTaskType.BOOKMARK, phrase
             assert result.confidence > 0, phrase
+            canonical = canonical_task_type_for(result.task_type)
+            assert canonical == ButlerCanonicalTaskType.SOURCE_COLLECT, phrase
+            assert worker_task_type_for_canonical(canonical) == "source_collect"
 
     def test_unknown_returns_default(self) -> None:
         router = ButlerIntentRouter()

@@ -325,13 +325,13 @@ class ButlerDispatchCenter:
                 execution_mode = hermes_execution_mode
                 max_retries = 1 if execution_mode == "interactive" else 2
         elif task_type == ButlerTaskType.BOOKMARK:
-            target_agent = "content_kb"
-            action = "content_kb.bookmark"
+            target_agent = "source_collect"
+            action = "source_collect.collect"
             priority = 4
-            route = ButlerRoute.HERMES
-            runtime_id = "hermes"
-            execution_mode = hermes_execution_mode
-            max_retries = 1 if execution_mode == "interactive" else 2
+            params.setdefault("source_kind", _bookmark_source_kind(text))
+            params.setdefault("downstream_capability_id", "content_kb")
+            params.setdefault("owner", "knowledge-base")
+            params.setdefault("default_repo", "knowledge-base")
 
         if route == ButlerRoute.HERMES or runtime_id == "hermes":
             runtime_id = "hermes"
@@ -437,10 +437,10 @@ class ButlerDispatchCenter:
 
 _MODEL_FILL_SYSTEM_PROMPT = """You are a strict router. Return one JSON object only.
 Allowed legacy task_type values: excel_audit, github_admin, content_kb, bookmark, youtube, unknown.
-Allowed canonical task_type values: youtube.autoflow, github.issue_ops, github.pr_ops, excel.commission, hermes.general.
+Allowed canonical task_type values: source_collect.collect, youtube.autoflow, github.issue_ops, github.pr_ops, excel.commission, hermes.general.
 Allowed route values: direct, worker, hermes, reject.
 Allowed runtime_id values: claude, hermes.
-Allowed target_agent values: butler_orchestrator, excel_audit, github_ops_accountA, github_ops_accountB, youtube_ops, content_kb.
+Allowed target_agent values: butler_orchestrator, excel_audit, github_ops_accountA, github_ops_accountB, youtube_ops, source_collect, content_kb.
 Never answer the user's request. Only classify and route."""
 
 
@@ -488,6 +488,16 @@ _BOOKMARK_KEYWORDS = (
     "x bookmark",
     "推特书签",
     "x 书签",
+)
+
+_X_BOOKMARK_KEYWORDS = (
+    "推特书签",
+    "twitter bookmark",
+    "twitter bookmarks",
+    "x 书签",
+    "x书签",
+    "x bookmark",
+    "x bookmarks",
 )
 
 
@@ -556,6 +566,13 @@ def _select_github_target_agent(repo: str | None) -> str:
 def _should_escalate_content_task(text: str) -> bool:
     normalized = text.strip().lower()
     return any(keyword in normalized for keyword in _BOOKMARK_KEYWORDS)
+
+
+def _bookmark_source_kind(text: str) -> str:
+    normalized = text.strip().lower()
+    if any(keyword in normalized for keyword in _X_BOOKMARK_KEYWORDS):
+        return "x_bookmarks"
+    return "bookmarks"
 
 
 def _normalize_runtime_id(value: str) -> str:

@@ -25,6 +25,7 @@ class ButlerTaskType:
 
 
 class ButlerCanonicalTaskType:
+    SOURCE_COLLECT = "source_collect.collect"
     YOUTUBE_AUTOFLOW = "youtube.autoflow"
     GITHUB_ISSUE_OPS = "github.issue_ops"
     GITHUB_PR_OPS = "github.pr_ops"
@@ -58,12 +59,13 @@ _KEYWORD_MAP: dict[str, list[str]] = {
     ButlerTaskType.CONTENT_KB: [
         "字幕入库", "知识库", "字幕分类", "索引", "subtitle",
         "知识整理", "内容分类",
-        # X / Twitter bookmarks curation (管家口语：「整理X书签」)
-        "推特书签", "twitter bookmark", "x 书签", "x书签",
     ],
     ButlerTaskType.BOOKMARK: [
         "书签", "收藏", "bookmark", "稍后读", "read later",
         "链接整理", "书签整理", "收藏夹", "收藏整理",
+        # X / Twitter bookmarks curation (管家口语：「整理X书签」)
+        "推特书签", "twitter bookmark", "twitter bookmarks",
+        "x 书签", "x书签", "x bookmark", "x bookmarks",
     ],
     ButlerTaskType.YOUTUBE: [
         "youtube", "视频", "字幕下载", "字幕提取", "yt-dlp",
@@ -116,7 +118,10 @@ class ButlerIntentRouter:
                 extracted["urls"] = urls
             return ButlerClassification(extracted_params=extracted)
 
-        best_type = max(scores, key=lambda t: scores[t])
+        if ButlerTaskType.BOOKMARK in scores:
+            best_type = ButlerTaskType.BOOKMARK
+        else:
+            best_type = max(scores, key=lambda t: scores[t])
         total = sum(scores.values())
         confidence = round(scores[best_type] / total, 2) if total > 0 else 0.0
 
@@ -140,6 +145,7 @@ class ButlerIntentRouter:
 
 
 _CANONICAL_TO_LEGACY_TASK_TYPE: dict[str, str] = {
+    ButlerCanonicalTaskType.SOURCE_COLLECT: ButlerTaskType.BOOKMARK,
     ButlerCanonicalTaskType.YOUTUBE_AUTOFLOW: ButlerTaskType.YOUTUBE,
     ButlerCanonicalTaskType.GITHUB_ISSUE_OPS: ButlerTaskType.GITHUB_ADMIN,
     ButlerCanonicalTaskType.GITHUB_PR_OPS: ButlerTaskType.GITHUB_ADMIN,
@@ -187,7 +193,7 @@ def canonical_task_type_for(task_type: str, *, action: str | None = None) -> str
     if legacy == ButlerTaskType.CONTENT_KB:
         return ButlerCanonicalTaskType.CONTENT_KB_INGEST
     if legacy == ButlerTaskType.BOOKMARK:
-        return ButlerCanonicalTaskType.BOOKMARK_ORGANIZE
+        return ButlerCanonicalTaskType.SOURCE_COLLECT
     return ButlerCanonicalTaskType.HERMES_GENERAL
 
 
@@ -201,4 +207,6 @@ def worker_task_type_for_canonical(canonical_task_type: str) -> str:
         return "excel_audit"
     if normalized == ButlerCanonicalTaskType.CONTENT_KB_INGEST:
         return "content_kb_ingest"
+    if normalized == ButlerCanonicalTaskType.SOURCE_COLLECT:
+        return "source_collect"
     return "claude_runtime"

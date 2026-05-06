@@ -718,18 +718,21 @@ def _handle_approve_command(
             else:
                 v2_approval, v2_task = v2_lookup
                 decision = "approved" if approval_action == "approve" else "rejected"
+                annual_grant_requested = decision == "approved" and _is_annual_approval_note(approval_note)
+                decision_note = "" if annual_grant_requested else approval_note
                 try:
                     resolved_task = control_plane_service.decide_task(
                         v2_task.task_id,
                         ControlPlaneApprovalDecisionRequest(
                             decision=decision,
                             decided_by=approval_uid,
-                            note=approval_note or None,
+                            note=decision_note or None,
                             metadata={
                                 "resolved_via": "telegram_command",
                                 "chat_id": chat_id,
                                 "scope": session_identity.scope.value,
                                 "approval_id": v2_approval.approval_id,
+                                **({"approval_grant": "annual"} if annual_grant_requested else {}),
                             },
                         ),
                     )
@@ -873,6 +876,10 @@ def _v2_approval_metadata(
         "status": task.status.value,
         "run_id": task.run_id,
     }
+
+
+def _is_annual_approval_note(note: str) -> bool:
+    return str(note or "").strip().lower() in {"annual", "year", "yearly", "授权一年", "按年授权"}
 
 
 def _handle_mode_command(

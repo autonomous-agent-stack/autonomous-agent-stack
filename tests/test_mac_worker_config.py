@@ -36,3 +36,15 @@ def test_mac_worker_register_metadata_uses_repo_default_api_db_path(
 
     assert request.metadata["api_db_path"] == str(expected)
     assert _resolve_worker_api_db_path(config) == expected
+
+
+def test_mac_worker_legacy_display_name_maps_to_aas_worker(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HOUSEKEEPING_ROOT", str(tmp_path))
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_WORKER_DISPLAY_NAME", "初代worker")
+
+    config = MacWorkerConfig.from_env()
+
+    assert config.telegram_reply_brand == "AAS Worker"

@@ -250,7 +250,7 @@ class TelegramSettings(_BaseApiSettings):
         validation_alias="AUTORESEARCH_TELEGRAM_RUNTIME_ID",
     )
     telegram_worker_display_name: str = Field(
-        default="初代worker",
+        default="AAS Worker",
         validation_alias="AUTORESEARCH_TELEGRAM_WORKER_DISPLAY_NAME",
     )
     telegram_hermes_profile: str = Field(
@@ -333,9 +333,10 @@ class TelegramSettings(_BaseApiSettings):
     @field_validator("telegram_worker_display_name", mode="before")
     @classmethod
     def _normalize_telegram_worker_display_name(cls, value: Any) -> str:
-        if value is None:
-            return "初代worker"
-        return str(value).strip()
+        normalized = str(value or "").strip()
+        if not normalized or normalized == "初代worker":
+            return "AAS Worker"
+        return normalized
 
     @field_validator("telegram_hermes_profile", mode="before")
     @classmethod

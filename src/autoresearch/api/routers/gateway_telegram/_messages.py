@@ -366,6 +366,20 @@ def _append_worker_inventory_lines(lines: list[str], inventory) -> None:
             f"- 在线 {summary.online_workers} 个，忙碌 {summary.busy_workers} 个，异常 {summary.degraded_workers} 个，离线 {summary.offline_workers} 个",
         ]
     )
+    nonactive_agents = []
+    summary_metadata = getattr(summary, "metadata", {}) or {}
+    if isinstance(summary_metadata, dict):
+        raw_nonactive = summary_metadata.get("butler_agents_nonactive") or []
+        if isinstance(raw_nonactive, list):
+            nonactive_agents = [item for item in raw_nonactive if isinstance(item, dict)]
+    if nonactive_agents:
+        lines.append("暂停中的 agents")
+        for agent in nonactive_agents[:8]:
+            name = str(agent.get("agent_name") or "").strip() or "unknown"
+            state = str(agent.get("status") or "").strip() or "unknown"
+            reason = str(agent.get("reason") or "").strip()
+            suffix = f"，原因 {reason}" if reason else ""
+            lines.append(f"- {name}：{state}{suffix}")
     if not workers:
         lines.append("- 当前没有已注册 worker")
         return
@@ -571,6 +585,10 @@ def _build_v2_approval_reply_markup(approval_id: str | None) -> dict[str, Any] |
                 {
                     "text": "拒绝 / Reject",
                     "callback_data": f"/approve {normalized} reject",
+                },
+                {
+                    "text": "授权一年 / Approve 1 year",
+                    "callback_data": f"/approve {normalized} approve annual",
                 },
             ],
             [

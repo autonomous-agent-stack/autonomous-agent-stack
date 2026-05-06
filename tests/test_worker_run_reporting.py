@@ -13,6 +13,7 @@ from autoresearch.api.dependencies import (
 )
 from autoresearch.api.main import app
 from autoresearch.control_plane.contracts import (
+    ControlPlaneApprovalGrantRead,
     ControlPlaneApprovalRead,
     ControlPlaneArtifactRead,
     ControlPlaneAuditEventRead,
@@ -106,6 +107,11 @@ def _build_control_plane_service(
                 db_path=db_path,
                 table_name="control_plane_approvals_reporting_test",
                 model_cls=ControlPlaneApprovalRead,
+            ),
+            approval_grants=SQLiteModelRepository(
+                db_path=db_path,
+                table_name="control_plane_approval_grants_reporting_test",
+                model_cls=ControlPlaneApprovalGrantRead,
             ),
             artifacts=SQLiteModelRepository(
                 db_path=db_path,
@@ -603,6 +609,38 @@ def test_enqueue_youtube_autoflow_via_api(
     assert queued["payload"]["repo_hint"] == "acme/demo"
 
 
+def test_enqueue_source_collect_via_api(
+    worker_client: TestClient,
+    worker_services: tuple[WorkerRegistryService, WorkerSchedulerService],
+) -> None:
+    registry, _ = worker_services
+    _register_worker(registry, worker_id="mac-mini-01")
+
+    created = worker_client.post(
+        "/api/v1/worker-runs/source-collect",
+        json={
+            "source_kind": "x_bookmarks",
+            "fixture_path": "/tmp/x-bookmarks.fixture.json",
+            "limit": 12,
+            "max_pages": 2,
+            "collector": "xreach",
+            "title": "整理 X 书签",
+            "requested_by": "local_test",
+            "metadata": {"source": "api_test"},
+        },
+    )
+
+    assert created.status_code == 201
+    queued = created.json()
+    assert queued["task_type"] == "source_collect"
+    assert queued["requested_by"] == "local_test"
+    assert queued["payload"]["source_kind"] == "x_bookmarks"
+    assert queued["payload"]["fixture_path"] == "/tmp/x-bookmarks.fixture.json"
+    assert queued["payload"]["limit"] == 12
+    assert queued["payload"]["max_pages"] == 2
+    assert queued["payload"]["collector"] == "xreach"
+
+
 # -----------------------------------------------------------------------------
 # Butler completion fallback (ux-butler-parity)
 # -----------------------------------------------------------------------------
@@ -690,9 +728,9 @@ def test_butler_fallback_fires_when_worker_notify_failed(
         assert edit["message_id"] == 4242
         text = str(edit["text"])
         assert edit["parse_mode"] == "MarkdownV2"
-        assert "初代worker" in text
+        assert "AAS Worker" in text
         assert "管家兜底" in text
-        assert "阶段 \\| Phase" in text
+        assert "诊断" in text
         assert "terminal\\_timeout" in text
         assert run_id.replace("_", "\\_") in text
         # Dedup marker should be persisted on the run.
@@ -700,6 +738,75 @@ def test_butler_fallback_fires_when_worker_notify_failed(
         assert stored is not None
         assert stored.metadata.get("telegram_butler_fallback_sent") is True
         assert stored.metadata.get("telegram_butler_fallback_reason") == "failed"
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+
+
+def test_butler_fallback_explains_source_collect_auth_failure(
+    worker_client: TestClient,
+    worker_services: tuple[WorkerRegistryService, WorkerSchedulerService],
+) -> None:
+    """source_collect auth failures should show a concise action hint, not raw collector noise."""
+    from autoresearch.api.dependencies import get_telegram_notifier_service
+    from autoresearch.api.main import app
+
+    registry, scheduler = worker_services
+    _register_worker(registry, worker_id="mac-mini-01")
+    queued = scheduler.enqueue(
+        WorkerQueueItemCreateRequest(
+            task_name="整理X书签",
+            task_type="source_collect",
+            payload={
+                "chat_id": "777",
+                "runtime_id": "source_collect",
+                "capability_id": "source_collect",
+                "agent_name": "source_collect",
+                "target_agents": ["source_collect"],
+            },
+            metadata={
+                "telegram_queue_ack_message_id": 4242,
+                "telegram_completion_via_api": True,
+                "capability_id": "source_collect",
+            },
+        ),
+        now=utc_now(),
+    )
+    scheduler.claim("mac-mini-01", WorkerClaimRequest(), now=utc_now() + timedelta(seconds=1))
+
+    notifier = _StubNotifier()
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+    try:
+        report = worker_client.post(
+            f"/api/v1/workers/mac-mini-01/runs/{queued.run_id}/report",
+            json={
+                "status": "failed",
+                "message": "source_collect failed: X 书签采集器 xreach 鉴权失败，无法读取书签。",
+                "error": "X 书签采集器 xreach 鉴权失败，无法读取书签。",
+                "metrics": {
+                    "telegram_notify_status": "failed",
+                    "error_kind": "collector_auth_failed",
+                    "exit_reason": "collector_auth_failed",
+                    "collector": "xreach",
+                },
+                "result": {
+                    "summary": "X 书签采集器 xreach 鉴权失败，无法读取书签。",
+                    "telegram_hint": "请在本机重新完成 xreach 登录后重试；如果只想验证链路，可先传 fixture_path 做离线 smoke。",
+                    "error_kind": "collector_auth_failed",
+                    "exit_reason": "collector_auth_failed",
+                    "collector": "xreach",
+                    "collector_error": "Error: GraphQL Error: Could not authenticate you",
+                },
+            },
+        )
+        assert report.status_code == 200
+        assert len(notifier.edits) == 1
+        text = str(notifier.edits[0]["text"])
+        assert "AAS Worker" in text
+        assert "初代worker" not in text
+        assert "source\\_collect" in text
+        assert "collector\\_auth\\_failed" in text
+        assert "xreach 登录" in text
+        assert "Could not authenticate you" not in text
     finally:
         app.dependency_overrides.pop(get_telegram_notifier_service, None)
 
@@ -719,7 +826,7 @@ def test_butler_primary_edits_ack_when_worker_delegates_card(
     notifier = _StubNotifier()
     app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
     try:
-        card = "【初代worker】\n任务已结束。\n\n| 项 | 值 |\n| --- | --- |\n| 任务 | x |\n\n正文第一行\n第二行"
+        card = "【AAS Worker】\n任务已结束。\n\n| 项 | 值 |\n| --- | --- |\n| 任务 | x |\n\n正文第一行\n第二行"
         report = worker_client.post(
             f"/api/v1/workers/mac-mini-01/runs/{run_id}/report",
             json={
@@ -808,8 +915,8 @@ def test_butler_fallback_falls_back_to_send_when_edit_fails(
         assert len(notifier.sends) == 1
         send_text = str(notifier.sends[0]["text"])
         assert notifier.sends[0]["parse_mode"] == "MarkdownV2"
-        assert "初代worker" in send_text
-        assert "阶段 \\| Phase" in send_text
+        assert "AAS Worker" in send_text
+        assert "诊断" in send_text
         assert "boom" in send_text
         stored = scheduler.get_run(run_id)
         assert stored is not None

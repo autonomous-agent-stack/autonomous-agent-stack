@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from autoresearch.core.services.butler_agent_state import ButlerAgentStateService
 from autoresearch.core.services.worker_registry import WorkerRegistryService
 from autoresearch.core.services.worker_scheduler import WorkerSchedulerService
 from autoresearch.shared.models import (
@@ -26,9 +27,11 @@ class WorkerInventoryService:
         *,
         worker_registry: WorkerRegistryService,
         worker_scheduler: WorkerSchedulerService,
+        butler_agent_state: ButlerAgentStateService | None = None,
     ) -> None:
         self._worker_registry = worker_registry
         self._worker_scheduler = worker_scheduler
+        self._butler_agent_state = butler_agent_state
 
     def list_workers(
         self,
@@ -176,13 +179,31 @@ class WorkerInventoryService:
             return "degraded"
         return "online"
 
-    @staticmethod
-    def _build_summary(workers: list[WorkerInventoryRead], *, issued_at: datetime) -> WorkerInventorySummaryRead:
+    def _summary_metadata(self) -> dict[str, object]:
+        if self._butler_agent_state is None:
+            return {}
+        nonactive = self._butler_agent_state.nonactive_agents()
+        if not nonactive:
+            return {}
+        return {
+            "butler_agents_nonactive": [
+                {
+                    "agent_name": item.agent_name,
+                    "status": item.status.value,
+                    "capability_id": item.capability_id,
+                    "reason": item.reason,
+                }
+                for item in nonactive
+            ]
+        }
+
+    def _build_summary(self, workers: list[WorkerInventoryRead], *, issued_at: datetime) -> WorkerInventorySummaryRead:
         return WorkerInventorySummaryRead(
             total_workers=len(workers),
             online_workers=sum(1 for item in workers if item.display_status == "online"),
             busy_workers=sum(1 for item in workers if item.display_status == "busy"),
             degraded_workers=sum(1 for item in workers if item.display_status == "degraded"),
             offline_workers=sum(1 for item in workers if item.display_status == "offline"),
+            metadata=self._summary_metadata(),
             issued_at=issued_at,
         )

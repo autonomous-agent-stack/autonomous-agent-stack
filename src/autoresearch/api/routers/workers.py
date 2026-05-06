@@ -368,6 +368,8 @@ def _maybe_send_butler_completion_fallback(
     metrics: dict[str, Any] = run.metrics or {}
     metadata: dict[str, Any] = run.metadata or {}
     notify_state = str(metrics.get("telegram_notify_status") or "").strip().lower()
+    if notify_state == "deferred":
+        return
     if notify_state in _WORKER_DELIVERED_STATES:
         return
     if metadata.get("telegram_butler_primary_sent"):
@@ -446,8 +448,11 @@ def _compose_butler_fallback_text(
     result = run.result if isinstance(run.result, dict) else {}
     metrics = run.metrics if isinstance(run.metrics, dict) else {}
     summary = str(result.get("summary") or run.message or "").strip()
+    hint = str(result.get("telegram_hint") or result.get("user_hint") or "").strip()
     phase = str(metrics.get("telegram_live_phase") or run.status.value).strip().lower() or run.status.value
     exit_reason = str(metrics.get("exit_reason") or result.get("exit_reason") or "").strip()
+    error_kind = str(metrics.get("error_kind") or result.get("error_kind") or "").strip()
+    collector = str(metrics.get("collector") or result.get("collector") or "").strip()
     primary_agent, agent_names = resolve_telegram_agent_attribution(
         payload,
         metadata,
@@ -455,13 +460,20 @@ def _compose_butler_fallback_text(
         result,
     )
     runtime_id = (
-        str(payload.get("runtime_id") or metadata.get("capability_id") or run.task_type.value)
+        str(payload.get("runtime_id") or run.task_type.value or metadata.get("capability_id"))
         .strip()
         .lower()
     )
-    diagnostics = f"runtime={runtime_id}, exit={exit_reason or run.status.value}"
+    diagnostics_parts = [f"runtime={runtime_id}", f"exit={exit_reason or error_kind or run.status.value}"]
+    if error_kind:
+        diagnostics_parts.append(f"error_kind={error_kind}")
+    if collector:
+        diagnostics_parts.append(f"collector={collector}")
+    diagnostics = ", ".join(diagnostics_parts)
     body = "管家兜底：worker 未能直接送达 Telegram 结果。"
-    if summary:
+    if hint:
+        body = f"{body}\n\n{hint}"
+    elif summary:
         body = f"{body}\n\n{summary}"
     return format_butler_completion_message(
         brand=brand,

@@ -26,6 +26,10 @@ Default docs URL:
 scripts/start-mac-worker.sh
 ```
 
+中文：默认 worker 显示名为 `AAS Worker`；如需定制回写前缀，可设置 `AUTORESEARCH_TELEGRAM_WORKER_DISPLAY_NAME`。
+
+English: The default worker display name is `AAS Worker`; set `AUTORESEARCH_TELEGRAM_WORKER_DISPLAY_NAME` to customize the write-back prefix.
+
 Useful overrides:
 
 ```bash
@@ -33,6 +37,14 @@ WORKER_ID=mac-mini-01 \
 HOUSEKEEPING_ROOT=/Volumes/AI_LAB/Github \
 WORKER_DRY_RUN=1 \
 scripts/start-mac-worker.sh
+```
+
+中文：启动后检查 worker inventory，期望至少有一个在线 worker，且 capabilities 包含 `source_collect`、`youtube_autoflow` 与 `content_kb_ingest`。
+
+English: After startup, inspect worker inventory and expect at least one online worker with `source_collect`, `youtube_autoflow`, and `content_kb_ingest` in capabilities.
+
+```bash
+curl -sS http://127.0.0.1:8001/api/v1/workers
 ```
 
 ## 3. Enqueue a noop run
@@ -96,7 +108,50 @@ Healthy smoke signs:
 - terminal run has inactive lease
 - worker registration row keeps updating `last_heartbeat_at`
 
-## 6. Enqueue a manual YouTube bridge action
+## 6. Enqueue a source_collect X bookmark fixture
+
+中文：这个 smoke 不触发真实账号采集，只验证 worker 能读取 fixture、写入本地 artifact，并返回可交给 `content_kb_ingest` 的 payload。完整 Butler 路径会在 `source_collect` 成功回报后自动排入 `content_kb_ingest`。
+
+English: This smoke does not trigger a real account collection. It verifies that the worker can read a fixture, write a local artifact, and return a payload suitable for `content_kb_ingest`. The full Butler path queues `content_kb_ingest` automatically after `source_collect` reports success.
+
+```bash
+cat >/tmp/aas-x-bookmarks-fixture.json <<'JSON'
+{
+  "items": [
+    {
+      "id": "1001",
+      "text": "Agent workflows should collect sources before ingest.",
+      "user": {"screenName": "example", "name": "Example"},
+      "createdAt": "2026-05-06T00:00:00Z"
+    }
+  ]
+}
+JSON
+
+curl -sS \
+  -X POST http://127.0.0.1:8001/api/v1/worker-runs/source-collect \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "source_kind": "x_bookmarks",
+    "fixture_path": "/tmp/aas-x-bookmarks-fixture.json",
+    "collector": "xreach",
+    "limit": 1,
+    "max_pages": 1,
+    "title": "Manual X bookmark smoke",
+    "requested_by": "manual_smoke"
+  }'
+```
+
+Expected result:
+
+- worker claims the run
+- final run result includes `artifact_path`, `metadata_path`, `collector=fixture`, `item_count=1`, and `content_kb_payload.subtitle_text_path`
+
+中文：真实 X 书签采集使用 `xreach bookmarks --json`。如果本机登录态失效，失败结果会标记 `error_kind=collector_auth_failed`，Telegram 卡片会提示先重新完成 `xreach` 登录；原始采集器错误保留在 `collector_error` 里。
+
+English: Real X bookmark collection uses `xreach bookmarks --json`. If the local login state is invalid, the failed result is marked with `error_kind=collector_auth_failed`, the Telegram card asks the operator to re-authenticate `xreach`, and the raw collector output remains in `collector_error`.
+
+## 7. Enqueue a manual YouTube bridge action
 
 ```bash
 curl -sS \
@@ -121,7 +176,7 @@ Expected result:
 - run result includes structured fields such as `success`, `status`, `error_kind`, `failed_stage`, `reason`, and returned resource ids
 - no Telegram, cron, or autonomous polling behavior is introduced
 
-## 7. Log expectations
+## 8. Log expectations
 
 During the smoke you should see log lines for:
 
@@ -131,7 +186,7 @@ During the smoke you should see log lines for:
 - run start
 - run completion or failure
 
-## 8. Enqueue a full YouTube -> GitHub autoflow run
+## 9. Enqueue a full YouTube -> GitHub autoflow run
 
 ```bash
 curl -sS \
@@ -160,7 +215,7 @@ Notes:
 - if `repos.yaml` lacks an explicit `repo_hint` or matching `channel_ids` / `channel_titles` / `keywords`, routing fails closed
 - running this against a real remote repo may open a draft PR, so use a sandbox repo if you only want a smoke
 
-## 9. Emulate Telegram thin ingress for one YouTube link
+## 10. Emulate Telegram thin ingress for one YouTube link
 
 ```bash
 curl -sS \

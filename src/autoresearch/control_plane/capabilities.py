@@ -209,6 +209,62 @@ class YouTubeAutoflowCapabilityAdapter(CapabilityAdapter):
         )
 
 
+class SourceCollectCapabilityAdapter(CapabilityAdapter):
+    descriptor = ControlPlaneCapabilityRead(
+        capability_id="source_collect",
+        name="Source collector",
+        type="source_collect",
+        enabled=True,
+        dispatch_mode="worker_queue",
+        description="Collects X bookmarks or local source fixtures into text artifacts before knowledge-base ingest.",
+        risk_tags=["filesystem_write", "external_api"],
+        requires_approval=True,
+        external_calls_enabled=True,
+        metadata={"worker_task_type": WorkerTaskType.SOURCE_COLLECT.value},
+    )
+
+    def build_worker_request(self, task: ControlPlaneTaskRead) -> WorkerQueueItemCreateRequest:
+        request_text = task.intent or task.name
+        source_kind = str(
+            task.parameters.get("source_kind")
+            or _source_kind_from_text(request_text)
+        ).strip() or "bookmarks"
+        primary_agent, agent_names = _agent_attribution_for_task(task)
+        source_urls = _list_param(task.parameters, "source_urls") or _list_param(task.parameters, "urls")
+        source_url = task.parameters.get("source_url") or _first_url(task.parameters, request_text)
+        return WorkerQueueItemCreateRequest(
+            task_name=task.name,
+            task_type=WorkerTaskType.SOURCE_COLLECT,
+            payload={
+                "source_kind": source_kind,
+                "fixture_path": task.parameters.get("fixture_path")
+                or task.parameters.get("source_fixture_path")
+                or "",
+                "limit": task.parameters.get("limit") or 50,
+                "max_pages": task.parameters.get("max_pages", 1),
+                "collector": task.parameters.get("collector") or "xreach",
+                "title": task.parameters.get("title") or task.name,
+                "topic": task.parameters.get("topic") or "",
+                "source_url": source_url or "",
+                "source_urls": source_urls,
+                "owner": task.parameters.get("owner") or "knowledge-base",
+                "default_repo": task.parameters.get("default_repo") or "knowledge-base",
+                "downstream_capability_id": task.parameters.get("downstream_capability_id") or "content_kb",
+                "session_id": task.session_id,
+                "task_id": task.task_id,
+                "capability_id": task.capability_id,
+                "request_text": request_text,
+                "runtime_id": "source_collect",
+                "agent_name": primary_agent,
+                "target_agent": primary_agent,
+                "target_agents": agent_names,
+            },
+            requested_by=task.requested_by,
+            priority=_priority_from_task(task, default=4),
+            metadata=_base_worker_metadata(task),
+        )
+
+
 class ContentKBCapabilityAdapter(CapabilityAdapter):
     descriptor = ControlPlaneCapabilityRead(
         capability_id="content_kb",
@@ -400,6 +456,7 @@ class ControlPlaneCapabilityRegistry:
             GitHubAssistantCapabilityAdapter(),
             ExcelAuditCapabilityAdapter(),
             YouTubeAutoflowCapabilityAdapter(),
+            SourceCollectCapabilityAdapter(),
             ContentKBCapabilityAdapter(),
             HermesOpenClawCapabilityAdapter(),
             SecurityAuditCapabilityAdapter(),
@@ -487,6 +544,7 @@ def _default_agent_for_capability(capability_id: str) -> str:
         "github_assistant": "github_ops_accountA",
         "excel_audit": "excel_audit",
         "youtube_autoflow": "youtube_ops",
+        "source_collect": "source_collect",
         "content_kb": "content_kb",
         "hermes_openclaw": "butler_orchestrator",
         "security_audit": "security_audit",
@@ -553,3 +611,21 @@ def _first_text_path(parameters: dict[str, Any]) -> str | None:
             if candidate.lower().endswith(_TEXT_PATH_SUFFIXES):
                 return candidate
     return None
+
+
+def _source_kind_from_text(text: str) -> str:
+    normalized = str(text or "").strip().lower()
+    if any(
+        token in normalized
+        for token in (
+            "推特书签",
+            "twitter bookmark",
+            "twitter bookmarks",
+            "x 书签",
+            "x书签",
+            "x bookmark",
+            "x bookmarks",
+        )
+    ):
+        return "x_bookmarks"
+    return "bookmarks"

@@ -25,18 +25,18 @@ def markdown_v2_escape(value: Any) -> str:
 
 
 def telegram_runtime_attribution_row(runtime_id: str | None) -> tuple[str, str]:
-    """Bilingual table key + normalized runtime value for Telegram butler cards."""
-    key = "执行面 | Runtime"
+    """Normalized runtime value for legacy Telegram butler table callers."""
+    key = "执行面"
     rid = (runtime_id or "claude").strip().lower()
     return key, rid if rid else "claude"
 
 
 def telegram_agent_attribution_row(agent_name: str | None) -> tuple[str, str]:
-    """Bilingual table key + agent display value (placeholder when unset)."""
-    key = "Agent 名称 | Agent name"
+    """Agent display value for legacy Telegram butler table callers."""
+    key = "Agent"
     name = (agent_name or "").strip()
     if not name:
-        return key, "（未命名）| (unnamed)"
+        return key, "（未命名）"
     return key, name[:200]
 
 
@@ -104,36 +104,23 @@ def format_butler_queue_ack_message(
     runtime = _clean_value(runtime_id or "claude")
     capability = _clean_value(capability_id or runtime)
     brand = _clean_value(worker_brand)
-    status = "已入队 / queued"
-    tail = (
-        f"完成后由 {brand} 在此会话回复；发送 /status 查看 worker 与队列 / {brand} will reply here when done; send /status for worker and queue state"
-        if brand
-        else "Worker 接单即跑；发送 /status 查看 worker 与队列 / The worker starts after claiming the task; send /status for worker and queue state"
-    )
+    execution = _execution_line_text(runtime, capability, primary=primary, agents=agents)
+    tail = f"{brand} 会在这里回复；查进度发 /status。" if brand else "接单后开始执行；查进度发 /status。"
     lines = [
-        _mdv2_title("管家已接单 | Butler queued"),
-        _mdv2_field("状态 | Status", status),
-        "",
-        *_mdv2_section(
-            "归属 | Attribution",
-            [
-                ("负责 agent | Primary agent", primary),
-                ("参与 agents | Agents", _agent_list_text(agents)),
-                ("执行面 | Runtime", runtime),
-                ("能力 | Capability", capability),
-            ],
-        ),
-        "",
-        *_mdv2_section(
-            "任务 | Task",
-            [
-                ("名称 | Name", task_name),
-                ("run id", run_id),
-            ],
-        ),
-        "",
-        markdown_v2_escape(tail),
+        _mdv2_title("管家已接单"),
+        _mdv2_field("任务", task_name),
+        _mdv2_field("状态", "已入队"),
+        _mdv2_field("Agent", _agent_line_text(primary, agents)),
     ]
+    if execution:
+        lines.append(_mdv2_field("执行面", execution))
+    lines.extend(
+        [
+            _mdv2_field("run id", run_id),
+            "",
+            markdown_v2_escape(tail),
+        ]
+    )
     return _truncate_markdown_v2("\n".join(lines), max_chars=max_chars)
 
 
@@ -169,41 +156,36 @@ def format_butler_completion_message(
 
     runtime = _clean_value(runtime_id or "claude")
     capability = _clean_value(capability_id or runtime)
+    execution = _execution_line_text(runtime, capability, primary=primary, agents=agents)
     task_rows: list[tuple[str, str]] = [
-        ("名称 | Name", task_name),
+        ("任务", task_name),
+        ("状态", _status_display_text(status)),
+        ("Agent", _agent_line_text(primary, agents)),
         ("run id", run_id),
-        ("状态 | Status", status),
     ]
+    if execution:
+        task_rows.append(("执行面", execution))
     if phase:
-        task_rows.append(("阶段 | Phase", phase))
-    attribution_rows = [
-        ("负责 agent | Primary agent", primary),
-        ("参与 agents | Agents", _agent_list_text(agents)),
-        ("执行面 | Runtime", runtime),
-        ("能力 | Capability", capability),
-    ]
+        task_rows.append(("阶段", phase))
     detail_rows: list[tuple[str, str]] = []
     if diagnostics:
-        detail_rows.append(("诊断 | Diagnostics", diagnostics))
+        detail_rows.append(("诊断", diagnostics))
     if notify_state:
-        detail_rows.append(("worker 投递 | Worker delivery", notify_state))
+        detail_rows.append(("投递", notify_state))
     if summary:
-        detail_rows.append(("摘要 | Summary", summary))
+        detail_rows.append(("摘要", summary))
 
-    clean_body = _clean_value(body) or "（无文本输出）| (no text output)"
+    clean_body = _clean_value(body) or "（无文本输出）"
     lines = [
         _mdv2_title(title),
-        _mdv2_field("状态 | Status", status),
         "",
-        *_mdv2_section("归属 | Attribution", attribution_rows),
-        "",
-        *_mdv2_section("任务 | Task", task_rows),
+        *_mdv2_fields(task_rows),
     ]
     if detail_rows:
-        lines.extend(["", *_mdv2_section("详情 | Details", detail_rows)])
-    lines.extend(["", _mdv2_title("结果 | Result"), markdown_v2_escape(clean_body)])
+        lines.extend(["", *_mdv2_fields(detail_rows)])
+    lines.extend(["", _mdv2_title("结果"), markdown_v2_escape(clean_body)])
     if error:
-        lines.extend(["", _mdv2_title("错误 | Error"), markdown_v2_escape(error[:1200])])
+        lines.extend(["", _mdv2_title("错误"), markdown_v2_escape(error[:1200])])
     return _truncate_markdown_v2("\n".join(lines), max_chars=max_chars)
 
 
@@ -240,37 +222,33 @@ def format_butler_live_status_message(
 
     b = (brand or "").strip()
     custom_title = str(m.get("telegram_live_card_title") or "").strip()
-    title = custom_title or "管家运行中 | Butler running"
+    title = custom_title or "管家运行中"
     if b:
         title = f"{b} · {title}"
     primary, agents = resolve_telegram_agent_attribution(m)
     r_disp = str(m.get("telegram_display_runtime_id") or m.get("runtime_id") or "hermes").strip().lower()
     capability = str(m.get("capability_id") or r_disp or "hermes").strip()
-    progress_rows: list[tuple[str, str]] = [("状态 | Status", hs or "running")]
+    execution = _execution_line_text(r_disp, capability, primary=primary, agents=agents)
+    progress_rows: list[tuple[str, str]] = [
+        ("状态", _status_display_text(hs or "running")),
+        ("Agent", _agent_line_text(primary, agents)),
+    ]
+    if execution:
+        progress_rows.append(("执行面", execution))
     if elapsed is not None:
-        progress_rows.append(("耗时 | Elapsed", f"{elapsed}s"))
+        progress_rows.append(("耗时", f"{elapsed}s"))
     if rid:
-        progress_rows.append(("runtime run", rid))
+        progress_rows.append(("运行 id", rid))
     if msg:
-        progress_rows.append(("worker", msg[:200]))
+        progress_rows.append(("进展", msg[:200]))
 
     parts: list[str] = [
         _mdv2_title(title),
         "",
-        *_mdv2_section(
-            "归属 | Attribution",
-            [
-                ("负责 agent | Primary agent", primary),
-                ("参与 agents | Agents", _agent_list_text(agents)),
-                ("执行面 | Runtime", r_disp or "?"),
-                ("能力 | Capability", capability),
-            ],
-        ),
-        "",
-        *_mdv2_section("进度 | Progress", progress_rows),
+        *_mdv2_fields(progress_rows),
     ]
     if tail:
-        parts.extend(["", _mdv2_title("最近输出 | Recent output"), markdown_v2_escape(tail[:2800])])
+        parts.extend(["", _mdv2_title("最近输出"), markdown_v2_escape(tail[:2800])])
     body = "\n".join(parts).strip()
     return _truncate_markdown_v2(body, max_chars=max_chars)
 
@@ -294,7 +272,7 @@ def polish_butler_completion_card(text: str, *, max_chars: int = 3900) -> str:
     head = t[: max_chars - 120].rstrip()
     return (
         f"{head}\n\n"
-        "…（正文过长，已在此处截断；完整输出可在控制面/日志中按 run id 查看） / Output truncated here; full output is available by run id"
+        "…（正文过长，已截断；完整输出可按 run id 查看）"
     )
 
 
@@ -337,7 +315,33 @@ def _clean_value(value: Any) -> str:
 
 
 def _agent_list_text(names: list[str]) -> str:
-    return ", ".join(name for name in names if str(name).strip()) or "（未命名）| (unnamed)"
+    return "、".join(name for name in names if str(name).strip()) or "（未命名）"
+
+
+def _agent_line_text(primary: str, names: list[str]) -> str:
+    main = _clean_value(primary) or "（未命名）"
+    collaborators = [name for name in _dedupe_agent_names(names) if name and name != main]
+    if not collaborators:
+        return main
+    return f"{main}（协作：{_agent_list_text(collaborators)}）"
+
+
+def _execution_line_text(
+    runtime: str | None,
+    capability: str | None,
+    *,
+    primary: str,
+    agents: list[str],
+) -> str:
+    runtime_text = _clean_value(runtime)
+    capability_text = _clean_value(capability)
+    values = _dedupe_agent_names([runtime_text, capability_text])
+    if not values:
+        return ""
+    agent_names = {_clean_value(primary), *[_clean_value(agent) for agent in agents]}
+    if all(value in agent_names for value in values):
+        return ""
+    return " / ".join(values)
 
 
 def _mdv2_title(text: str) -> str:
@@ -357,22 +361,46 @@ def _mdv2_section(title: str, rows: list[tuple[str, Any]]) -> list[str]:
     return lines
 
 
+def _mdv2_fields(rows: list[tuple[str, Any]]) -> list[str]:
+    lines: list[str] = []
+    for label, value in rows:
+        clean = _clean_value(value)
+        if clean:
+            lines.append(_mdv2_field(label, clean))
+    return lines
+
+
 def _completion_title_for_status(status: str) -> str:
     normalized = status.strip().lower()
     if normalized == "completed":
-        return "管家已完成 | Butler completed"
+        return "管家已完成"
     if normalized in {"cancelled", "canceled", "cancel_requested"}:
-        return "管家取消中 | Butler cancellation"
+        return "管家取消中"
     if normalized in {"failed", "interrupted"}:
-        return "管家执行失败 | Butler failed"
-    return "管家任务结束 | Butler finished"
+        return "管家执行失败"
+    return "管家任务结束"
+
+
+def _status_display_text(status: str) -> str:
+    normalized = status.strip().lower()
+    return {
+        "queued": "已入队",
+        "running": "运行中",
+        "completed": "已完成",
+        "succeeded": "已完成",
+        "failed": "失败",
+        "interrupted": "中断",
+        "cancelled": "已取消",
+        "canceled": "已取消",
+        "cancel_requested": "取消中",
+    }.get(normalized, status.strip() or "未知")
 
 
 def _truncate_markdown_v2(text: str, *, max_chars: int) -> str:
     body = text.strip()
     if len(body) <= max_chars:
         return body
-    suffix = "\n\n…正文过长，已截断；请用 run id 查看完整日志 / Text truncated, use run id for full logs"
+    suffix = "\n\n…正文过长，已截断；请用 run id 查看完整日志"
     head = body[: max(1, max_chars - len(suffix))].rstrip()
     while head.endswith("\\"):
         head = head[:-1].rstrip()

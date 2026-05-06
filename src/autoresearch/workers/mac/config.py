@@ -14,9 +14,12 @@ _DEFAULT_CAPABILITIES: tuple[str, ...] = (
     "claude_runtime",
     "cleanup_appledouble",
     "cleanup_tmp",
+    "source_collect",
     "youtube_action",
     "youtube_autoflow",
     "github_ops",
+    "content_kb_classify",
+    "content_kb_ingest",
     "security_audit",
 )
 
@@ -37,6 +40,13 @@ def _sanitize_worker_id(value: str) -> str:
     return normalized or "mac-standby-worker"
 
 
+def _normalize_telegram_reply_brand(value: str | None) -> str:
+    normalized = str(value or "").strip()
+    if not normalized or normalized == "初代worker":
+        return "AAS Worker"
+    return normalized
+
+
 @dataclass(slots=True)
 class MacWorkerConfig:
     worker_id: str
@@ -54,7 +64,7 @@ class MacWorkerConfig:
     worker_type: WorkerType = WorkerType.MAC
     mode: WorkerMode = WorkerMode.STANDBY
     #: Shown in Telegram completion messages; empty string disables the 【…】 prefix.
-    telegram_reply_brand: str = "初代worker"
+    telegram_reply_brand: str = "AAS Worker"
     #: Hermes wait loop: report RUNNING to control plane at most this often (seconds).
     hermes_live_report_interval_seconds: float = 30.0
     #: When true, also report when stdout_preview grows past a newline (still API-throttled).
@@ -71,11 +81,9 @@ class MacWorkerConfig:
         default_worker_id = _sanitize_worker_id(f"mac-{host.split('.')[0]}")
         base_url = os.getenv("CONTROL_PLANE_BASE_URL", "http://127.0.0.1:8001").rstrip("/")
         housekeeping_root = Path(os.getenv("HOUSEKEEPING_ROOT", str(Path.cwd()))).expanduser().resolve()
-        brand_raw = os.environ.get("AUTORESEARCH_TELEGRAM_WORKER_DISPLAY_NAME")
-        if brand_raw is None:
-            telegram_reply_brand = "初代worker"
-        else:
-            telegram_reply_brand = str(brand_raw).strip()
+        telegram_reply_brand = _normalize_telegram_reply_brand(
+            os.environ.get("AUTORESEARCH_TELEGRAM_WORKER_DISPLAY_NAME")
+        )
         live_interval_raw = os.getenv("AUTORESEARCH_TELEGRAM_BUTLER_LIVE_INTERVAL_SECONDS", "30")
         try:
             hermes_live_report_interval_seconds = float(live_interval_raw)

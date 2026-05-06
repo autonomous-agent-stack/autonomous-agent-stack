@@ -2,11 +2,11 @@
 
 ## 目标
 
-在一台 Mac 上跑通 Telegram / Panel 到 Butler、worker、审批、回写的最小闭环。Butler 对外使用 dotted canonical task type，例如 `youtube.autoflow` 与 `github.pr_ops`；worker 队列继续使用既有枚举，例如 `youtube_autoflow` 与 `github_ops`，避免破坏已落地链路。
+在一台 Mac 上跑通 Telegram / Panel 到 Butler、worker、审批、回写的最小闭环。Butler 对外使用 dotted canonical task type，例如 `youtube.autoflow`、`source_collect.collect` 与 `github.pr_ops`；worker 队列继续使用既有枚举，例如 `youtube_autoflow`、`source_collect` 与 `github_ops`，避免破坏已落地链路。
 
 ## Goal
 
-Run the minimal Telegram / Panel to Butler, worker, approval, and write-back loop on one Mac. Butler exposes dotted canonical task types such as `youtube.autoflow` and `github.pr_ops`; the worker queue keeps existing enum values such as `youtube_autoflow` and `github_ops` to avoid breaking deployed paths.
+Run the minimal Telegram / Panel to Butler, worker, approval, and write-back loop on one Mac. Butler exposes dotted canonical task types such as `youtube.autoflow`, `source_collect.collect`, and `github.pr_ops`; the worker queue keeps existing enum values such as `youtube_autoflow`, `source_collect`, and `github_ops` to avoid breaking deployed paths.
 
 ## 建议目录
 
@@ -101,11 +101,19 @@ Default state:
 默认短语映射：
 
 - “总结这个 YouTube” → `youtube.autoflow`
+- “整理 X 书签” / “整理推特书签” → `source_collect.collect`
 - “帮我看这个 PR” → `github.pr_ops`
 - “算这个月提成” → `excel.commission`
 - “这个任务你判断一下” → `hermes.general`
 
 未知任务先走模型补位，仍无法确认时落到 Hermes interactive。
+
+X 书签链路：
+
+- Butler 创建 `source_collect` task 并等待审批
+- 审批后 worker queue 使用 `task_type=source_collect`
+- worker 收集并写入本地文本 artifact
+- `source_collect` 成功回报后自动排入 `content_kb_ingest`
 
 ## Butler Routing
 
@@ -118,11 +126,19 @@ New canonical metadata fields:
 Default phrase mapping:
 
 - “总结这个 YouTube” → `youtube.autoflow`
+- “整理 X 书签” / “整理推特书签” → `source_collect.collect`
 - “帮我看这个 PR” → `github.pr_ops`
 - “算这个月提成” → `excel.commission`
 - “这个任务你判断一下” → `hermes.general`
 
 Unknown tasks go through model fill first, then fall back to Hermes interactive when still unresolved.
+
+X bookmark flow:
+
+- Butler creates a `source_collect` task and waits for approval
+- After approval, the worker queue uses `task_type=source_collect`
+- The worker collects items and writes a local text artifact
+- After `source_collect` reports success, `content_kb_ingest` is queued automatically
 
 ## GitHub Ops
 
@@ -223,6 +239,7 @@ Telegram `/approve <approval_id>`, Telegram `/reject <approval_id>`, and Panel a
 ```bash
 pytest --noconftest \
   tests/test_butler_router.py \
+  tests/test_source_collect_worker.py \
   tests/test_standby_youtube_autoflow.py \
   tests/test_approvals_api.py \
   tests/test_hermes_approval_decisions.py \
@@ -234,6 +251,7 @@ pytest --noconftest \
 ```bash
 pytest --noconftest \
   tests/test_butler_router.py \
+  tests/test_source_collect_worker.py \
   tests/test_standby_youtube_autoflow.py \
   tests/test_approvals_api.py \
   tests/test_hermes_approval_decisions.py \

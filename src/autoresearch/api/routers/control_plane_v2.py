@@ -5,6 +5,7 @@ from fastapi.responses import HTMLResponse
 
 from autoresearch.control_plane.contracts import (
     ControlPlaneApprovalDecisionRequest,
+    ControlPlaneApprovalGrantRead,
     ControlPlaneApprovalRead,
     ControlPlaneAuditEventRead,
     ControlPlaneCapabilityRead,
@@ -235,6 +236,25 @@ def list_approvals(
     service: ControlPlaneService = Depends(get_control_plane_service_dependency),
 ) -> list[ControlPlaneApprovalRead]:
     return service.list_approvals()
+
+
+@router.get("/approval-grants", response_model=list[ControlPlaneApprovalGrantRead])
+def list_approval_grants(
+    service: ControlPlaneService = Depends(get_control_plane_service_dependency),
+) -> list[ControlPlaneApprovalGrantRead]:
+    return service.list_approval_grants()
+
+
+@router.post("/approval-grants/{grant_id}/revoke", response_model=ControlPlaneApprovalGrantRead)
+def revoke_approval_grant(
+    grant_id: str,
+    payload: ControlPlaneOperatorActionRequest,
+    service: ControlPlaneService = Depends(get_control_plane_service_dependency),
+) -> ControlPlaneApprovalGrantRead:
+    grant = service.revoke_approval_grant(grant_id, payload)
+    if grant is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Approval grant not found")
+    return grant
 
 
 @router.get("/sessions/{session_id}/timeline", response_model=SessionTimelineRead)

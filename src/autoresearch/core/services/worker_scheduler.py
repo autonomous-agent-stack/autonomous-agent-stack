@@ -4,6 +4,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any
 
+from autoresearch.core.services.butler_agent_state import ButlerAgentStateService
 from autoresearch.core.services.session_events import SessionEventService, resolve_session_id_from_payload
 from autoresearch.core.services.worker_registry import WorkerRegistryService
 from autoresearch.shared.models import (
@@ -49,6 +50,7 @@ class WorkerSchedulerService:
         lease_ttl_seconds: int = 60,
         retry_backoff_seconds: int = 30,
         session_events: SessionEventService | None = None,
+        butler_agent_state: ButlerAgentStateService | None = None,
     ) -> None:
         self._worker_registry = worker_registry
         self._queue_repository = queue_repository
@@ -56,6 +58,7 @@ class WorkerSchedulerService:
         self._lease_ttl_seconds = max(1, lease_ttl_seconds)
         self._retry_backoff_seconds = max(1, retry_backoff_seconds)
         self._session_events = session_events
+        self._butler_agent_state = butler_agent_state
 
     def enqueue(
         self,
@@ -132,6 +135,8 @@ class WorkerSchedulerService:
         for run in queued:
             if run.run_id in active_leases:
                 continue
+            if not self._agent_accepts_new_work(run):
+                continue
             preferred_wid = run.metadata.get("preferred_worker_id") if run.metadata else None
             if preferred_wid and preferred_wid == worker_id:
                 return self._finalize_claim(run, worker, request.queue_name, current)
@@ -140,6 +145,8 @@ class WorkerSchedulerService:
         # worker has not claimed them (fallback after waiting).
         for run in queued:
             if run.run_id in active_leases:
+                continue
+            if not self._agent_accepts_new_work(run):
                 continue
             preferred_wid = run.metadata.get("preferred_worker_id") if run.metadata else None
             if preferred_wid and preferred_wid != worker_id:
@@ -530,6 +537,14 @@ class WorkerSchedulerService:
             and (item.next_attempt_at is None or item.next_attempt_at <= now)
         ]
         return sorted(items, key=lambda item: (-item.priority, item.created_at, item.run_id))
+
+    def _agent_accepts_new_work(self, run: WorkerQueueItemRead) -> bool:
+        if self._butler_agent_state is None:
+            return True
+        target_agent = str((run.metadata or {}).get("target_agent") or "").strip()
+        if not target_agent:
+            return True
+        return self._butler_agent_state.is_active(target_agent)
 
     def _lease_ttl_for_run(self, run: WorkerQueueItemRead) -> int:
         raw = (run.metadata or {}).get("interactive_lease_ttl_seconds")

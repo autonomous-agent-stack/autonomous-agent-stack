@@ -149,6 +149,8 @@ def capability_id_for_decision(decision: ButlerDispatchDecision) -> str:
         return "excel_audit"
     if canonical == ButlerCanonicalTaskType.YOUTUBE_AUTOFLOW:
         return "youtube_autoflow"
+    if canonical == ButlerCanonicalTaskType.SOURCE_COLLECT:
+        return "source_collect"
     if canonical in {
         ButlerCanonicalTaskType.CONTENT_KB_INGEST,
         ButlerCanonicalTaskType.BOOKMARK_ORGANIZE,
@@ -162,6 +164,8 @@ def capability_id_for_decision(decision: ButlerDispatchDecision) -> str:
         return "excel_audit"
     if target_agent == "youtube_ops":
         return "youtube_autoflow"
+    if target_agent == "source_collect":
+        return "source_collect"
     if target_agent == "content_kb":
         return "content_kb"
     return "hermes_openclaw"

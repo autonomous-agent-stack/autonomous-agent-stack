@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Any
 
 from autoresearch.control_plane.capabilities import ControlPlaneCapabilityRegistry
 from autoresearch.control_plane.contracts import (
     ControlPlaneApprovalDecisionRequest,
+    ControlPlaneApprovalGrantRead,
+    ControlPlaneApprovalGrantStatus,
     ControlPlaneApprovalRead,
     ControlPlaneApprovalStatus,
     ControlPlaneArtifactRead,
@@ -21,6 +24,7 @@ from autoresearch.control_plane.contracts import (
     ControlPlaneTaskStatus,
 )
 from autoresearch.core.services.session_events import SessionEventService
+from autoresearch.core.services.butler_agent_state import ButlerAgentStateService
 from autoresearch.core.services.butler_tool_broker import (
     ButlerToolBroker,
     ButlerToolResolveRequest,
@@ -28,12 +32,14 @@ from autoresearch.core.services.butler_tool_broker import (
 from autoresearch.core.services.worker_scheduler import WorkerReportError, WorkerSchedulerService
 from autoresearch.shared.models import JobStatus, SessionEventCreateRequest, utc_now
 from autoresearch.shared.models import WorkerQueueItemCreateRequest, WorkerQueueItemRead
+from autoresearch.shared.models import WorkerTaskType
 from autoresearch.shared.store import Repository, create_resource_id
 
 
 logger = logging.getLogger(__name__)
 
 _APPROVAL_REQUIRED_TAGS = {"shell", "filesystem_write", "external_api"}
+_ANNUAL_APPROVAL_GRANT_SECONDS = 365 * 24 * 60 * 60
 _RETRY_METADATA_PRESERVE_KEYS = {
     "chat_id",
     "message_thread_id",
@@ -60,6 +66,7 @@ class ControlPlaneRepositories:
     tasks: Repository[ControlPlaneTaskRead]
     runs: Repository[ControlPlaneRunRead]
     approvals: Repository[ControlPlaneApprovalRead]
+    approval_grants: Repository[ControlPlaneApprovalGrantRead]
     artifacts: Repository[ControlPlaneArtifactRead]
     audit_events: Repository[ControlPlaneAuditEventRead]
     promotions: Repository[ControlPlanePromotionRead]
@@ -74,12 +81,14 @@ class ControlPlaneService:
         session_events: SessionEventService,
         capabilities: ControlPlaneCapabilityRegistry | None = None,
         tool_broker: ButlerToolBroker | None = None,
+        butler_agent_state: ButlerAgentStateService | None = None,
     ) -> None:
         self._repositories = repositories
         self._worker_scheduler = worker_scheduler
         self._session_events = session_events
         self._capabilities = capabilities or ControlPlaneCapabilityRegistry()
         self._tool_broker = tool_broker or ButlerToolBroker()
+        self._butler_agent_state = butler_agent_state
 
     def create_task(self, request: ControlPlaneTaskCreateRequest) -> ControlPlaneTaskRead:
         now = utc_now()
@@ -153,6 +162,38 @@ class ControlPlaneService:
             task_id=task.task_id,
             metadata={"capability_id": task.capability_id, "risk_tags": task.risk_tags},
         )
+        unavailable = self._agent_unavailable_reason(task)
+        if unavailable is not None:
+            unavailable_agent, unavailable_reason = unavailable
+            rejected = task.model_copy(
+                update={
+                    "status": ControlPlaneTaskStatus.REJECTED,
+                    "error": unavailable_reason,
+                    "updated_at": utc_now(),
+                    "metadata": {
+                        **task.metadata,
+                        "butler_agent_hotplug": True,
+                        "butler_agent_name": unavailable_agent.agent_name,
+                        "butler_agent_status": unavailable_agent.status.value,
+                        "butler_agent_reason": unavailable_agent.reason,
+                    },
+                }
+            )
+            self._repositories.tasks.save(rejected.task_id, rejected)
+            self._record(
+                session_id=rejected.session_id,
+                subject_type="agent",
+                subject_id=unavailable_agent.agent_name,
+                event_type="agent.unavailable",
+                message=unavailable_reason,
+                task_id=rejected.task_id,
+                metadata={
+                    "agent_name": unavailable_agent.agent_name,
+                    "agent_status": unavailable_agent.status.value,
+                    "capability_id": rejected.capability_id,
+                },
+            )
+            return rejected
         if tool_resolution is not None:
             self._record(
                 session_id=task.session_id,
@@ -163,6 +204,46 @@ class ControlPlaneService:
                 task_id=task.task_id,
                 metadata=tool_resolution.model_dump(mode="json"),
             )
+
+        approval_grant = self._find_active_approval_grant(task)
+        if approval_grant is not None:
+            granted_task = task.model_copy(
+                update={
+                    "metadata": {
+                        **task.metadata,
+                        "approval_grant_id": approval_grant.grant_id,
+                        "approval_grant_expires_at": approval_grant.expires_at.isoformat(),
+                        "approval_grant_source_approval_id": approval_grant.source_approval_id,
+                    },
+                    "updated_at": utc_now(),
+                }
+            )
+            self._repositories.tasks.save(granted_task.task_id, granted_task)
+            self._record(
+                session_id=granted_task.session_id,
+                subject_type="approval_grant",
+                subject_id=approval_grant.grant_id,
+                event_type="approval.grant_applied",
+                message="Annual approval grant applied.",
+                task_id=granted_task.task_id,
+                metadata={
+                    "grant_id": approval_grant.grant_id,
+                    "canonical_task_type": approval_grant.canonical_task_type,
+                    "source_kind": approval_grant.source_kind,
+                    "downstream_capability_id": approval_grant.downstream_capability_id,
+                    "expires_at": approval_grant.expires_at.isoformat(),
+                },
+            )
+            self._record(
+                session_id=granted_task.session_id,
+                subject_type="policy",
+                subject_id=granted_task.task_id,
+                event_type="policy.auto_approved",
+                message="Task matched an active approval grant.",
+                task_id=granted_task.task_id,
+                metadata={"risk_tags": granted_task.risk_tags, "approval_grant_id": approval_grant.grant_id},
+            )
+            return self._dispatch_task(granted_task)
 
         if self._requires_approval(task, capability_requires_approval=capability.requires_approval):
             approval = self._create_approval(task)
@@ -202,6 +283,62 @@ class ControlPlaneService:
 
     def list_approvals(self) -> list[ControlPlaneApprovalRead]:
         return self._repositories.approvals.list()
+
+    def list_approval_grants(self) -> list[ControlPlaneApprovalGrantRead]:
+        grants = [
+            self._normalize_approval_grant_expiration(item)
+            for item in self._repositories.approval_grants.list()
+        ]
+        return sorted(grants, key=lambda item: item.updated_at, reverse=True)
+
+    def _agent_unavailable_reason(self, task: ControlPlaneTaskRead):
+        if self._butler_agent_state is None:
+            return None
+        target_agent = str(
+            (task.parameters or {}).get("target_agent")
+            or (task.parameters or {}).get("agent_name")
+            or self._butler_agent_state.default_agent_for_capability(task.capability_id)
+            or ""
+        ).strip()
+        return self._butler_agent_state.unavailable_reason(target_agent)
+
+    def revoke_approval_grant(
+        self,
+        grant_id: str,
+        request: ControlPlaneOperatorActionRequest,
+    ) -> ControlPlaneApprovalGrantRead | None:
+        grant = self._repositories.approval_grants.get(grant_id)
+        if grant is None:
+            return None
+        current = utc_now()
+        revoked = grant.model_copy(
+            update={
+                "status": ControlPlaneApprovalGrantStatus.REVOKED,
+                "updated_at": current,
+                "revoked_at": current,
+                "metadata": {
+                    **grant.metadata,
+                    "revoke_reason": request.reason,
+                    "revoked_by": request.requested_by,
+                    **dict(request.metadata),
+                },
+            }
+        )
+        saved = self._repositories.approval_grants.save(revoked.grant_id, revoked)
+        self._record(
+            session_id=str(saved.metadata.get("session_id") or saved.grant_id),
+            subject_type="approval_grant",
+            subject_id=saved.grant_id,
+            event_type="approval.grant_revoked",
+            message=f"Approval grant revoked: {request.reason}",
+            metadata={
+                "grant_id": saved.grant_id,
+                "requested_by": saved.requested_by,
+                "reason": request.reason,
+                "revoked_by": request.requested_by,
+            },
+        )
+        return saved
 
     def get_approval(self, approval_id: str) -> ControlPlaneApprovalRead | None:
         return self._repositories.approvals.get(approval_id)
@@ -297,7 +434,26 @@ class ControlPlaneService:
                 task_id=rejected.task_id,
             )
             return rejected
-        return self._dispatch_task(task)
+        dispatch_task = task
+        approval_grant = self._maybe_create_approval_grant(
+            task=task,
+            approval=resolved,
+            decision=request,
+        )
+        if approval_grant is not None:
+            dispatch_task = task.model_copy(
+                update={
+                    "metadata": {
+                        **task.metadata,
+                        "approval_grant_id": approval_grant.grant_id,
+                        "approval_grant_expires_at": approval_grant.expires_at.isoformat(),
+                        "approval_grant_source_approval_id": approval_grant.source_approval_id,
+                    },
+                    "updated_at": utc_now(),
+                }
+            )
+            self._repositories.tasks.save(dispatch_task.task_id, dispatch_task)
+        return self._dispatch_task(dispatch_task)
 
     def cancel_task(
         self,
@@ -438,6 +594,117 @@ class ControlPlaneService:
                     **worker_snapshot,
                 },
             )
+        downstream_task = self._maybe_enqueue_source_collect_downstream(
+            task=updated_task,
+            source_run=updated_run,
+            worker_run=worker_run,
+        )
+        if downstream_task is not None:
+            return downstream_task
+        return updated_task
+
+    def _maybe_enqueue_source_collect_downstream(
+        self,
+        *,
+        task: ControlPlaneTaskRead,
+        source_run: ControlPlaneRunRead,
+        worker_run: WorkerQueueItemRead,
+    ) -> ControlPlaneTaskRead | None:
+        if worker_run.task_type != WorkerTaskType.SOURCE_COLLECT:
+            return None
+        if worker_run.status != JobStatus.COMPLETED:
+            return None
+        if task.metadata.get("source_collect_downstream_run_id"):
+            return None
+        result = worker_run.result if isinstance(worker_run.result, dict) else {}
+        payload = result.get("content_kb_payload")
+        if not isinstance(payload, dict):
+            return None
+        subtitle_text_path = str(payload.get("subtitle_text_path") or "").strip()
+        if not subtitle_text_path:
+            return None
+
+        downstream_metadata = {
+            **worker_run.metadata,
+            "control_plane_task_id": task.task_id,
+            "control_plane_session_id": task.session_id,
+            "capability_id": "content_kb",
+            "source_collect_run_id": source_run.run_id,
+            "source_collect_worker_run_id": worker_run.run_id,
+            "source_collect_downstream": True,
+            "approval_grant_id": task.metadata.get("approval_grant_id"),
+        }
+        downstream_request = WorkerQueueItemCreateRequest(
+            task_name=task.name,
+            task_type=WorkerTaskType.CONTENT_KB_INGEST,
+            payload={
+                **payload,
+                "session_id": task.session_id,
+                "task_id": task.task_id,
+                "capability_id": "content_kb",
+                "request_text": task.intent or task.name,
+                "runtime_id": "content_kb",
+                "agent_name": "content_kb",
+                "target_agent": "content_kb",
+                "target_agents": ["source_collect", "content_kb"],
+            },
+            requested_by=task.requested_by,
+            priority=int(task.metadata.get("priority") or worker_run.priority or 4),
+            metadata=downstream_metadata,
+        )
+        downstream_worker_run = self._worker_scheduler.enqueue(downstream_request)
+        downstream_run = ControlPlaneRunRead(
+            run_id=downstream_worker_run.run_id,
+            task_id=task.task_id,
+            session_id=task.session_id,
+            capability_id="content_kb",
+            status=ControlPlaneRunStatus.QUEUED,
+            worker_run_id=downstream_worker_run.run_id,
+            queued_at=downstream_worker_run.created_at,
+            updated_at=downstream_worker_run.updated_at,
+            metadata={
+                "dispatch_mode": "worker_queue",
+                "worker_task_type": downstream_worker_run.task_type.value,
+                "source_collect_run_id": source_run.run_id,
+                "source_collect_worker_run_id": worker_run.run_id,
+                "approval_grant_id": task.metadata.get("approval_grant_id"),
+            },
+        )
+        self._repositories.runs.save(downstream_run.run_id, downstream_run)
+        previous_run_ids = _append_previous_run_id(task.metadata.get("previous_run_ids"), source_run.run_id)
+        updated_task = task.model_copy(
+            update={
+                "status": ControlPlaneTaskStatus.QUEUED,
+                "run_id": downstream_run.run_id,
+                "result": None,
+                "error": None,
+                "updated_at": downstream_worker_run.updated_at,
+                "metadata": {
+                    **task.metadata,
+                    "previous_run_ids": previous_run_ids,
+                    "source_collect_downstream_run_id": downstream_run.run_id,
+                    "source_collect_artifact_path": result.get("artifact_path"),
+                },
+            }
+        )
+        self._repositories.tasks.save(updated_task.task_id, updated_task)
+        self._record(
+            session_id=task.session_id,
+            subject_type="run",
+            subject_id=downstream_run.run_id,
+            event_type="run.queued",
+            message="Source artifact dispatched to content_kb ingest.",
+            task_id=task.task_id,
+            run_id=downstream_run.run_id,
+            metadata={
+                "worker_run_id": downstream_worker_run.run_id,
+                "worker_task_type": downstream_worker_run.task_type.value,
+                "capability_id": "content_kb",
+                "source_collect_run_id": source_run.run_id,
+                "artifact_path": result.get("artifact_path"),
+                "approval_grant_id": task.metadata.get("approval_grant_id"),
+            },
+        )
         return updated_task
 
     def _cancel_task_run(
@@ -868,6 +1135,97 @@ class ControlPlaneService:
         tags = {tag.strip().lower() for tag in task.risk_tags}
         return capability_requires_approval or bool(tags & _APPROVAL_REQUIRED_TAGS)
 
+    def _find_active_approval_grant(self, task: ControlPlaneTaskRead) -> ControlPlaneApprovalGrantRead | None:
+        if not _matches_annual_grant_scope(task):
+            return None
+        actor_user_id = _task_actor_user_id(task)
+        for raw in self._repositories.approval_grants.list():
+            grant = self._normalize_approval_grant_expiration(raw)
+            if grant.status != ControlPlaneApprovalGrantStatus.ACTIVE:
+                continue
+            if grant.requested_by != task.requested_by:
+                continue
+            if grant.actor_user_id and actor_user_id and grant.actor_user_id != actor_user_id:
+                continue
+            if grant.canonical_task_type != "source_collect.collect":
+                continue
+            if grant.source_kind != "x_bookmarks":
+                continue
+            if grant.downstream_capability_id != "content_kb":
+                continue
+            return grant
+        return None
+
+    def _maybe_create_approval_grant(
+        self,
+        *,
+        task: ControlPlaneTaskRead,
+        approval: ControlPlaneApprovalRead,
+        decision: ControlPlaneApprovalDecisionRequest,
+    ) -> ControlPlaneApprovalGrantRead | None:
+        if not _requests_annual_approval_grant(decision.metadata, decision.note):
+            return None
+        if not _matches_annual_grant_scope(task):
+            return None
+        current = utc_now()
+        expires_at = current + timedelta(seconds=_approval_grant_ttl_seconds(decision.metadata))
+        grant = ControlPlaneApprovalGrantRead(
+            grant_id=create_resource_id("grant"),
+            requested_by=task.requested_by,
+            actor_user_id=_task_actor_user_id(task),
+            canonical_task_type="source_collect.collect",
+            source_kind="x_bookmarks",
+            downstream_capability_id="content_kb",
+            status=ControlPlaneApprovalGrantStatus.ACTIVE,
+            source_approval_id=approval.approval_id,
+            created_at=current,
+            updated_at=current,
+            expires_at=expires_at,
+            metadata={
+                "session_id": task.session_id,
+                "task_id": task.task_id,
+                "capability_id": task.capability_id,
+                "created_via": decision.metadata.get("resolved_via") or "control_plane_v2",
+                "grant_kind": "annual",
+                **dict(decision.metadata),
+            },
+        )
+        saved = self._repositories.approval_grants.save(grant.grant_id, grant)
+        self._record(
+            session_id=task.session_id,
+            subject_type="approval_grant",
+            subject_id=saved.grant_id,
+            event_type="approval.grant_created",
+            message="Annual approval grant created.",
+            task_id=task.task_id,
+            approval_id=approval.approval_id,
+            metadata={
+                "grant_id": saved.grant_id,
+                "canonical_task_type": saved.canonical_task_type,
+                "source_kind": saved.source_kind,
+                "downstream_capability_id": saved.downstream_capability_id,
+                "expires_at": saved.expires_at.isoformat(),
+            },
+        )
+        return saved
+
+    def _normalize_approval_grant_expiration(
+        self,
+        grant: ControlPlaneApprovalGrantRead,
+    ) -> ControlPlaneApprovalGrantRead:
+        if grant.status != ControlPlaneApprovalGrantStatus.ACTIVE:
+            return grant
+        if grant.expires_at > utc_now():
+            return grant
+        current = utc_now()
+        expired = grant.model_copy(
+            update={
+                "status": ControlPlaneApprovalGrantStatus.EXPIRED,
+                "updated_at": current,
+            }
+        )
+        return self._repositories.approval_grants.save(expired.grant_id, expired)
+
     def _record(
         self,
         *,
@@ -941,6 +1299,44 @@ def _task_status_from_run(status: ControlPlaneRunStatus) -> ControlPlaneTaskStat
     if status == ControlPlaneRunStatus.RUNNING:
         return ControlPlaneTaskStatus.RUNNING
     return ControlPlaneTaskStatus.QUEUED
+
+
+def _matches_annual_grant_scope(task: ControlPlaneTaskRead) -> bool:
+    params = task.parameters or {}
+    return (
+        task.capability_id == "source_collect"
+        and str(params.get("canonical_task_type") or "").strip().lower() == "source_collect.collect"
+        and str(params.get("source_kind") or "").strip().lower() == "x_bookmarks"
+        and str(params.get("downstream_capability_id") or "").strip().lower() == "content_kb"
+    )
+
+
+def _task_actor_user_id(task: ControlPlaneTaskRead) -> str | None:
+    for source in (task.parameters or {}, task.metadata or {}):
+        value = source.get("actor_user_id")
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return task.requested_by or None
+
+
+def _requests_annual_approval_grant(metadata: dict[str, Any], note: str | None) -> bool:
+    values = {
+        str(metadata.get("approval_grant") or "").strip().lower(),
+        str(metadata.get("grant_kind") or "").strip().lower(),
+        str(metadata.get("approval_scope") or "").strip().lower(),
+    }
+    if values & {"annual", "year", "yearly", "one_year", "1year"}:
+        return True
+    return str(note or "").strip().lower() in {"annual", "year", "yearly", "授权一年", "按年授权"}
+
+
+def _approval_grant_ttl_seconds(metadata: dict[str, Any]) -> int:
+    raw = metadata.get("approval_grant_ttl_seconds") or metadata.get("grant_ttl_seconds")
+    try:
+        ttl = int(raw) if raw is not None else _ANNUAL_APPROVAL_GRANT_SECONDS
+    except (TypeError, ValueError):
+        ttl = _ANNUAL_APPROVAL_GRANT_SECONDS
+    return max(24 * 60 * 60, min(ttl, _ANNUAL_APPROVAL_GRANT_SECONDS))
 
 
 def _terminal_event_type_from_worker(status: JobStatus) -> str | None:

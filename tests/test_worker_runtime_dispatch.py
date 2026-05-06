@@ -418,6 +418,20 @@ def test_telegram_hermes_profile_legacy_butler_maps_to_default() -> None:
     assert s.hermes_metadata_fragment_for_worker()["profile"] == "default"
 
 
+def test_telegram_worker_display_name_legacy_default_maps_to_aas_worker() -> None:
+    from autoresearch.api.settings import TelegramSettings
+
+    s = TelegramSettings(
+        bot_token="t",
+        owner_uids={"1"},
+        partner_uids=set(),
+        allowed_uids={"1"},
+        telegram_worker_display_name="初代worker",
+    )
+
+    assert s.telegram_worker_display_name == "AAS Worker"
+
+
 def test_telegram_hermes_execution_mode_normalized() -> None:
     from autoresearch.api.settings import TelegramSettings
 

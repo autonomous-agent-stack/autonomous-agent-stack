@@ -1,0 +1,178 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import urllib.error
+import urllib.request
+
+
+ROOT = Path(__file__).resolve().parents[1]
+MIGRATION_SCRIPTS = ROOT / "migration" / "openclaw" / "scripts"
+SERVICE_SCRIPTS = {
+    "api": {
+        "start": "start-api-daemon.sh",
+        "stop": "stop-api-daemon.sh",
+        "status": "status-api-daemon.sh",
+    },
+    "telegram": {
+        "start": "start-telegram-poller.sh",
+        "stop": "stop-telegram-poller.sh",
+        "status": "status-telegram-poller.sh",
+    },
+    "worker": {
+        "start": "start-mac-worker-daemon.sh",
+        "stop": "stop-mac-worker-daemon.sh",
+        "status": "status-mac-worker-daemon.sh",
+    },
+}
+START_ORDER = ("api", "telegram", "worker")
+STOP_ORDER = ("worker", "telegram", "api")
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+    if args.command == "agent":
+        return _agent_command(args)
+    return _service_command(args)
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Control Butler services and hot-plug Butler agents.")
+    parser.add_argument("--api-base", default=_default_api_base(), help="API base URL for agent commands")
+    parser.add_argument("--dry-run", action="store_true", help="Print service scripts without running them")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    for command in ("start", "stop", "restart", "status"):
+        sub = subparsers.add_parser(command)
+        sub.add_argument("target", nargs="?", default="all", choices=("all", "api", "telegram", "worker"))
+
+    agent = subparsers.add_parser("agent")
+    agent_sub = agent.add_subparsers(dest="agent_command", required=True)
+    agent_sub.add_parser("list")
+    status_cmd = agent_sub.add_parser("status")
+    status_cmd.add_argument("agent_name", nargs="?")
+    for command in ("start", "stop", "drain", "restart"):
+        sub = agent_sub.add_parser(command)
+        sub.add_argument("agent_name")
+        sub.add_argument("--actor", default="butlerctl")
+        sub.add_argument("--reason")
+        sub.add_argument("--wait-seconds", type=int, default=30)
+    return parser
+
+
+def _default_api_base() -> str:
+    explicit = (os.getenv("BUTLERCTL_API_BASE") or os.getenv("CONTROL_PLANE_BASE_URL") or "").strip()
+    if explicit:
+        return explicit.rstrip("/")
+    port = (os.getenv("AUTORESEARCH_API_PORT") or "8001").strip() or "8001"
+    return f"http://127.0.0.1:{port}"
+
+
+def _service_command(args: argparse.Namespace) -> int:
+    command = args.command
+    targets = _targets_for(args.target, command=command)
+    exit_code = 0
+    if command == "restart":
+        for target in STOP_ORDER if args.target == "all" else tuple(reversed(targets)):
+            exit_code = max(exit_code, _run_service_script(target, "stop", dry_run=args.dry_run))
+        for target in START_ORDER if args.target == "all" else targets:
+            exit_code = max(exit_code, _run_service_script(target, "start", dry_run=args.dry_run))
+        return exit_code
+    for target in targets:
+        exit_code = max(exit_code, _run_service_script(target, command, dry_run=args.dry_run))
+    return exit_code
+
+
+def _targets_for(target: str, *, command: str) -> tuple[str, ...]:
+    if target != "all":
+        return (target,)
+    if command == "stop":
+        return STOP_ORDER
+    return START_ORDER
+
+
+def _run_service_script(target: str, command: str, *, dry_run: bool) -> int:
+    script_name = SERVICE_SCRIPTS[target][command]
+    script = MIGRATION_SCRIPTS / script_name
+    if dry_run:
+        print(f"bash {script}")
+        return 0
+    print(f"==> {command} {target}")
+    completed = subprocess.run(["bash", str(script)], cwd=ROOT, check=False)
+    return int(completed.returncode)
+
+
+def _agent_command(args: argparse.Namespace) -> int:
+    command = args.agent_command
+    if command == "list":
+        agents = _api_json(args.api_base, "GET", "/api/v1/butler/agents")
+        _print_agent_table(agents)
+        return 0
+    if command == "status":
+        if args.agent_name:
+            agent = _api_json(args.api_base, "GET", f"/api/v1/butler/agents/{args.agent_name}")
+            _print_agent_table([agent])
+            return 0
+        agents = _api_json(args.api_base, "GET", "/api/v1/butler/agents")
+        _print_agent_table(agents)
+        return 0
+    payload = {
+        "actor": args.actor,
+        "reason": args.reason,
+        "wait_seconds": args.wait_seconds,
+        "metadata": {"source": "butlerctl"},
+    }
+    agent = _api_json(
+        args.api_base,
+        "POST",
+        f"/api/v1/butler/agents/{args.agent_name}/{command}",
+        payload=payload,
+    )
+    _print_agent_table([agent])
+    return 0
+
+
+def _api_json(base: str, method: str, path: str, *, payload: dict[str, object] | None = None):
+    url = f"{base.rstrip('/')}{path}"
+    data = None
+    headers = {"Accept": "application/json"}
+    if payload is not None:
+        data = json.dumps(payload).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    request = urllib.request.Request(url, data=data, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            body = response.read().decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise SystemExit(f"{method} {url} failed: HTTP {exc.code} {detail}") from exc
+    except urllib.error.URLError as exc:
+        raise SystemExit(f"{method} {url} failed: {exc.reason}") from exc
+    return json.loads(body) if body else None
+
+
+def _print_agent_table(agents) -> None:
+    rows = agents if isinstance(agents, list) else [agents]
+    print("agent\tstatus\tcapability\tupdated_at\treason")
+    for item in rows:
+        print(
+            "\t".join(
+                [
+                    str(item.get("agent_name") or ""),
+                    str(item.get("status") or ""),
+                    str(item.get("capability_id") or ""),
+                    str(item.get("updated_at") or ""),
+                    str(item.get("reason") or ""),
+                ]
+            )
+        )
+
+
+if __name__ == "__main__":
+    sys.exit(main())

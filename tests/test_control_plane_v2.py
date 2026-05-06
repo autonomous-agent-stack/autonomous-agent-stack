@@ -16,6 +16,7 @@ from autoresearch.control_plane.butler_bridge import (
 )
 from autoresearch.control_plane.capabilities import ControlPlaneCapabilityRegistry
 from autoresearch.control_plane.contracts import (
+    ControlPlaneApprovalGrantRead,
     ControlPlaneApprovalRead,
     ControlPlaneArtifactRead,
     ControlPlaneAuditEventRead,
@@ -67,6 +68,7 @@ def build_control_plane() -> tuple[ControlPlaneService, WorkerSchedulerService, 
             tasks=InMemoryRepository[ControlPlaneTaskRead](),
             runs=InMemoryRepository[ControlPlaneRunRead](),
             approvals=InMemoryRepository[ControlPlaneApprovalRead](),
+            approval_grants=InMemoryRepository[ControlPlaneApprovalGrantRead](),
             artifacts=InMemoryRepository[ControlPlaneArtifactRead](),
             audit_events=InMemoryRepository[ControlPlaneAuditEventRead](),
             promotions=InMemoryRepository[ControlPlanePromotionRead](),
@@ -506,6 +508,8 @@ def test_v2_capability_registry_exposes_protocol_boundaries() -> None:
     assert capabilities["echo"]["dispatch_mode"] == "worker_queue"
     assert capabilities["worker_queue"]["enabled"] is True
     assert capabilities["github_assistant"]["requires_approval"] is True
+    assert capabilities["source_collect"]["external_calls_enabled"] is True
+    assert "external_api" in capabilities["source_collect"]["risk_tags"]
     assert capabilities["mcp"]["external_calls_enabled"] is False
     assert capabilities["a2a"]["external_calls_enabled"] is False
     assert capabilities["adk_workflow"]["enabled"] is False
@@ -699,6 +703,72 @@ def test_v2_capability_worker_payloads_match_worker_contracts() -> None:
     assert content_run.task_type == WorkerTaskType.CONTENT_KB_INGEST
     assert content_run.payload["subtitle_text_path"] == ""
     assert content_run.payload["request_text"] == "把字幕入库到知识库"
+
+
+def test_butler_x_bookmarks_routes_source_collect_then_content_kb() -> None:
+    service, worker_scheduler, worker_registry = build_control_plane()
+    client = build_client(service)
+
+    response = client.post(
+        "/api/v2/butler/tasks",
+        json={
+            "message": "帮我整理一下 X 书签",
+            "session_id": "payload-x-bookmarks",
+        },
+    )
+
+    assert response.status_code == 202
+    payload = response.json()
+    task = payload["task"]
+    assert payload["dispatch_decision"]["canonical_task_type"] == "source_collect.collect"
+    assert payload["task_request"]["capability_id"] == "source_collect"
+    assert task["capability_id"] == "source_collect"
+    assert task["status"] == ControlPlaneTaskStatus.AWAITING_APPROVAL.value
+
+    approved = client.post(
+        f"/api/v2/tasks/{task['task_id']}/approval",
+        json={"decision": "approved", "decided_by": "tester"},
+    ).json()
+    source_run = worker_scheduler.get_run(approved["run_id"])
+    assert source_run is not None
+    assert source_run.task_type == WorkerTaskType.SOURCE_COLLECT
+    assert source_run.payload["source_kind"] == "x_bookmarks"
+    assert source_run.payload["collector"] == "xreach"
+    assert source_run.payload["runtime_id"] == "source_collect"
+    assert source_run.payload["downstream_capability_id"] == "content_kb"
+
+    register_worker(worker_registry)
+    claim = worker_scheduler.claim("worker-1", WorkerClaimRequest())
+    assert claim.run is not None
+    assert claim.run.run_id == source_run.run_id
+    reported = worker_scheduler.report(
+        "worker-1",
+        source_run.run_id,
+        WorkerRunReportRequest(
+            status=JobStatus.COMPLETED,
+            message="source collected",
+            result={
+                "artifact_path": "/tmp/x-bookmarks.txt",
+                "content_kb_payload": {
+                    "subtitle_text_path": "/tmp/x-bookmarks.txt",
+                    "title": "整理 X 书签",
+                    "topic": "",
+                    "source_url": "https://twitter.com/example/status/1",
+                    "source_kind": "x_bookmarks",
+                },
+            },
+        ),
+    )
+    downstream_task = service.sync_worker_run(reported)
+
+    assert downstream_task is not None
+    assert downstream_task.status == ControlPlaneTaskStatus.QUEUED
+    assert downstream_task.run_id != source_run.run_id
+    downstream_run = worker_scheduler.get_run(downstream_task.run_id or "")
+    assert downstream_run is not None
+    assert downstream_run.task_type == WorkerTaskType.CONTENT_KB_INGEST
+    assert downstream_run.payload["subtitle_text_path"] == "/tmp/x-bookmarks.txt"
+    assert downstream_run.payload["source_kind"] == "x_bookmarks"
 
 
 def test_control_plane_console_exposes_natural_language_butler_form() -> None:

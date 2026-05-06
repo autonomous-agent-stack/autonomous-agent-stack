@@ -687,6 +687,17 @@ def _handle_v2_butler_task(
 
 
 def _control_plane_task_ack_text(task) -> str:
+    metadata = task.metadata if isinstance(getattr(task, "metadata", None), dict) else {}
+    if task.status == ControlPlaneTaskStatus.REJECTED and metadata.get("butler_agent_hotplug"):
+        agent_name = str(metadata.get("butler_agent_name") or "-").strip() or "-"
+        agent_status = str(metadata.get("butler_agent_status") or "-").strip() or "-"
+        return (
+            "Agent 暂停中，任务未入队。\n"
+            f"agent：{agent_name}\n"
+            f"状态：{agent_status}\n"
+            f"task：{task.task_id}\n"
+            "可用 /status 查看状态。"
+        )
     if task.status == ControlPlaneTaskStatus.AWAITING_APPROVAL:
         return (
             "任务需要审批后执行。\n"

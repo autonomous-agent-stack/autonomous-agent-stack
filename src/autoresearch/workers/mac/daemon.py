@@ -566,7 +566,7 @@ class MacWorkerDaemon:
 
         bot_token = os.getenv("AUTORESEARCH_TELEGRAM_BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
         if not bot_token:
-            label = (self._config.telegram_reply_brand or "初代worker").strip() or "初代worker"
+            label = (self._config.telegram_reply_brand or "AAS Worker").strip() or "AAS Worker"
             msg = (
                 f"[{label}] skip telegram: no bot token "
                 "(set AUTORESEARCH_TELEGRAM_BOT_TOKEN or TELEGRAM_BOT_TOKEN for this worker process)"

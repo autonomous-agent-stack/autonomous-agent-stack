@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -59,6 +59,25 @@ class ContentKBIngestRequest(BaseModel):
     owner: str = Field("knowledge-base", description="GitHub owner/org")
     default_repo: str = Field("knowledge-base", description="Default target repo name")
     open_draft_pr: bool = Field(False, description="Signal draft PR creation intent")
+    requested_by: str | None = None
+    metadata: dict = Field(default_factory=dict)
+
+
+class SourceCollectRequest(BaseModel):
+    """Request body for source_collect task."""
+
+    source_kind: str = Field("x_bookmarks", description="Source kind, e.g. x_bookmarks or youtube_transcript")
+    fixture_path: str = Field("", description="Optional local JSON fixture path")
+    limit: int = Field(50, ge=1, le=500, description="Maximum source items to collect")
+    max_pages: int | None = Field(1, ge=1, le=100, description="Maximum collector pages to fetch")
+    collector: Literal["xreach"] = Field("xreach", description="Source collector implementation")
+    title: str = Field("Collected source artifact", description="Artifact title")
+    topic: str = Field("", description="Optional content topic for downstream ingest")
+    source_url: str = Field("", description="Optional source URL")
+    source_urls: list[str] = Field(default_factory=list, description="Optional source URLs")
+    owner: str = Field("knowledge-base", description="Knowledge base owner/org")
+    default_repo: str = Field("knowledge-base", description="Default target repo name")
+    downstream_capability_id: str = Field("content_kb", description="Downstream capability")
     requested_by: str | None = None
     metadata: dict = Field(default_factory=dict)
 
@@ -216,6 +235,21 @@ def enqueue_github_ops_run(
                 "worker_task_type": WorkerTaskType.GITHUB_OPS.value,
                 "approval_policy": policy.decision,
             },
+        )
+    )
+
+
+@router.post("/source-collect", response_model=WorkerQueueItemRead, status_code=status.HTTP_201_CREATED)
+def enqueue_source_collect_run(
+    payload: SourceCollectRequest,
+    service: WorkerSchedulerService = Depends(get_worker_scheduler_service),
+) -> WorkerQueueItemRead:
+    return service.enqueue(
+        WorkerQueueItemCreateRequest(
+            task_type=WorkerTaskType.SOURCE_COLLECT,
+            payload=payload.model_dump(exclude={"requested_by", "metadata"}),
+            requested_by=payload.requested_by,
+            metadata=payload.metadata,
         )
     )
 

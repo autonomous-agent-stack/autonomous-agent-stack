@@ -34,6 +34,12 @@ class ControlPlaneApprovalStatus(str, Enum):
     REJECTED = "rejected"
 
 
+class ControlPlaneApprovalGrantStatus(str, Enum):
+    ACTIVE = "active"
+    REVOKED = "revoked"
+    EXPIRED = "expired"
+
+
 class ControlPlanePromotionStatus(str, Enum):
     NOT_REQUESTED = "not_requested"
     PENDING = "pending"
@@ -152,6 +158,22 @@ class ControlPlaneApprovalRead(StrictModel):
     note: str | None = None
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ControlPlaneApprovalGrantRead(StrictModel):
+    grant_id: str
+    requested_by: str
+    actor_user_id: str | None = None
+    canonical_task_type: str
+    source_kind: str
+    downstream_capability_id: str
+    status: ControlPlaneApprovalGrantStatus = ControlPlaneApprovalGrantStatus.ACTIVE
+    source_approval_id: str | None = None
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+    expires_at: datetime
+    revoked_at: datetime | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 

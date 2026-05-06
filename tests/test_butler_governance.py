@@ -9,6 +9,7 @@ from autoresearch.api.dependencies import get_security_audit_service
 from autoresearch.api.main import app
 from autoresearch.control_plane.contracts import (
     ControlPlaneApprovalDecisionRequest,
+    ControlPlaneApprovalGrantRead,
     ControlPlaneApprovalRead,
     ControlPlaneApprovalStatus,
     ControlPlaneArtifactRead,
@@ -60,6 +61,7 @@ def _build_control_plane() -> tuple[ControlPlaneService, WorkerSchedulerService]
                 tasks=InMemoryRepository[ControlPlaneTaskRead](),
                 runs=InMemoryRepository[ControlPlaneRunRead](),
                 approvals=InMemoryRepository[ControlPlaneApprovalRead](),
+                approval_grants=InMemoryRepository[ControlPlaneApprovalGrantRead](),
                 artifacts=InMemoryRepository[ControlPlaneArtifactRead](),
                 audit_events=InMemoryRepository[ControlPlaneAuditEventRead](),
                 promotions=InMemoryRepository[ControlPlanePromotionRead](),

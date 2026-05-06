@@ -3,7 +3,10 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+import json
 from pathlib import Path
+import shutil
+import subprocess
 from typing import Any
 
 from autoresearch.core.services.apple_double_cleaner import AppleDoubleCleaner
@@ -60,6 +63,8 @@ class MacWorkerExecutor:
             return self._execute_cleanup_appledouble(run.payload)
         if run.task_type == WorkerTaskType.CLEANUP_TMP:
             return self._execute_cleanup_tmp(run.payload)
+        if run.task_type == WorkerTaskType.SOURCE_COLLECT:
+            return self._execute_source_collect(run)
         if run.task_type == WorkerTaskType.YOUTUBE_ACTION:
             return self._execute_youtube_action(run)
         if run.task_type == WorkerTaskType.YOUTUBE_AUTOFLOW:
@@ -154,6 +159,115 @@ class MacWorkerExecutor:
                 "older_than_hours": older_than_hours,
             },
             metrics={"entries_scanned": scanned_entries},
+        )
+
+    def _execute_source_collect(self, run: WorkerQueueItemRead) -> MacWorkerExecutionResult:
+        payload = dict(run.payload or {})
+        source_kind = str(payload.get("source_kind") or "bookmarks").strip().lower()
+        if source_kind not in {"x_bookmarks", "youtube_transcript", "bookmarks"}:
+            return MacWorkerExecutionResult(
+                message=f"source_collect unsupported source_kind: {source_kind}",
+                status=JobStatus.FAILED,
+                error=f"unsupported source_kind: {source_kind}",
+                result={
+                    "task_type": WorkerTaskType.SOURCE_COLLECT.value,
+                    "source_kind": source_kind,
+                    "error_kind": "unsupported_source_kind",
+                },
+            )
+        try:
+            loaded = _load_source_collect_items(payload=payload, source_kind=source_kind)
+        except _SourceCollectLoadError as exc:
+            user_summary = _source_collect_failure_summary(exc)
+            user_hint = _source_collect_failure_hint(exc)
+            return MacWorkerExecutionResult(
+                message=f"source_collect failed: {user_summary}",
+                status=JobStatus.FAILED,
+                error=user_summary,
+                result={
+                    "task_type": WorkerTaskType.SOURCE_COLLECT.value,
+                    "source_kind": source_kind,
+                    "collector": exc.collector,
+                    "error_kind": exc.error_kind,
+                    "exit_reason": exc.error_kind,
+                    "summary": user_summary,
+                    "telegram_hint": user_hint,
+                    "collector_error": str(exc),
+                    "request_text": payload.get("request_text") or "",
+                },
+                metrics={
+                    "error_kind": exc.error_kind,
+                    "exit_reason": exc.error_kind,
+                    "collector": exc.collector,
+                    "telegram_notify_status": "failed",
+                },
+            )
+        items = loaded.items
+        if not items:
+            collector = str(loaded.metadata.get("collector") or "fixture")
+            error_kind = "collector_empty" if collector == "xreach" else "fixture_empty"
+            return MacWorkerExecutionResult(
+                message="source_collect found no items",
+                status=JobStatus.FAILED,
+                error="source collector returned no collectable items",
+                result={
+                    "task_type": WorkerTaskType.SOURCE_COLLECT.value,
+                    "source_kind": source_kind,
+                    "collector": collector,
+                    "error_kind": error_kind,
+                    "request_text": payload.get("request_text") or "",
+                },
+            )
+
+        out_dir = self._config.housekeeping_root / "artifacts" / "source_collect" / run.run_id
+        out_dir.mkdir(parents=True, exist_ok=True)
+        artifact_path = out_dir / "normalized_subtitle.txt"
+        metadata_path = out_dir / "metadata.json"
+        normalized = _render_source_collect_text(items=items, source_kind=source_kind)
+        artifact_path.write_text(normalized, encoding="utf-8")
+        source_urls = _source_collect_urls(items, payload)
+        metadata = {
+            **loaded.metadata,
+            "source_kind": source_kind,
+            "item_count": len(items),
+            "source_urls": source_urls,
+            "artifact_path": str(artifact_path),
+            "request_text": payload.get("request_text") or "",
+        }
+        metadata_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        title = str(payload.get("title") or "Collected source artifact").strip()
+        content_kb_payload = {
+            "subtitle_text_path": str(artifact_path),
+            "title": title,
+            "topic": str(payload.get("topic") or "").strip(),
+            "source_url": str(payload.get("source_url") or (source_urls[0] if source_urls else "")).strip(),
+            "speakers": [],
+            "created_at": "",
+            "owner": str(payload.get("owner") or "knowledge-base").strip() or "knowledge-base",
+            "default_repo": str(payload.get("default_repo") or "knowledge-base").strip() or "knowledge-base",
+            "open_draft_pr": bool(payload.get("open_draft_pr")),
+            "source_collect_run_id": run.run_id,
+            "source_kind": source_kind,
+        }
+        return MacWorkerExecutionResult(
+            message=f"source_collect: {source_kind} → local artifact",
+            result={
+                "artifact_path": str(artifact_path),
+                "artifact_type": "text",
+                "metadata_path": str(metadata_path),
+                "source_kind": source_kind,
+                "collector": loaded.metadata.get("collector", "fixture"),
+                "item_count": len(items),
+                "source_urls": source_urls,
+                "content_kb_payload": content_kb_payload,
+                "summary": f"Collected {len(items)} item(s) into {artifact_path.name}",
+            },
+            metrics={
+                "items_collected": len(items),
+                "telegram_notify_status": "deferred",
+                "defer_completion_until": WorkerTaskType.CONTENT_KB_INGEST.value,
+            },
         )
 
     def _execute_youtube_action(self, run: WorkerQueueItemRead) -> MacWorkerExecutionResult:
@@ -590,6 +704,331 @@ def _normalize_security_audit_files(value: Any) -> list[str]:
     if isinstance(value, (list, tuple, set)):
         return [str(item).strip() for item in value if str(item).strip()]
     return []
+
+
+@dataclass(slots=True)
+class _SourceCollectLoadResult:
+    items: list[dict[str, Any]]
+    metadata: dict[str, Any]
+
+
+class _SourceCollectLoadError(RuntimeError):
+    def __init__(self, message: str, *, error_kind: str, collector: str) -> None:
+        super().__init__(message)
+        self.error_kind = error_kind
+        self.collector = collector
+
+
+def _load_source_collect_items(*, payload: dict[str, Any], source_kind: str) -> _SourceCollectLoadResult:
+    fixture_path = str(payload.get("fixture_path") or "").strip()
+    if fixture_path:
+        path = Path(fixture_path).expanduser()
+        if not path.exists():
+            raise _SourceCollectLoadError(
+                f"source fixture not found: {fixture_path}",
+                error_kind="fixture_missing",
+                collector="fixture",
+            )
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise _SourceCollectLoadError(
+                f"source fixture invalid JSON: {fixture_path}",
+                error_kind="fixture_invalid_json",
+                collector="fixture",
+            ) from exc
+        try:
+            items = _source_collect_items_from_raw(raw, source_kind=source_kind)
+        except ValueError as exc:
+            raise _SourceCollectLoadError(
+                f"source fixture has unsupported shape: {fixture_path}",
+                error_kind="fixture_invalid_json",
+                collector="fixture",
+            ) from exc
+        return _SourceCollectLoadResult(
+            items=items,
+            metadata={
+                "collector": "fixture",
+                "fixture_path": str(path),
+            },
+        )
+    if source_kind == "x_bookmarks":
+        return _load_x_bookmark_items_from_xreach(payload)
+    return _SourceCollectLoadResult(
+        items=_default_source_collect_items(source_kind),
+        metadata={
+            "collector": "fixture",
+            "fixture_default": True,
+        },
+    )
+
+
+def _load_x_bookmark_items_from_xreach(payload: dict[str, Any]) -> _SourceCollectLoadResult:
+    collector = str(payload.get("collector") or "xreach").strip() or "xreach"
+    if collector != "xreach":
+        raise _SourceCollectLoadError(
+            f"unsupported source collector: {collector}",
+            error_kind="collector_failed",
+            collector=collector,
+        )
+    executable = shutil.which("xreach")
+    if executable is None:
+        raise _SourceCollectLoadError(
+            "xreach collector is not installed or not on PATH",
+            error_kind="collector_missing",
+            collector="xreach",
+        )
+
+    limit = _bounded_int(payload.get("limit"), default=50, minimum=1, maximum=500)
+    max_pages = _optional_bounded_int(payload.get("max_pages"), default=1, minimum=1, maximum=100)
+    command = [executable, "bookmarks", "--json", "-n", str(limit)]
+    if max_pages is not None:
+        command.extend(["--max-pages", str(max_pages)])
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=90,
+        )
+    except FileNotFoundError as exc:
+        raise _SourceCollectLoadError(
+            "xreach collector is not installed or not on PATH",
+            error_kind="collector_missing",
+            collector="xreach",
+        ) from exc
+    except subprocess.TimeoutExpired as exc:
+        raise _SourceCollectLoadError(
+            "xreach bookmarks timed out",
+            error_kind="collector_failed",
+            collector="xreach",
+        ) from exc
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout or "").strip()
+        error_kind = _classify_xreach_error_kind(detail)
+        raise _SourceCollectLoadError(
+            detail[:500] or f"xreach bookmarks exited with code {completed.returncode}",
+            error_kind=error_kind,
+            collector="xreach",
+        )
+    try:
+        raw = json.loads(completed.stdout)
+    except json.JSONDecodeError as exc:
+        raise _SourceCollectLoadError(
+            "xreach bookmarks returned invalid JSON",
+            error_kind="collector_invalid_json",
+            collector="xreach",
+        ) from exc
+    try:
+        items = _source_collect_items_from_raw(raw, source_kind="x_bookmarks")
+    except ValueError as exc:
+        raise _SourceCollectLoadError(
+            "xreach bookmarks returned unsupported JSON shape",
+            error_kind="collector_invalid_json",
+            collector="xreach",
+        ) from exc
+    return _SourceCollectLoadResult(
+        items=items,
+        metadata={
+            "collector": "xreach",
+            "collector_command": ["xreach", "bookmarks", "--json", "-n", str(limit)]
+            + ([] if max_pages is None else ["--max-pages", str(max_pages)]),
+            "limit": limit,
+            "max_pages": max_pages,
+        },
+    )
+
+
+def _source_collect_items_from_raw(raw: Any, *, source_kind: str) -> list[dict[str, Any]]:
+    if isinstance(raw, dict):
+        for key in ("items", "bookmarks", "transcripts", "entries"):
+            value = raw.get(key)
+            if isinstance(value, list):
+                return [
+                    _normalize_source_collect_item(item, source_kind=source_kind, index=index)
+                    for index, item in enumerate(value, start=1)
+                    if isinstance(item, dict)
+                ]
+        return [_normalize_source_collect_item(raw, source_kind=source_kind, index=1)]
+    if isinstance(raw, list):
+        return [
+            _normalize_source_collect_item(item, source_kind=source_kind, index=index)
+            for index, item in enumerate(raw, start=1)
+            if isinstance(item, dict)
+        ]
+    raise ValueError("source fixture must be a JSON object or list")
+
+
+def _classify_xreach_error_kind(detail: str) -> str:
+    normalized = detail.strip().lower()
+    if any(
+        token in normalized
+        for token in (
+            "could not authenticate",
+            "unauthorized",
+            "authentication",
+            "not authenticated",
+            "not logged in",
+            "login required",
+        )
+    ):
+        return "collector_auth_failed"
+    return "collector_failed"
+
+
+def _source_collect_failure_summary(exc: _SourceCollectLoadError) -> str:
+    if exc.error_kind == "collector_auth_failed":
+        return "X 书签采集器 xreach 鉴权失败，无法读取书签。"
+    if exc.error_kind == "collector_missing":
+        return "未找到 X 书签采集器 xreach。"
+    if exc.error_kind == "collector_invalid_json":
+        return "X 书签采集器返回了无法解析的数据。"
+    if exc.error_kind == "collector_failed":
+        return "X 书签采集器执行失败。"
+    return str(exc).strip() or "source_collect failed"
+
+
+def _source_collect_failure_hint(exc: _SourceCollectLoadError) -> str:
+    if exc.error_kind == "collector_auth_failed":
+        return "请在本机重新完成 xreach 登录后重试；如果只想验证链路，可先传 fixture_path 做离线 smoke。"
+    if exc.error_kind == "collector_missing":
+        return "请先安装 xreach 并确认 worker 进程的 PATH 能找到它；离线测试可传 fixture_path。"
+    if exc.error_kind == "collector_invalid_json":
+        return "请确认 xreach bookmarks --json 输出为 JSON；离线测试可传 fixture_path。"
+    return "请查看 collector_error 获取采集器原始错误；离线测试可传 fixture_path。"
+
+
+def _default_source_collect_items(source_kind: str) -> list[dict[str, Any]]:
+    if source_kind == "youtube_transcript":
+        return [
+            {
+                "title": "Local YouTube transcript fixture",
+                "url": "fixture://youtube/local-transcript",
+                "text": "AI 与 GPT 模型正在快速发展，本地字幕 fixture 用于验证知识库入库闭环。",
+            }
+        ]
+    return [
+        {
+            "title": "Local X bookmark fixture",
+            "url": "fixture://x/bookmarks/local-001",
+            "text": "AI agents, GPT 模型与本地自动化工作流正在快速发展，适合整理进知识库。",
+        },
+        {
+            "title": "Knowledge workflow note",
+            "url": "fixture://x/bookmarks/local-002",
+            "text": "Bookmark collection should first create a local artifact, then hand it to content_kb_ingest.",
+        },
+    ]
+
+
+def _render_source_collect_text(*, items: list[dict[str, Any]], source_kind: str) -> str:
+    lines = [f"# source_collect {source_kind}", ""]
+    for index, item in enumerate(items, start=1):
+        title = str(item.get("title") or f"Item {index}").strip()
+        url = str(item.get("url") or item.get("source_url") or "").strip()
+        author = str(item.get("author") or "").strip()
+        created_at = str(item.get("created_at") or "").strip()
+        text = str(item.get("text") or item.get("content") or item.get("body") or "").strip()
+        lines.append(f"## {index}. {title}")
+        if url:
+            lines.append(f"Source: {url}")
+        if author:
+            lines.append(f"Author: {author}")
+        if created_at:
+            lines.append(f"Created: {created_at}")
+        if text:
+            lines.append(text)
+        lines.append("")
+    return "\n".join(lines).strip() + "\n"
+
+
+def _source_collect_urls(items: list[dict[str, Any]], payload: dict[str, Any]) -> list[str]:
+    urls: list[str] = []
+    for raw in payload.get("source_urls") or []:
+        text = str(raw).strip()
+        if text:
+            urls.append(text)
+    source_url = str(payload.get("source_url") or "").strip()
+    if source_url:
+        urls.append(source_url)
+    for item in items:
+        text = str(item.get("url") or item.get("source_url") or "").strip()
+        if text:
+            urls.append(text)
+    seen: set[str] = set()
+    out: list[str] = []
+    for url in urls:
+        if url in seen:
+            continue
+        seen.add(url)
+        out.append(url)
+    return out
+
+
+def _normalize_source_collect_item(item: dict[str, Any], *, source_kind: str, index: int) -> dict[str, Any]:
+    user = item.get("user") if isinstance(item.get("user"), dict) else {}
+    screen_name = _first_text(
+        item,
+        "screenName",
+        "screen_name",
+        "username",
+        "author_screen_name",
+    ) or _first_text(user, "screenName", "screen_name", "username")
+    author_name = _first_text(item, "author", "author_name") or _first_text(user, "name", "displayName")
+    tweet_id = _first_text(item, "id", "id_str", "tweet_id", "status_id")
+    url = _first_text(item, "url", "source_url", "tweet_url", "link")
+    if not url and source_kind == "x_bookmarks" and screen_name and tweet_id:
+        url = f"https://twitter.com/{screen_name}/status/{tweet_id}"
+    text = _first_text(item, "text", "full_text", "content", "body", "summary")
+    title = _first_text(item, "title", "name")
+    if not title:
+        if screen_name:
+            title = f"X bookmark by @{screen_name}"
+        elif author_name:
+            title = f"X bookmark by {author_name}"
+        else:
+            title = f"Item {index}"
+    normalized = dict(item)
+    normalized.update(
+        {
+            "title": title,
+            "url": url or "",
+            "text": text or "",
+            "author": author_name or (f"@{screen_name}" if screen_name else ""),
+            "created_at": _first_text(item, "createdAt", "created_at", "date") or "",
+        }
+    )
+    return normalized
+
+
+def _first_text(mapping: dict[str, Any], *keys: str) -> str | None:
+    for key in keys:
+        value = mapping.get(key)
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return None
+
+
+def _bounded_int(value: Any, *, default: int, minimum: int, maximum: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return min(max(parsed, minimum), maximum)
+
+
+def _optional_bounded_int(value: Any, *, default: int | None, minimum: int, maximum: int) -> int | None:
+    if value is None or value == "":
+        return default
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return min(max(parsed, minimum), maximum)
 
 
 def _youtube_autoflow_completion_card(

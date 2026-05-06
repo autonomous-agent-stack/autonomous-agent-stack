@@ -30,22 +30,42 @@ def test_queue_card_uses_markdown_v2_and_agent_attribution() -> None:
     text = format_butler_queue_ack_message(
         task_name="fix_issue #42",
         run_id="run_abc_123",
-        worker_brand="初代worker",
+        worker_brand="AAS Worker",
         runtime_id="github_assistant",
         capability_id="github_assistant",
         primary_agent="github_ops_accountA",
         agent_names=["github_ops_accountA", "reviewer_agent"],
     )
     assert "管家已接单" in text
+    assert "Butler queued" not in text
+    assert "Primary agent" not in text
     assert "github\\_ops\\_accountA" in text
     assert "reviewer\\_agent" in text
     assert "run\\_abc\\_123" in text
     assert "\\#42" in text
 
 
+def test_queue_card_omits_repeated_runtime_when_agent_matches_capability() -> None:
+    text = format_butler_queue_ack_message(
+        task_name="整理X书签",
+        run_id="run_bb6108f6760a",
+        worker_brand="AAS Worker",
+        runtime_id="source_collect",
+        capability_id="source_collect",
+        primary_agent="source_collect",
+        agent_names=["source_collect"],
+    )
+    assert "管家已接单" in text
+    assert "Agent" in text
+    assert "source\\_collect" in text
+    assert "执行面" not in text
+    assert "will reply here" not in text
+    assert "worker 与队列" not in text
+
+
 def test_completion_card_includes_primary_and_participant_agents() -> None:
     text = format_butler_completion_message(
-        brand="初代worker",
+        brand="AAS Worker",
         task_name="demo_task",
         run_id="run_demo",
         status_label="completed",
@@ -56,6 +76,7 @@ def test_completion_card_includes_primary_and_participant_agents() -> None:
         agent_names=["butler_orchestrator", "research_agent"],
     )
     assert "管家已完成" in text
+    assert "Butler completed" not in text
     assert "butler\\_orchestrator" in text
     assert "research\\_agent" in text
     assert "done\\!" in text

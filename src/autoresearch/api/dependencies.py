@@ -16,6 +16,7 @@ from autoresearch.api.settings import (
     get_upstream_watcher_settings,
 )
 from autoresearch.control_plane.contracts import (
+    ControlPlaneApprovalGrantRead,
     ControlPlaneApprovalRead,
     ControlPlaneArtifactRead,
     ControlPlaneAuditEventRead,
@@ -76,6 +77,7 @@ from autoresearch.core.services.worker_schedule_service import WorkerScheduleSer
 from autoresearch.core.services.worker_scheduler import WorkerSchedulerService
 from autoresearch.core.services.worker_inventory import WorkerInventoryService
 from autoresearch.core.services.worker_registry import WorkerRegistryService
+from autoresearch.core.services.butler_agent_state import ButlerAgentStateService
 from autoresearch.core.services.butler_dispatch import ButlerDispatchCenter, ButlerModelFillService
 from autoresearch.core.services.butler_router import ButlerIntentRouter
 from autoresearch.core.services.butler_tool_broker import ButlerToolBroker
@@ -91,6 +93,7 @@ from autoresearch.shared.models import (
     AdminConfigRevisionRead,
     AdminSecretRecordRead,
     ApprovalRequestRead,
+    ButlerAgentStateRead,
     ExecutionRead,
     ExperimentRead,
     IntegrationDiscoveryRead,
@@ -263,6 +266,11 @@ def get_control_plane_service() -> ControlPlaneService:
                 table_name="control_plane_approvals",
                 model_cls=ControlPlaneApprovalRead,
             ),
+            approval_grants=SQLiteModelRepository(
+                db_path=_api_db_path(),
+                table_name="control_plane_approval_grants",
+                model_cls=ControlPlaneApprovalGrantRead,
+            ),
             artifacts=SQLiteModelRepository(
                 db_path=_api_db_path(),
                 table_name="control_plane_artifacts",
@@ -357,6 +365,17 @@ def get_github_ops_service() -> GitHubOpsService:
 
 
 @lru_cache(maxsize=1)
+def get_butler_agent_state_service() -> ButlerAgentStateService:
+    return ButlerAgentStateService(
+        repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="butler_agent_states",
+            model_cls=ButlerAgentStateRead,
+        )
+    )
+
+
+@lru_cache(maxsize=1)
 def get_security_audit_service() -> SecurityAuditService:
     return SecurityAuditService(
         repo_root=_repo_root(),
@@ -394,6 +413,7 @@ def get_worker_scheduler_service() -> WorkerSchedulerService:
     settings = get_runtime_settings()
     return WorkerSchedulerService(
         worker_registry=get_worker_registry_service(),
+        butler_agent_state=get_butler_agent_state_service(),
         queue_repository=SQLiteModelRepository(
             db_path=_api_db_path(),
             table_name="worker_run_queue",
@@ -426,6 +446,7 @@ def get_worker_inventory_service() -> WorkerInventoryService:
     return WorkerInventoryService(
         worker_registry=get_worker_registry_service(),
         worker_scheduler=get_worker_scheduler_service(),
+        butler_agent_state=get_butler_agent_state_service(),
     )
 
 
@@ -781,6 +802,7 @@ def clear_dependency_caches() -> None:
     _safe_cache_clear(get_approval_policy_service)
     _safe_cache_clear(get_butler_tool_broker_service)
     _safe_cache_clear(get_github_ops_service)
+    _safe_cache_clear(get_butler_agent_state_service)
     _safe_cache_clear(get_security_audit_service)
     _safe_cache_clear(get_github_admin_service)
     _safe_cache_clear(get_github_issue_service)
