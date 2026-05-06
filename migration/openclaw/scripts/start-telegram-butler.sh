@@ -18,8 +18,12 @@ if [[ "${INGRESS_MODE}" != "webhook" && "${INGRESS_MODE}" != "polling" ]]; then
   INGRESS_MODE="webhook"
 fi
 if [[ "${INGRESS_MODE}" == "polling" ]]; then
-  echo "[telegram-butler] polling ingress enabled; starting telegram poller"
-  bash "${SCRIPT_DIR}/start-telegram-poller.sh"
+  if is_truthy_env_value "${AUTORESEARCH_TELEGRAM_POLLING_ENABLED:-false}"; then
+    echo "[telegram-butler] API 内置 polling 已启用，跳过外置 poller / API embedded polling enabled; skipping external telegram poller"
+  else
+    echo "[telegram-butler] polling ingress enabled; starting telegram poller"
+    bash "${SCRIPT_DIR}/start-telegram-poller.sh"
+  fi
 else
   echo "[telegram-butler] webhook ingress mode; skipping telegram poller startup"
 fi

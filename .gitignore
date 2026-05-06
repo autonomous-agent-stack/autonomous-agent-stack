@@ -24,6 +24,7 @@ wheels/
 !lib/*.py
 
 # Virtual environments
+.venv
 .venv/
 venv/
 ENV/

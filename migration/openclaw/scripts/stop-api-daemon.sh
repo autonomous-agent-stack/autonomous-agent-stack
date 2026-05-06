@@ -12,14 +12,12 @@ warn_env_conflicts ENV_FILES AUTORESEARCH_API_HOST AUTORESEARCH_API_PORT
 
 AUTORESEARCH_API_HOST="${AUTORESEARCH_API_HOST:-127.0.0.1}"
 AUTORESEARCH_API_PORT="${AUTORESEARCH_API_PORT:-8001}"
+AUTORESEARCH_API_TMUX_SESSION="${AUTORESEARCH_API_TMUX_SESSION:-aas-api}"
 HEALTH_URL="http://${AUTORESEARCH_API_HOST}:${AUTORESEARCH_API_PORT}/healthz"
 # Bound wait: a hung listener (TCP up, HTTP never completes) must not block `make telegram-butler-stop`.
 CURL_HEALTH=(curl -fsS --connect-timeout 2 --max-time 4)
 
-LISTENER_PID=""
-if command -v lsof >/dev/null 2>&1; then
-  LISTENER_PID="$(lsof -nP -iTCP:"${AUTORESEARCH_API_PORT}" -sTCP:LISTEN -t 2>/dev/null | head -n 1 || true)"
-fi
+LISTENER_PID="$(listener_pid_for_port "${AUTORESEARCH_API_PORT}")"
 
 _kill_pid() {
   local target="$1"
@@ -27,6 +25,13 @@ _kill_pid() {
   sleep 1
   if kill -0 "${target}" >/dev/null 2>&1; then
     kill -9 "${target}" >/dev/null 2>&1 || true
+  fi
+}
+
+_kill_tmux_session() {
+  if command -v tmux >/dev/null 2>&1 && tmux has-session -t "${AUTORESEARCH_API_TMUX_SESSION}" >/dev/null 2>&1; then
+    tmux kill-session -t "${AUTORESEARCH_API_TMUX_SESSION}" >/dev/null 2>&1 || true
+    echo "API tmux 会话已停止 / API tmux session stopped (${AUTORESEARCH_API_TMUX_SESSION})"
   fi
 }
 
@@ -50,4 +55,14 @@ if [[ -f "${PID_FILE}" ]]; then
   rm -f "${PID_FILE}"
 else
   echo "api not running (no pid file)"
+  if [[ -n "${LISTENER_PID}" ]]; then
+    LISTENER_CWD="$(process_cwd_for_pid "${LISTENER_PID}")"
+    if [[ -n "${LISTENER_CWD}" ]]; then
+      echo "正在停止无 pid 文件的监听进程 / Stopping stray listener pid=${LISTENER_PID} cwd=${LISTENER_CWD} (no pid file)"
+    else
+      echo "正在停止无 pid 文件的监听进程 / Stopping stray listener pid=${LISTENER_PID} (no pid file)"
+    fi
+    _kill_pid "${LISTENER_PID}"
+  fi
 fi
+_kill_tmux_session

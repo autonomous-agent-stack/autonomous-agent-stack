@@ -103,3 +103,53 @@ print_effective_env_values() {
     fi
   done
 }
+
+is_truthy_env_value() {
+  local raw_value="${1:-}"
+  local normalized
+  normalized="$(printf '%s' "${raw_value}" | tr '[:upper:]' '[:lower:]')"
+  case "${normalized}" in
+    1|true|yes|y|on|enabled)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+resolve_physical_dir() {
+  local raw_path="${1:-}"
+  if [[ -z "${raw_path}" || ! -d "${raw_path}" ]]; then
+    return 1
+  fi
+  (cd "${raw_path}" && pwd -P)
+}
+
+listener_pid_for_port() {
+  local port="$1"
+  if ! command -v lsof >/dev/null 2>&1; then
+    return 0
+  fi
+  lsof -nP -iTCP:"${port}" -sTCP:LISTEN -t 2>/dev/null | head -n 1 || true
+}
+
+process_cwd_for_pid() {
+  local pid="$1"
+  if [[ -z "${pid}" ]] || ! command -v lsof >/dev/null 2>&1; then
+    return 0
+  fi
+  lsof -a -p "${pid}" -d cwd -Fn 2>/dev/null | awk 'substr($0, 1, 1) == "n" {print substr($0, 2); exit}' || true
+}
+
+shell_quote() {
+  printf '%q' "$1"
+}
+
+tmux_session_pid() {
+  local session_name="$1"
+  if ! command -v tmux >/dev/null 2>&1; then
+    return 0
+  fi
+  tmux list-panes -t "${session_name}" -F '#{pane_pid}' 2>/dev/null | head -n 1 || true
+}

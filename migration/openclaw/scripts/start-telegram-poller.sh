@@ -10,20 +10,6 @@ source "${ROOT_DIR}/scripts/env-common.sh"
 
 mkdir -p "${ROOT_DIR}/logs"
 
-if [[ -f "${PID_FILE}" ]]; then
-  PID="$(cat "${PID_FILE}")"
-  if kill -0 "${PID}" >/dev/null 2>&1; then
-    echo "telegram poller already running (pid=${PID})"
-    exit 0
-  fi
-  rm -f "${PID_FILE}"
-fi
-
-if [[ ! -x "${PROJECT_ROOT}/.venv/bin/python" ]]; then
-  echo "missing venv python: ${PROJECT_ROOT}/.venv/bin/python"
-  exit 1
-fi
-
 ENV_FILES=()
 load_shared_env_files "${PROJECT_ROOT}" "${ROOT_DIR}" ENV_FILES
 warn_env_conflicts ENV_FILES AUTORESEARCH_API_HOST AUTORESEARCH_API_PORT AUTORESEARCH_TELEGRAM_BOT_TOKEN TELEGRAM_BOT_TOKEN
@@ -36,6 +22,25 @@ if [[ "${INGRESS_MODE}" != "polling" ]]; then
   echo "telegram poller disabled (AUTORESEARCH_TELEGRAM_INGRESS_MODE=${INGRESS_MODE})"
   echo "set AUTORESEARCH_TELEGRAM_INGRESS_MODE=polling to enable getUpdates consumer"
   exit 0
+fi
+
+if is_truthy_env_value "${AUTORESEARCH_TELEGRAM_POLLING_ENABLED:-false}"; then
+  echo "已跳过 Telegram poller：API 内置 polling 已启用 / Telegram poller skipped: API embedded polling is enabled"
+  exit 0
+fi
+
+if [[ -f "${PID_FILE}" ]]; then
+  PID="$(cat "${PID_FILE}")"
+  if kill -0 "${PID}" >/dev/null 2>&1; then
+    echo "telegram poller already running (pid=${PID})"
+    exit 0
+  fi
+  rm -f "${PID_FILE}"
+fi
+
+if [[ ! -x "${PROJECT_ROOT}/.venv/bin/python" ]]; then
+  echo "missing venv python: ${PROJECT_ROOT}/.venv/bin/python"
+  exit 1
 fi
 
 if [[ -n "${AUTORESEARCH_TELEGRAM_BOT_TOKEN:-}" && -z "${TELEGRAM_BOT_TOKEN:-}" ]]; then
