@@ -1321,6 +1321,133 @@ def test_telegram_short_affirmation_rewrites_followup_from_previous_assistant_qu
     assert queued_run.payload["input_text"].startswith("请按我上一条确认，立即触发一次今天的视频字幕处理。")
 
 
+def test_telegram_contextual_followup_carries_previous_assistant_result_to_butler(
+    telegram_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_ALLOWED_UIDS", "9715")
+    clear_settings_caches()
+
+    openclaw_service = app.dependency_overrides[get_openclaw_compat_service]()
+    session = openclaw_service.create_session(
+        gateway_telegram.OpenClawSessionCreateRequest(
+            channel="telegram",
+            external_id="9715",
+            title="Telegram 9715",
+            session_key="telegram:personal:user:9715",
+            metadata={"source": "test"},
+        )
+    )
+    openclaw_service.append_event(
+        session_id=session.session_id,
+        request=gateway_telegram.OpenClawSessionEventAppendRequest(
+            role="assistant",
+            content=(
+                "AAS Worker · 管家已完成\n\n"
+                "任务：上次整理X书签后有新的么\n"
+                "回答 / Answer：有，发现新增 1 条 X 书签。\n"
+                "新增来源 / New sources：\n"
+                "- https://twitter.com/alice/status/222"
+            ),
+            metadata={"source": "test"},
+        ),
+    )
+
+    response = telegram_client.post(
+        "/api/v1/gateway/telegram/webhook",
+        json={
+            "update_id": 1320,
+            "message": {
+                "message_id": 93,
+                "text": "新增的x书签详情是什么",
+                "chat": {"id": 9715, "type": "private"},
+                "from": {"id": 9715, "username": "context-user"},
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["accepted"] is True
+    assert payload["metadata"]["capability_id"] == "source_collect"
+    task_id = payload["metadata"]["control_plane_task_id"]
+    service = getattr(telegram_client, "_control_plane_service")
+    task = service.get_task(task_id)
+    assert task is not None
+    assert task.intent.startswith("请结合上文回答用户追问")
+    assert "上文 / Previous result" in task.intent
+    assert "发现新增 1 条 X 书签" in task.intent
+    assert "追问 / Follow-up: 新增的x书签详情是什么" in task.intent
+    assert task.parameters["source_kind"] == "x_bookmarks"
+    assert task.name == "新增的x书签详情是什么"
+
+
+def test_telegram_contextual_github_status_followup_returns_local_context_answer(
+    telegram_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AUTORESEARCH_TELEGRAM_ALLOWED_UIDS", "9716")
+    clear_settings_caches()
+
+    openclaw_service = app.dependency_overrides[get_openclaw_compat_service]()
+    session = openclaw_service.create_session(
+        gateway_telegram.OpenClawSessionCreateRequest(
+            channel="telegram",
+            external_id="9716",
+            title="Telegram 9716",
+            session_key="telegram:personal:user:9716",
+            metadata={"source": "test"},
+        )
+    )
+    openclaw_service.append_event(
+        session_id=session.session_id,
+        request=gateway_telegram.OpenClawSessionEventAppendRequest(
+            role="assistant",
+            content=(
+                "AAS Worker · 管家已完成\n\n"
+                "任务：上次整理X书签后有新的么\n"
+                "X 书签：采集结果已同步到知识库。\n"
+                "知识库 / KB：knowledge-base/knowledge-base · ai-status-and-outlook"
+            ),
+            metadata={"source": "test"},
+        ),
+    )
+
+    response = telegram_client.post(
+        "/api/v1/gateway/telegram/webhook",
+        json={
+            "update_id": 1321,
+            "message": {
+                "message_id": 94,
+                "text": "整理到GitHub了么",
+                "chat": {"id": 9716, "type": "private"},
+                "from": {"id": 9716, "username": "context-user"},
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["accepted"] is True
+    assert payload["metadata"]["capability_id"] == "butler_context_status"
+    assert payload["metadata"]["status"] == "succeeded"
+    task_id = payload["metadata"]["control_plane_task_id"]
+    service = getattr(telegram_client, "_control_plane_service")
+    task = service.get_task(task_id)
+    assert task is not None
+    assert task.name == "整理到GitHub了么"
+    assert task.intent is not None
+    assert "上文 / Previous result" in task.intent
+    assert "追问 / Follow-up: 整理到GitHub了么" in task.intent
+    assert task.parameters["display_text"] == "整理到GitHub了么"
+    assert task.result is not None
+    assert "已从上一轮结果确认" in task.result["answer"]
+    assert task.result["kb_repo"] == "knowledge-base/knowledge-base"
+    scheduler = getattr(telegram_client, "_worker_scheduler")
+    assert task.run_id is not None
+    assert scheduler.get_run(task.run_id) is None
+
+
 def test_telegram_webhook_secret_token_guard(
     telegram_client: TestClient,
     monkeypatch: pytest.MonkeyPatch,

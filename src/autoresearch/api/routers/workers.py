@@ -471,6 +471,9 @@ def _compose_butler_fallback_text(
         diagnostics_parts.append(f"collector={collector}")
     diagnostics = ", ".join(diagnostics_parts)
     body = "管家兜底：worker 未能直接送达 Telegram 结果。"
+    failure_label = _failure_kind_display_text(error_kind)
+    if failure_label:
+        body = f"{body}\n\n失败种类 / Failure kind：{failure_label}"
     if hint:
         body = f"{body}\n\n{hint}"
     elif summary:
@@ -491,3 +494,20 @@ def _compose_butler_fallback_text(
         notify_state=notify_state,
         error=str(run.error)[:1000] if run.error else None,
     )
+
+
+def _failure_kind_display_text(error_kind: str) -> str | None:
+    normalized = str(error_kind or "").strip().lower()
+    if not normalized:
+        return None
+    labels = {
+        "binary_missing": "依赖缺失 / dependency_missing",
+        "dependency_missing": "依赖缺失 / dependency_missing",
+        "runtime_unavailable": "运行时不可用 / runtime_unavailable",
+        "interactive_bridge_unavailable": "运行时不可用 / runtime_unavailable",
+        "worker_contract_error": "worker 契约错误 / worker_contract_error",
+        "quota_exceeded": "额度不足 / quota_exceeded",
+        "permission_denied": "权限拒绝 / permission_denied",
+        "collector_auth_failed": "采集器鉴权失败 / collector_auth_failed",
+    }
+    return labels.get(normalized, normalized)

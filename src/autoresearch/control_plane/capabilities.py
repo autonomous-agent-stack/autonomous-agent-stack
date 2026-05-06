@@ -317,6 +317,48 @@ class ContentKBCapabilityAdapter(CapabilityAdapter):
         )
 
 
+class ButlerContextStatusCapabilityAdapter(CapabilityAdapter):
+    descriptor = ControlPlaneCapabilityRead(
+        capability_id="butler_context_status",
+        name="Butler context status / 管家上下文状态",
+        type="local",
+        enabled=True,
+        dispatch_mode="worker_queue",
+        description=(
+            "本地回答上下文状态追问，不进入 worker 队列。 / "
+            "Answers contextual status follow-ups locally without entering the worker queue."
+        ),
+        risk_tags=[],
+        requires_approval=False,
+        external_calls_enabled=False,
+        metadata={"worker_task_type": WorkerTaskType.NOOP.value, "immediate_result": True},
+    )
+
+    def dispatch(self, task: ControlPlaneTaskRead) -> CapabilityDispatch:
+        params = task.parameters if isinstance(task.parameters, dict) else {}
+        answer = str(params.get("context_status_answer") or "").strip()
+        if not answer:
+            answer = (
+                "本地无法确认：当前任务没有可解析的上一轮同步上下文。\n"
+                "Unable to confirm locally: this task has no parseable previous sync context."
+            )
+        return CapabilityDispatch(
+            immediate_result={
+                "status": "completed",
+                "summary": answer,
+                "answer": answer,
+                "source": "butler_context_status",
+                "capability_id": task.capability_id,
+                "context_status_kind": params.get("context_status_kind"),
+                "context_status_confirmed": bool(params.get("context_status_confirmed")),
+                "kb_repo": params.get("kb_repo"),
+                "kb_topic": params.get("kb_topic"),
+                "kb_files": _list_param(params, "kb_files"),
+                "followup_text": params.get("followup_text"),
+            }
+        )
+
+
 class HermesOpenClawCapabilityAdapter(CapabilityAdapter):
     descriptor = ControlPlaneCapabilityRead(
         capability_id="hermes_openclaw",
@@ -458,6 +500,7 @@ class ControlPlaneCapabilityRegistry:
             YouTubeAutoflowCapabilityAdapter(),
             SourceCollectCapabilityAdapter(),
             ContentKBCapabilityAdapter(),
+            ButlerContextStatusCapabilityAdapter(),
             HermesOpenClawCapabilityAdapter(),
             SecurityAuditCapabilityAdapter(),
             BoundaryCapabilityAdapter(
@@ -546,6 +589,7 @@ def _default_agent_for_capability(capability_id: str) -> str:
         "youtube_autoflow": "youtube_ops",
         "source_collect": "source_collect",
         "content_kb": "content_kb",
+        "butler_context_status": "butler_orchestrator",
         "hermes_openclaw": "butler_orchestrator",
         "security_audit": "security_audit",
     }.get(str(capability_id or "").strip(), "butler_orchestrator")

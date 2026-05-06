@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from autoresearch.api.routers.butler import _check_hermes_interactive_callbacks
+from autoresearch.core.services.hermes_readiness import build_hermes_cli_readiness_check
 from autoresearch.core.services.butler_router import (
     ButlerCanonicalTaskType,
     ButlerIntentRouter,
@@ -89,6 +90,48 @@ class TestButlerIntentClassification:
             canonical = canonical_task_type_for(result.task_type)
             assert canonical == ButlerCanonicalTaskType.SOURCE_COLLECT, phrase
             assert worker_task_type_for_canonical(canonical) == "source_collect"
+
+    def test_contextual_x_bookmark_followup_uses_followup_text_for_routing(self) -> None:
+        router = ButlerIntentRouter()
+        prompt = (
+            "请结合上文回答用户追问，不要把追问当成全新的独立任务。\n"
+            "Use the previous assistant result as context for this follow-up; do not treat it as a standalone task.\n\n"
+            "上文 / Previous result:\n"
+            "AAS Worker · 管家已完成\n"
+            "任务：上次整理X书签后有新的么\n"
+            "回答 / Answer：有，发现新增 1 条 X 书签。\n\n"
+            "追问 / Follow-up:\n新增的x书签详情是什么"
+        )
+        result = router.classify(prompt)
+        assert result.task_type == ButlerTaskType.BOOKMARK
+        assert canonical_task_type_for(result.task_type) == ButlerCanonicalTaskType.SOURCE_COLLECT
+
+    def test_contextual_github_status_routes_to_local_context_status(self) -> None:
+        router = ButlerIntentRouter()
+        prompt = (
+            "请结合上文回答用户追问，不要把追问当成全新的独立任务。\n"
+            "Use the previous assistant result as context for this follow-up; do not treat it as a standalone task.\n\n"
+            "上文 / Previous result:\n"
+            "AAS Worker · 管家已完成\n"
+            "X 书签：采集结果已同步到知识库。\n"
+            "知识库 / KB：knowledge-base/knowledge-base · ai-status-and-outlook\n\n"
+            "追问 / Follow-up:\n整理到GitHub了么"
+        )
+        result = router.classify(prompt)
+        assert result.task_type == ButlerTaskType.CONTEXT_STATUS
+        assert canonical_task_type_for(result.task_type) == ButlerCanonicalTaskType.BUTLER_CONTEXT_STATUS
+        assert worker_task_type_for_canonical(ButlerCanonicalTaskType.BUTLER_CONTEXT_STATUS) == "noop"
+        assert result.extracted_params["context_status_confirmed"] is True
+        assert result.extracted_params["kb_repo"] == "knowledge-base/knowledge-base"
+        assert result.extracted_params["kb_topic"] == "ai-status-and-outlook"
+        assert "已从上一轮结果确认" in result.extracted_params["context_status_answer"]
+
+    def test_github_status_without_context_stays_local_instead_of_hermes(self) -> None:
+        router = ButlerIntentRouter()
+        result = router.classify("整理到GitHub了么")
+        assert result.task_type == ButlerTaskType.CONTEXT_STATUS
+        assert result.extracted_params["context_status_confirmed"] is False
+        assert "本地无法确认" in result.extracted_params["context_status_answer"]
 
     def test_unknown_returns_default(self) -> None:
         router = ButlerIntentRouter()
@@ -259,6 +302,16 @@ class TestButlerDispatchCenter:
         assert decision.source == "rule"
         assert backend.calls == 0
 
+    def test_context_status_dispatch_is_direct_local_capability(self) -> None:
+        center = ButlerDispatchCenter(model_fill=ButlerModelFillService(enabled=False))
+        decision = center.dispatch("整理到GitHub了么")
+        assert decision.task_type == ButlerTaskType.CONTEXT_STATUS
+        assert decision.canonical_task_type == ButlerCanonicalTaskType.BUTLER_CONTEXT_STATUS
+        assert decision.worker_task_type == "noop"
+        assert decision.route == ButlerRoute.DIRECT
+        assert decision.runtime_id == "claude"
+        assert decision.max_retries == 0
+
     def test_unknown_uses_valid_model_fill_decision(self) -> None:
         backend = _FakeModelBackend(
             '{"task_type":"github_admin","route":"worker","target_agent":"github_ops_accountA","runtime_id":"claude","confidence":0.91,"reason":"repo ops","action":"github_ops.issue_ops"}'
@@ -379,3 +432,10 @@ class TestHermesInteractiveDoctor:
 
         assert check.status == "fail"
         assert check.metadata["api_gateway_health_ok"] is False
+
+    def test_hermes_cli_readiness_reports_missing_binary(self, monkeypatch) -> None:
+        monkeypatch.setenv("PATH", "")
+        check = build_hermes_cli_readiness_check("missing-hermes-for-test")
+        assert check.name == "Hermes CLI readiness"
+        assert check.status == "fail"
+        assert check.metadata["error_kind"] == "binary_missing"

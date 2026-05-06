@@ -24,11 +24,13 @@ from autoresearch.control_plane.contracts import (
     ControlPlaneRunRead,
     ControlPlaneRunStatus,
     ControlPlaneSessionRead,
+    ControlPlaneTaskCreateRequest,
     ControlPlaneTaskRead,
     ControlPlaneTaskStatus,
 )
 from autoresearch.control_plane.service import ControlPlaneRepositories, ControlPlaneService
 from autoresearch.core.services.butler_dispatch import ButlerDispatchCenter, ButlerModelFillService
+from autoresearch.core.services.butler_failure_review import ButlerFailureReviewService
 from autoresearch.core.services.github_ops import GitHubOpsRequest
 from autoresearch.core.services.session_events import SessionEventService
 from autoresearch.core.services.worker_registry import WorkerRegistryService
@@ -51,7 +53,10 @@ from autoresearch.shared.models import (
 from autoresearch.shared.store import InMemoryRepository
 
 
-def build_control_plane() -> tuple[ControlPlaneService, WorkerSchedulerService, WorkerRegistryService]:
+def build_control_plane(
+    *,
+    failure_review_service: ButlerFailureReviewService | None = None,
+) -> tuple[ControlPlaneService, WorkerSchedulerService, WorkerRegistryService]:
     session_events = SessionEventService(InMemoryRepository[SessionEventRead]())
     worker_registry = WorkerRegistryService(
         repository=InMemoryRepository[WorkerRegistrationRead](),
@@ -75,6 +80,7 @@ def build_control_plane() -> tuple[ControlPlaneService, WorkerSchedulerService, 
         ),
         worker_scheduler=worker_scheduler,
         session_events=session_events,
+        failure_review_service=failure_review_service,
     )
     return service, worker_scheduler, worker_registry
 
@@ -219,6 +225,69 @@ def test_v2_worker_report_sync_updates_projection_and_terminal_timeline() -> Non
     event_types = [event["event_type"] for event in timeline["events"]]
     assert "worker.run.completed" in event_types
     assert "run.succeeded" in event_types
+
+
+def test_failed_worker_sync_attaches_butler_failure_review() -> None:
+    session_events = SessionEventService(InMemoryRepository[SessionEventRead]())
+    failure_review = ButlerFailureReviewService(session_events=session_events)
+    worker_registry = WorkerRegistryService(
+        repository=InMemoryRepository[WorkerRegistrationRead](),
+    )
+    worker_scheduler = WorkerSchedulerService(
+        worker_registry=worker_registry,
+        queue_repository=InMemoryRepository[WorkerQueueItemRead](),
+        lease_repository=InMemoryRepository[WorkerLeaseRead](),
+        session_events=session_events,
+    )
+    service = ControlPlaneService(
+        repositories=ControlPlaneRepositories(
+            sessions=InMemoryRepository[ControlPlaneSessionRead](),
+            tasks=InMemoryRepository[ControlPlaneTaskRead](),
+            runs=InMemoryRepository[ControlPlaneRunRead](),
+            approvals=InMemoryRepository[ControlPlaneApprovalRead](),
+            approval_grants=InMemoryRepository[ControlPlaneApprovalGrantRead](),
+            artifacts=InMemoryRepository[ControlPlaneArtifactRead](),
+            audit_events=InMemoryRepository[ControlPlaneAuditEventRead](),
+            promotions=InMemoryRepository[ControlPlanePromotionRead](),
+        ),
+        worker_scheduler=worker_scheduler,
+        session_events=session_events,
+        failure_review_service=failure_review,
+    )
+
+    task = service.create_task(
+        ControlPlaneTaskCreateRequest(
+            name="hermes failed",
+            session_id="failure-review-session",
+            capability_id="echo",
+        )
+    )
+    register_worker(worker_registry)
+    claim = worker_scheduler.claim("worker-1", WorkerClaimRequest())
+    assert claim.run is not None
+    failed = worker_scheduler.report(
+        "worker-1",
+        claim.run.run_id,
+        WorkerRunReportRequest(
+            status=JobStatus.FAILED,
+            message="hermes failed",
+            error="Hermes executable not found in PATH: hermes",
+            result={"error_kind": "binary_missing", "summary": "Hermes executable is unavailable."},
+            metrics={"error_kind": "binary_missing"},
+        ),
+    )
+
+    projected = service.sync_worker_run(failed)
+
+    assert projected is not None
+    assert projected.status == ControlPlaneTaskStatus.FAILED
+    assert projected.metadata["failure_kind"] == "dependency_missing"
+    assert projected.metadata["failure_review_id"]
+    assert projected.result is not None
+    assert projected.result["failure_review"]["failure_kind"] == "dependency_missing"
+    timeline = session_events.timeline(session_id="failure-review-session")
+    assert "butler.failure_reviewed" in [event.event_type for event in timeline.events]
+    assert task.task_id == projected.task_id
 
 
 def test_v2_cancel_queued_run_operator_updates_projection_and_timeline() -> None:
@@ -769,6 +838,41 @@ def test_butler_x_bookmarks_routes_source_collect_then_content_kb() -> None:
     assert downstream_run.task_type == WorkerTaskType.CONTENT_KB_INGEST
     assert downstream_run.payload["subtitle_text_path"] == "/tmp/x-bookmarks.txt"
     assert downstream_run.payload["source_kind"] == "x_bookmarks"
+
+
+def test_butler_context_status_completes_without_worker_queue() -> None:
+    service, worker_scheduler, _ = build_control_plane()
+    client = build_client(service)
+    message = (
+        "请结合上文回答用户追问，不要把追问当成全新的独立任务。\n"
+        "Use the previous assistant result as context for this follow-up; do not treat it as a standalone task.\n\n"
+        "上文 / Previous result:\n"
+        "AAS Worker · 管家已完成\n"
+        "X 书签：采集结果已同步到知识库。\n"
+        "知识库 / KB：knowledge-base/knowledge-base · ai-status-and-outlook\n\n"
+        "追问 / Follow-up:\n整理到GitHub了么"
+    )
+
+    response = client.post(
+        "/api/v2/butler/tasks",
+        json={
+            "message": message,
+            "session_id": "context-status-session",
+            "metadata": {"telegram_original_text": "整理到GitHub了么", "telegram_contextual_followup": True},
+        },
+    )
+
+    assert response.status_code == 202
+    payload = response.json()
+    assert payload["dispatch_decision"]["canonical_task_type"] == "butler.context_status"
+    assert payload["task_request"]["capability_id"] == "butler_context_status"
+    task = payload["task"]
+    assert task["status"] == ControlPlaneTaskStatus.SUCCEEDED.value
+    assert task["name"] == "整理到GitHub了么"
+    assert task["run_id"]
+    assert worker_scheduler.get_run(task["run_id"]) is None
+    assert "已从上一轮结果确认" in task["result"]["answer"]
+    assert task["result"]["kb_repo"] == "knowledge-base/knowledge-base"
 
 
 def test_control_plane_console_exposes_natural_language_butler_form() -> None:

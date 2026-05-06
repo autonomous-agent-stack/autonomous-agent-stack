@@ -25,6 +25,10 @@ from autoresearch.control_plane.contracts import (
 )
 from autoresearch.core.services.session_events import SessionEventService
 from autoresearch.core.services.butler_agent_state import ButlerAgentStateService
+from autoresearch.core.services.butler_failure_review import (
+    ButlerFailureReviewRequest,
+    ButlerFailureReviewService,
+)
 from autoresearch.core.services.butler_tool_broker import (
     ButlerToolBroker,
     ButlerToolResolveRequest,
@@ -82,6 +86,7 @@ class ControlPlaneService:
         capabilities: ControlPlaneCapabilityRegistry | None = None,
         tool_broker: ButlerToolBroker | None = None,
         butler_agent_state: ButlerAgentStateService | None = None,
+        failure_review_service: ButlerFailureReviewService | None = None,
     ) -> None:
         self._repositories = repositories
         self._worker_scheduler = worker_scheduler
@@ -89,6 +94,7 @@ class ControlPlaneService:
         self._capabilities = capabilities or ControlPlaneCapabilityRegistry()
         self._tool_broker = tool_broker or ButlerToolBroker()
         self._butler_agent_state = butler_agent_state
+        self._failure_review_service = failure_review_service
 
     def create_task(self, request: ControlPlaneTaskCreateRequest) -> ControlPlaneTaskRead:
         now = utc_now()
@@ -594,6 +600,15 @@ class ControlPlaneService:
                     **worker_snapshot,
                 },
             )
+        if worker_run.status == JobStatus.FAILED:
+            reviewed_task = self._maybe_review_failed_worker_run(
+                task=updated_task,
+                run=updated_run,
+                worker_run=worker_run,
+                worker_snapshot=worker_snapshot,
+            )
+            if reviewed_task is not None:
+                updated_task = reviewed_task
         downstream_task = self._maybe_enqueue_source_collect_downstream(
             task=updated_task,
             source_run=updated_run,
@@ -601,6 +616,75 @@ class ControlPlaneService:
         )
         if downstream_task is not None:
             return downstream_task
+        return updated_task
+
+    def _maybe_review_failed_worker_run(
+        self,
+        *,
+        task: ControlPlaneTaskRead,
+        run: ControlPlaneRunRead,
+        worker_run: WorkerQueueItemRead,
+        worker_snapshot: dict[str, Any],
+    ) -> ControlPlaneTaskRead | None:
+        if self._failure_review_service is None:
+            return None
+        try:
+            review = self._failure_review_service.review(
+                ButlerFailureReviewRequest(
+                    message=task.intent or task.name,
+                    task_id=task.task_id,
+                    run_id=run.run_id,
+                    capability_id=task.capability_id,
+                    route_decision=_butler_route_metadata(task.metadata),
+                    worker_error=worker_run.error,
+                    worker_message=worker_run.message,
+                    worker_result=worker_run.result if isinstance(worker_run.result, dict) else None,
+                    worker_metrics=worker_run.metrics if isinstance(worker_run.metrics, dict) else None,
+                    session_id=task.session_id,
+                    usage_entry_id=_optional_metadata_string(task.metadata, "usage_entry_id"),
+                    metadata={
+                        "worker_task_type": worker_run.task_type.value,
+                        "worker_run_id": worker_run.run_id,
+                    },
+                )
+            )
+        except Exception:
+            logger.exception("butler failure review raised for task=%s run=%s", task.task_id, run.run_id)
+            return None
+
+        review_payload = review.model_dump(mode="json")
+        rule_candidate = review.rule_candidate or {}
+        repair_metadata = {
+            "failure_kind": review.failure_kind,
+            "failure_review_id": review.review_id,
+            "route_repair_suggestion": review.suggested_route,
+            "hermes_review_run_id": review.hermes_review_run_id,
+            "rule_candidate_id": rule_candidate.get("candidate_id"),
+            "candidate_skill_summary": review.candidate_skill_summary,
+            "failure_review": review_payload,
+        }
+        updated_run = run.model_copy(
+            update={
+                "metadata": {
+                    **run.metadata,
+                    **worker_snapshot,
+                    **repair_metadata,
+                },
+            }
+        )
+        self._repositories.runs.save(updated_run.run_id, updated_run)
+        task_result = dict(task.result or {})
+        task_result["failure_review"] = review_payload
+        updated_task = task.model_copy(
+            update={
+                "result": task_result,
+                "metadata": {
+                    **task.metadata,
+                    **repair_metadata,
+                },
+            }
+        )
+        self._repositories.tasks.save(updated_task.task_id, updated_task)
         return updated_task
 
     def _maybe_enqueue_source_collect_downstream(
@@ -1317,6 +1401,29 @@ def _task_actor_user_id(task: ControlPlaneTaskRead) -> str | None:
         if value is not None and str(value).strip():
             return str(value).strip()
     return task.requested_by or None
+
+
+def _butler_route_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in dict(metadata or {}).items()
+        if key.startswith("butler_")
+        or key
+        in {
+            "capability_id",
+            "failure_kind",
+            "route_repair_suggestion",
+            "tool_broker",
+        }
+    }
+
+
+def _optional_metadata_string(metadata: dict[str, Any], key: str) -> str | None:
+    value = dict(metadata or {}).get(key)
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None
 
 
 def _requests_annual_approval_grant(metadata: dict[str, Any], note: str | None) -> bool:

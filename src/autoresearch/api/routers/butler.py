@@ -21,7 +21,10 @@ from autoresearch.api.settings import RuntimeSettings
 from autoresearch.core.services.butler_agent_state import ButlerAgentStateService
 from autoresearch.core.services.butler_dispatch import ButlerDoctorCheck, ButlerDoctorRead, ButlerDispatchCenter
 from autoresearch.core.services.hermes_gateway_bridge import HttpHermesGatewayTransport
-from autoresearch.core.services.hermes_readiness import build_hermes_interactive_callback_check
+from autoresearch.core.services.hermes_readiness import (
+    build_hermes_cli_readiness_check,
+    build_hermes_interactive_callback_check,
+)
 from autoresearch.core.services.runtime_adapter_registry import RuntimeAdapterServiceRegistry
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
 from autoresearch.core.services.worker_inventory import WorkerInventoryService
@@ -149,6 +152,7 @@ def butler_doctor(
     checks: list[ButlerDoctorCheck] = []
     checks.extend(dispatch_center.doctor_checks())
     checks.append(_check_hermes(runtime_registry))
+    checks.append(build_hermes_cli_readiness_check())
     checks.append(
         _check_hermes_interactive_callbacks(
             runtime_settings=runtime_settings,
