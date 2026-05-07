@@ -18,14 +18,21 @@ The current stable model is:
 Session -> Task -> Policy/Approval -> Capability Routing -> Worker/Adapter Execution -> Audit/Event Log -> Artifact/Promotion
 ```
 
-The GA result is evidence-first, not a demo claim:
-
-- `ga_gap_report.json` reports `status: passed` and `missing_total: 0`.
-- `adapter_certification_report.json` reports `status: passed` with no blocked adapters.
-- `stable_adapters.lock` covers all configured scoped adapters.
-- `ga_release_gate_report.json` reports `status: passed` with GA pytest return code `0`.
-
 Adapters must still honestly report runtime capability, streaming, cancellation, artifacts, approval behavior, storage contracts, and isolation. Mock-only or fake-stable integrations must stay `beta` or `experimental`.
+
+## GA Evidence
+
+The Evergreen OS GA v1.0 result is evidence-first, not a demo claim. The committed evidence package includes:
+
+- `ga_gap_report.json` and `ga_gap_report.md`: GA gap report with `status: passed` and `missing_total: 0`.
+- `adapter_certification_report.json`: adapter certification report with `status: passed` and no blocked adapters.
+- `stable_adapters.lock`: generated lock file covering all configured scoped adapters.
+- `docs/certification/adapter-certification-matrix.md`: derived adapter certification matrix.
+- `bypass_ga_report.json`: bypass validation report with all security checks passing.
+- `furniture_e2e_report.json`: furniture workflow evidence report with governed dry-run external writes.
+- `ga_release_gate_report.json`: blocking release gate report with GA pytest return code `0`.
+
+External writes remain dry-run by default. Live external writes require explicit live credentials, policy decision metadata, approval, recipient allowlist, audit timeline, and session facts.
 
 ```bash
 make ga-gap-report
