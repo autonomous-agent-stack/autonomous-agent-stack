@@ -10,7 +10,7 @@ Autonomous Agent Stack (AAS) is an evergreen control plane for governed agent ex
 
 ## Current Status
 
-AAS is converging on the Evergreen Agent Control Plane line. `/api/v2/*` is the active development surface; `/api/v1/*` remains for compatibility while integrations move forward.
+AAS has passed the Evergreen OS GA v1.0 blocking evidence gates in this checkout. `/api/v2/*` is the active development surface; `/api/v1/*` remains for compatibility while integrations move forward.
 
 The current stable model is:
 
@@ -18,9 +18,25 @@ The current stable model is:
 Session -> Task -> Policy/Approval -> Capability Routing -> Worker/Adapter Execution -> Audit/Event Log -> Artifact/Promotion
 ```
 
-The GA path is enforced by blocking gates rather than demo claims. Adapters must honestly report runtime capability, streaming, cancellation, artifacts, approval behavior, storage contracts, and isolation. Mock-only or fake-stable integrations must stay `beta` or `experimental`.
+Adapters must still honestly report runtime capability, streaming, cancellation, artifacts, approval behavior, storage contracts, and isolation. Mock-only or fake-stable integrations must stay `beta` or `experimental`.
+
+## GA Evidence
+
+The Evergreen OS GA v1.0 result is evidence-first, not a demo claim. The committed evidence package includes:
+
+- `ga_gap_report.json` and `ga_gap_report.md`: GA gap report with `status: passed` and `missing_total: 0`.
+- `adapter_certification_report.json`: adapter certification report with `status: passed` and no blocked adapters.
+- `stable_adapters.lock`: generated lock file covering all configured scoped adapters.
+- `docs/certification/adapter-certification-matrix.md`: derived adapter certification matrix.
+- `bypass_ga_report.json`: bypass validation report with all security checks passing.
+- `furniture_e2e_report.json`: furniture workflow evidence report with governed dry-run external writes.
+- `ga_release_gate_report.json`: blocking release gate report with GA pytest return code `0`.
+
+External writes remain dry-run by default. Live external writes require explicit live credentials, policy decision metadata, approval, recipient allowlist, audit timeline, and session facts.
 
 ```bash
+make ga-gap-report
+make furniture-e2e
 make bypass-ga
 make ga-release-gate
 ```
@@ -86,6 +102,15 @@ make evergreen-demo
 
 `make hygiene-check` writes prompt hygiene reports under `logs/audit/prompt_hygiene/`.
 
+GA evidence validation:
+
+```bash
+make furniture-e2e
+make bypass-ga
+make ga-gap-report
+make ga-release-gate
+```
+
 ## Documentation
 
 Start here:
@@ -117,7 +142,7 @@ Secrets belong in gitignored local environment files. Never commit real tokens, 
 
 ## Scope
 
-The current v1 line does not claim to provide:
+The GA v1.0 line does not claim to provide:
 
 - an open marketplace,
 - real-money settlement,

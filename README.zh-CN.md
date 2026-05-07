@@ -10,7 +10,7 @@ Autonomous Agent Stack（AAS）是一套面向受治理 Agent 执行的 evergree
 
 ## 当前状态
 
-AAS 正在收敛到 Evergreen Agent Control Plane 主线。`/api/v2/*` 是当前开发面；`/api/v1/*` 只作为兼容面保留，等待集成逐步迁移。
+AAS 已在当前 checkout 通过 Evergreen OS GA v1.0 阻断性证据门禁。`/api/v2/*` 是当前开发面；`/api/v1/*` 只作为兼容面保留，等待集成逐步迁移。
 
 当前稳定模型是：
 
@@ -18,9 +18,25 @@ AAS 正在收敛到 Evergreen Agent Control Plane 主线。`/api/v2/*` 是当前
 Session -> Task -> Policy/Approval -> Capability Routing -> Worker/Adapter Execution -> Audit/Event Log -> Artifact/Promotion
 ```
 
-GA 路径依靠阻断门禁，而不是 demo 声称成熟。adapter 必须真实报告 runtime capability、streaming、cancellation、artifact、approval behavior、storage contract 和 isolation。mock-only 或 fake-stable 集成只能保持 `beta` 或 `experimental`。
+adapter 仍必须真实报告 runtime capability、streaming、cancellation、artifact、approval behavior、storage contract 和 isolation。mock-only 或 fake-stable 集成只能保持 `beta` 或 `experimental`。
+
+## GA 证据
+
+Evergreen OS GA v1.0 结果以证据为准，不靠 demo 声称成熟。已提交的证据包包括：
+
+- `ga_gap_report.json` 和 `ga_gap_report.md`：GA gap report，`status: passed` 且 `missing_total: 0`。
+- `adapter_certification_report.json`：adapter certification report，`status: passed` 且没有 blocked adapters。
+- `stable_adapters.lock`：覆盖全部 configured scoped adapters 的生成锁文件。
+- `docs/certification/adapter-certification-matrix.md`：派生的 adapter certification matrix。
+- `bypass_ga_report.json`：bypass validation report，全部安全检查通过。
+- `furniture_e2e_report.json`：furniture workflow 证据报告，外部写入保持受治理 dry-run。
+- `ga_release_gate_report.json`：阻断性 release gate 报告，GA pytest 返回码为 `0`。
+
+外部写入默认仍保持 dry-run。live external write 必须同时具备明确的 live credentials、policy decision metadata、approval、recipient allowlist、audit timeline 和 session facts。
 
 ```bash
+make ga-gap-report
+make furniture-e2e
 make bypass-ga
 make ga-release-gate
 ```
@@ -86,6 +102,15 @@ make evergreen-demo
 
 `make hygiene-check` 会把 prompt hygiene 报告写到 `logs/audit/prompt_hygiene/`。
 
+GA 证据验证：
+
+```bash
+make furniture-e2e
+make bypass-ga
+make ga-gap-report
+make ga-release-gate
+```
+
 ## 文档
 
 先读这些：
@@ -117,7 +142,7 @@ export AAS_CACHE_ROOT="$AAS_REPO_ROOT/.cache"
 
 ## 范围边界
 
-当前 v1 主线不声称提供：
+GA v1.0 主线不声称提供：
 
 - 开放市场，
 - 真实资金结算，

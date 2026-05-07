@@ -1,0 +1,47 @@
+name: Nightly Adapter Certification
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 03:00 Asia/Shanghai.
+    - cron: "0 19 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  adapter-certification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.lock ]; then
+            pip install -r requirements.lock
+          else
+            pip install -r requirements.txt
+          fi
+
+      - name: Run adapter certification
+        run: PYTHONPATH=src python scripts/adapter_certification.py
+
+      - name: Upload certification evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-adapter-certification
+          if-no-files-found: error
+          path: |
+            adapter_certification_report.json
+            stable_adapters.lock
+            docs/certification/adapter-certification-matrix.md
+            artifacts/ga/adapter_certification/**/live_evidence.json
