@@ -1,0 +1,55 @@
+version: "1"
+copyright_boundary: "Only recommend legal, official, public, free, or normal paid-account entitlements. Do not suggest piracy, cracks, or paid-platform bypasses."
+account_profiles:
+  youtube_music:
+    enabled_by_default: true
+    use_for:
+      - music
+      - relax
+      - companion
+    platforms:
+      - YouTube Music
+      - YouTube
+    oauth_scope: "https://www.googleapis.com/auth/youtube.readonly"
+    boundary: "Use normal YouTube Premium and YouTube Music benefits plus official YouTube read-only OAuth data; do not bypass paid content or download restrictions."
+  youtube_learning:
+    enabled_by_default: true
+    use_for:
+      - learning
+      - ai
+      - business
+      - documentary
+    platforms:
+      - YouTube
+      - NotebookLM
+    oauth_scope: "https://www.googleapis.com/auth/youtube.readonly"
+    boundary: "Use official YouTube read-only OAuth data for source discovery and generate NotebookLM manual organization plans only; do not read NotebookLM tokens or browser sessions."
+sources:
+  - id: youtube
+    name: YouTube
+    legal_use: "Official channels, creator uploads, Creative Commons videos, trailers, public talks, lectures, and documentaries."
+    result_types: ["video", "documentary", "learning"]
+  - id: youtube_music
+    name: YouTube Music
+    legal_use: "Music search terms, official releases, mixes, radio, and playlists available through normal account access."
+    result_types: ["music", "playlist"]
+  - id: podcast_rss
+    name: Podcast RSS
+    legal_use: "Public podcast feeds and official show pages."
+    result_types: ["podcast", "learning"]
+  - id: internet_archive
+    name: Internet Archive
+    legal_use: "Public-domain and rights-cleared media."
+    result_types: ["movie", "archive"]
+  - id: project_gutenberg
+    name: Project Gutenberg
+    legal_use: "Public-domain books and reading material."
+    result_types: ["reading", "learning"]
+  - id: itch_io
+    name: itch.io
+    legal_use: "Free or pay-what-you-want indie games from creator pages."
+    result_types: ["game"]
+  - id: notebooklm_manual
+    name: NotebookLM
+    legal_use: "Manual organization of user-chosen public URLs, PDFs, notes, and transcripts."
+    result_types: ["research_pack", "learning"]

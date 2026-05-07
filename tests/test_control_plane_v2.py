@@ -579,6 +579,7 @@ def test_v2_capability_registry_exposes_protocol_boundaries() -> None:
     assert capabilities["github_assistant"]["requires_approval"] is True
     assert capabilities["source_collect"]["external_calls_enabled"] is True
     assert "external_api" in capabilities["source_collect"]["risk_tags"]
+    assert capabilities["entertainment_curator"]["external_calls_enabled"] is False
     assert capabilities["mcp"]["external_calls_enabled"] is False
     assert capabilities["a2a"]["external_calls_enabled"] is False
     assert capabilities["adk_workflow"]["enabled"] is False
@@ -703,6 +704,52 @@ def test_butler_task_routes_unknown_to_hermes_openclaw() -> None:
     assert payload["task_request"]["capability_id"] == "hermes_openclaw"
     assert task["capability_id"] == "hermes_openclaw"
     assert task["status"] == ControlPlaneTaskStatus.QUEUED.value
+
+
+def test_butler_entertainment_curator_completes_without_worker_queue() -> None:
+    service, worker_scheduler, _ = build_control_plane()
+    client = build_client(service)
+
+    response = client.post(
+        "/api/v2/butler/tasks",
+        json={
+            "message": "/entertain 今晚 1小时 想听音乐放松",
+            "session_id": "session-entertainment-telegram",
+            "metadata": {"source": "telegram_gateway", "channel": "telegram"},
+        },
+    )
+
+    assert response.status_code == 202
+    payload = response.json()
+    assert payload["dispatch_decision"]["canonical_task_type"] == "entertainment.curate"
+    assert payload["task_request"]["capability_id"] == "entertainment_curator"
+    task = payload["task"]
+    assert task["status"] == ControlPlaneTaskStatus.SUCCEEDED.value
+    assert task["run_id"]
+    assert worker_scheduler.get_run(task["run_id"]) is None
+    assert task["result"]["channel"] == "telegram"
+    assert task["result"]["recommendations"][0]["platform"] == "YouTube Music"
+
+
+def test_entertainment_curator_rejects_non_telegram_control_plane_invocation() -> None:
+    service, worker_scheduler, _ = build_control_plane()
+    client = build_client(service)
+
+    response = client.post(
+        "/api/v2/tasks",
+        json={
+            "name": "non telegram entertainment",
+            "intent": "今晚听点音乐",
+            "capability_id": "entertainment_curator",
+        },
+    )
+
+    assert response.status_code == 202
+    task = response.json()
+    assert task["status"] == ControlPlaneTaskStatus.FAILED.value
+    assert task["result"]["reason"] == "entertainment_curator only accepts Telegram gateway tasks"
+    assert task["run_id"]
+    assert worker_scheduler.get_run(task["run_id"]) is None
 
 
 def test_v2_capability_worker_payloads_match_worker_contracts() -> None:

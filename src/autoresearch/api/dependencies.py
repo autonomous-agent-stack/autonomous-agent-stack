@@ -331,6 +331,13 @@ def get_youtube_agent_service():
 
 
 @lru_cache(maxsize=1)
+def get_youtube_oauth_service():
+    from packages.entertainment_curator.youtube_oauth import YouTubeOAuthProfileRegistry
+
+    return YouTubeOAuthProfileRegistry()
+
+
+@lru_cache(maxsize=1)
 def get_autoresearch_planner_service() -> AutoResearchPlannerService:
     return AutoResearchPlannerService(
         repository=SQLiteModelRepository(
@@ -975,6 +982,7 @@ def clear_dependency_caches() -> None:
     _safe_cache_clear(get_governance_core_service)
     _safe_cache_clear(get_control_plane_service)
     _safe_cache_clear(get_youtube_agent_service)
+    _safe_cache_clear(get_youtube_oauth_service)
     _safe_cache_clear(get_manager_agent_service)
     _safe_cache_clear(get_approval_policy_service)
     _safe_cache_clear(get_butler_tool_broker_service)

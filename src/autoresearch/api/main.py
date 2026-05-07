@@ -339,6 +339,7 @@ def create_app() -> FastAPI:
         ("autoresearch.api.routers.integrations", "router", "integrations"),
         ("autoresearch.api.routers.reports", "router", "reports"),
         ("autoresearch.api.routers.youtube", "router", "youtube"),
+        ("autoresearch.api.routers.youtube_oauth", "router", "youtube oauth"),
         ("autoresearch.api.routers.variants", "router", "variants"),
         ("autoresearch.api.routers.optimizations", "router", "optimizations"),
         ("autoresearch.api.routers.experiments", "router", "experiments"),

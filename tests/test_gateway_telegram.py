@@ -27,6 +27,7 @@ from autoresearch.api.dependencies import (
     get_worker_inventory_service,
     get_worker_registry_service,
     get_worker_scheduler_service,
+    get_youtube_oauth_service,
 )
 from autoresearch.api.main import app
 from autoresearch.api.routers import gateway_telegram
@@ -231,6 +232,52 @@ class _StubTelegramNotifier:
 
     def notify_manual_action(self, *, chat_id: str, entry: object, run_status: str) -> bool:
         return True
+
+
+class _StubYouTubeOAuthService:
+    def __init__(self) -> None:
+        self.revoked_profiles: list[str] = []
+
+    def list_profiles(self) -> list[dict[str, object]]:
+        return [
+            {
+                "profile_id": "youtube_learning",
+                "display_name": "YouTube + NotebookLM learning",
+                "auth_status": "auth_required",
+                "scopes": ["https://www.googleapis.com/auth/youtube.readonly"],
+            },
+            {
+                "profile_id": "youtube_music",
+                "display_name": "YouTube Premium / Music",
+                "auth_status": "authorized",
+                "scopes": ["https://www.googleapis.com/auth/youtube.readonly"],
+            },
+        ]
+
+    def start_authorization(
+        self,
+        profile_id: str,
+        *,
+        requested_by: str | None = None,
+        metadata: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        return {
+            "status": "auth_url",
+            "profile_id": profile_id,
+            "display_name": profile_id,
+            "authorization_url": f"https://accounts.google.com/o/oauth2/v2/auth?state=state-{profile_id}",
+            "auth_status": "auth_required",
+            "scopes": ["https://www.googleapis.com/auth/youtube.readonly"],
+        }
+
+    def revoke_profile(self, profile_id: str) -> dict[str, object]:
+        self.revoked_profiles.append(profile_id)
+        return {
+            "status": "revoked",
+            "profile_id": profile_id,
+            "auth_status": "auth_required",
+            "scopes": ["https://www.googleapis.com/auth/youtube.readonly"],
+        }
 
 
 class _StubExcelAuditService:
@@ -528,6 +575,7 @@ def telegram_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClie
     app.dependency_overrides[get_admin_config_service] = lambda: admin_config_service
     app.dependency_overrides[get_worker_registry_service] = lambda: worker_registry
     app.dependency_overrides[get_worker_scheduler_service] = lambda: worker_scheduler
+    app.dependency_overrides[get_youtube_oauth_service] = lambda: _StubYouTubeOAuthService()
     app.dependency_overrides[get_session_event_service] = lambda: session_event_service
     app.dependency_overrides[get_control_plane_service] = lambda: control_plane_service
     app.dependency_overrides[get_worker_inventory_service] = lambda: WorkerInventoryService(
@@ -989,6 +1037,146 @@ def test_telegram_youtube_link_creates_v2_approval_and_tracks_session(
         assert queued_run.metadata["telegram_completion_via_api"] is True
         assert queued_run.metadata["chat_id"] == "9710"
         assert queued_run.metadata["control_plane_task_id"] == payload["metadata"]["control_plane_task_id"]
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+
+
+def test_telegram_entertain_command_returns_immediate_curator_result(
+    telegram_client: TestClient,
+) -> None:
+    notifier = _StubTelegramNotifier()
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+
+    try:
+        response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 1316,
+                "message": {
+                    "message_id": 89,
+                    "text": "/entertain 今晚 1小时 想听音乐放松",
+                    "chat": {"id": 9711, "type": "private"},
+                    "from": {"id": 9711, "username": "music-user"},
+                },
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["accepted"] is True
+        assert payload["metadata"]["source"] == "telegram_control_plane_v2"
+        assert payload["metadata"]["capability_id"] == "entertainment_curator"
+        assert payload["metadata"]["status"] == ControlPlaneTaskStatus.SUCCEEDED.value
+        assert payload["metadata"]["run_id"]
+
+        worker_scheduler = getattr(telegram_client, "_worker_scheduler")
+        assert worker_scheduler.get_run(payload["metadata"]["run_id"]) is None
+        service = getattr(telegram_client, "_control_plane_service")
+        task = service.get_task(payload["metadata"]["control_plane_task_id"])
+        assert task is not None
+        assert task.result["recommendations"][0]["platform"] == "YouTube Music"
+        assert task.result["channel"] == "telegram"
+        assert notifier.messages
+        assert "YouTube Music" in notifier.messages[-1]["text"]
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+
+
+def test_telegram_entertain_natural_language_routes_to_curator(
+    telegram_client: TestClient,
+) -> None:
+    notifier = _StubTelegramNotifier()
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+
+    try:
+        response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 1317,
+                "message": {
+                    "message_id": 90,
+                    "text": "给我整理一套 AI 学习资料 1小时 高专注",
+                    "chat": {"id": 9712, "type": "private"},
+                    "from": {"id": 9712, "username": "study-user"},
+                },
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["metadata"]["capability_id"] == "entertainment_curator"
+        assert payload["metadata"]["status"] == ControlPlaneTaskStatus.SUCCEEDED.value
+        service = getattr(telegram_client, "_control_plane_service")
+        task = service.get_task(payload["metadata"]["control_plane_task_id"])
+        assert task is not None
+        assert task.result["notebooklm_pack"]["enabled"] is True
+        assert "NotebookLM" in notifier.messages[-1]["text"]
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+
+
+def test_telegram_youtube_auth_command_returns_readonly_auth_link(
+    telegram_client: TestClient,
+) -> None:
+    notifier = _StubTelegramNotifier()
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+
+    try:
+        response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 1318,
+                "message": {
+                    "message_id": 91,
+                    "text": "/youtube-auth youtube_music",
+                    "chat": {"id": 9713, "type": "private"},
+                    "from": {"id": 9713, "username": "music-auth-user"},
+                },
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["accepted"] is True
+        assert payload["metadata"]["source"] == "telegram_youtube_oauth"
+        assert payload["metadata"]["profile_id"] == "youtube_music"
+        assert payload["metadata"]["scopes"] == ["https://www.googleapis.com/auth/youtube.readonly"]
+        assert notifier.messages
+        assert "accounts.google.com" in notifier.messages[-1]["text"]
+        assert "youtube.readonly" in notifier.messages[-1]["text"]
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+
+
+def test_telegram_youtube_auth_status_does_not_leak_tokens(
+    telegram_client: TestClient,
+) -> None:
+    notifier = _StubTelegramNotifier()
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+
+    try:
+        response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 1319,
+                "message": {
+                    "message_id": 92,
+                    "text": "/youtube-auth-status",
+                    "chat": {"id": 9714, "type": "private"},
+                    "from": {"id": 9714, "username": "music-auth-status-user"},
+                },
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["accepted"] is True
+        assert payload["metadata"]["source"] == "telegram_youtube_oauth"
+        body = notifier.messages[-1]["text"]
+        assert "youtube_music: authorized" in body
+        assert "youtube_learning: auth_required" in body
+        assert "access_token" not in body
+        assert "refresh_token" not in body
     finally:
         app.dependency_overrides.pop(get_telegram_notifier_service, None)
 
@@ -1906,6 +2094,9 @@ def test_telegram_help_command_returns_available_commands(
         assert "/status" in help_text
         assert "/task <需求>" in help_text
         assert "/task --approve <需求>" in help_text
+        assert "/entertain <心情/时间/兴趣>" in help_text
+        assert "/youtube-auth <youtube_music|youtube_learning>" in help_text
+        assert "/youtube-auth-status" in help_text
         assert "/approve <approval_id> approve" in help_text
         assert "/memory <内容>" in help_text
         assert "/mode shared" in help_text
@@ -1944,6 +2135,8 @@ def test_telegram_start_command_returns_available_commands(
         assert "[Telegram Commands]" in help_text
         assert "/start 查看欢迎信息和命令列表" in help_text
         assert "/status" in help_text
+        assert "/entertain <心情/时间/兴趣>" in help_text
+        assert "/youtube-auth-status" in help_text
         assert "/help" in help_text
     finally:
         app.dependency_overrides.pop(get_telegram_notifier_service, None)

@@ -83,6 +83,7 @@ class ButlerModelFillDecision(StrictModel):
             "github_ops_accountA",
             "github_ops_accountB",
             "youtube_ops",
+            "entertainment_curator_service",
             "source_collect",
             "content_kb",
             "source_collect",
@@ -324,6 +325,13 @@ class ButlerDispatchCenter:
             target_agent = "youtube_ops"
             action = "youtube_ops.build_digest"
             priority = 5
+        elif task_type == ButlerTaskType.ENTERTAINMENT:
+            route = ButlerRoute.DIRECT
+            runtime_id = "claude"
+            target_agent = "entertainment_curator_service"
+            action = "entertainment.curate"
+            priority = 1
+            max_retries = 0
         elif task_type == ButlerTaskType.CONTENT_KB:
             target_agent = "content_kb"
             action = "content_kb.ingest"
@@ -402,6 +410,11 @@ class ButlerDispatchCenter:
             priority = 8
         elif model_decision.task_type == ButlerTaskType.YOUTUBE:
             priority = 5
+        elif model_decision.task_type == ButlerTaskType.ENTERTAINMENT:
+            route = ButlerRoute.DIRECT
+            runtime_id = "claude"
+            priority = 1
+            max_retries = 0
         elif model_decision.task_type in {ButlerTaskType.CONTENT_KB, ButlerTaskType.BOOKMARK}:
             priority = 4
 
@@ -456,11 +469,11 @@ class ButlerDispatchCenter:
 
 
 _MODEL_FILL_SYSTEM_PROMPT = """You are a strict router. Return one JSON object only.
-Allowed legacy task_type values: excel_audit, github_admin, content_kb, bookmark, youtube, context_status, unknown.
-Allowed canonical task_type values: source_collect.collect, youtube.autoflow, github.issue_ops, github.pr_ops, excel.commission, butler.context_status, hermes.general.
+Allowed legacy task_type values: excel_audit, github_admin, content_kb, bookmark, youtube, entertainment, context_status, unknown.
+Allowed canonical task_type values: source_collect.collect, youtube.autoflow, entertainment.curate, github.issue_ops, github.pr_ops, excel.commission, butler.context_status, hermes.general.
 Allowed route values: direct, worker, hermes, reject.
 Allowed runtime_id values: claude, hermes, source_collect.
-Allowed target_agent values: butler_orchestrator, excel_audit, github_ops_accountA, github_ops_accountB, youtube_ops, source_collect, content_kb.
+Allowed target_agent values: butler_orchestrator, excel_audit, github_ops_accountA, github_ops_accountB, youtube_ops, entertainment_curator_service, source_collect, content_kb.
 Never answer the user's request. Only classify and route."""
 
 
