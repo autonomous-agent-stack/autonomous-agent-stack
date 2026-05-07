@@ -232,8 +232,13 @@ def test_interactive_metadata_extends_initial_lease_ttl(
     assert claimed.lease.lease_expires_at == current + timedelta(seconds=901)
 
 
+@pytest.mark.parametrize(
+    "pause_reason",
+    ["hermes_interactive_approval", "xreach_auth_required", "xreach_setup_required"],
+)
 def test_external_resume_pause_deactivates_lease_until_requeued(
     worker_services: tuple[WorkerRegistryService, WorkerSchedulerService],
+    pause_reason: str,
 ) -> None:
     registry, scheduler = worker_services
     current = utc_now()
@@ -258,8 +263,8 @@ def test_external_resume_pause_deactivates_lease_until_requeued(
         queued.run_id,
         WorkerRunReportRequest(
             status="running",
-            message="waiting for approval",
-            metrics={"worker_pause_reason": "hermes_interactive_approval"},
+            message="waiting for external recovery",
+            metrics={"worker_pause_reason": pause_reason},
         ),
         now=current + timedelta(seconds=2),
     )

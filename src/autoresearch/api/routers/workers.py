@@ -41,9 +41,11 @@ from autoresearch.shared.models import (
     WorkerInventoryRead,
     WorkerInventorySummaryRead,
     WorkerQueueItemRead,
+    WorkerQueueItemCreateRequest,
     WorkerRegisterRequest,
     WorkerRegistrationRead,
     WorkerRunReportRequest,
+    WorkerTaskType,
 )
 
 
@@ -174,6 +176,17 @@ def report_worker_run(
                 # Fallback is a best-effort safety net; never let it break /report.
                 logger.exception("butler completion fallback raised for run=%s", stored.run_id)
     elif stored.status == JobStatus.RUNNING:
+        try:
+            recovered = _maybe_enqueue_xreach_recovery(
+                stored,
+                notifier=notifier,
+                scheduler=service,
+                control_plane_service=control_plane_service,
+            )
+            if recovered is not None:
+                stored = recovered
+        except Exception:
+            logger.exception("xreach recovery enqueue raised for run=%s", stored.run_id)
         if telegram_settings.butler_live_updates_enabled:
             try:
                 _try_deliver_butler_live_edit(
@@ -185,6 +198,189 @@ def report_worker_run(
             except Exception:
                 logger.exception("butler live edit raised for run=%s", stored.run_id)
     return stored
+
+
+def _maybe_enqueue_xreach_recovery(
+    run: WorkerQueueItemRead,
+    *,
+    notifier: TelegramNotifierService,
+    scheduler: WorkerSchedulerService,
+    control_plane_service: ControlPlaneService,
+) -> WorkerQueueItemRead | None:
+    metrics: dict[str, Any] = run.metrics or {}
+    reason = str(metrics.get("worker_pause_reason") or "").strip().lower()
+    if reason not in {"xreach_auth_required", "xreach_setup_required"}:
+        return None
+    metadata: dict[str, Any] = run.metadata or {}
+    if metadata.get("telegram_xreach_auth_recovery_sent") or metadata.get("xreach_recovery_queued"):
+        return None
+
+    result: dict[str, Any] = run.result if isinstance(run.result, dict) else {}
+    payload: dict[str, Any] = run.payload if isinstance(run.payload, dict) else {}
+    recovery_kind = "setup" if reason == "xreach_setup_required" else "auth"
+    source_summary = str(result.get("summary") or run.message or "").strip()
+    prompt = _xreach_recovery_prompt(run=run, recovery_kind=recovery_kind, result=result)
+    failure_kind = result.get("failure_kind") or metrics.get("failure_kind")
+    error_kind = result.get("error_kind") or metrics.get("error_kind")
+    recovery_run = scheduler.enqueue(
+        WorkerQueueItemCreateRequest(
+            task_name=f"XReach {recovery_kind} recovery: {run.task_name}",
+            task_type=WorkerTaskType.CLAUDE_RUNTIME,
+            payload={
+                "runtime_id": "hermes",
+                "task_name": f"XReach {recovery_kind} recovery: {run.task_name}",
+                "prompt": prompt,
+                "session_id": payload.get("session_id") or metadata.get("control_plane_session_id"),
+                "session_key": payload.get("session_key") or metadata.get("session_key"),
+                "work_dir": payload.get("work_dir") or metadata.get("work_dir"),
+                "timeout_seconds": 300,
+                "source_collect_auth_recovery": recovery_kind == "auth",
+                "source_collect_setup_recovery": recovery_kind == "setup",
+                "source_collect_run_id": run.run_id,
+                "source_collect_worker_run_id": run.run_id,
+                "source_collect_failure_kind": failure_kind,
+                "source_collect_error_kind": error_kind,
+            },
+            requested_by=run.requested_by,
+            priority=min(100, max(0, int(run.priority or 0) + 1)),
+            metadata={
+                "source": "xreach_recovery_orchestrator",
+                "triggered_by_run_id": run.run_id,
+                "triggered_by_task_type": run.task_type.value,
+                "recovery_kind": recovery_kind,
+                "control_plane_task_id": metadata.get("control_plane_task_id"),
+                "control_plane_session_id": metadata.get("control_plane_session_id"),
+                "capability_id": "hermes_openclaw",
+            },
+        )
+    )
+    update = {
+        "telegram_xreach_auth_recovery_sent": True,
+        "xreach_recovery_queued": True,
+        "xreach_recovery_kind": recovery_kind,
+        "xreach_recovery_worker_run_id": recovery_run.run_id,
+        "xreach_auth_recovery_worker_run_id": (
+            recovery_run.run_id if recovery_kind == "auth" else ""
+        ),
+        "xreach_setup_recovery_worker_run_id": (
+            recovery_run.run_id if recovery_kind == "setup" else ""
+        ),
+        "xreach_recovery_summary": source_summary,
+    }
+    stored = scheduler.merge_queue_metadata(run.run_id, update)
+    if stored is None:
+        return None
+    if metadata.get("control_plane_task_id"):
+        try:
+            control_plane_service.sync_worker_run(stored)
+        except Exception:
+            logger.exception("control-plane sync for xreach recovery raised run=%s", stored.run_id)
+    _send_xreach_recovery_card(
+        run=stored,
+        notifier=notifier,
+        recovery_kind=recovery_kind,
+    )
+    return stored
+
+
+def _xreach_recovery_prompt(
+    *,
+    run: WorkerQueueItemRead,
+    recovery_kind: str,
+    result: dict[str, Any],
+) -> str:
+    probes = result.get("xreach_setup_probes") or result.get("xreach_auth_attempts") or []
+    return "\n".join(
+        [
+            "You are Hermes acting as an AAS recovery advisor, not a policy bypass.",
+            "Diagnose the paused X bookmark collection run and propose the smallest local recovery.",
+            "Do not perform external writes. Do not bypass AAS approval or capability policy.",
+            "",
+            f"Recovery kind: {recovery_kind}",
+            f"Source run id: {run.run_id}",
+            f"Task: {run.task_name}",
+            f"Summary: {result.get('summary') or run.message or ''}",
+            f"Error kind: {result.get('error_kind') or ''}",
+            f"Failure kind: {result.get('failure_kind') or ''}",
+            f"Probes: {probes}",
+            "",
+            "Return concise next actions for the local Mac worker operator.",
+        ]
+    )
+
+
+def _send_xreach_recovery_card(
+    *,
+    run: WorkerQueueItemRead,
+    notifier: TelegramNotifierService,
+    recovery_kind: str,
+) -> None:
+    if not notifier.enabled:
+        return
+    payload: dict[str, Any] = run.payload if isinstance(run.payload, dict) else {}
+    metadata: dict[str, Any] = run.metadata or {}
+    chat_id = str(payload.get("chat_id") or metadata.get("chat_id") or "").strip()
+    if not chat_id:
+        return
+    thread_raw = payload.get("message_thread_id") or metadata.get("message_thread_id")
+    thread_id: int | None = None
+    if thread_raw is not None and str(thread_raw).strip() != "":
+        try:
+            thread_id = int(thread_raw)
+        except (TypeError, ValueError):
+            thread_id = None
+    if recovery_kind == "setup":
+        text = (
+            "需要你配合恢复 X 书签采集：本机 worker 找不到 xreach。\n"
+            "管家已让 Hermes 做本机诊断；你也可以先安装 xreach、"
+            "设置 AUTORESEARCH_XREACH_BIN，"
+            "或传 fixture_path 做离线 smoke。\n\n"
+            f"run_id: {run.run_id}"
+        )
+        buttons = [
+            [
+                {
+                    "text": "重新检测",
+                    "callback_data": f"/xreach-auth-check {run.run_id}",
+                },
+                {
+                    "text": "我已修好，继续采集",
+                    "callback_data": f"/xreach-auth-resume {run.run_id}",
+                },
+            ],
+            [{"text": "取消任务", "callback_data": f"/xreach-auth-cancel {run.run_id}"}],
+        ]
+    else:
+        text = (
+            "需要你配合恢复 X 书签采集：本机 X 登录态需要恢复。\n"
+            "管家已让 Hermes 做恢复诊断；完成登录后点继续采集。\n\n"
+            f"run_id: {run.run_id}"
+        )
+        buttons = [
+            [
+                {
+                    "text": "打开登录页",
+                    "callback_data": f"/xreach-auth-open {run.run_id}",
+                },
+                {
+                    "text": "我已完成，继续采集",
+                    "callback_data": f"/xreach-auth-resume {run.run_id}",
+                },
+            ],
+            [
+                {
+                    "text": "重新检测登录态",
+                    "callback_data": f"/xreach-auth-check {run.run_id}",
+                },
+                {"text": "取消任务", "callback_data": f"/xreach-auth-cancel {run.run_id}"},
+            ],
+        ]
+    notifier.send_message(
+        chat_id=chat_id,
+        text=text,
+        message_thread_id=thread_id,
+        reply_markup={"inline_keyboard": buttons},
+    )
 
 
 def _try_deliver_butler_live_edit(
@@ -509,5 +705,7 @@ def _failure_kind_display_text(error_kind: str) -> str | None:
         "quota_exceeded": "额度不足 / quota_exceeded",
         "permission_denied": "权限拒绝 / permission_denied",
         "collector_auth_failed": "采集器鉴权失败 / collector_auth_failed",
+        "xreach_setup_required": "依赖恢复中 / dependency_missing",
+        "collector_missing": "依赖缺失 / dependency_missing",
     }
     return labels.get(normalized, normalized)

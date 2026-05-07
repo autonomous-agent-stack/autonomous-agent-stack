@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 import time
 
 from fastapi import APIRouter, Body, Depends, HTTPException, status
@@ -25,6 +26,7 @@ from autoresearch.core.services.hermes_readiness import (
     build_hermes_cli_readiness_check,
     build_hermes_interactive_callback_check,
 )
+from autoresearch.core.services.recovery_orchestrator import ButlerRecoveryOrchestrator
 from autoresearch.core.services.runtime_adapter_registry import RuntimeAdapterServiceRegistry
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
 from autoresearch.core.services.worker_inventory import WorkerInventoryService
@@ -171,7 +173,12 @@ def butler_doctor(
     checks.append(_check_youtube_autoflow(youtube_service))
     checks.append(_check_github_publish(github_service))
     checks.append(_check_github_ops(github_ops_service))
+    checks.extend(ButlerRecoveryOrchestrator(repo_root=_repo_root()).doctor_checks())
     return ButlerDoctorRead(status=_rollup_status(checks), checks=checks)
+
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[4]
 
 
 def _set_butler_agent_status(

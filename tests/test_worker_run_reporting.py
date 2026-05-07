@@ -418,6 +418,94 @@ def test_report_xreach_auth_pause_queues_hermes_recovery_and_sends_card(
     assert "run.recovery_queued" in event_types
 
 
+def test_report_xreach_setup_pause_queues_hermes_recovery_and_sends_card(
+    worker_client: TestClient,
+    worker_services: tuple[WorkerRegistryService, WorkerSchedulerService],
+    tmp_path: Path,
+) -> None:
+    registry, scheduler = worker_services
+    _register_worker(registry, worker_id="mac-mini-01")
+    control_plane, _ = _build_control_plane_service(tmp_path, scheduler)
+    task = control_plane.create_task(
+        ControlPlaneTaskCreateRequest(
+            name="整理X书签",
+            intent="整理X书签",
+            session_id="session-xreach-setup-pause",
+            capability_id="source_collect",
+            parameters={"canonical_task_type": "source_collect.collect", "source_kind": "x_bookmarks"},
+            requested_by="9536",
+        )
+    )
+    approved = control_plane.decide_task(
+        task.task_id,
+        ControlPlaneApprovalDecisionRequest(decision="approved", decided_by="9536"),
+    )
+    assert approved is not None
+    assert approved.run_id is not None
+    scheduler.merge_queue_metadata(
+        approved.run_id,
+        {
+            "telegram_completion_via_api": True,
+            "chat_id": "9536",
+            "session_key": "telegram:personal:user:9536",
+            "telegram_queue_ack_message_id": 123,
+        },
+    )
+    scheduler.claim("mac-mini-01", WorkerClaimRequest(), now=utc_now())
+    notifier = _StubTelegramNotifier()
+
+    app.dependency_overrides[get_control_plane_service] = lambda: control_plane
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+    app.dependency_overrides[get_telegram_settings] = lambda: TelegramSettings(
+        bot_token="fake-token",
+        allowed_uids={"9536"},
+    )
+    try:
+        response = worker_client.post(
+            f"/api/v1/workers/mac-mini-01/runs/{approved.run_id}/report",
+            json={
+                "status": "running",
+                "message": "source_collect waiting for XReach setup recovery",
+                "result": {
+                    "summary": "X 书签采集器 xreach 缺失或 worker PATH 无法找到，管家已进入本机恢复诊断。",
+                    "collector": "xreach",
+                    "error_kind": "xreach_setup_required",
+                    "failure_kind": "dependency_missing",
+                    "next_actions": ["install_xreach", "set_AUTORESEARCH_XREACH_BIN", "restart_worker"],
+                },
+                "metrics": {
+                    "worker_pause_reason": "xreach_setup_required",
+                    "error_kind": "xreach_setup_required",
+                    "failure_kind": "dependency_missing",
+                    "collector": "xreach",
+                    "telegram_notify_status": "deferred",
+                },
+            },
+        )
+        assert response.status_code == 200
+    finally:
+        app.dependency_overrides.pop(get_control_plane_service, None)
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+        app.dependency_overrides.pop(get_telegram_settings, None)
+
+    projected = control_plane.get_task(task.task_id)
+    assert projected is not None
+    assert projected.metadata["xreach_setup_recovery_worker_run_id"]
+    recovery_run = scheduler.get_run(projected.metadata["xreach_setup_recovery_worker_run_id"])
+    assert recovery_run is not None
+    assert recovery_run.payload["source_collect_setup_recovery"] is True
+    assert recovery_run.payload["runtime_id"] == "hermes"
+
+    recovery_message = notifier.messages[-1]
+    text = str(recovery_message["text"])
+    assert "找不到 xreach" in text
+    reply_markup = recovery_message["reply_markup"]
+    assert isinstance(reply_markup, dict)
+    buttons = reply_markup["inline_keyboard"]
+    assert buttons[0][0]["callback_data"] == f"/xreach-auth-check {approved.run_id}"
+    assert buttons[0][1]["callback_data"] == f"/xreach-auth-resume {approved.run_id}"
+
+
 def test_report_control_plane_sync_failure_does_not_break_report(
     worker_client: TestClient,
     worker_services: tuple[WorkerRegistryService, WorkerSchedulerService],

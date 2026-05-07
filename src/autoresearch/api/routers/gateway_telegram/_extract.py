@@ -221,7 +221,7 @@ def _is_xreach_auth_command(text: str) -> bool:
 def _parse_xreach_auth_command(text: str) -> tuple[str, str]:
     normalized = text.strip()
     lowered = normalized.lower()
-    for action in ("open", "resume", "check"):
+    for action in ("open", "resume", "check", "cancel"):
         prefix = f"/xreach-auth-{action}"
         if lowered == prefix:
             return action, ""
