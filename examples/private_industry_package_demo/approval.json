@@ -1,0 +1,21 @@
+{
+  "approval_id": "approval.demo-sensitive-example",
+  "title": "Demo approval for sensitive example",
+  "summary": "Fake approval shape only; no real customer, price, personnel, account, vendor, or private prompt data. / 仅展示假 approval 形状；不包含真实客户、价格、人员、账号、供应商或私有 prompt 数据。",
+  "status": "approved",
+  "risk": "sensitive_read",
+  "source": "private_industry_package_demo",
+  "session_id": "session.demo-industry",
+  "agent_run_id": "run.demo-industry",
+  "metadata": {
+    "capability_id": "demo.industry.report",
+    "data_classification": "fake_demo_data",
+    "external_write": false
+  },
+  "created_at": "2026-05-07T05:30:00Z",
+  "updated_at": "2026-05-07T05:31:00Z",
+  "expires_at": "2026-05-07T06:30:00Z",
+  "resolved_at": "2026-05-07T05:31:00Z",
+  "decided_by": "actor.demo-approver",
+  "decision_note": "Approved for fake contract demonstration only. / 仅批准假合同演示。"
+}

@@ -1,0 +1,466 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/autonomous-agent-stack/autonomous-agent-stack/schemas/topology-contract.schema.json",
+  "title": "AAS Agent Topology Contract / AAS Agent 拓扑合同",
+  "description": "AAS Agent Topology public contract. / AAS Agent 拓扑公开合同。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "topology_id",
+    "generated_at",
+    "hosts",
+    "runtimes",
+    "agents",
+    "capability_bindings",
+    "temporary_clients",
+    "resident_workers"
+  ],
+  "properties": {
+    "contract_version": {
+      "type": "string",
+      "const": "agent-topology/v1",
+      "description": "Topology contract version. / 拓扑合同版本。"
+    },
+    "topology_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Stable topology snapshot identifier. / 稳定的拓扑快照标识。"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Snapshot generation timestamp. / 快照生成时间。"
+    },
+    "hosts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/HostNode"
+      }
+    },
+    "runtimes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/RuntimeNode"
+      }
+    },
+    "agents": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/AgentNode"
+      }
+    },
+    "capability_bindings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/CapabilityBinding"
+      }
+    },
+    "temporary_clients": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/TemporaryClient"
+      }
+    },
+    "resident_workers": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ResidentWorker"
+      }
+    },
+    "metadata": {
+      "$ref": "#/$defs/Metadata"
+    }
+  },
+  "$defs": {
+    "Metadata": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Bounded diagnostic metadata, never secrets or private data. / 有边界的诊断元数据，不得包含密钥或私有数据。"
+    },
+    "NodeStatus": {
+      "type": "string",
+      "enum": [
+        "unknown",
+        "online",
+        "degraded",
+        "disabled",
+        "offline"
+      ]
+    },
+    "HostNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "host_id",
+        "host_type",
+        "display_name",
+        "network_scope",
+        "status"
+      ],
+      "properties": {
+        "host_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Public host identifier. / 公开 host 标识。"
+        },
+        "host_type": {
+          "type": "string",
+          "enum": [
+            "local_mac",
+            "linux_worker",
+            "mcp_host",
+            "federation_peer",
+            "ci_worker",
+            "other"
+          ],
+          "description": "Host category. / Host 类别。"
+        },
+        "display_name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable host label. / 面向人的 host 名称。"
+        },
+        "network_scope": {
+          "type": "string",
+          "enum": [
+            "localhost_only",
+            "private_lan",
+            "public",
+            "none"
+          ],
+          "description": "Network exposure scope. / 网络暴露范围。"
+        },
+        "status": {
+          "$ref": "#/$defs/NodeStatus"
+        },
+        "runtime_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Runtimes hosted on this node. / 该节点承载的 runtime。"
+        },
+        "policy_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Policy records constraining this host. / 约束该 host 的 policy 记录。"
+        },
+        "metadata": {
+          "$ref": "#/$defs/Metadata"
+        }
+      }
+    },
+    "RuntimeNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runtime_id",
+        "host_id",
+        "runtime_type",
+        "display_name",
+        "status"
+      ],
+      "properties": {
+        "runtime_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Public runtime identifier. / 公开 runtime 标识。"
+        },
+        "host_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "HostNode that runs this runtime. / 运行该 runtime 的 HostNode。"
+        },
+        "runtime_type": {
+          "type": "string",
+          "enum": [
+            "gateway",
+            "coding_worker",
+            "multi_agent_worker",
+            "knowledge_worker",
+            "workflow_worker",
+            "federated_agent",
+            "process_worker",
+            "mcp_tool_host",
+            "other"
+          ],
+          "description": "Runtime category. / Runtime 类别。"
+        },
+        "display_name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable runtime label. / 面向人的 runtime 名称。"
+        },
+        "status": {
+          "$ref": "#/$defs/NodeStatus"
+        },
+        "capability_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Capabilities exposed through this runtime. / 该 runtime 暴露的 capability。"
+        },
+        "isolation_profile": {
+          "type": "string",
+          "description": "AAS-selected isolation profile. / AAS 选择的隔离 profile。"
+        },
+        "policy_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Policy records constraining this runtime. / 约束该 runtime 的 policy 记录。"
+        },
+        "metadata": {
+          "$ref": "#/$defs/Metadata"
+        }
+      }
+    },
+    "AgentNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "agent_id",
+        "runtime_id",
+        "display_name",
+        "agent_role",
+        "status"
+      ],
+      "properties": {
+        "agent_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Public agent identifier. / 公开 agent 标识。"
+        },
+        "runtime_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "RuntimeNode that owns or serves this agent. / 拥有或服务该 agent 的 RuntimeNode。"
+        },
+        "display_name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable agent label. / 面向人的 agent 名称。"
+        },
+        "agent_role": {
+          "type": "string",
+          "description": "Public role such as planner, executor, reviewer, specialist, or router. / 公开角色，例如 planner、executor、reviewer、specialist 或 router。"
+        },
+        "status": {
+          "$ref": "#/$defs/NodeStatus"
+        },
+        "card_ref": {
+          "type": "string",
+          "description": "Reference to a public agent card, not a private prompt. / 公开 agent card 引用，不是私有 prompt。"
+        },
+        "capability_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Capabilities this agent may request. / 该 agent 可请求的 capability。"
+        },
+        "policy_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Policy records constraining this agent. / 约束该 agent 的 policy 记录。"
+        },
+        "metadata": {
+          "$ref": "#/$defs/Metadata"
+        }
+      }
+    },
+    "CapabilityBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "binding_id",
+        "capability_id",
+        "provider_node_type",
+        "provider_node_id",
+        "risk_tier",
+        "enabled"
+      ],
+      "properties": {
+        "binding_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Binding identifier. / 绑定标识。"
+        },
+        "capability_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "CapabilityManifest capability id. / CapabilityManifest 中的 capability id。"
+        },
+        "provider_node_type": {
+          "type": "string",
+          "enum": [
+            "runtime",
+            "agent",
+            "host",
+            "resident_worker",
+            "temporary_client"
+          ],
+          "description": "Provider node kind. / 提供方节点类型。"
+        },
+        "provider_node_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Provider node identifier. / 提供方节点标识。"
+        },
+        "manifest_ref": {
+          "type": "string",
+          "description": "CapabilityManifest reference. / CapabilityManifest 引用。"
+        },
+        "risk_tier": {
+          "type": "string",
+          "enum": [
+            "common_read",
+            "sensitive_read",
+            "external_write",
+            "destructive"
+          ],
+          "description": "Governance risk tier. / 治理风险等级。"
+        },
+        "approval_required": {
+          "type": "boolean",
+          "description": "Whether Approval is required before use. / 使用前是否需要 Approval。"
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether this binding is active. / 该绑定是否启用。"
+        },
+        "artifact_types": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "ArtifactRef kinds emitted by this capability. / 该 capability 输出的 ArtifactRef 类型。"
+        },
+        "policy_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "PolicyDecision or policy references required by this binding. / 该绑定需要的 PolicyDecision 或 policy 引用。"
+        },
+        "metadata": {
+          "$ref": "#/$defs/Metadata"
+        }
+      }
+    },
+    "TemporaryClient": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "client_id",
+        "host_id",
+        "lease_id",
+        "status",
+        "expires_at"
+      ],
+      "properties": {
+        "client_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Temporary client identifier. / 临时 client 标识。"
+        },
+        "host_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "HostNode where the client connects from. / client 连接来源的 HostNode。"
+        },
+        "lease_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Lease constraining the temporary client. / 约束该临时 client 的 Lease。"
+        },
+        "status": {
+          "$ref": "#/$defs/NodeStatus"
+        },
+        "capability_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Capabilities granted by the lease. / Lease 授权的 capability。"
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Lease expiry timestamp. / Lease 过期时间。"
+        },
+        "metadata": {
+          "$ref": "#/$defs/Metadata"
+        }
+      }
+    },
+    "ResidentWorker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "worker_id",
+        "host_id",
+        "runtime_id",
+        "worker_type",
+        "status"
+      ],
+      "properties": {
+        "worker_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Resident worker identifier. / 常驻 worker 标识。"
+        },
+        "host_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "HostNode running this worker. / 运行该 worker 的 HostNode。"
+        },
+        "runtime_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "RuntimeNode used by this worker. / 该 worker 使用的 RuntimeNode。"
+        },
+        "worker_type": {
+          "type": "string",
+          "description": "Worker category such as mac_worker, queue_worker, or mcp_bridge. / Worker 类别，例如 mac_worker、queue_worker 或 mcp_bridge。"
+        },
+        "status": {
+          "$ref": "#/$defs/NodeStatus"
+        },
+        "heartbeat_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Latest heartbeat timestamp. / 最近心跳时间。"
+        },
+        "capability_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Capabilities served by this worker. / 该 worker 服务的 capability。"
+        },
+        "lease_id": {
+          "type": "string",
+          "description": "Optional lease constraining the worker. / 可选的 worker 约束 Lease。"
+        },
+        "policy_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Policy records constraining this worker. / 约束该 worker 的 policy 记录。"
+        },
+        "metadata": {
+          "$ref": "#/$defs/Metadata"
+        }
+      }
+    }
+  }
+}
