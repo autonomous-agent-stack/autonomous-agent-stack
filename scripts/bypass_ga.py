@@ -8,10 +8,24 @@ from typing import Any, Callable
 from autoresearch.core.services.approval_store import ApprovalStoreService
 from autoresearch.core.services.butler_tool_broker import ButlerToolBroker
 from autoresearch.core.services.federation import FederationService, FederationTaskCreateRequest
-from autoresearch.core.services.git_promotion_gate import GitPromotionGateService, GitPromotionProvider
-from autoresearch.core.services.governed_mcp import GovernedMCPToolCallRequest, GovernedMCPService, ToolPermissionService
-from autoresearch.core.services.model_gateway import ModelGatewayDenied, ModelGatewayService, ModelProviderRead
-from autoresearch.core.services.runtime_isolation import RuntimeIsolationService, RuntimeIsolationViolation
+from autoresearch.core.services.git_promotion_gate import (
+    GitPromotionGateService,
+    GitPromotionProvider,
+)
+from autoresearch.core.services.governed_mcp import (
+    GovernedMCPToolCallRequest,
+    GovernedMCPService,
+    ToolPermissionService,
+)
+from autoresearch.core.services.model_gateway import (
+    ModelGatewayDenied,
+    ModelGatewayService,
+    ModelProviderRead,
+)
+from autoresearch.core.services.runtime_isolation import (
+    RuntimeIsolationService,
+    RuntimeIsolationViolation,
+)
 from autoresearch.core.services.secret_vault import SecretAccessDenied, SecretVaultService
 from autoresearch.core.services.usage_quota import UsageLedgerEntryRead, UsageQuotaService
 from autoresearch.ga.contracts import ModelInvocationRequest
@@ -27,11 +41,16 @@ from autoresearch.shared.models import (
 from autoresearch.shared.store import InMemoryRepository
 
 
+REPORT_PATH = Path("bypass_ga_report.json")
+
+
 class BypassBlocked(PermissionError):
     pass
 
 
-def _expect_blocked(label: str, exc_type: type[Exception], fn: Callable[[], object]) -> dict[str, object]:
+def _expect_blocked(
+    label: str, exc_type: type[Exception], fn: Callable[[], object]
+) -> dict[str, object]:
     try:
         fn()
     except exc_type as exc:
@@ -43,12 +62,21 @@ def _expect_blocked(label: str, exc_type: type[Exception], fn: Callable[[], obje
             "message": f"wrong exception: {type(exc).__name__}: {exc}",
             "synthetic": False,
         }
-    return {"check": label, "status": "failed", "message": "bypass was not blocked", "synthetic": False}
+    return {
+        "check": label,
+        "status": "failed",
+        "message": "bypass was not blocked",
+        "synthetic": False,
+    }
 
 
 def run_bypass_checks(repo_root: Path) -> list[dict[str, object]]:
     checks = [
-        _expect_blocked("direct_env_key_access", SecretAccessDenied, lambda: _attempt_direct_env_key_access(repo_root)),
+        _expect_blocked(
+            "direct_env_key_access",
+            SecretAccessDenied,
+            lambda: _attempt_direct_env_key_access(repo_root),
+        ),
         _expect_blocked("direct_model_call", ModelGatewayDenied, _attempt_direct_model_call),
         _expect_blocked("direct_tool_call", BypassBlocked, _attempt_direct_tool_call),
         _expect_blocked(
@@ -56,7 +84,11 @@ def run_bypass_checks(repo_root: Path) -> list[dict[str, object]]:
             BypassBlocked,
             _attempt_rejected_approval_continuation,
         ),
-        _expect_blocked("federation_without_lease", KeyError, lambda: _attempt_federation_without_lease(repo_root)),
+        _expect_blocked(
+            "federation_without_lease",
+            KeyError,
+            lambda: _attempt_federation_without_lease(repo_root),
+        ),
         _expect_blocked(
             "unauthorized_package_tool_registration",
             PermissionError,
@@ -67,8 +99,14 @@ def run_bypass_checks(repo_root: Path) -> list[dict[str, object]]:
                 approval_status=None,
             ),
         ),
-        _expect_blocked("direct_db_mutation", RuntimeIsolationViolation, _attempt_direct_db_mutation),
-        _expect_blocked("artifact_promotion_bypass", BypassBlocked, lambda: _attempt_artifact_promotion_bypass(repo_root)),
+        _expect_blocked(
+            "direct_db_mutation", RuntimeIsolationViolation, _attempt_direct_db_mutation
+        ),
+        _expect_blocked(
+            "artifact_promotion_bypass",
+            BypassBlocked,
+            lambda: _attempt_artifact_promotion_bypass(repo_root),
+        ),
     ]
     return checks
 
@@ -228,7 +266,9 @@ class _HealthyPromotionProvider(GitPromotionProvider):
         _ = repo_root, base_branch
         return GitRemoteProbe(healthy=True, credentials_available=True, base_branch_exists=True)
 
-    def create_branch(self, repo_root: Path, *, branch_name: str, base_branch: str, workspace_dir: Path) -> None:
+    def create_branch(
+        self, repo_root: Path, *, branch_name: str, base_branch: str, workspace_dir: Path
+    ) -> None:
         raise NotImplementedError
 
     def commit_changes(
@@ -264,10 +304,22 @@ class _HealthyPromotionProvider(GitPromotionProvider):
 def main() -> int:
     repo_root = Path(__file__).resolve().parents[1]
     checks = run_bypass_checks(repo_root)
-    failed = [check for check in checks if check["status"] != "passed" or check.get("synthetic") is True]
+    failed = [
+        check for check in checks if check["status"] != "passed" or check.get("synthetic") is True
+    ]
+    report = {
+        "status": "failed" if failed else "passed",
+        "checks": checks,
+        "failed_checks": failed,
+        "synthetic": False,
+    }
+    (repo_root / REPORT_PATH).write_text(
+        json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     for check in checks:
         print(f"{check['status']}: {check['check']} - {check['message']}")
-    print(json.dumps({"status": "failed" if failed else "passed", "failed": failed}, sort_keys=True))
+    print(json.dumps(report, sort_keys=True))
     return 1 if failed else 0
 
 

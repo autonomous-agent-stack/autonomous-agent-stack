@@ -1,0 +1,83 @@
+{
+  "approval": {
+    "approved_dry_run": true,
+    "approved_write_status": "succeeded",
+    "denied_blocked": true,
+    "denied_followup_status": "awaiting_approval"
+  },
+  "artifact_root": "artifacts/ga/furniture_e2e",
+  "artifacts": {
+    "design_image": {
+      "artifact_ref": {
+        "artifact_id": "img_art_4fa239f4d794",
+        "content_hash": "3b1500b3449e7e156094d04ca48a1ee5e5f8c665eb93f850bdcddfc19f569f43",
+        "created_at": "2026-05-07T02:22:42.044908Z",
+        "invocation_id": "model_inv_064a514a5e5f",
+        "metadata": {
+          "dry_run": true,
+          "model_id": "image2",
+          "provider_id": "local-dev"
+        },
+        "mime_type": "image/png",
+        "prompt_hash": "904aca24aa834bd60fe4b6d74f4e7d65a180b6b8b01cdb256e2b094c0cbaa0f8",
+        "session_id": "furniture-e2e-ga-session",
+        "uri": "artifact://model-gateway/images/model_inv_064a514a5e5f.png"
+      },
+      "manifest_path": "artifacts/ga/furniture_e2e/design_image.png",
+      "model_artifact": {
+        "artifact_id": "img_art_4fa239f4d794",
+        "content_hash": "3b1500b3449e7e156094d04ca48a1ee5e5f8c665eb93f850bdcddfc19f569f43",
+        "created_at": "2026-05-07T02:22:42.044908Z",
+        "file_sha256": "0f248e67c8ef0d5920450e2d45dc7b4deca5de2a72485211e5b3eb974dfd832f",
+        "invocation_id": "model_inv_064a514a5e5f",
+        "metadata": {
+          "dry_run": true,
+          "model_id": "image2",
+          "provider_id": "local-dev"
+        },
+        "mime_type": "image/png",
+        "path": "artifacts/ga/furniture_e2e/design_image.png",
+        "prompt_hash": "904aca24aa834bd60fe4b6d74f4e7d65a180b6b8b01cdb256e2b094c0cbaa0f8",
+        "session_id": "furniture-e2e-ga-session",
+        "uri": "artifact://model-gateway/images/model_inv_064a514a5e5f.png"
+      },
+      "path": "artifacts/ga/furniture_e2e/design_image.png",
+      "sha256": "0f248e67c8ef0d5920450e2d45dc7b4deca5de2a72485211e5b3eb974dfd832f",
+      "size_bytes": 43806
+    },
+    "quote_pdf": {
+      "manifest_path": "artifacts/ga/furniture_e2e/quote.pdf",
+      "path": "artifacts/ga/furniture_e2e/quote.pdf",
+      "sha256": "82d4d90b855775dc023c7b511c42c30d6a57bbb26e76c8ad6a5701451fadbe7b",
+      "size_bytes": 810
+    },
+    "quote_xlsx": {
+      "manifest_path": "artifacts/ga/furniture_e2e/quote.xlsx",
+      "path": "artifacts/ga/furniture_e2e/quote.xlsx",
+      "sha256": "798b361831bfb1fa027b8cf37d8e5eb7ff1474e968b3da25a6dea7265cf1b733",
+      "size_bytes": 5162
+    }
+  },
+  "checks": {
+    "approval_approved_dry_run": true,
+    "approval_denied_blocked": true,
+    "pii_redaction_verified": true,
+    "session_replay_verified": true
+  },
+  "pii_redaction": {
+    "audit": {
+      "audit_id": "design_audit_5b8715f61753",
+      "original_prompt_sha256": "87cf0bac3537f3a2851525750b260eab490de951533df5bd408664a86145086d",
+      "pii_redacted": true,
+      "policy_id": "model-policy-furniture-image",
+      "redacted_prompt": "Render a walnut modular workstation for customer Mei at [REDACTED_EMAIL], phone [REDACTED_PHONE], with cable management and warm neutral lighting."
+    },
+    "verified": true
+  },
+  "session_replay": {
+    "content_hash_verified": true,
+    "event_count": 12,
+    "verified": true
+  },
+  "status": "passed"
+}
