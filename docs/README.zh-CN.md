@@ -49,6 +49,7 @@
 ## 设计记录
 
 - [RFC 索引](rfc/README.zh-CN.md)
+- [企业级 Runtime 治理蓝图](rfc/enterprise-runtime-governance-blueprint.zh-CN.md)
 - [Distributed control plane architecture](decisions/distributed-control-plane-architecture-v1.md)
 - [Fast policy router and slow orchestration](decisions/fast-policy-router-and-slow-orchestration-v1.md)
 - [Deterministic job best practice](decisions/deterministic-job-best-practice-v1.md)

@@ -49,6 +49,7 @@ Historical reports and old checklists are preserved under `docs/archive/**` and 
 ## Design Records
 
 - [RFC index](rfc/README.md)
+- [Enterprise runtime governance blueprint](rfc/enterprise-runtime-governance-blueprint.md)
 - [Distributed control plane architecture](decisions/distributed-control-plane-architecture-v1.md)
 - [Fast policy router and slow orchestration](decisions/fast-policy-router-and-slow-orchestration-v1.md)
 - [Deterministic job best practice](decisions/deterministic-job-best-practice-v1.md)
