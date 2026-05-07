@@ -29,6 +29,7 @@ REQUIRED_PAIRS = (
     ("ARCHITECTURE.md", "ARCHITECTURE.zh-CN.md"),
     ("docs/README.md", "docs/README.zh-CN.md"),
     ("docs/architecture.md", "docs/architecture.zh-CN.md"),
+    ("docs/project-health.md", "docs/project-health.zh-CN.md"),
     ("docs/agent-execution-protocol.md", "docs/agent-execution-protocol.zh-CN.md"),
     ("docs/github-assistant-quickstart.md", "docs/github-assistant-quickstart.zh-CN.md"),
     ("docs/linux-remote-worker.md", "docs/linux-remote-worker.zh-CN.md"),

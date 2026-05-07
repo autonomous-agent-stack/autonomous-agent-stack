@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 import logging
+import os
 from typing import Dict, Any
 from fastapi import APIRouter
 
@@ -40,6 +41,6 @@ async def get_system_health() -> Dict[str, Any]:
             "apple_double_cleaned": 82,
             "ast_blocks": 14,
             "sandbox_type": "Docker",
-            "storage_path": "/Volumes/PS1008"
+            "storage_path": os.getenv("AAS_STORAGE_ROOT", "artifacts")
         }
     }

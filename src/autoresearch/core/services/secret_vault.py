@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from datetime import timedelta
+from pathlib import Path
 from typing import Any
 
 from pydantic import Field
@@ -9,6 +10,8 @@ from pydantic import Field
 from autoresearch.ga.contracts import PrincipalRead, SecretLeaseRead
 from autoresearch.shared.models import StrictModel, utc_now
 from autoresearch.shared.store import create_resource_id
+
+_REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
 class SecretAccessDenied(PermissionError):
@@ -68,7 +71,9 @@ class SecretVaultService:
         path = str(attempted_path or "").strip()
         if path.endswith(".env") or "/.env" in path or path == ".env":
             raise SecretAccessDenied("direct .env access is forbidden")
-        if path.startswith("~") or "/Users/" in path and "/Documents/evan/github/autonomous-agent-stack" not in path:
+        resolved = Path(path).expanduser().resolve() if path else None
+        in_repo = bool(resolved and resolved.is_relative_to(_REPO_ROOT))
+        if path.startswith("~") or ("/Users/" in path and not in_repo):
             raise SecretAccessDenied("direct host home access is forbidden")
 
     def list_leases(self) -> list[SecretLeaseRead]:

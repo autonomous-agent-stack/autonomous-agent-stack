@@ -10,18 +10,10 @@ v2.0 Core Tests - 分布式架构单元测试
 """
 
 import pytest
-from datetime import datetime
-import json
-import os
-import sys
+from uuid import uuid4
 
-# 添加 src 到路径
-sys.path.insert(0, '/Volumes/PS1008/Github/autonomous-agent-stack/src')
-
-from bridge.router import router as system_router
 from bridge.unified_router import (
     SessionMemory,
-    ClaudeCLIExecutor,
     OpenSageEngine,
     MASFactoryBridge,
     BlitzTask,
@@ -37,12 +29,13 @@ class TestSessionMemory:
     
     def test_create_session(self):
         """测试创建会话"""
-        session = SessionMemory("test-session-001")
-        assert session.session_id == "test-session-001"
+        session_id = f"test-session-{uuid4().hex}"
+        session = SessionMemory(session_id)
+        assert session.session_id == session_id
     
     def test_save_and_get_context(self):
         """测试保存和获取上下文"""
-        session = SessionMemory("test-session-002")
+        session = SessionMemory(f"test-session-{uuid4().hex}")
         
         # 保存消息
         session.save_message("user", "你好")
@@ -58,7 +51,7 @@ class TestSessionMemory:
     
     def test_context_depth_limit(self):
         """测试上下文深度限制"""
-        session = SessionMemory("test-session-003")
+        session = SessionMemory(f"test-session-{uuid4().hex}")
         
         # 保存 10 条消息
         for i in range(10):
@@ -184,6 +177,7 @@ class TestSystemHealthAPI:
         assert "ast_blocks" in metrics
         assert "sandbox_type" in metrics
         assert "storage_path" in metrics
+        assert metrics["storage_path"] == "artifacts"
 
 
 # ========================================================================

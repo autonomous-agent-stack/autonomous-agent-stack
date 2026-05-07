@@ -1,8 +1,16 @@
 [project]
 name = "autonomous-agent-stack"
 version = "0.1.0"
-description = "Modern multi-agent orchestration framework powered by MASFactory"
+description = "Evergreen governed control plane for durable agent execution"
+readme = "README.md"
 requires-python = ">=3.11"
+license = { file = "LICENSE" }
+keywords = ["agents", "control-plane", "governance", "automation"]
+
+[project.urls]
+Homepage = "https://github.com/autonomous-agent-stack/autonomous-agent-stack"
+Documentation = "https://github.com/autonomous-agent-stack/autonomous-agent-stack/tree/main/docs"
+Issues = "https://github.com/autonomous-agent-stack/autonomous-agent-stack/issues"
 
 [build-system]
 requires = ["hatchling"]

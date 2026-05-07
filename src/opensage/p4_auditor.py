@@ -10,6 +10,7 @@
 
 import sqlite3
 import json
+import os
 import subprocess
 import logging
 from datetime import datetime, timedelta
@@ -19,17 +20,22 @@ from typing import Dict, List, Any
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_DEFAULT_AUDIT_DB_PATH = _REPO_ROOT / "artifacts" / "opensage" / "evolution_history.sqlite3"
+
 
 class P4Auditor:
     """P4 自我进化审计器"""
     
-    def __init__(self, project_root: str = "/Volumes/PS1008/Github/autonomous-agent-stack"):
-        self.project_root = Path(project_root)
-        self.db_path = self.project_root / "src" / "memory" / "evolution_history.sqlite"
-        self.report_path = self.project_root / "docs" / "audit_reports"
+    def __init__(self, project_root: str | None = None):
+        self.project_root = Path(project_root or os.getenv("AAS_REPO_ROOT", _REPO_ROOT)).expanduser().resolve()
+        configured_db = os.getenv("AUTORESEARCH_OPENSAGE_AUDIT_DB_PATH")
+        self.db_path = Path(configured_db).expanduser().resolve() if configured_db else _DEFAULT_AUDIT_DB_PATH
+        self.report_path = self.project_root / "artifacts" / "opensage" / "audit_reports"
         
         # 创建目录
         self.report_path.mkdir(parents=True, exist_ok=True)
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
         
         # 初始化数据库
         self._init_db()

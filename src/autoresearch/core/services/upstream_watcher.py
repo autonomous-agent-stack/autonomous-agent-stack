@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -14,7 +15,8 @@ from autoresearch.shared.autoresearch_planner_contract import (
 
 
 _DEFAULT_UPSTREAM_URL = "https://github.com/openclaw/openclaw.git"
-_DEFAULT_WORKSPACE_ROOT = Path("/Volumes/AI_LAB/ai_lab/workspace")
+_REPO_ROOT = Path(__file__).resolve().parents[4]
+_DEFAULT_WORKSPACE_ROOT = _REPO_ROOT / "artifacts" / "upstream_watch"
 _NON_CORE_PATH_PREFIXES = (
     "extensions/",
     "test/helpers/extensions/",
@@ -40,7 +42,8 @@ class UpstreamWatcherService:
         max_commits: int = 5,
     ) -> None:
         self._upstream_url = upstream_url.strip() or _DEFAULT_UPSTREAM_URL
-        self._workspace_root = (workspace_root or _DEFAULT_WORKSPACE_ROOT).expanduser().resolve()
+        configured_root = workspace_root or os.getenv("AUTORESEARCH_UPSTREAM_WATCH_WORKSPACE_ROOT")
+        self._workspace_root = Path(configured_root or _DEFAULT_WORKSPACE_ROOT).expanduser().resolve()
         self._max_commits = max(1, min(max_commits, 20))
 
     def inspect(self) -> UpstreamWatchRead:

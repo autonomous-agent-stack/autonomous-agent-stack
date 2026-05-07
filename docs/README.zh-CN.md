@@ -10,6 +10,7 @@
 
 - [项目 README](../README.zh-CN.md)
 - [架构](architecture.zh-CN.md)
+- [项目健康](project-health.zh-CN.md)
 - [为什么选择 AAS](../WHY_AAS.zh-CN.md)
 - [贡献指南](../CONTRIBUTING.zh-CN.md)
 - [任务简报指南](task-brief-guide.md)

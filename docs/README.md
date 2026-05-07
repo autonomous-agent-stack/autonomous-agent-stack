@@ -10,6 +10,7 @@ Historical reports and old checklists are preserved under `docs/archive/**` and 
 
 - [Project README](../README.md)
 - [Architecture](architecture.md)
+- [Project health](project-health.md)
 - [Why AAS](../WHY_AAS.md)
 - [Contributing](../CONTRIBUTING.md)
 - [Task brief guide](task-brief-guide.md)

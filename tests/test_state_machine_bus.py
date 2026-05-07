@@ -5,12 +5,9 @@ State Machine Bus Tests - 测试状态机事件总线的可靠性
 import pytest
 import asyncio
 import os
-import sys
 import tempfile
 import sqlite3
-
-# 添加 src 到路径
-sys.path.insert(0, '/Volumes/PS1008/Github/autonomous-agent-stack/src')
+from pathlib import Path
 
 
 # ========================================================================
@@ -84,6 +81,21 @@ class TestStateMachineBus:
         finally:
             os.unlink(db_path)
 
+    @pytest.mark.asyncio
+    async def test_default_path_uses_artifacts_and_env_override(self, tmp_path: Path, monkeypatch):
+        """测试默认数据库路径不会落入源码目录，并支持环境变量覆盖"""
+        from autoresearch.core.services.state_machine_bus import StateMachineBus
+
+        db_path = tmp_path / "state-machine.sqlite3"
+        monkeypatch.setenv("AUTORESEARCH_STATE_MACHINE_DB_PATH", str(db_path))
+
+        bus = StateMachineBus()
+        task_id = await bus.publish("test_topic", {"message": "env"})
+
+        assert task_id > 0
+        assert Path(bus.db_path) == db_path.resolve()
+        assert db_path.exists()
+
 
 # ========================================================================
 # Test 2: 状态流转测试
@@ -104,7 +116,7 @@ class TestStateTransitions:
             bus = StateMachineBus(db_path)
             
             # 发布并消费任务
-            task_id = await bus.publish("test", {"data": "test"})
+            await bus.publish("test", {"data": "test"})
             task = await bus.consume("test")
             
             # 标记完成
@@ -113,7 +125,10 @@ class TestStateTransitions:
             # 验证状态
             with sqlite3.connect(db_path) as conn:
                 cursor = conn.cursor()
-                cursor.execute("SELECT status FROM task_queue WHERE id = ?", (task_id,))
+                cursor.execute(
+                    "SELECT status FROM task_queue WHERE id = ?",
+                    (task["task_id"],),
+                )
                 status = cursor.fetchone()[0]
                 
                 assert status == "COMPLETED"
@@ -143,7 +158,10 @@ class TestStateTransitions:
                 # 验证重试次数
                 with sqlite3.connect(db_path) as conn:
                     cursor = conn.cursor()
-                    cursor.execute("SELECT retry_count, status FROM task_queue WHERE id = ?", (task_id,))
+                    cursor.execute(
+                        "SELECT retry_count, status FROM task_queue WHERE id = ?",
+                        (task_id,),
+                    )
                     retry_count, status = cursor.fetchone()
                     
                     if i < 2:
@@ -178,7 +196,7 @@ class TestConcurrency:
             bus = StateMachineBus(db_path)
             
             # 发布一个任务
-            task_id = await bus.publish("test", {"data": "test"})
+            await bus.publish("test", {"data": "test"})
             
             # 并发消费（模拟 3 个 Agent 同时抢）
             async def consume_agent(agent_id: int):
@@ -326,7 +344,7 @@ class TestStatsAndCleanup:
             
             # 发布并失败 3 个任务
             for i in range(3):
-                task_id = await bus.publish("test", {"data": i})
+                await bus.publish("test", {"data": i})
                 task = await bus.consume("test")
                 await bus.mark_failed(task["task_id"], max_retries=0)
             
