@@ -281,16 +281,23 @@ class ReleaseGateService:
             for match in re.finditer(r"APIRouter\(\s*prefix=[\"'](/api/v1[^\"']*)[\"']", text):
                 surfaces.append(match.group(1))
         compat = _load(self.repo_root / "configs/ga/v1_compat_shims.yaml")
-        listed = {str(item).strip() for item in compat.get("compat_shims") or [] if str(item).strip()}
+        shims = compat.get("compat_shims") if isinstance(compat.get("compat_shims"), dict) else {}
+        listed = {str(item).strip() for item in shims if str(item).strip()}
         missing = sorted(set(surfaces) - listed)
-        ok = not missing
+        invalid: list[str] = []
+        for route, raw in sorted(shims.items()):
+            metadata = raw if isinstance(raw, dict) else {}
+            for field in ("successor", "owner", "sunset_policy"):
+                if not str(metadata.get(field) or "").strip():
+                    invalid.append(f"{route}: missing {field}")
+        ok = not missing and not invalid
         return _check(
             "ga.v1_compat_shims",
             ok,
             "All /api/v1 surfaces are declared compatibility shims."
             if ok
             else "New primary capability must not live under /api/v1.",
-            {"surfaces": sorted(set(surfaces)), "missing_compat_shims": missing},
+            {"surfaces": sorted(set(surfaces)), "missing_compat_shims": missing, "invalid_shims": invalid},
         )
 
     def _check_direct_secret_model_tool_paths(self) -> ReleaseGateCheckRead:

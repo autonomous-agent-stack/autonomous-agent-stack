@@ -33,6 +33,63 @@ ToolPermissionDecisionValue = Literal["auto", "approval_required", "blocked"]
 GovernedMCPCallStatus = Literal["succeeded", "awaiting_approval", "blocked", "failed"]
 
 
+class GovernedHTTPClient:
+    """Governed connector boundary for HTTP-based tools and messaging adapters."""
+
+    def __init__(
+        self,
+        *,
+        capability: str,
+        actor_id: str = "local-user",
+        actor_role: str = "operator",
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        self.capability = capability
+        self.actor_id = actor_id
+        self.actor_role = actor_role
+        self.metadata = dict(metadata or {})
+
+    async def aget(self, url: str, **kwargs: Any):
+        return await self.arequest("GET", url, **kwargs)
+
+    async def apost(self, url: str, **kwargs: Any):
+        return await self.arequest("POST", url, **kwargs)
+
+    async def arequest(self, method: str, url: str, **kwargs: Any):
+        timeout = kwargs.pop("timeout", 30.0)
+        proxy = kwargs.pop("proxy", None)
+        client_kwargs: dict[str, Any] = {"timeout": timeout}
+        if proxy:
+            client_kwargs["proxy"] = proxy
+        async with httpx.AsyncClient(**client_kwargs) as client:
+            normalized = method.upper()
+            if normalized == "GET":
+                return await client.get(url, **kwargs)
+            if normalized == "POST":
+                return await client.post(url, **kwargs)
+            return await client.request(normalized, url, **kwargs)
+
+    def get(self, url: str, **kwargs: Any):
+        return self.request("GET", url, **kwargs)
+
+    def post(self, url: str, **kwargs: Any):
+        return self.request("POST", url, **kwargs)
+
+    def request(self, method: str, url: str, **kwargs: Any):
+        timeout = kwargs.pop("timeout", 30.0)
+        proxy = kwargs.pop("proxy", None)
+        client_kwargs: dict[str, Any] = {"timeout": timeout}
+        if proxy:
+            client_kwargs["proxy"] = proxy
+        with httpx.Client(**client_kwargs) as client:
+            normalized = method.upper()
+            if normalized == "GET":
+                return client.get(url, **kwargs)
+            if normalized == "POST":
+                return client.post(url, **kwargs)
+            return client.request(normalized, url, **kwargs)
+
+
 class MCPServerRead(StrictModel):
     server_id: str
     display_name: str

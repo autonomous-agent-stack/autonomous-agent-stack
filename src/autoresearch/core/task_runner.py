@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import datetime as dt
 import json
-import os
 from pathlib import Path
 import subprocess
 import sys
@@ -10,6 +9,7 @@ import time
 from typing import Any
 import uuid
 
+from autoresearch.core.services.secret_vault import build_lease_scoped_runtime_env
 from autoresearch.shared.models import EvaluatorCommand
 
 
@@ -277,11 +277,17 @@ def run_task(
     stderr_log = run_dir / "stderr.log"
     metadata_json = run_dir / "metadata.json"
 
-    env = os.environ.copy()
-    env.update(env_overrides)
-    env["AUTORESEARCH_OUTPUT_JSON"] = str(output_json)
-    env["AUTORESEARCH_ARTIFACT_DIR"] = str(run_dir)
-    env["AUTORESEARCH_TASK_NAME"] = task_name
+    runtime_env = build_lease_scoped_runtime_env(
+        overrides={
+            **env_overrides,
+            "AUTORESEARCH_OUTPUT_JSON": str(output_json),
+            "AUTORESEARCH_ARTIFACT_DIR": str(run_dir),
+            "AUTORESEARCH_TASK_NAME": task_name,
+        },
+        scope="runtime:evaluator",
+        purpose=f"task-run:{task_name}:{run_id}",
+    )
+    env = runtime_env.env
 
     started = time.perf_counter()
     execution = execute_command(
@@ -335,6 +341,7 @@ def run_task(
         "timeout_seconds": timeout_seconds,
         "work_dir": str(execution_cwd),
         "env_overrides": env_overrides,
+        "secret_lease_ids": runtime_env.lease_ids,
         "run_id": run_id,
         "branch": branch,
         "commit": commit,

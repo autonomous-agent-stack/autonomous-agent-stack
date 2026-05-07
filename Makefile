@@ -278,6 +278,7 @@ ga-gap-report:
 		echo "Missing $(VENV_PYTHON). Run 'make setup' first."; \
 		exit 1; \
 	fi
+	PYTHONPATH=src $(VENV_PYTHON) scripts/adapter_certification.py
 	PYTHONPATH=src $(VENV_PYTHON) scripts/ga_gap_report.py
 
 bypass-ga:

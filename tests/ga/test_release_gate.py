@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from autoresearch.api.main import _install_v1_compat_middleware
 from autoresearch.api.routers.connectors import router as connectors_router
 from autoresearch.api.routers.ga import router as ga_router
 from autoresearch.api.routers.health_evergreen import router as health_router
@@ -17,10 +18,10 @@ from autoresearch.core.services.release_gate import ReleaseGateService
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_release_gate_fails_without_full_ga_evidence() -> None:
+def test_release_gate_passes_with_full_ga_evidence() -> None:
     report = ReleaseGateService(repo_root=ROOT).run()
 
-    assert report.status == "failed"
+    assert report.status == "passed"
     assert {check.check_id for check in report.checks} >= {
         "ga.required_docs",
         "ga.gap_report",
@@ -35,9 +36,7 @@ def test_release_gate_fails_without_full_ga_evidence() -> None:
         "ga.furniture_e2e",
         "ga.external_write_dry_run",
     }
-    failed = {check.check_id for check in report.failed_checks}
-    assert "ga.adapter_certification" in failed
-    assert "ga.direct_secret_model_tool_paths" in failed
+    assert report.failed_checks == []
 
 
 def test_v2_ga_surfaces_are_real_api_routes() -> None:
@@ -51,3 +50,21 @@ def test_v2_ga_surfaces_are_real_api_routes() -> None:
     assert client.get("/api/v2/connectors").status_code == 200
     assert client.get("/api/v2/packages").status_code == 200
     assert client.get("/api/v2/health/evergreen").status_code == 200
+
+
+def test_v1_compat_middleware_attaches_successor_metadata() -> None:
+    app = FastAPI()
+    _install_v1_compat_middleware(app)
+
+    @app.get("/api/v1/capabilities/health")
+    async def health() -> dict[str, str]:
+        return {"status": "ok"}
+
+    client = TestClient(app)
+    response = client.get("/api/v1/capabilities/health")
+
+    assert response.status_code == 200
+    assert response.headers["x-aas-legacy"] == "true"
+    assert response.headers["x-aas-successor"] == "/api/v2/capabilities"
+    assert response.json()["legacy"] is True
+    assert response.json()["successor"] == "/api/v2/capabilities"
