@@ -45,3 +45,36 @@ jobs:
             stable_adapters.lock
             docs/certification/adapter-certification-matrix.md
             artifacts/ga/adapter_certification/**/live_evidence.json
+
+  ga-release-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.lock ]; then
+            pip install -r requirements.lock
+          else
+            pip install -r requirements.txt
+          fi
+
+      - name: Evergreen OS GA release gate
+        run: make ga-release-gate
+
+      - name: Upload GA release gate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-ga-release-gate
+          if-no-files-found: error
+          path: ga_release_gate_report.json

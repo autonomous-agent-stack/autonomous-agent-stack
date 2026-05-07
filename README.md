@@ -24,13 +24,14 @@ Adapters must still honestly report runtime capability, streaming, cancellation,
 
 The Evergreen OS GA v1.0 result is evidence-first, not a demo claim. The committed evidence package includes:
 
-- `ga_gap_report.json` and `ga_gap_report.md`: GA gap report with `status: passed` and `missing_total: 0`.
-- `adapter_certification_report.json`: adapter certification report with `status: passed` and no blocked adapters.
-- `stable_adapters.lock`: generated lock file covering all configured scoped adapters.
-- `docs/certification/adapter-certification-matrix.md`: derived adapter certification matrix.
-- `bypass_ga_report.json`: bypass validation report with all security checks passing.
-- `furniture_e2e_report.json`: furniture workflow evidence report with governed dry-run external writes.
-- `ga_release_gate_report.json`: blocking release gate report with GA pytest return code `0`.
+- [GA release tag v1.0.0-evergreen-ga](https://github.com/autonomous-agent-stack/autonomous-agent-stack/releases/tag/v1.0.0-evergreen-ga): release marker for the GA evidence baseline.
+- [ga_gap_report.json](ga_gap_report.json) and [ga_gap_report.md](ga_gap_report.md): GA gap report with `status: passed` and `missing_total: 0`.
+- [adapter_certification_report.json](adapter_certification_report.json): adapter certification report with `status: passed` and no blocked adapters.
+- [stable_adapters.lock](stable_adapters.lock): generated lock file covering all configured scoped adapters.
+- [docs/certification/adapter-certification-matrix.md](docs/certification/adapter-certification-matrix.md): derived adapter certification matrix.
+- [bypass_ga_report.json](bypass_ga_report.json): bypass validation report with all security checks passing.
+- [furniture_e2e_report.json](furniture_e2e_report.json): furniture workflow evidence report with governed dry-run external writes.
+- [ga_release_gate_report.json](ga_release_gate_report.json): blocking release gate report with GA pytest return code `0`.
 
 External writes remain dry-run by default. Live external writes require explicit live credentials, policy decision metadata, approval, recipient allowlist, audit timeline, and session facts.
 
