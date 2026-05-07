@@ -24,13 +24,14 @@ adapter 仍必须真实报告 runtime capability、streaming、cancellation、ar
 
 Evergreen OS GA v1.0 结果以证据为准，不靠 demo 声称成熟。已提交的证据包包括：
 
-- `ga_gap_report.json` 和 `ga_gap_report.md`：GA gap report，`status: passed` 且 `missing_total: 0`。
-- `adapter_certification_report.json`：adapter certification report，`status: passed` 且没有 blocked adapters。
-- `stable_adapters.lock`：覆盖全部 configured scoped adapters 的生成锁文件。
-- `docs/certification/adapter-certification-matrix.md`：派生的 adapter certification matrix。
-- `bypass_ga_report.json`：bypass validation report，全部安全检查通过。
-- `furniture_e2e_report.json`：furniture workflow 证据报告，外部写入保持受治理 dry-run。
-- `ga_release_gate_report.json`：阻断性 release gate 报告，GA pytest 返回码为 `0`。
+- [GA release tag v1.0.0-evergreen-ga](https://github.com/autonomous-agent-stack/autonomous-agent-stack/releases/tag/v1.0.0-evergreen-ga)：GA 证据基线的 release marker。
+- [ga_gap_report.json](ga_gap_report.json) 和 [ga_gap_report.md](ga_gap_report.md)：GA gap report，`status: passed` 且 `missing_total: 0`。
+- [adapter_certification_report.json](adapter_certification_report.json)：adapter certification report，`status: passed` 且没有 blocked adapters。
+- [stable_adapters.lock](stable_adapters.lock)：覆盖全部 configured scoped adapters 的生成锁文件。
+- [docs/certification/adapter-certification-matrix.md](docs/certification/adapter-certification-matrix.md)：派生的 adapter certification matrix。
+- [bypass_ga_report.json](bypass_ga_report.json)：bypass validation report，全部安全检查通过。
+- [furniture_e2e_report.json](furniture_e2e_report.json)：furniture workflow 证据报告，外部写入保持受治理 dry-run。
+- [ga_release_gate_report.json](ga_release_gate_report.json)：阻断性 release gate 报告，GA pytest 返回码为 `0`。
 
 外部写入默认仍保持 dry-run。live external write 必须同时具备明确的 live credentials、policy decision metadata、approval、recipient allowlist、audit timeline 和 session facts。
 
