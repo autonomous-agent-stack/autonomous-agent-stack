@@ -88,6 +88,7 @@ make start
 - Control Plane v2：`http://127.0.0.1:8001/control-plane`
 - Admin panel：`http://127.0.0.1:8001/panel`
 - Health check：`http://127.0.0.1:8001/health`
+- Study Workbench Sync：`http://127.0.0.1:8001/api/v1/study-workbench/health`
 
 ## 常用验证
 
@@ -118,6 +119,7 @@ make ga-release-gate
 
 - [文档索引](docs/README.zh-CN.md)
 - [架构](docs/architecture.zh-CN.md)
+- [Study Workbench Sync MVP](docs/runbooks/study-workbench-sync.zh-CN.md)
 - [为什么选择 AAS](WHY_AAS.zh-CN.md)
 - [贡献指南](CONTRIBUTING.zh-CN.md)
 - [Runtime Adapter v1](docs/runtime-adapter-v1.md)

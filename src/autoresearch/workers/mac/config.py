@@ -21,6 +21,9 @@ _DEFAULT_CAPABILITIES: tuple[str, ...] = (
     "content_kb_classify",
     "content_kb_ingest",
     "security_audit",
+    "study_prepare",
+    "study_ingest",
+    "study_git_sync",
 )
 
 

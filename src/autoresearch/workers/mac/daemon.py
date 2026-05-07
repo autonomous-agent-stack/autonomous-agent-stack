@@ -36,8 +36,10 @@ from autoresearch.shared.models import (
     SessionEventRead,
     WorkerClaimRequest,
     WorkerHeartbeatRequest,
+    WorkerQueueItemCreateRequest,
     WorkerQueueItemRead,
     WorkerRunReportRequest,
+    WorkerTaskType,
     utc_now,
 )
 from autoresearch.shared.store import SQLiteModelRepository
@@ -395,6 +397,7 @@ class MacWorkerDaemon:
             delivery = self._notify_telegram_result(run=run, outcome=outcome)
             if delivery:
                 outcome.metrics = {**outcome.metrics, **delivery}
+            self._maybe_enqueue_study_git_sync(run=run, outcome=outcome)
             self._report_outcome(run=run, outcome=outcome)
             self._maybe_promote_content_kb(run=run, outcome=outcome)
         finally:
@@ -417,6 +420,43 @@ class MacWorkerDaemon:
             ),
         )
         logger.info("Run %s %s", run.run_id, outcome.status.value)
+
+    def _maybe_enqueue_study_git_sync(
+        self,
+        *,
+        run: WorkerQueueItemRead,
+        outcome: MacWorkerExecutionResult,
+    ) -> None:
+        if run.task_type != WorkerTaskType.STUDY_INGEST:
+            return
+        if outcome.status != JobStatus.COMPLETED:
+            return
+        result = dict(outcome.result or {})
+        if not result.get("enqueue_git_sync"):
+            return
+        payload = dict(result.get("git_sync_payload") or {})
+        if not payload.get("paths"):
+            return
+        downstream = self._client.enqueue_run(
+            WorkerQueueItemCreateRequest(
+                task_type=WorkerTaskType.STUDY_GIT_SYNC,
+                payload=payload,
+                requested_by=run.requested_by,
+                priority=run.priority,
+                metadata={
+                    **dict(run.metadata or {}),
+                    "triggered_by_run_id": run.run_id,
+                    "triggered_by_task_type": run.task_type.value,
+                },
+            )
+        )
+        merged = dict(outcome.result or {})
+        merged["git_sync_run_id"] = downstream.run_id
+        outcome.result = merged
+        outcome.metrics = {
+            **dict(outcome.metrics or {}),
+            "git_sync_enqueued": 1,
+        }
 
     def _notify_telegram_result(
         self, *, run: WorkerQueueItemRead, outcome: MacWorkerExecutionResult,

@@ -556,6 +556,61 @@ class UpstreamWatcherSettings(_BaseApiSettings):
         return path or _DEFAULT_UPSTREAM_WATCH_WORKSPACE_ROOT
 
 
+class StudyWorkbenchSettings(_BaseApiSettings):
+    obsidian_vault_dir: Path | None = Field(
+        default=None,
+        validation_alias="AUTORESEARCH_STUDY_OBSIDIAN_VAULT_DIR",
+    )
+    goodnotes_inbox_dir: Path | None = Field(
+        default=None,
+        validation_alias="AUTORESEARCH_STUDY_GOODNOTES_INBOX_DIR",
+    )
+    goodnotes_backup_dirs: Annotated[list[Path], NoDecode] = Field(
+        default_factory=list,
+        validation_alias="AUTORESEARCH_STUDY_GOODNOTES_BACKUP_DIRS",
+    )
+    marginnote_inbox_dir: Path | None = Field(
+        default=None,
+        validation_alias="AUTORESEARCH_STUDY_MARGINNOTE_INBOX_DIR",
+    )
+    marginnote_export_dirs: Annotated[list[Path], NoDecode] = Field(
+        default_factory=list,
+        validation_alias="AUTORESEARCH_STUDY_MARGINNOTE_EXPORT_DIRS",
+    )
+    git_repo_dir: Path | None = Field(
+        default=None,
+        validation_alias="AUTORESEARCH_STUDY_GIT_REPO_DIR",
+    )
+    review_inbox_relative_dir: str = Field(
+        default="inbox_review",
+        validation_alias="AUTORESEARCH_STUDY_REVIEW_INBOX_RELATIVE_DIR",
+    )
+    git_push_enabled: bool = Field(
+        default=False,
+        validation_alias="AUTORESEARCH_STUDY_GIT_PUSH_ENABLED",
+    )
+    ocr_command: str = Field(
+        default="",
+        validation_alias="AUTORESEARCH_STUDY_OCR_COMMAND",
+    )
+
+    @field_validator("obsidian_vault_dir", "goodnotes_inbox_dir", "marginnote_inbox_dir", "git_repo_dir", mode="before")
+    @classmethod
+    def _normalize_optional_path(cls, value: Any) -> Path | None:
+        return _parse_path(value)
+
+    @field_validator("goodnotes_backup_dirs", "marginnote_export_dirs", mode="before")
+    @classmethod
+    def _normalize_path_list(cls, value: Any) -> list[Path]:
+        return _parse_path_list(value)
+
+    @field_validator("review_inbox_relative_dir", mode="before")
+    @classmethod
+    def _normalize_review_dir(cls, value: Any) -> str:
+        raw = str(value or "inbox_review").strip().strip("/")
+        return raw or "inbox_review"
+
+
 def load_runtime_settings() -> RuntimeSettings:
     return RuntimeSettings()
 
@@ -580,6 +635,10 @@ def load_admin_settings() -> AdminSettings:
 
 def load_upstream_watcher_settings() -> UpstreamWatcherSettings:
     return UpstreamWatcherSettings()
+
+
+def load_study_workbench_settings() -> StudyWorkbenchSettings:
+    return StudyWorkbenchSettings()
 
 
 @lru_cache(maxsize=1)
@@ -612,6 +671,11 @@ def get_upstream_watcher_settings() -> UpstreamWatcherSettings:
     return load_upstream_watcher_settings()
 
 
+@lru_cache(maxsize=1)
+def get_study_workbench_settings() -> StudyWorkbenchSettings:
+    return load_study_workbench_settings()
+
+
 def clear_settings_caches() -> None:
     get_runtime_settings.cache_clear()
     get_telegram_settings.cache_clear()
@@ -619,4 +683,5 @@ def clear_settings_caches() -> None:
     get_feature_settings.cache_clear()
     get_admin_settings.cache_clear()
     get_upstream_watcher_settings.cache_clear()
+    get_study_workbench_settings.cache_clear()
     _WARNED_DEPRECATED_ALIASES.clear()
