@@ -1613,6 +1613,9 @@ class WorkerTaskType(str, Enum):
     CONTENT_KB_CLASSIFY = "content_kb_classify"
     CONTENT_KB_INGEST = "content_kb_ingest"
     SECURITY_AUDIT = "security_audit"
+    STUDY_PREPARE = "study_prepare"
+    STUDY_INGEST = "study_ingest"
+    STUDY_GIT_SYNC = "study_git_sync"
 
 
 class WorkerRunProgressRead(StrictModel):

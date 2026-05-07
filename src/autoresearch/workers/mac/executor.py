@@ -9,24 +9,21 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from autoresearch.core.services.apple_double_cleaner import AppleDoubleCleaner
-from autoresearch.core.services.standby_youtube_autoflow import (
-    StandbyYouTubeAutoflowService,
-    build_default_standby_youtube_autoflow_service,
-)
-from autoresearch.core.services.standby_youtube_bridge import (
-    StandbyYouTubeBridgeService,
-    build_default_standby_youtube_bridge_service,
-)
-from autoresearch.core.services.github_ops import GitHubOpsService, build_default_github_ops_service
-from autoresearch.agent_protocol.runtime_models import RuntimeRunRead
+from autoresearch.core.services.study_workbench import StudyWorkbenchService
 from autoresearch.shared.models import JobStatus, WorkerQueueItemRead, WorkerTaskType, utc_now
 from autoresearch.workers.mac.config import MacWorkerConfig
-from autoresearch.core.services.worker_runtime_dispatch import WorkerRuntimeDispatchService
 
 _XREACH_BROWSER_NAMES = {"arc", "brave", "chrome", "chromium", "edge", "firefox", "opera", "safari", "vivaldi"}
+
+if TYPE_CHECKING:
+    from autoresearch.agent_protocol.runtime_models import RuntimeRunRead
+    from autoresearch.core.services.github_ops import GitHubOpsService
+    from autoresearch.core.services.standby_youtube_autoflow import StandbyYouTubeAutoflowService
+    from autoresearch.core.services.standby_youtube_bridge import StandbyYouTubeBridgeService
+    from autoresearch.core.services.worker_runtime_dispatch import WorkerRuntimeDispatchService
 
 
 @dataclass(slots=True)
@@ -46,6 +43,7 @@ class MacWorkerExecutor:
         youtube_bridge: StandbyYouTubeBridgeService | None = None,
         youtube_autoflow: StandbyYouTubeAutoflowService | None = None,
         github_ops: GitHubOpsService | None = None,
+        study_workbench: StudyWorkbenchService | None = None,
         runtime_dispatch: WorkerRuntimeDispatchService | None = None,
         hermes_live_report: Callable[[WorkerQueueItemRead, RuntimeRunRead, int], None] | None = None,
         youtube_live_report: Callable[[WorkerQueueItemRead, str, str, dict[str, Any]], None] | None = None,
@@ -55,6 +53,7 @@ class MacWorkerExecutor:
         self._youtube_bridge = youtube_bridge
         self._youtube_autoflow = youtube_autoflow
         self._github_ops = github_ops
+        self._study_workbench = study_workbench
         self._runtime_dispatch = runtime_dispatch
         self._hermes_live_report = hermes_live_report
         self._youtube_live_report = youtube_live_report
@@ -85,6 +84,12 @@ class MacWorkerExecutor:
             return self._execute_content_kb_ingest(run)
         if run.task_type == WorkerTaskType.SECURITY_AUDIT:
             return self._execute_security_audit(run)
+        if run.task_type == WorkerTaskType.STUDY_PREPARE:
+            return self._execute_study_prepare(run)
+        if run.task_type == WorkerTaskType.STUDY_INGEST:
+            return self._execute_study_ingest(run)
+        if run.task_type == WorkerTaskType.STUDY_GIT_SYNC:
+            return self._execute_study_git_sync(run)
         raise ValueError(f"Unsupported task type: {run.task_type}")
 
     def _execute_noop(self, payload: dict[str, Any]) -> MacWorkerExecutionResult:
@@ -922,20 +927,86 @@ class MacWorkerExecutor:
             },
         )
 
+    def _execute_study_prepare(self, run: WorkerQueueItemRead) -> MacWorkerExecutionResult:
+        result = self._get_study_workbench().prepare(dict(run.payload or {}))
+        return MacWorkerExecutionResult(
+            message=f"study_prepare prepared {result.get('prepared_count', 0)} item(s)",
+            result={
+                "task_type": WorkerTaskType.STUDY_PREPARE.value,
+                **result,
+            },
+            metrics={"prepared_count": int(result.get("prepared_count") or 0)},
+        )
+
+    def _execute_study_ingest(self, run: WorkerQueueItemRead) -> MacWorkerExecutionResult:
+        result = self._get_study_workbench().ingest(dict(run.payload or {}))
+        imported_count = int(result.get("imported_count") or 0)
+        degraded_count = int(result.get("degraded_count") or 0)
+        return MacWorkerExecutionResult(
+            message=f"study_ingest imported {imported_count} item(s)",
+            result={
+                "task_type": WorkerTaskType.STUDY_INGEST.value,
+                **result,
+            },
+            metrics={
+                "imported_count": imported_count,
+                "degraded_count": degraded_count,
+                "skipped_count": int(result.get("skipped_count") or 0),
+            },
+        )
+
+    def _execute_study_git_sync(self, run: WorkerQueueItemRead) -> MacWorkerExecutionResult:
+        result = self._get_study_workbench().git_sync(dict(run.payload or {}))
+        failed = result.get("status") == "failed"
+        return MacWorkerExecutionResult(
+            message=f"study_git_sync {result.get('status', 'completed')}",
+            status=JobStatus.FAILED if failed else JobStatus.COMPLETED,
+            error=str(result.get("reason") or "") if failed else None,
+            result={
+                "task_type": WorkerTaskType.STUDY_GIT_SYNC.value,
+                **result,
+            },
+            metrics={
+                "git_synced": int(result.get("status") == "completed"),
+                "git_pushed": int(bool(result.get("pushed"))),
+            },
+        )
+
     def _get_youtube_bridge(self) -> StandbyYouTubeBridgeService:
         if self._youtube_bridge is None:
+            from autoresearch.core.services.standby_youtube_bridge import (
+                build_default_standby_youtube_bridge_service,
+            )
+
             self._youtube_bridge = build_default_standby_youtube_bridge_service()
         return self._youtube_bridge
 
     def _get_youtube_autoflow(self) -> StandbyYouTubeAutoflowService:
         if self._youtube_autoflow is None:
+            from autoresearch.core.services.standby_youtube_autoflow import (
+                build_default_standby_youtube_autoflow_service,
+            )
+
             self._youtube_autoflow = build_default_standby_youtube_autoflow_service()
         return self._youtube_autoflow
 
     def _get_github_ops(self) -> GitHubOpsService:
         if self._github_ops is None:
+            from autoresearch.core.services.github_ops import build_default_github_ops_service
+
             self._github_ops = build_default_github_ops_service(repo_root=self._config.housekeeping_root)
         return self._github_ops
+
+    def _get_study_workbench(self) -> StudyWorkbenchService:
+        if self._study_workbench is None:
+            from autoresearch.api.settings import StudyWorkbenchSettings
+
+            self._study_workbench = StudyWorkbenchService(
+                settings=StudyWorkbenchSettings(),
+                state_db_path=self._config.resolved_api_db_path(),
+                artifact_root=self._config.housekeeping_root / "artifacts" / "study_workbench",
+            )
+        return self._study_workbench
 
     def _resolve_root_path(self, payload: dict[str, Any]) -> Path:
         raw = payload.get("root_path")

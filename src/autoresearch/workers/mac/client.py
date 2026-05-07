@@ -10,6 +10,7 @@ from autoresearch.shared.models import (
     WorkerClaimRead,
     WorkerClaimRequest,
     WorkerHeartbeatRequest,
+    WorkerQueueItemCreateRequest,
     WorkerQueueItemRead,
     WorkerRegisterRequest,
     WorkerRegistrationRead,
@@ -30,6 +31,8 @@ class MacWorkerClient(Protocol):
     def claim_run(self, worker_id: str, payload: WorkerClaimRequest) -> WorkerClaimRead: ...
 
     def get_run(self, run_id: str) -> WorkerQueueItemRead | None: ...
+
+    def enqueue_run(self, payload: WorkerQueueItemCreateRequest) -> WorkerQueueItemRead: ...
 
     def report_run(self, worker_id: str, run_id: str, payload: WorkerRunReportRequest) -> WorkerQueueItemRead: ...
 
@@ -64,6 +67,10 @@ class MacWorkerApiClient:
             body = self._request_json("GET", f"/api/v1/worker-runs/{run_id}", {})
         except MacWorkerClientError:
             return None
+        return WorkerQueueItemRead.model_validate(body)
+
+    def enqueue_run(self, payload: WorkerQueueItemCreateRequest) -> WorkerQueueItemRead:
+        body = self._request_json("POST", "/api/v1/worker-runs", payload.model_dump(mode="json"))
         return WorkerQueueItemRead.model_validate(body)
 
     def report_run(self, worker_id: str, run_id: str, payload: WorkerRunReportRequest) -> WorkerQueueItemRead:
@@ -113,6 +120,9 @@ class InProcessMacWorkerClient:
 
     def get_run(self, run_id: str) -> WorkerQueueItemRead | None:
         return self._worker_scheduler.get_run(run_id)
+
+    def enqueue_run(self, payload: WorkerQueueItemCreateRequest) -> WorkerQueueItemRead:
+        return self._worker_scheduler.enqueue(payload)
 
     def report_run(self, worker_id: str, run_id: str, payload: WorkerRunReportRequest) -> WorkerQueueItemRead:
         return self._worker_scheduler.report(worker_id, run_id, payload)

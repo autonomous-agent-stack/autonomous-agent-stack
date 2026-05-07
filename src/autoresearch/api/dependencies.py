@@ -13,6 +13,7 @@ from autoresearch.api.settings import (
     get_feature_settings,
     get_panel_settings,
     get_runtime_settings,
+    get_study_workbench_settings,
     get_telegram_settings,
     get_upstream_watcher_settings,
 )
@@ -80,6 +81,7 @@ from autoresearch.core.services.panel_audit import PanelAuditService
 from autoresearch.core.services.reports import ReportService
 from autoresearch.core.services.self_integration import SelfIntegrationService
 from autoresearch.core.services.session_events import SessionEventService
+from autoresearch.core.services.study_workbench import StudyWorkbenchService
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
 from autoresearch.core.services.usage_quota import UsageLedgerEntryRead, UsageQuotaService
 from autoresearch.core.services.upstream_watcher import UpstreamWatcherService
@@ -331,6 +333,13 @@ def get_youtube_agent_service():
 
 
 @lru_cache(maxsize=1)
+def get_youtube_oauth_service():
+    from packages.entertainment_curator.youtube_oauth import YouTubeOAuthProfileRegistry
+
+    return YouTubeOAuthProfileRegistry()
+
+
+@lru_cache(maxsize=1)
 def get_autoresearch_planner_service() -> AutoResearchPlannerService:
     return AutoResearchPlannerService(
         repository=SQLiteModelRepository(
@@ -465,6 +474,15 @@ def get_worker_schedule_service() -> WorkerScheduleService:
             table_name="worker_schedules",
             model_cls=WorkerRunScheduleRead,
         ),
+    )
+
+
+@lru_cache(maxsize=1)
+def get_study_workbench_service() -> StudyWorkbenchService:
+    return StudyWorkbenchService(
+        settings=get_study_workbench_settings(),
+        state_db_path=_api_db_path(),
+        artifact_root=_api_db_path().parent / "study_workbench",
     )
 
 
@@ -975,6 +993,7 @@ def clear_dependency_caches() -> None:
     _safe_cache_clear(get_governance_core_service)
     _safe_cache_clear(get_control_plane_service)
     _safe_cache_clear(get_youtube_agent_service)
+    _safe_cache_clear(get_youtube_oauth_service)
     _safe_cache_clear(get_manager_agent_service)
     _safe_cache_clear(get_approval_policy_service)
     _safe_cache_clear(get_butler_tool_broker_service)

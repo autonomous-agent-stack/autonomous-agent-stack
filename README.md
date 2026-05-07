@@ -88,6 +88,7 @@ Common local entry points after startup:
 - Control Plane v2: `http://127.0.0.1:8001/control-plane`
 - Admin panel: `http://127.0.0.1:8001/panel`
 - Health check: `http://127.0.0.1:8001/health`
+- Study Workbench Sync: `http://127.0.0.1:8001/api/v1/study-workbench/health`
 
 ## Common Validation
 
@@ -118,6 +119,7 @@ Start here:
 
 - [Documentation index](docs/README.md)
 - [Architecture](docs/architecture.md)
+- [Study Workbench Sync MVP](docs/runbooks/study-workbench-sync.md)
 - [Why AAS](WHY_AAS.md)
 - [Contributing](CONTRIBUTING.md)
 - [Runtime Adapter v1](docs/runtime-adapter-v1.md)
