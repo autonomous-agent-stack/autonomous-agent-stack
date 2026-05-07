@@ -1,0 +1,21 @@
+{
+  "policy_decision_id": "policy-decision.demo-industry-report",
+  "decision": "allow",
+  "capability_id": "demo.industry.report",
+  "risk_tier": "common_read",
+  "session_id": "session.demo-industry",
+  "run_id": "run.demo-industry",
+  "actor_id": "actor.demo-user",
+  "approval_required": false,
+  "constraints": {
+    "network": "disabled",
+    "allowed_artifact_uri_prefix": "artifact://session.demo-industry/",
+    "private_package_import_aas_internals": false,
+    "business_logic_enters_aas_core": false
+  },
+  "reason": "Fake-data demo capability is allowed under public-contract-only policy. / 假数据 demo capability 在 public-contract-only policy 下允许执行。",
+  "created_at": "2026-05-07T05:30:00Z",
+  "metadata": {
+    "data_classification": "fake_demo_data"
+  }
+}

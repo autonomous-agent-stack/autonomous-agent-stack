@@ -1,0 +1,48 @@
+{
+  "capability_id": "demo.industry.report",
+  "kind": "workflow",
+  "provided_by": "example-private-industry-package",
+  "display_name": "Demo Industry Report",
+  "description": "Fake-data demonstration capability only. / 仅用于假数据演示的 capability。",
+  "enabled": true,
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "brief"
+    ],
+    "properties": {
+      "brief": {
+        "type": "string",
+        "description": "Fake user brief. / 假用户简报。"
+      }
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "artifact_refs"
+    ],
+    "properties": {
+      "artifact_refs": {
+        "type": "array",
+        "description": "Generated artifact references. / 生成的 artifact 引用。"
+      }
+    }
+  },
+  "risk_tier": "common_read",
+  "policy_refs": [
+    "policy/private-package/public-contract-only"
+  ],
+  "artifact_types": [
+    "report",
+    "compliance"
+  ],
+  "lease_enabled": false,
+  "metadata": {
+    "data_classification": "fake_demo_data",
+    "private_business_logic": false,
+    "notes": "No real customer, price, personnel, account, vendor, or private prompt data. / 不包含真实客户、价格、人员、账号、供应商或私有 prompt 数据。"
+  }
+}

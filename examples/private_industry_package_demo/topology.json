@@ -1,0 +1,123 @@
+{
+  "contract_version": "agent-topology/v1",
+  "topology_id": "topology.demo-private-industry-package",
+  "generated_at": "2026-05-07T05:30:00Z",
+  "hosts": [
+    {
+      "host_id": "host.demo-localhost",
+      "host_type": "local_mac",
+      "display_name": "Demo Localhost Host",
+      "network_scope": "localhost_only",
+      "status": "online",
+      "runtime_ids": [
+        "runtime.demo-private-industry"
+      ],
+      "policy_refs": [
+        "policy/private-package/public-contract-only"
+      ],
+      "metadata": {
+        "data_classification": "fake_demo_data"
+      }
+    }
+  ],
+  "runtimes": [
+    {
+      "runtime_id": "runtime.demo-private-industry",
+      "host_id": "host.demo-localhost",
+      "runtime_type": "process_worker",
+      "display_name": "Demo Private Industry Runtime",
+      "status": "online",
+      "capability_ids": [
+        "demo.industry.report"
+      ],
+      "isolation_profile": "default_runtime_sandbox",
+      "policy_refs": [
+        "policy/private-package/public-contract-only"
+      ],
+      "metadata": {
+        "data_classification": "fake_demo_data"
+      }
+    }
+  ],
+  "agents": [
+    {
+      "agent_id": "agent.demo-industry-analyst",
+      "runtime_id": "runtime.demo-private-industry",
+      "display_name": "Demo Industry Analyst",
+      "agent_role": "specialist",
+      "status": "online",
+      "card_ref": "agent-card://demo/private-industry-analyst",
+      "capability_ids": [
+        "demo.industry.report"
+      ],
+      "policy_refs": [
+        "policy/private-package/public-contract-only"
+      ],
+      "metadata": {
+        "prompt_embedded": false,
+        "data_classification": "fake_demo_data"
+      }
+    }
+  ],
+  "capability_bindings": [
+    {
+      "binding_id": "binding.demo-industry-report",
+      "capability_id": "demo.industry.report",
+      "provider_node_type": "runtime",
+      "provider_node_id": "runtime.demo-private-industry",
+      "manifest_ref": "examples/private_industry_package_demo/capability_manifest.json",
+      "risk_tier": "common_read",
+      "approval_required": false,
+      "enabled": true,
+      "artifact_types": [
+        "report",
+        "compliance"
+      ],
+      "policy_refs": [
+        "policy/private-package/public-contract-only"
+      ],
+      "metadata": {
+        "data_classification": "fake_demo_data"
+      }
+    }
+  ],
+  "temporary_clients": [
+    {
+      "client_id": "client.demo-temporary-reviewer",
+      "host_id": "host.demo-localhost",
+      "lease_id": "lease.demo-temporary-reviewer",
+      "status": "online",
+      "capability_ids": [
+        "demo.industry.report"
+      ],
+      "expires_at": "2026-05-07T06:30:00Z",
+      "metadata": {
+        "data_classification": "fake_demo_data"
+      }
+    }
+  ],
+  "resident_workers": [
+    {
+      "worker_id": "worker.demo-resident",
+      "host_id": "host.demo-localhost",
+      "runtime_id": "runtime.demo-private-industry",
+      "worker_type": "queue_worker",
+      "status": "online",
+      "heartbeat_at": "2026-05-07T05:30:00Z",
+      "capability_ids": [
+        "demo.industry.report"
+      ],
+      "lease_id": "lease.demo-resident-worker",
+      "policy_refs": [
+        "policy/private-package/public-contract-only"
+      ],
+      "metadata": {
+        "data_classification": "fake_demo_data"
+      }
+    }
+  ],
+  "metadata": {
+    "data_classification": "fake_demo_data",
+    "private_business_logic": false
+  }
+}

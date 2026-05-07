@@ -1,0 +1,6 @@
+{
+  "name": "demo-industry-report",
+  "kind": "report",
+  "uri": "artifact://session.demo-industry/run.demo-industry/report.md",
+  "sha256": "example-sha256-placeholder"
+}
