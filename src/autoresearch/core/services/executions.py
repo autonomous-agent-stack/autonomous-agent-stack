@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
 import subprocess
 import time
 
+from autoresearch.core.services.secret_vault import build_lease_scoped_runtime_env
 from autoresearch.shared.models import ExecutionCreateRequest, ExecutionRead, JobStatus, utc_now
 from autoresearch.shared.store import Repository, create_resource_id
 
@@ -58,8 +58,12 @@ class ExecutionService:
 
         command = list(request.command)
         work_dir = self._resolve_work_dir(request.work_dir)
-        env = os.environ.copy()
-        env.update(request.env)
+        runtime_env = build_lease_scoped_runtime_env(
+            overrides=request.env,
+            scope="runtime:execution",
+            purpose=f"execution:{execution_id}",
+        )
+        env = runtime_env.env
 
         started = time.perf_counter()
         try:
@@ -86,6 +90,7 @@ class ExecutionService:
                         **running.metadata,
                         "work_dir": str(work_dir),
                         "env_overrides": request.env,
+                        "secret_lease_ids": runtime_env.lease_ids,
                     },
                 }
             )
@@ -105,6 +110,7 @@ class ExecutionService:
                         **running.metadata,
                         "work_dir": str(work_dir),
                         "env_overrides": request.env,
+                        "secret_lease_ids": runtime_env.lease_ids,
                     },
                 }
             )

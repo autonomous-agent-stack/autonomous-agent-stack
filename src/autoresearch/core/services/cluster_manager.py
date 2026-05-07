@@ -15,8 +15,9 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
-import httpx
 from enum import Enum
+
+from autoresearch.core.services.governed_mcp import GovernedHTTPClient
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +85,7 @@ class ClusterManager:
         self.heartbeat_timeout = heartbeat_timeout  # 秒
         self.max_retries = max_retries
         self._monitor_task: Optional[asyncio.Task] = None
+        self._http = GovernedHTTPClient(capability="cluster.node.dispatch", metadata={"source": "cluster_manager"})
     
     async def register_node(
         self,
@@ -166,28 +168,26 @@ class ClusterManager:
             是否健康
         """
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(
-                    f"{node.endpoint}/health",
-                    headers={"X-API-Key": node.api_key},
-                    timeout=10,
-                )
-                
-                if response.status_code == 200:
-                    # 解析响应（可能包含负载信息）
-                    try:
-                        data = response.json()
-                        node.load = data.get("load", 0.0)
-                        node.metadata.update(data.get("metadata", {}))
-                    except:
-                        pass
-                    
-                    node.last_heartbeat = datetime.utcnow()
-                    node.status = NodeStatus.ONLINE
-                    return True
-                else:
-                    node.status = NodeStatus.OFFLINE
-                    return False
+            response = await self._http.aget(
+                f"{node.endpoint}/health",
+                headers={"X-API-Key": node.api_key},
+                timeout=10,
+            )
+
+            if response.status_code == 200:
+                # 解析响应（可能包含负载信息）
+                try:
+                    data = response.json()
+                    node.load = data.get("load", 0.0)
+                    node.metadata.update(data.get("metadata", {}))
+                except Exception:
+                    pass
+
+                node.last_heartbeat = datetime.utcnow()
+                node.status = NodeStatus.ONLINE
+                return True
+            node.status = NodeStatus.OFFLINE
+            return False
         
         except Exception as e:
             logger.warning("⚠️ 节点健康检查失败: %s - %s", node.name, e)
@@ -275,25 +275,24 @@ class ClusterManager:
             node.status = NodeStatus.BUSY
             node.total_tasks += 1
             
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    f"{node.endpoint}/api/v1/openclaw/agents",
-                    json=task,
-                    headers={"X-API-Key": node.api_key},
-                    timeout=300,
-                )
-                
-                if response.status_code in [200, 202]:
-                    result = response.json()
-                    node.successful_tasks += 1
-                    node.status = NodeStatus.ONLINE
-                    logger.info("✅ 任务分发成功: %s", node.name)
-                    return result
-                else:
-                    node.failed_tasks += 1
-                    node.status = NodeStatus.ONLINE
-                    logger.error("❌ 任务分发失败: %s - %s", node.name, response.text)
-                    raise RuntimeError(f"任务分发失败: {response.text}")
+            response = await self._http.apost(
+                f"{node.endpoint}/api/v1/openclaw/agents",
+                json=task,
+                headers={"X-API-Key": node.api_key},
+                timeout=300,
+            )
+
+            if response.status_code in [200, 202]:
+                result = response.json()
+                node.successful_tasks += 1
+                node.status = NodeStatus.ONLINE
+                logger.info("✅ 任务分发成功: %s", node.name)
+                return result
+
+            node.failed_tasks += 1
+            node.status = NodeStatus.ONLINE
+            logger.error("❌ 任务分发失败: %s - %s", node.name, response.text)
+            raise RuntimeError(f"任务分发失败: {response.text}")
         
         except Exception as e:
             node.failed_tasks += 1

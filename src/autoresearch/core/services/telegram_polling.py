@@ -22,9 +22,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-import httpx
-
 from autoresearch.api.settings import get_telegram_settings
+from autoresearch.core.services.governed_mcp import GovernedHTTPClient
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +39,7 @@ class TelegramPollingDaemon:
         self._consecutive_failures = 0
         self._status_path = Path(__file__).resolve().parents[4] / "artifacts" / "api" / "telegram_ingress_status.json"
         self._lock = threading.Lock()
+        self._http = GovernedHTTPClient(capability="messaging.telegram.polling", metadata={"source": "telegram_polling"})
 
     # ------------------------------------------------------------------
     # public API
@@ -131,7 +131,7 @@ class TelegramPollingDaemon:
             kwargs: dict[str, Any] = {"params": {"drop_pending_updates": False}, "timeout": 15}
             if proxy:
                 kwargs["proxy"] = proxy
-            resp = httpx.post(f"{self._base_url}/deleteWebhook", **kwargs)
+            resp = self._http.post(f"{self._base_url}/deleteWebhook", **kwargs)
             data = resp.json()
             if data.get("ok"):
                 logger.info("Telegram polling: deleted existing webhook")
@@ -150,7 +150,7 @@ class TelegramPollingDaemon:
         if proxy:
             kwargs["proxy"] = proxy
 
-        resp = httpx.get(f"{self._base_url}/getUpdates", **kwargs)
+        resp = self._http.get(f"{self._base_url}/getUpdates", **kwargs)
         resp.raise_for_status()
         data = resp.json()
         if not data.get("ok"):
@@ -161,8 +161,6 @@ class TelegramPollingDaemon:
     def _dispatch(self, update: dict[str, Any]) -> None:
         """Forward an update to the local FastAPI webhook handler."""
         try:
-            import httpx as _httpx
-
             from autoresearch.api.settings import get_runtime_settings
 
             settings = get_telegram_settings()
@@ -172,7 +170,7 @@ class TelegramPollingDaemon:
 
             port = get_runtime_settings().api_port
             host = get_runtime_settings().api_host
-            resp = _httpx.post(
+            resp = self._http.post(
                 f"http://{host}:{port}/api/v1/gateway/telegram/webhook",
                 json=update,
                 headers=headers,

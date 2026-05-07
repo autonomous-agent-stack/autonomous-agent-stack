@@ -59,6 +59,11 @@ class AdapterCertificationRegistry:
         )
 
     def missing_checks(self, adapter_id: str) -> list[str]:
+        report_item = self._report_item(adapter_id)
+        if report_item:
+            raw_missing = report_item.get("missing_checks")
+            if isinstance(raw_missing, list):
+                return sorted({str(item).strip() for item in raw_missing if str(item).strip()})
         raw = dict(self._adapters().get(adapter_id) or {})
         explicit_missing = raw.get("missing_checks")
         if explicit_missing == "all":

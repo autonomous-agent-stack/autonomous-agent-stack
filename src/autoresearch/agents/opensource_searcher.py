@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
-import httpx
+from autoresearch.core.services.governed_mcp import GovernedHTTPClient
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +52,7 @@ class GitHubSearcher:
     def __init__(self, github_token: Optional[str] = None):
         self.github_token = github_token or os.getenv("GITHUB_TOKEN")
         self.base_url = "https://api.github.com"
+        self._http = GovernedHTTPClient(capability="github.repo.search", metadata={"source": "opensource_searcher"})
     
     async def search_libraries(
         self,
@@ -129,9 +130,13 @@ class GitHubSearcher:
         }
         if self.github_token:
             headers["Authorization"] = f"Bearer {self.github_token}"
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            response = await client.get(f"{self.base_url}{path}", params=params, headers=headers)
-            response.raise_for_status()
+        response = await self._http.aget(
+            f"{self.base_url}{path}",
+            params=params,
+            headers=headers,
+            timeout=20.0,
+        )
+        response.raise_for_status()
         return response.json()
 
     def _fallback_libraries(self, query: str, language: Optional[str]) -> List[OpenSourceLibrary]:
@@ -180,6 +185,7 @@ class LibraryEvaluator:
         self.min_maturity_score = 70.0
         self.github_token = github_token or os.getenv("GITHUB_TOKEN")
         self.base_url = "https://api.github.com"
+        self._http = GovernedHTTPClient(capability="github.repo.evaluate", metadata={"source": "opensource_searcher"})
     
     async def evaluate_library(
         self,
@@ -323,12 +329,11 @@ class LibraryEvaluator:
         if self.github_token:
             headers["Authorization"] = f"Bearer {self.github_token}"
         try:
-            async with httpx.AsyncClient(timeout=20.0) as client:
-                response = await client.get(f"{self.base_url}{path}", headers=headers)
+            response = await self._http.aget(f"{self.base_url}{path}", headers=headers, timeout=20.0)
             if response.status_code >= 400:
                 return None
             return response.json()
-        except (httpx.HTTPError, json.JSONDecodeError):
+        except Exception:
             return None
 
     async def _get_repo_file_text(self, full_name: str, filename: str) -> str:

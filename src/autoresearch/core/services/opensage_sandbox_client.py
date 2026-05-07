@@ -5,8 +5,9 @@ from __future__ import annotations
 import logging
 import docker
 from typing import Dict, Any, Optional
-import httpx
 import asyncio
+
+from autoresearch.core.services.governed_mcp import GovernedHTTPClient
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,7 @@ class OpenSageSandboxClient:
         self.network_disabled = network_disabled
         self.docker_client = docker.from_env()
         self._container: Optional[docker.models.containers.Container] = None
+        self._http = GovernedHTTPClient(capability="sandbox.code.execute", metadata={"source": "opensage_sandbox"})
     
     def start_sandbox(self):
         """启动沙盒容器"""
@@ -87,24 +89,23 @@ class OpenSageSandboxClient:
         timeout = timeout_seconds or self.timeout_seconds
         
         try:
-            async with httpx.AsyncClient(timeout=timeout + 5) as client:
-                response = await client.post(
-                    f"{self.sandbox_url}/api/v1/execute",
-                    json={
-                        "code": code,
-                        "timeout_seconds": timeout,
-                    }
-                )
-                
-                if response.status_code == 200:
-                    return response.json()
-                else:
-                    return {
-                        "success": False,
-                        "error": f"HTTP {response.status_code}: {response.text}"
-                    }
+            response = await self._http.apost(
+                f"{self.sandbox_url}/api/v1/execute",
+                json={
+                    "code": code,
+                    "timeout_seconds": timeout,
+                },
+                timeout=timeout + 5,
+            )
+
+            if response.status_code == 200:
+                return response.json()
+            return {
+                "success": False,
+                "error": f"HTTP {response.status_code}: {response.text}"
+            }
         
-        except httpx.TimeoutException:
+        except TimeoutError:
             return {
                 "success": False,
                 "error": f"请求超时（{timeout}秒）"

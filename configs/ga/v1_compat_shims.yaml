@@ -1,0 +1,158 @@
+version: 1
+compat_shims:
+  /api/v1/a2a:
+    successor: /api/v2/a2a
+    owner: runtime-platform
+    sunset_policy: compatibility-only until v2 parity is verified
+  /api/v1/admin:
+    successor: /api/v2/admin
+    owner: control-plane
+    sunset_policy: compatibility-only until v2 parity is verified
+  /api/v1/agents/manager:
+    successor: /api/v2/agents/manager
+    owner: runtime-platform
+    sunset_policy: compatibility-only until v2 parity is verified
+  /api/v1/approvals:
+    successor: /api/v2/approvals
+    owner: governance
+    sunset_policy: compatibility-only until v2 parity is verified
+  /api/v1/auth:
+    successor: /api/v2/auth
+    owner: security
+    sunset_policy: compatibility-only until v2 parity is verified
+  /api/v1/autoresearch/plans:
+    successor: /api/v2/autoresearch/plans
+    owner: planning
+    sunset_policy: compatibility-only until v2 parity is verified
+  /api/v1/butler:
+    successor: /api/v2/butler
+    owner: butler
+    sunset_policy: compatibility-only until v2 parity is verified
+  /api/v1/capabilities:
+    successor: /api/v2/capabilities
+    owner: capability-platform
+    sunset_policy: compatibility-only until v2 parity is verified
+  /api/v1/cluster:
+    successor: /api/v2/cluster
+    owner: runtime-platform
+    sunset_policy: compatibility-only until v2 parity is verified
+  /api/v1/content-kb:
+    successor: /api/v2/content-kb
+    owner: content-knowledge
+    sunset_policy: compatibility-only until v2 parity is verified
+  /api/v1/evaluations:
+    successor: /api/v2/evaluations
+    owner: evaluation-platform
+    sunset_policy: compatibility-only until v2 parity is verified
+  /api/v1/excel-audit:
+    successor: /api/v2/excel-audit
+    owner: office-automation
+    sunset_policy: compatibility-only until v2 parity is verified
+  /api/v1/excel-ops:
+    successor: /api/v2/excel-ops
+    owner: office-automation
+    sunset_policy: compatibility-only until v2 parity is verified
+  /api/v1/executors:
+    successor: /api/v2/executors
+    owner: runtime-platform
+    sunset_policy: compatibility-only until v2 parity is verified
+  /api/v1/experiments:
+    successor: /api/v2/experiments
+    owner: experimentation
+    sunset_policy: compatibility-only until v2 parity is verified
+  /api/v1/federation:
+    successor: /api/v2/federation
+    owner: federation
+    sunset_policy: compatibility-only until v2 parity is verified
+  /api/v1/gateway/telegram:
+    successor: /api/v2/gateway/telegram
+    owner: messaging
+    sunset_policy: compatibility-only until v2 parity is verified
+  /api/v1/generators:
+    successor: /api/v2/generators
+    owner: generation-platform
+    sunset_policy: compatibility-only until v2 parity is verified
+  /api/v1/github-assistant:
+    successor: /api/v2/github-assistant
+    owner: github-assistant
+    sunset_policy: compatibility-only until v2 parity is verified
+  /api/v1/github-ops:
+    successor: /api/v2/github-ops
+    owner: github-ops
+    sunset_policy: compatibility-only until v2 parity is verified
+  /api/v1/integrations:
+    successor: /api/v2/integrations
+    owner: integration-platform
+    sunset_policy: compatibility-only until v2 parity is verified
+  /api/v1/knowledge:
+    successor: /api/v2/knowledge
+    owner: knowledge-platform
+    sunset_policy: compatibility-only until v2 parity is verified
+  /api/v1/loops:
+    successor: /api/v2/loops
+    owner: loop-control
+    sunset_policy: compatibility-only until v2 parity is verified
+  /api/v1/mcp:
+    successor: /api/v2/mcp
+    owner: tool-broker
+    sunset_policy: compatibility-only until v2 parity is verified
+  /api/v1/openclaw:
+    successor: /api/v2/openclaw
+    owner: openclaw-compat
+    sunset_policy: compatibility-only until v2 parity is verified
+  /api/v1/optimizations:
+    successor: /api/v2/optimizations
+    owner: optimization-platform
+    sunset_policy: compatibility-only until v2 parity is verified
+  /api/v1/orchestration:
+    successor: /api/v2/orchestration
+    owner: orchestration
+    sunset_policy: compatibility-only until v2 parity is verified
+  /api/v1/panel:
+    successor: /api/v2/panel
+    owner: panel
+    sunset_policy: compatibility-only until v2 parity is verified
+  /api/v1/reports:
+    successor: /api/v2/reports
+    owner: reporting
+    sunset_policy: compatibility-only until v2 parity is verified
+  /api/v1/runtime:
+    successor: /api/v2/runtime
+    owner: runtime-platform
+    sunset_policy: compatibility-only until v2 parity is verified
+  /api/v1/sessions:
+    successor: /api/v2/sessions
+    owner: session-platform
+    sunset_policy: compatibility-only until v2 parity is verified
+  /api/v1/stream:
+    successor: /api/v2/stream
+    owner: streaming
+    sunset_policy: compatibility-only until v2 parity is verified
+  /api/v1/synthesis:
+    successor: /api/v2/synthesis
+    owner: synthesis
+    sunset_policy: compatibility-only until v2 parity is verified
+  /api/v1/usage:
+    successor: /api/v2/usage
+    owner: usage-platform
+    sunset_policy: compatibility-only until v2 parity is verified
+  /api/v1/variants:
+    successor: /api/v2/variants
+    owner: variants
+    sunset_policy: compatibility-only until v2 parity is verified
+  /api/v1/worker-runs:
+    successor: /api/v2/worker-runs
+    owner: worker-platform
+    sunset_policy: compatibility-only until v2 parity is verified
+  /api/v1/worker-schedules:
+    successor: /api/v2/worker-schedules
+    owner: worker-platform
+    sunset_policy: compatibility-only until v2 parity is verified
+  /api/v1/workers:
+    successor: /api/v2/workers
+    owner: worker-platform
+    sunset_policy: compatibility-only until v2 parity is verified
+  /api/v1/youtube:
+    successor: /api/v2/youtube
+    owner: content-ingestion
+    sunset_policy: compatibility-only until v2 parity is verified

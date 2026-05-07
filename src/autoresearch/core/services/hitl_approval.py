@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
-import httpx
+from autoresearch.core.services.governed_mcp import GovernedHTTPClient
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +45,7 @@ class HITLApproval:
         self._auto_approve_without_telegram = os.getenv(
             "HITL_AUTO_APPROVE_WITHOUT_TELEGRAM", "1"
         ).strip().lower() in {"1", "true", "yes", "on"}
+        self._http = GovernedHTTPClient(capability="messaging.telegram.approval", metadata={"source": "hitl_approval"})
     
     async def request_approval(
         self,
@@ -129,15 +130,14 @@ class HITLApproval:
         endpoint = f"https://api.telegram.org/bot{self.telegram_bot_token}/sendMessage"
 
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.post(endpoint, json=payload)
-                response.raise_for_status()
+            response = await self._http.apost(endpoint, json=payload, timeout=10.0)
+            response.raise_for_status()
             data = response.json()
             if not data.get("ok"):
                 raise ValueError(f"Telegram API error: {data}")
             result = data.get("result") or {}
             return str(result.get("message_id", f"msg_{int(datetime.utcnow().timestamp())}"))
-        except (httpx.HTTPError, ValueError, json.JSONDecodeError) as exc:
+        except (Exception, ValueError, json.JSONDecodeError) as exc:
             logger.error("❌ Telegram 消息发送失败: %s", exc)
             return f"mock_{int(datetime.utcnow().timestamp())}"
     
@@ -187,11 +187,10 @@ class HITLApproval:
             params["offset"] = self._updates_offset
 
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(endpoint, params=params)
-                response.raise_for_status()
+            response = await self._http.aget(endpoint, params=params, timeout=10.0)
+            response.raise_for_status()
             data = response.json()
-        except (httpx.HTTPError, json.JSONDecodeError) as exc:
+        except (Exception, json.JSONDecodeError) as exc:
             logger.warning("⚠️ 轮询 Telegram updates 失败: %s", exc)
             return None
 

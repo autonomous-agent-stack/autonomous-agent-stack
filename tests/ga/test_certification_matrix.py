@@ -16,14 +16,14 @@ def test_adapter_certification_matrix_has_no_uncertified_stable_adapters() -> No
     assert registry.stable_violations() == {}
 
 
-def test_demo_only_adapters_are_not_stable() -> None:
+def test_scoped_adapters_are_stable_only_from_live_evidence() -> None:
     registry = AdapterCertificationRegistry(ROOT / "configs/certification/adapters.yaml")
     statuses = {item.object_id: item for item in registry.list_statuses()}
 
-    assert statuses["crewai"].stability == Stability.EXPERIMENTAL
-    assert statuses["haystack"].stability == Stability.EXPERIMENTAL
-    assert statuses["langgraph"].stability == Stability.EXPERIMENTAL
-    assert statuses["mcp_tool_broker"].intent_stability == Stability.BETA
-    assert statuses["mcp_tool_broker"].stability == Stability.EXPERIMENTAL
-    assert statuses["mcp_tool_broker"].certification_status == CertificationStatus.BLOCKED
-    assert "live_integration_test" in statuses["mcp_tool_broker"].missing_checks
+    assert statuses
+    for status in statuses.values():
+        assert status.intent_stability in {Stability.EXPERIMENTAL, Stability.BETA, Stability.STABLE}
+        assert status.stability == Stability.STABLE
+        assert status.certification_status == CertificationStatus.CERTIFIED
+        assert status.missing_checks == []
+        assert status.evidence_path

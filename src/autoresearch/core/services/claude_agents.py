@@ -11,6 +11,7 @@ from typing import Any
 
 from autoresearch.core.services.openclaw_compat import OpenClawCompatService
 from autoresearch.core.services.openclaw_skills import OpenClawSkillService
+from autoresearch.core.services.secret_vault import build_lease_scoped_runtime_env
 from autoresearch.core.services.telegram_image_downloader import (
     TelegramImageDownloader,
     parse_telegram_image_url,
@@ -253,8 +254,12 @@ class ClaudeAgentService:
                 status=JobStatus.RUNNING,
             )
 
-        env = os.environ.copy()
-        env.update(request.env)
+        runtime_env = build_lease_scoped_runtime_env(
+            overrides=request.env,
+            scope="runtime:claude-agent",
+            purpose=f"agent-run:{agent_run_id}",
+        )
+        env = runtime_env.env
         started = time.perf_counter()
         work_dir = self._resolve_work_dir(request.work_dir)
         command = list(running.command)
@@ -366,6 +371,7 @@ class ClaudeAgentService:
                             **running.metadata,
                             "work_dir": str(work_dir),
                             "env_overrides": request.env,
+                            "secret_lease_ids": runtime_env.lease_ids,
                             "timeout_failed": True,
                         },
                     }
@@ -381,6 +387,7 @@ class ClaudeAgentService:
                 {
                     "work_dir": str(work_dir),
                     "env_overrides": request.env,
+                    "secret_lease_ids": runtime_env.lease_ids,
                 }
             )
             cancel_reason = str(base_metadata.get("cancel_reason", "")).strip() or "cancelled by user"

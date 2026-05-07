@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import sys
 from contextlib import asynccontextmanager
@@ -7,7 +8,7 @@ from importlib import import_module
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -15,6 +16,7 @@ from autoresearch import __version__
 from autoresearch.build_label import get_build_label
 from autoresearch.api.settings import TelegramIngressMode, get_runtime_settings
 from autoresearch.core.services.panel_access import assert_safe_bind_host
+from autoresearch.github_assistant.config import load_yaml_object
 
 
 _SRC_ROOT = Path(__file__).resolve().parents[2]
@@ -194,6 +196,96 @@ def _mount_panel_surface(app: FastAPI) -> None:
     logger.warning("Static panel assets not found at %s", panel_static_dir)
 
 
+def _load_v1_compat_shims() -> dict[str, dict[str, str]]:
+    path = Path(__file__).resolve().parents[3] / "configs" / "ga" / "v1_compat_shims.yaml"
+    payload = load_yaml_object(path) if path.exists() else {}
+    raw_shims = payload.get("compat_shims") if isinstance(payload, dict) else {}
+    shims: dict[str, dict[str, str]] = {}
+    if not isinstance(raw_shims, dict):
+        return shims
+    for route, metadata in raw_shims.items():
+        if not isinstance(metadata, dict):
+            continue
+        shims[str(route)] = {
+            "successor": str(metadata.get("successor") or ""),
+            "owner": str(metadata.get("owner") or ""),
+            "sunset_policy": str(metadata.get("sunset_policy") or ""),
+        }
+    return shims
+
+
+def _match_v1_compat_shim(path: str, shims: dict[str, dict[str, str]]) -> dict[str, str] | None:
+    for route in sorted(shims, key=len, reverse=True):
+        if path == route or path.startswith(f"{route}/"):
+            return shims[route]
+    return None
+
+
+def _install_v1_compat_middleware(app: FastAPI) -> None:
+    shims = _load_v1_compat_shims()
+
+    @app.middleware("http")
+    async def v1_compat_metadata(request, call_next):
+        shim = _match_v1_compat_shim(request.url.path, shims)
+        response = await call_next(request)
+        if shim is None:
+            return response
+
+        response.headers["x-aas-legacy"] = "true"
+        response.headers["x-aas-successor"] = shim["successor"]
+        response.headers["x-aas-sunset-policy"] = shim["sunset_policy"]
+        response.headers["x-aas-shim-owner"] = shim["owner"]
+
+        content_type = response.headers.get("content-type", "")
+        if "application/json" not in content_type.lower():
+            return response
+
+        body = b""
+        async for chunk in response.body_iterator:
+            body += chunk
+        original_headers = dict(response.headers)
+        try:
+            payload = json.loads(body.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return Response(
+                content=body,
+                status_code=response.status_code,
+                headers=original_headers,
+                media_type=response.media_type,
+                background=response.background,
+            )
+        if not isinstance(payload, dict):
+            return Response(
+                content=body,
+                status_code=response.status_code,
+                headers=original_headers,
+                media_type=response.media_type,
+                background=response.background,
+            )
+
+        payload.setdefault("legacy", True)
+        payload.setdefault("successor", shim["successor"])
+        payload.setdefault(
+            "compatibility",
+            {
+                "legacy": True,
+                "successor": shim["successor"],
+                "owner": shim["owner"],
+                "sunset_policy": shim["sunset_policy"],
+            },
+        )
+        encoded = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        response.headers["content-length"] = str(len(encoded))
+
+        return Response(
+            content=encoded,
+            status_code=response.status_code,
+            headers=dict(response.headers),
+            media_type="application/json",
+            background=response.background,
+        )
+
+
 def create_app() -> FastAPI:
     settings = get_runtime_settings()
     is_minimal = settings.is_minimal_mode
@@ -261,6 +353,7 @@ def create_app() -> FastAPI:
         description="Unified API entrypoint for Telegram, OpenClaw compatibility, and panel control.",
         lifespan=lifespan,
     )
+    _install_v1_compat_middleware(app)
 
     # Mount core routers (always required)
     for module_path, attribute, message in core_routers:

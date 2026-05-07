@@ -21,191 +21,63 @@ adapters:
     display_name: Hermes
     stability: beta
     live_test_command: make live-hermes
-    passed_checks:
-      - real_doctor
-      - session_binding
-      - real_run
-      - real_stream
-      - real_cancel
-      - real_status
-      - artifact_collection
-      - error_taxonomy
-      - policy_hook
-      - approval_hook
-      - session_event_mapping
-    missing_checks:
-      - tool_broker_enforcement
-      - model_gateway_enforcement
-      - secret_lease_enforcement
-      - live_integration_test
-      - failure_drill
   openclaw:
     display_name: OpenClaw
     stability: beta
     live_test_command: make live-openclaw
-    passed_checks:
-      - real_doctor
-      - session_binding
-      - real_run
-      - real_stream
-      - real_cancel
-      - real_status
-      - artifact_collection
-      - error_taxonomy
-      - policy_hook
-      - approval_hook
-      - session_event_mapping
-    missing_checks:
-      - tool_broker_enforcement
-      - model_gateway_enforcement
-      - secret_lease_enforcement
-      - live_integration_test
-      - failure_drill
   openhands:
     display_name: OpenHands
     stability: beta
     live_test_command: make live-openhands
-    passed_checks:
-      - real_doctor
-      - real_run
-      - real_stream
-      - artifact_collection
-      - error_taxonomy
-      - policy_hook
-      - approval_hook
-    missing_checks:
-      - session_binding
-      - real_cancel
-      - real_status
-      - tool_broker_enforcement
-      - model_gateway_enforcement
-      - secret_lease_enforcement
-      - session_event_mapping
-      - live_integration_test
-      - failure_drill
   crewai:
     display_name: CrewAI
     stability: experimental
     live_test_command: make live-crewai
-    passed_checks:
-      - real_doctor
-      - real_run
-      - artifact_collection
-      - error_taxonomy
-    missing_checks:
-      - session_binding
-      - real_stream
-      - real_cancel
-      - real_status
-      - policy_hook
-      - approval_hook
-      - tool_broker_enforcement
-      - model_gateway_enforcement
-      - secret_lease_enforcement
-      - session_event_mapping
-      - live_integration_test
-      - failure_drill
   haystack:
     display_name: Haystack
     stability: experimental
     live_test_command: make live-haystack
-    passed_checks: []
-    missing_checks: all
   langgraph:
     display_name: LangGraph
     stability: experimental
     live_test_command: make live-langgraph
-    passed_checks: []
-    missing_checks: all
   llamaindex:
     display_name: LlamaIndex
     stability: experimental
     live_test_command: make live-llamaindex
-    passed_checks: []
-    missing_checks: all
   dify:
     display_name: Dify
     stability: experimental
     live_test_command: make live-dify
-    passed_checks: []
-    missing_checks: all
   autogen_ag2:
     display_name: AutoGen/AG2
     stability: experimental
     live_test_command: make live-autogen
-    passed_checks: []
-    missing_checks: all
   microsoft_agent_framework:
     display_name: Microsoft Agent Framework
     stability: experimental
     live_test_command: make live-maf
-    passed_checks: []
-    missing_checks: all
   semantic_kernel:
     display_name: Semantic Kernel
     stability: experimental
     live_test_command: make live-semantic-kernel
-    passed_checks: []
-    missing_checks: all
   langchain_agents:
     display_name: LangChain Agents
     stability: experimental
     live_test_command: make live-langchain-agents
-    passed_checks: []
-    missing_checks: all
   flowise:
     display_name: Flowise
     stability: experimental
     live_test_command: make live-flowise
-    passed_checks: []
-    missing_checks: all
   langflow:
     display_name: LangFlow
     stability: experimental
     live_test_command: make live-langflow
-    passed_checks: []
-    missing_checks: all
   a2a:
     display_name: A2A
     stability: experimental
     live_test_command: make live-a2a
-    passed_checks:
-      - real_doctor
-      - error_taxonomy
-    missing_checks:
-      - session_binding
-      - real_run
-      - real_stream
-      - real_cancel
-      - real_status
-      - artifact_collection
-      - policy_hook
-      - approval_hook
-      - tool_broker_enforcement
-      - model_gateway_enforcement
-      - secret_lease_enforcement
-      - session_event_mapping
-      - live_integration_test
-      - failure_drill
   mcp_tool_broker:
     display_name: MCP Tool Broker
     stability: beta
     live_test_command: make live-mcp
-    passed_checks:
-      - real_doctor
-      - real_run
-      - real_status
-      - artifact_collection
-      - error_taxonomy
-      - policy_hook
-      - approval_hook
-      - tool_broker_enforcement
-      - session_event_mapping
-    missing_checks:
-      - session_binding
-      - real_stream
-      - real_cancel
-      - model_gateway_enforcement
-      - secret_lease_enforcement
-      - live_integration_test
-      - failure_drill

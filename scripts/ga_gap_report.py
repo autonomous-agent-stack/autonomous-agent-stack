@@ -157,24 +157,42 @@ def _adapter_certification_section(repo_root: Path) -> dict[str, Any]:
     payload = _yaml(repo_root / "configs/certification/adapters.yaml")
     required = set(payload.get("required_checks") or []) or REQUIRED_ADAPTER_CHECKS
     adapters = payload.get("adapters") if isinstance(payload.get("adapters"), dict) else {}
+    report = _json(repo_root / "adapter_certification_report.json")
+    report_adapters = report.get("adapters") if isinstance(report.get("adapters"), dict) else {}
+    stable = {str(item) for item in report.get("stable_adapters") or []}
+    blocked = [str(item) for item in report.get("blocked_adapters") or []]
     missing: list[str] = []
     for adapter_id, raw in sorted(adapters.items()):
-        item = dict(raw or {})
-        explicit_missing = item.get("missing_checks")
-        if explicit_missing == "all":
-            missing.append(f"{adapter_id}: missing all certification checks")
-        elif isinstance(explicit_missing, list) and explicit_missing:
-            missing.append(f"{adapter_id}: missing checks {', '.join(sorted(map(str, explicit_missing)))}")
-        passed = {str(value).strip() for value in item.get("passed_checks") or [] if str(value).strip()}
-        implicit_missing = sorted(required - passed)
-        if implicit_missing and not explicit_missing:
-            missing.append(f"{adapter_id}: missing checks {', '.join(implicit_missing)}")
         evidence_path = repo_root / EVIDENCE_ROOT / str(adapter_id) / "live_evidence.json"
         if not evidence_path.exists():
             missing.append(f"{adapter_id}: missing {evidence_path.relative_to(repo_root)}")
+            continue
+        evidence = _json(evidence_path)
+        if evidence.get("live") is not True:
+            missing.append(f"{adapter_id}: live evidence is not marked live=true")
+        item = report_adapters.get(adapter_id) if isinstance(report_adapters, dict) else None
+        if not isinstance(item, dict):
+            missing.append(f"{adapter_id}: missing certification report item")
+            continue
+        if str(item.get("certification_status") or "") != "certified":
+            missing.append(f"{adapter_id}: not certified stable")
+        checks = evidence.get("checks") if isinstance(evidence.get("checks"), dict) else {}
+        failed = sorted(
+            check_id
+            for check_id in required
+            if not (isinstance(checks.get(check_id), dict) and checks[check_id].get("passed") is True)
+        )
+        if failed:
+            missing.append(f"{adapter_id}: missing checks {', '.join(failed)}")
+        if item.get("blocked_reason"):
+            missing.append(f"{adapter_id}: blocked - {item['blocked_reason']}")
     for output in ("adapter_certification_report.json", "stable_adapters.lock"):
         if not (repo_root / output).exists():
             missing.append(f"{output} has not been generated")
+    if blocked:
+        missing.append(f"blocked adapters under full-adapter scope: {', '.join(sorted(blocked))}")
+    if stable != {str(adapter_id) for adapter_id in adapters}:
+        missing.append("stable_adapters.lock/report does not cover every configured adapter")
     return _section(
         "adapter_certification",
         "Adapter Certification",
@@ -243,8 +261,14 @@ def _v1_surface_section(repo_root: Path) -> dict[str, Any]:
         for match in re.finditer(r"APIRouter\(\s*prefix=[\"'](/api/v1[^\"']*)[\"']", text):
             surfaces.append(f"{match.group(1)} in {path.relative_to(repo_root).as_posix()}")
     compat = _yaml(repo_root / "configs/ga/v1_compat_shims.yaml")
-    listed = set(compat.get("compat_shims") or [])
+    shims = compat.get("compat_shims") if isinstance(compat.get("compat_shims"), dict) else {}
+    listed = set(shims)
     missing = [surface for surface in surfaces if surface.split(" in ", 1)[0] not in listed]
+    for route, raw in sorted(shims.items()):
+        metadata = raw if isinstance(raw, dict) else {}
+        for field in ("successor", "owner", "sunset_policy"):
+            if not str(metadata.get(field) or "").strip():
+                missing.append(f"{route}: missing shim metadata field {field}")
     return _section(
         "v1_primary_surfaces",
         "V1 Primary Surfaces",
@@ -285,6 +309,16 @@ def _yaml(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     payload = load_yaml_object(path)
+    return payload if isinstance(payload, dict) else {}
+
+
+def _json(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
     return payload if isinstance(payload, dict) else {}
 
 

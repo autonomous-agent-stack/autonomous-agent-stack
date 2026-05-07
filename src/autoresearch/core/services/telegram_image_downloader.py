@@ -14,7 +14,8 @@ import os
 import tempfile
 from pathlib import Path
 from typing import List, Optional
-import httpx
+
+from autoresearch.core.services.governed_mcp import GovernedHTTPClient
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,7 @@ class TelegramImageDownloader:
     def __init__(self, bot_token: str):
         self.bot_token = bot_token
         self.base_url = f"https://api.telegram.org/bot{bot_token}"
+        self._http = GovernedHTTPClient(capability="messaging.telegram.file.read", metadata={"source": "telegram_image_downloader"})
     
     async def download_image(
         self,
@@ -42,47 +44,45 @@ class TelegramImageDownloader:
         """
         try:
             # 1. 获取文件路径
-            async with httpx.AsyncClient() as client:
-                response = await client.get(
-                    f"{self.base_url}/getFile",
-                    params={"file_id": file_id},
-                    timeout=30,
-                )
-                
-                if response.status_code != 200:
-                    logger.error(f"获取文件路径失败: {response.text}")
-                    return None
-                
-                data = response.json()
-                if not data.get("ok"):
-                    logger.error(f"API 返回错误: {data}")
-                    return None
-                
-                file_path = data["result"]["file_path"]
+            response = await self._http.aget(
+                f"{self.base_url}/getFile",
+                params={"file_id": file_id},
+                timeout=30,
+            )
+
+            if response.status_code != 200:
+                logger.error(f"获取文件路径失败: {response.text}")
+                return None
+
+            data = response.json()
+            if not data.get("ok"):
+                logger.error(f"API 返回错误: {data}")
+                return None
+
+            file_path = data["result"]["file_path"]
             
             # 2. 下载文件
             file_url = f"https://api.telegram.org/file/bot{self.bot_token}/{file_path}"
             
-            async with httpx.AsyncClient() as client:
-                response = await client.get(file_url, timeout=60)
-                
-                if response.status_code != 200:
-                    logger.error(f"下载文件失败: {response.status_code}")
-                    return None
-                
-                # 3. 保存文件
-                if save_dir is None:
-                    save_dir = tempfile.mkdtemp()
-                
-                # 提取文件名
-                filename = file_path.split("/")[-1]
-                local_path = Path(save_dir) / filename
-                
-                # 写入文件
-                local_path.write_bytes(response.content)
-                
-                logger.info(f"✅ 图片已下载: {local_path}")
-                return str(local_path)
+            response = await self._http.aget(file_url, timeout=60)
+
+            if response.status_code != 200:
+                logger.error(f"下载文件失败: {response.status_code}")
+                return None
+
+            # 3. 保存文件
+            if save_dir is None:
+                save_dir = tempfile.mkdtemp()
+
+            # 提取文件名
+            filename = file_path.split("/")[-1]
+            local_path = Path(save_dir) / filename
+
+            # 写入文件
+            local_path.write_bytes(response.content)
+
+            logger.info(f"✅ 图片已下载: {local_path}")
+            return str(local_path)
         
         except Exception as e:
             logger.error(f"❌ 下载图片失败: {e}")
@@ -99,34 +99,33 @@ class TelegramImageDownloader:
         The async ``download_image`` must not be called without ``await``.
         """
         try:
-            with httpx.Client(timeout=httpx.Timeout(30.0, connect=30.0)) as client:
-                response = client.get(
-                    f"{self.base_url}/getFile",
-                    params={"file_id": file_id},
-                )
-                if response.status_code != 200:
-                    logger.error("获取文件路径失败: %s", response.text)
-                    return None
-                data = response.json()
-                if not data.get("ok"):
-                    logger.error("API 返回错误: %s", data)
-                    return None
-                file_path = data["result"]["file_path"]
+            response = self._http.get(
+                f"{self.base_url}/getFile",
+                params={"file_id": file_id},
+                timeout=30.0,
+            )
+            if response.status_code != 200:
+                logger.error("获取文件路径失败: %s", response.text)
+                return None
+            data = response.json()
+            if not data.get("ok"):
+                logger.error("API 返回错误: %s", data)
+                return None
+            file_path = data["result"]["file_path"]
 
             file_url = f"https://api.telegram.org/file/bot{self.bot_token}/{file_path}"
-            with httpx.Client(timeout=httpx.Timeout(60.0, connect=30.0)) as client:
-                response = client.get(file_url)
-                if response.status_code != 200:
-                    logger.error("下载文件失败: %s", response.status_code)
-                    return None
+            response = self._http.get(file_url, timeout=60.0)
+            if response.status_code != 200:
+                logger.error("下载文件失败: %s", response.status_code)
+                return None
 
-                if save_dir is None:
-                    save_dir = tempfile.mkdtemp()
-                filename = file_path.split("/")[-1]
-                local_path = Path(save_dir) / filename
-                local_path.write_bytes(response.content)
-                logger.info("✅ 图片已下载(sync): %s", local_path)
-                return str(local_path)
+            if save_dir is None:
+                save_dir = tempfile.mkdtemp()
+            filename = file_path.split("/")[-1]
+            local_path = Path(save_dir) / filename
+            local_path.write_bytes(response.content)
+            logger.info("✅ 图片已下载(sync): %s", local_path)
+            return str(local_path)
         except Exception as e:
             logger.error("❌ 下载图片失败(sync): %s", e)
             return None

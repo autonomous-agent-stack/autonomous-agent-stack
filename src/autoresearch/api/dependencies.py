@@ -1070,14 +1070,12 @@ def get_butler_model_fill_service() -> ButlerModelFillService:
     }
     backend = None
     if enabled:
-        if provider == "glm":
-            from autoresearch.llm.glm import GLMBackend
+        from autoresearch.llm.gateway import create_gateway_backend
 
-            backend = GLMBackend(model=os.getenv("AUTORESEARCH_BUTLER_MODEL_NAME", "glm-5"))
-        else:
-            from autoresearch.llm.openai import OpenAIBackend
-
-            backend = OpenAIBackend(model=os.getenv("AUTORESEARCH_BUTLER_MODEL_NAME", "gpt-4o-mini"))
+        backend = create_gateway_backend(
+            provider=provider,
+            model=os.getenv("AUTORESEARCH_BUTLER_MODEL_NAME", None),
+        )
     return ButlerModelFillService(backend=backend, enabled=enabled)
 
 
