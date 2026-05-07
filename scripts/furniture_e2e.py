@@ -29,9 +29,7 @@ from autoresearch.ga.contracts import (
 )
 from autoresearch.shared.models import (
     ApprovalDecisionRequest,
-    ApprovalRequestCreateRequest,
     ApprovalRequestRead,
-    ApprovalStatus,
     SessionEventCreateRequest,
 )
 from autoresearch.shared.store import InMemoryRepository
@@ -39,6 +37,7 @@ from autoresearch.storage.events import InMemorySessionEventStore, verify_event_
 
 
 ARTIFACT_ROOT = Path("artifacts/ga/furniture_e2e")
+REPORT_PATH = Path("furniture_e2e_report.json")
 REQUIRED_ARTIFACTS = {
     "quote.pdf",
     "quote.xlsx",
@@ -56,8 +55,57 @@ def main() -> int:
     repo_root = Path(__file__).resolve().parents[1]
     runner = FurnitureE2ERunner(repo_root)
     manifest = runner.run()
-    print(json.dumps({"status": "passed", "artifact_root": str(ARTIFACT_ROOT), "artifacts": manifest}, sort_keys=True))
+    report = build_furniture_e2e_report(repo_root, manifest)
+    (repo_root / REPORT_PATH).write_text(
+        json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    print(json.dumps(report, sort_keys=True))
     return 0
+
+
+def build_furniture_e2e_report(repo_root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
+    artifact_root = repo_root / ARTIFACT_ROOT
+    approval = _read_json(artifact_root / "approval_record.json")
+    design = _read_json(artifact_root / "design_prompt_audit.json")
+    replay = _read_json(artifact_root / "session_facts_replay.json")
+    checks = {
+        "approval_denied_blocked": approval["denied_path"]["blocked"] is True,
+        "approval_approved_dry_run": approval["approved_path"]["write_status"] == "succeeded"
+        and approval["approved_path"]["dry_run"] is True,
+        "pii_redaction_verified": design["pii_redaction_verified"] is True,
+        "session_replay_verified": replay["content_hash_verified"] is True
+        and replay["event_count"] >= 6,
+    }
+    return {
+        "status": "passed" if all(checks.values()) else "failed",
+        "artifact_root": str(ARTIFACT_ROOT),
+        "artifacts": {
+            "quote_pdf": _artifact_summary(repo_root, "quote.pdf", manifest),
+            "quote_xlsx": _artifact_summary(repo_root, "quote.xlsx", manifest),
+            "design_image": {
+                **_artifact_summary(repo_root, "design_image.png", manifest),
+                "model_artifact": design.get("image_generation_artifact"),
+                "artifact_ref": design.get("artifact_ref"),
+            },
+        },
+        "approval": {
+            "denied_blocked": checks["approval_denied_blocked"],
+            "denied_followup_status": approval["denied_path"]["followup_status"],
+            "approved_dry_run": checks["approval_approved_dry_run"],
+            "approved_write_status": approval["approved_path"]["write_status"],
+        },
+        "pii_redaction": {
+            "verified": checks["pii_redaction_verified"],
+            "audit": _design_audit_summary(design),
+        },
+        "session_replay": {
+            "verified": checks["session_replay_verified"],
+            "event_count": replay["event_count"],
+            "content_hash_verified": replay["content_hash_verified"],
+        },
+        "checks": checks,
+    }
 
 
 class FurnitureE2ERunner:
@@ -72,11 +120,15 @@ class FurnitureE2ERunner:
             session_events=self.session_events,
         )
         self.gateway = ModelGatewayService(
-            providers=[ModelProviderRead(provider_id="local-dev", enabled=True, models=["noop", "image2"])]
+            providers=[
+                ModelProviderRead(provider_id="local-dev", enabled=True, models=["noop", "image2"])
+            ]
         )
         self.mcp = GovernedMCPService(
             servers_path=repo_root / "configs/mcp_servers.yaml",
-            permission_service=ToolPermissionService(policy_path=repo_root / "configs/tool_permissions.yaml"),
+            permission_service=ToolPermissionService(
+                policy_path=repo_root / "configs/tool_permissions.yaml"
+            ),
             quota_service=UsageQuotaService(
                 repository=InMemoryRepository[UsageLedgerEntryRead](),
                 policy_path=repo_root / "configs/quota_policy.yaml",
@@ -86,7 +138,9 @@ class FurnitureE2ERunner:
         )
 
     def run(self) -> dict[str, Any]:
-        self._append("customer.inquiry.received", "Customer requested a modular walnut workstation quote.")
+        self._append(
+            "customer.inquiry.received", "Customer requested a modular walnut workstation quote."
+        )
         quote = _quote_payload()
         self._write_quote_pdf(quote)
         self._write_quote_xlsx(quote)
@@ -102,7 +156,10 @@ class FurnitureE2ERunner:
                 {"artifact_type": "quote_xlsx", "path": str(ARTIFACT_ROOT / "quote.xlsx")},
                 {"artifact_type": "design_image", "path": str(ARTIFACT_ROOT / "design_image.png")},
             ],
-            payload={"quote_id": quote["quote_id"], "cost_total": cost_ledger["totals"]["total_cost"]},
+            payload={
+                "quote_id": quote["quote_id"],
+                "cost_total": cost_ledger["totals"]["total_cost"],
+            },
         )
         self._write_json("approval_record.json", approval_record)
         self._write_audit_timeline()
@@ -149,7 +206,10 @@ class FurnitureE2ERunner:
         image_path.write_bytes(_render_png(result.artifact.content_hash))
         design_prompt_audit = {
             "generated_at": _now(),
-            "model_policy": {"policy_id": result.design_prompt_audit.policy_id, "modality": "image"},
+            "model_policy": {
+                "policy_id": result.design_prompt_audit.policy_id,
+                "modality": "image",
+            },
             "model_usage_ledger": result.usage_ledger.model_dump(mode="json"),
             "image_generation_artifact": {
                 **result.artifact.model_dump(mode="json"),
@@ -180,7 +240,9 @@ class FurnitureE2ERunner:
             raise RuntimeError("denied path did not create approval")
         denied_approval = self.approvals.resolve_request(
             denied_first.approval_id,
-            ApprovalDecisionRequest(decision="rejected", decided_by="ga-furniture-e2e", note="deny path drill"),
+            ApprovalDecisionRequest(
+                decision="rejected", decided_by="ga-furniture-e2e", note="deny path drill"
+            ),
         )
         denied_followup = self.mcp.call_tool(
             GovernedMCPToolCallRequest(
@@ -208,7 +270,9 @@ class FurnitureE2ERunner:
             raise RuntimeError("approved path did not create approval")
         approved_approval = self.approvals.resolve_request(
             approved_first.approval_id,
-            ApprovalDecisionRequest(decision="approved", decided_by="ga-furniture-e2e", note="approved dry-run path"),
+            ApprovalDecisionRequest(
+                decision="approved", decided_by="ga-furniture-e2e", note="approved dry-run path"
+            ),
         )
         approved_write = self.mcp.call_tool(
             GovernedMCPToolCallRequest(
@@ -267,14 +331,24 @@ class FurnitureE2ERunner:
         sheet.append([])
         sheet.append(["SKU", "Description", "Qty", "Unit Price", "Line Total"])
         for item in quote["items"]:
-            sheet.append([item["sku"], item["description"], item["qty"], item["unit_price"], item["line_total"]])
+            sheet.append(
+                [
+                    item["sku"],
+                    item["description"],
+                    item["qty"],
+                    item["unit_price"],
+                    item["line_total"],
+                ]
+            )
         sheet.append([])
         sheet.append(["Subtotal", quote["totals"]["subtotal"]])
         sheet.append(["Tax", quote["totals"]["tax"]])
         sheet.append(["Total", quote["totals"]["total"]])
         workbook.save(self.artifact_root / "quote.xlsx")
 
-    def _write_cost_ledger(self, quote: dict[str, Any], image_result: dict[str, Any]) -> dict[str, Any]:
+    def _write_cost_ledger(
+        self, quote: dict[str, Any], image_result: dict[str, Any]
+    ) -> dict[str, Any]:
         ledger = {
             "generated_at": _now(),
             "quote_id": quote["quote_id"],
@@ -290,7 +364,9 @@ class FurnitureE2ERunner:
                 },
             ],
         }
-        ledger["totals"] = {"total_cost": sum(float(item["amount"]) for item in ledger["line_items"])}
+        ledger["totals"] = {
+            "total_cost": sum(float(item["amount"]) for item in ledger["line_items"])
+        }
         self._write_json("cost_ledger.json", ledger)
         return ledger
 
@@ -348,21 +424,34 @@ class FurnitureE2ERunner:
         )
 
     def _validate_outputs(self) -> None:
-        missing = [name for name in sorted(REQUIRED_ARTIFACTS) if not (self.artifact_root / name).exists()]
+        missing = [
+            name for name in sorted(REQUIRED_ARTIFACTS) if not (self.artifact_root / name).exists()
+        ]
         if missing:
             raise RuntimeError(f"missing furniture artifacts: {', '.join(missing)}")
-        empty = [name for name in sorted(REQUIRED_ARTIFACTS) if (self.artifact_root / name).stat().st_size <= 0]
+        empty = [
+            name
+            for name in sorted(REQUIRED_ARTIFACTS)
+            if (self.artifact_root / name).stat().st_size <= 0
+        ]
         if empty:
             raise RuntimeError(f"empty furniture artifacts: {', '.join(empty)}")
         if not (self.artifact_root / "quote.pdf").read_bytes().startswith(b"%PDF-"):
             raise RuntimeError("quote.pdf is not a PDF")
         load_workbook(self.artifact_root / "quote.xlsx", read_only=True).close()
-        if not (self.artifact_root / "design_image.png").read_bytes().startswith(b"\x89PNG\r\n\x1a\n"):
+        if (
+            not (self.artifact_root / "design_image.png")
+            .read_bytes()
+            .startswith(b"\x89PNG\r\n\x1a\n")
+        ):
             raise RuntimeError("design_image.png is not a PNG")
         approval = _read_json(self.artifact_root / "approval_record.json")
         if approval["denied_path"]["blocked"] is not True:
             raise RuntimeError("approval-denied path did not block continuation")
-        if approval["approved_path"]["write_status"] != "succeeded" or approval["approved_path"]["dry_run"] is not True:
+        if (
+            approval["approved_path"]["write_status"] != "succeeded"
+            or approval["approved_path"]["dry_run"] is not True
+        ):
             raise RuntimeError("approval-approved path did not produce dry-run external write")
         design = _read_json(self.artifact_root / "design_prompt_audit.json")
         if design["pii_redaction_verified"] is not True:
@@ -374,9 +463,24 @@ class FurnitureE2ERunner:
 
 def _quote_payload() -> dict[str, Any]:
     items = [
-        {"sku": "WAL-WS-180", "description": "Walnut workstation 180cm", "qty": 4, "unit_price": 1280.0},
-        {"sku": "CAB-MOD-02", "description": "Modular storage cabinet", "qty": 4, "unit_price": 420.0},
-        {"sku": "LED-WARM-01", "description": "Warm task lighting kit", "qty": 4, "unit_price": 180.0},
+        {
+            "sku": "WAL-WS-180",
+            "description": "Walnut workstation 180cm",
+            "qty": 4,
+            "unit_price": 1280.0,
+        },
+        {
+            "sku": "CAB-MOD-02",
+            "description": "Modular storage cabinet",
+            "qty": 4,
+            "unit_price": 420.0,
+        },
+        {
+            "sku": "LED-WARM-01",
+            "description": "Warm task lighting kit",
+            "qty": 4,
+            "unit_price": 180.0,
+        },
     ]
     for item in items:
         item["line_total"] = round(float(item["qty"]) * float(item["unit_price"]), 2)
@@ -404,7 +508,11 @@ def _minimal_pdf(lines: list[str]) -> bytes:
         b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
         b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
         b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-        b"<< /Length " + str(len(stream)).encode("ascii") + b" >>\nstream\n" + stream + b"\nendstream",
+        b"<< /Length "
+        + str(len(stream)).encode("ascii")
+        + b" >>\nstream\n"
+        + stream
+        + b"\nendstream",
     ]
     pdf = b"%PDF-1.4\n"
     offsets = [0]
@@ -461,6 +569,34 @@ def _pdf_text(value: str) -> str:
 
 def _file_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _artifact_summary(repo_root: Path, name: str, manifest: dict[str, Any]) -> dict[str, Any]:
+    path = repo_root / ARTIFACT_ROOT / name
+    return {
+        "path": str(ARTIFACT_ROOT / name),
+        "manifest_path": manifest.get(name),
+        "size_bytes": path.stat().st_size,
+        "sha256": _file_sha256(path),
+    }
+
+
+def _design_audit_summary(design: dict[str, Any]) -> dict[str, Any]:
+    audit = (
+        design.get("design_prompt_audit")
+        if isinstance(design.get("design_prompt_audit"), dict)
+        else {}
+    )
+    original_prompt = str(audit.get("original_prompt") or "")
+    return {
+        "audit_id": audit.get("audit_id"),
+        "policy_id": audit.get("policy_id"),
+        "pii_redacted": audit.get("pii_redacted"),
+        "redacted_prompt": audit.get("redacted_prompt"),
+        "original_prompt_sha256": hashlib.sha256(original_prompt.encode("utf-8")).hexdigest()
+        if original_prompt
+        else None,
+    }
 
 
 def _read_json(path: Path) -> dict[str, Any]:

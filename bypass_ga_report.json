@@ -1,0 +1,55 @@
+{
+  "checks": [
+    {
+      "check": "direct_env_key_access",
+      "message": "direct .env access is forbidden",
+      "status": "passed",
+      "synthetic": false
+    },
+    {
+      "check": "direct_model_call",
+      "message": "model invocation requires an allow PolicyDecision",
+      "status": "passed",
+      "synthetic": false
+    },
+    {
+      "check": "direct_tool_call",
+      "message": "role member is not allowed for local_demo.external_write",
+      "status": "passed",
+      "synthetic": false
+    },
+    {
+      "check": "approval_rejected_but_action_continues",
+      "message": "approval is rejected",
+      "status": "passed",
+      "synthetic": false
+    },
+    {
+      "check": "federation_without_lease",
+      "message": "'federation lease not found: missing-lease'",
+      "status": "passed",
+      "synthetic": false
+    },
+    {
+      "check": "unauthorized_package_tool_registration",
+      "message": "package tool registration requires a certified stable package",
+      "status": "passed",
+      "synthetic": false
+    },
+    {
+      "check": "direct_db_mutation",
+      "message": "UI/CLI/SDK database mutation must go through /api/v2",
+      "status": "passed",
+      "synthetic": false
+    },
+    {
+      "check": "artifact_promotion_bypass",
+      "message": "draft_pr preconditions not satisfied: clean base repository, approval granted",
+      "status": "passed",
+      "synthetic": false
+    }
+  ],
+  "failed_checks": [],
+  "status": "passed",
+  "synthetic": false
+}

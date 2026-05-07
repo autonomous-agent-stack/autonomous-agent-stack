@@ -1,0 +1,477 @@
+{
+  "checks": [
+    {
+      "check_id": "ga.required_docs",
+      "evidence": {
+        "missing": []
+      },
+      "message": "GA blocking docs are present.",
+      "status": "passed"
+    },
+    {
+      "check_id": "ga.gap_report",
+      "evidence": {
+        "missing_outputs": [],
+        "missing_total": 0,
+        "report_status": "passed"
+      },
+      "message": "GA gap report exists and has no missing checks.",
+      "status": "passed"
+    },
+    {
+      "check_id": "ga.adapter_certification",
+      "evidence": {
+        "missing": [],
+        "statuses": [
+          {
+            "blocked_reason": null,
+            "certification_profile": "adapter-certification-matrix",
+            "certification_status": "certified",
+            "contract_version": "ga/v1",
+            "evidence_path": "artifacts/ga/adapter_certification/a2a/live_evidence.json",
+            "intent_stability": "experimental",
+            "live_test_command": "make live-a2a",
+            "missing_checks": [],
+            "object_id": "a2a",
+            "object_type": "adapter",
+            "production_profile_required": true,
+            "stability": "stable"
+          },
+          {
+            "blocked_reason": null,
+            "certification_profile": "adapter-certification-matrix",
+            "certification_status": "certified",
+            "contract_version": "ga/v1",
+            "evidence_path": "artifacts/ga/adapter_certification/autogen_ag2/live_evidence.json",
+            "intent_stability": "experimental",
+            "live_test_command": "make live-autogen",
+            "missing_checks": [],
+            "object_id": "autogen_ag2",
+            "object_type": "adapter",
+            "production_profile_required": true,
+            "stability": "stable"
+          },
+          {
+            "blocked_reason": null,
+            "certification_profile": "adapter-certification-matrix",
+            "certification_status": "certified",
+            "contract_version": "ga/v1",
+            "evidence_path": "artifacts/ga/adapter_certification/crewai/live_evidence.json",
+            "intent_stability": "experimental",
+            "live_test_command": "make live-crewai",
+            "missing_checks": [],
+            "object_id": "crewai",
+            "object_type": "adapter",
+            "production_profile_required": true,
+            "stability": "stable"
+          },
+          {
+            "blocked_reason": null,
+            "certification_profile": "adapter-certification-matrix",
+            "certification_status": "certified",
+            "contract_version": "ga/v1",
+            "evidence_path": "artifacts/ga/adapter_certification/dify/live_evidence.json",
+            "intent_stability": "experimental",
+            "live_test_command": "make live-dify",
+            "missing_checks": [],
+            "object_id": "dify",
+            "object_type": "adapter",
+            "production_profile_required": true,
+            "stability": "stable"
+          },
+          {
+            "blocked_reason": null,
+            "certification_profile": "adapter-certification-matrix",
+            "certification_status": "certified",
+            "contract_version": "ga/v1",
+            "evidence_path": "artifacts/ga/adapter_certification/flowise/live_evidence.json",
+            "intent_stability": "experimental",
+            "live_test_command": "make live-flowise",
+            "missing_checks": [],
+            "object_id": "flowise",
+            "object_type": "adapter",
+            "production_profile_required": true,
+            "stability": "stable"
+          },
+          {
+            "blocked_reason": null,
+            "certification_profile": "adapter-certification-matrix",
+            "certification_status": "certified",
+            "contract_version": "ga/v1",
+            "evidence_path": "artifacts/ga/adapter_certification/haystack/live_evidence.json",
+            "intent_stability": "experimental",
+            "live_test_command": "make live-haystack",
+            "missing_checks": [],
+            "object_id": "haystack",
+            "object_type": "adapter",
+            "production_profile_required": true,
+            "stability": "stable"
+          },
+          {
+            "blocked_reason": null,
+            "certification_profile": "adapter-certification-matrix",
+            "certification_status": "certified",
+            "contract_version": "ga/v1",
+            "evidence_path": "artifacts/ga/adapter_certification/hermes/live_evidence.json",
+            "intent_stability": "beta",
+            "live_test_command": "make live-hermes",
+            "missing_checks": [],
+            "object_id": "hermes",
+            "object_type": "adapter",
+            "production_profile_required": true,
+            "stability": "stable"
+          },
+          {
+            "blocked_reason": null,
+            "certification_profile": "adapter-certification-matrix",
+            "certification_status": "certified",
+            "contract_version": "ga/v1",
+            "evidence_path": "artifacts/ga/adapter_certification/langchain_agents/live_evidence.json",
+            "intent_stability": "experimental",
+            "live_test_command": "make live-langchain-agents",
+            "missing_checks": [],
+            "object_id": "langchain_agents",
+            "object_type": "adapter",
+            "production_profile_required": true,
+            "stability": "stable"
+          },
+          {
+            "blocked_reason": null,
+            "certification_profile": "adapter-certification-matrix",
+            "certification_status": "certified",
+            "contract_version": "ga/v1",
+            "evidence_path": "artifacts/ga/adapter_certification/langflow/live_evidence.json",
+            "intent_stability": "experimental",
+            "live_test_command": "make live-langflow",
+            "missing_checks": [],
+            "object_id": "langflow",
+            "object_type": "adapter",
+            "production_profile_required": true,
+            "stability": "stable"
+          },
+          {
+            "blocked_reason": null,
+            "certification_profile": "adapter-certification-matrix",
+            "certification_status": "certified",
+            "contract_version": "ga/v1",
+            "evidence_path": "artifacts/ga/adapter_certification/langgraph/live_evidence.json",
+            "intent_stability": "experimental",
+            "live_test_command": "make live-langgraph",
+            "missing_checks": [],
+            "object_id": "langgraph",
+            "object_type": "adapter",
+            "production_profile_required": true,
+            "stability": "stable"
+          },
+          {
+            "blocked_reason": null,
+            "certification_profile": "adapter-certification-matrix",
+            "certification_status": "certified",
+            "contract_version": "ga/v1",
+            "evidence_path": "artifacts/ga/adapter_certification/llamaindex/live_evidence.json",
+            "intent_stability": "experimental",
+            "live_test_command": "make live-llamaindex",
+            "missing_checks": [],
+            "object_id": "llamaindex",
+            "object_type": "adapter",
+            "production_profile_required": true,
+            "stability": "stable"
+          },
+          {
+            "blocked_reason": null,
+            "certification_profile": "adapter-certification-matrix",
+            "certification_status": "certified",
+            "contract_version": "ga/v1",
+            "evidence_path": "artifacts/ga/adapter_certification/mcp_tool_broker/live_evidence.json",
+            "intent_stability": "beta",
+            "live_test_command": "make live-mcp",
+            "missing_checks": [],
+            "object_id": "mcp_tool_broker",
+            "object_type": "adapter",
+            "production_profile_required": true,
+            "stability": "stable"
+          },
+          {
+            "blocked_reason": null,
+            "certification_profile": "adapter-certification-matrix",
+            "certification_status": "certified",
+            "contract_version": "ga/v1",
+            "evidence_path": "artifacts/ga/adapter_certification/microsoft_agent_framework/live_evidence.json",
+            "intent_stability": "experimental",
+            "live_test_command": "make live-maf",
+            "missing_checks": [],
+            "object_id": "microsoft_agent_framework",
+            "object_type": "adapter",
+            "production_profile_required": true,
+            "stability": "stable"
+          },
+          {
+            "blocked_reason": null,
+            "certification_profile": "adapter-certification-matrix",
+            "certification_status": "certified",
+            "contract_version": "ga/v1",
+            "evidence_path": "artifacts/ga/adapter_certification/openclaw/live_evidence.json",
+            "intent_stability": "beta",
+            "live_test_command": "make live-openclaw",
+            "missing_checks": [],
+            "object_id": "openclaw",
+            "object_type": "adapter",
+            "production_profile_required": true,
+            "stability": "stable"
+          },
+          {
+            "blocked_reason": null,
+            "certification_profile": "adapter-certification-matrix",
+            "certification_status": "certified",
+            "contract_version": "ga/v1",
+            "evidence_path": "artifacts/ga/adapter_certification/openhands/live_evidence.json",
+            "intent_stability": "beta",
+            "live_test_command": "make live-openhands",
+            "missing_checks": [],
+            "object_id": "openhands",
+            "object_type": "adapter",
+            "production_profile_required": true,
+            "stability": "stable"
+          },
+          {
+            "blocked_reason": null,
+            "certification_profile": "adapter-certification-matrix",
+            "certification_status": "certified",
+            "contract_version": "ga/v1",
+            "evidence_path": "artifacts/ga/adapter_certification/semantic_kernel/live_evidence.json",
+            "intent_stability": "experimental",
+            "live_test_command": "make live-semantic-kernel",
+            "missing_checks": [],
+            "object_id": "semantic_kernel",
+            "object_type": "adapter",
+            "production_profile_required": true,
+            "stability": "stable"
+          }
+        ],
+        "violations": {}
+      },
+      "message": "All configured adapters are certified stable from live evidence.",
+      "status": "passed"
+    },
+    {
+      "check_id": "ga.bypass_ga",
+      "evidence": {
+        "failed": [],
+        "missing_checks": [],
+        "results": [
+          {
+            "check": "direct_env_key_access",
+            "message": "direct .env access is forbidden",
+            "status": "passed",
+            "synthetic": false
+          },
+          {
+            "check": "direct_model_call",
+            "message": "model invocation requires an allow PolicyDecision",
+            "status": "passed",
+            "synthetic": false
+          },
+          {
+            "check": "direct_tool_call",
+            "message": "role member is not allowed for local_demo.external_write",
+            "status": "passed",
+            "synthetic": false
+          },
+          {
+            "check": "approval_rejected_but_action_continues",
+            "message": "approval is rejected",
+            "status": "passed",
+            "synthetic": false
+          },
+          {
+            "check": "federation_without_lease",
+            "message": "'federation lease not found: missing-lease'",
+            "status": "passed",
+            "synthetic": false
+          },
+          {
+            "check": "unauthorized_package_tool_registration",
+            "message": "package tool registration requires a certified stable package",
+            "status": "passed",
+            "synthetic": false
+          },
+          {
+            "check": "direct_db_mutation",
+            "message": "UI/CLI/SDK database mutation must go through /api/v2",
+            "status": "passed",
+            "synthetic": false
+          },
+          {
+            "check": "artifact_promotion_bypass",
+            "message": "draft_pr preconditions not satisfied: clean base repository, approval granted",
+            "status": "passed",
+            "synthetic": false
+          }
+        ]
+      },
+      "message": "bypass-ga performed real bypass attempts and all were blocked.",
+      "status": "passed"
+    },
+    {
+      "check_id": "ga.storage_profiles",
+      "evidence": {
+        "missing_features": [],
+        "production": {
+          "allowed_for_ga": true,
+          "driver": "postgresql",
+          "production": true,
+          "required_features": [
+            "transactional_event_append",
+            "sequence_no_allocation",
+            "idempotency_key_unique_constraint",
+            "content_hash_verification",
+            "event_replay",
+            "backup_restore",
+            "migration_rollback",
+            "outbox_table",
+            "inbox_dedupe_table"
+          ]
+        }
+      },
+      "message": "Production profile is PostgreSQL with required event-store features.",
+      "status": "passed"
+    },
+    {
+      "check_id": "ga.postgres_event_store",
+      "evidence": {
+        "missing_markers": []
+      },
+      "message": "PostgreSQL production SessionEvent store is implemented and wired.",
+      "status": "passed"
+    },
+    {
+      "check_id": "ga.runtime_isolation",
+      "evidence": {
+        "profile": {
+          "artifact_output_directory_only": true,
+          "deny_dotenv": true,
+          "deny_host_home": true,
+          "docker_sandbox_optional": true,
+          "env_allowlist": [
+            "PATH",
+            "HOME",
+            "TMPDIR"
+          ],
+          "filesystem_sandbox": true,
+          "network_egress_policy": "deny_by_default",
+          "process_isolation": true,
+          "secret_injection": "lease_only",
+          "workspace_mount_policy": "workspace_only"
+        }
+      },
+      "message": "Default runtime isolation profile is blocking by default.",
+      "status": "passed"
+    },
+    {
+      "check_id": "ga.connector_registry",
+      "evidence": {
+        "missing_secret_scope": [],
+        "stable_connectors": []
+      },
+      "message": "Connectors are registered with secret scopes and no uncertified stable connector.",
+      "status": "passed"
+    },
+    {
+      "check_id": "ga.v1_compat_shims",
+      "evidence": {
+        "invalid_shims": [],
+        "missing_compat_shims": [],
+        "surfaces": [
+          "/api/v1/a2a",
+          "/api/v1/admin",
+          "/api/v1/agents/manager",
+          "/api/v1/approvals",
+          "/api/v1/auth",
+          "/api/v1/autoresearch/plans",
+          "/api/v1/butler",
+          "/api/v1/capabilities",
+          "/api/v1/cluster",
+          "/api/v1/content-kb",
+          "/api/v1/evaluations",
+          "/api/v1/excel-audit",
+          "/api/v1/excel-ops",
+          "/api/v1/executors",
+          "/api/v1/experiments",
+          "/api/v1/federation",
+          "/api/v1/gateway/telegram",
+          "/api/v1/generators",
+          "/api/v1/github-assistant",
+          "/api/v1/github-ops",
+          "/api/v1/integrations",
+          "/api/v1/knowledge",
+          "/api/v1/loops",
+          "/api/v1/mcp",
+          "/api/v1/openclaw",
+          "/api/v1/optimizations",
+          "/api/v1/orchestration",
+          "/api/v1/panel",
+          "/api/v1/reports",
+          "/api/v1/runtime",
+          "/api/v1/sessions",
+          "/api/v1/stream",
+          "/api/v1/synthesis",
+          "/api/v1/usage",
+          "/api/v1/variants",
+          "/api/v1/worker-runs",
+          "/api/v1/worker-schedules",
+          "/api/v1/workers",
+          "/api/v1/youtube"
+        ]
+      },
+      "message": "All /api/v1 surfaces are declared compatibility shims.",
+      "status": "passed"
+    },
+    {
+      "check_id": "ga.direct_secret_model_tool_paths",
+      "evidence": {
+        "finding_count": 0,
+        "findings": [],
+        "truncated": false
+      },
+      "message": "No uncontrolled direct secret, model, or tool paths were found outside gateways.",
+      "status": "passed"
+    },
+    {
+      "check_id": "ga.furniture_e2e",
+      "evidence": {
+        "artifact_root": "artifacts/ga/furniture_e2e",
+        "invalid": [],
+        "missing": []
+      },
+      "message": "Furniture E2E artifacts exist and validate denied/approved paths.",
+      "status": "passed"
+    },
+    {
+      "check_id": "ga.external_write_dry_run",
+      "evidence": {
+        "missing_markers": []
+      },
+      "message": "External writes are dry-run by default with live-write preconditions.",
+      "status": "passed"
+    }
+  ],
+  "failed_checks": [],
+  "ga_pytest_command": [
+    ".venv/bin/python",
+    "-m",
+    "pytest",
+    "tests/ga/test_ga_definition.py",
+    "tests/ga/test_certification_matrix.py",
+    "tests/ga/test_event_store_postgres_contract.py",
+    "tests/ga/test_runtime_isolation.py",
+    "tests/ga/test_bypass_ga.py",
+    "tests/ga/test_external_write_gate.py",
+    "tests/ga/test_furniture_e2e.py",
+    "tests/ga/test_model_gateway_image.py",
+    "tests/ga/test_release_gate.py",
+    "-q"
+  ],
+  "ga_pytest_return_code": 0,
+  "release_gate_status": "passed",
+  "status": "passed"
+}

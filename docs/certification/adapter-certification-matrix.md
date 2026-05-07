@@ -2,7 +2,7 @@
 
 Generated from live adapter certification evidence. Adapter config declares intent only; stable status is derived from this runner.
 
-- generated_at: `2026-05-07T00:57:04.120133+00:00`
+- generated_at: `2026-05-07T02:22:49.399598+00:00`
 - status: `passed`
 - stable_adapters: `16`
 - blocked_adapters: `0`
