@@ -22,6 +22,7 @@ from autoresearch.api.dependencies import (
     get_worker_inventory_service,
     get_worker_registry_service,
     get_worker_scheduler_service,
+    get_youtube_oauth_service,
 )
 from autoresearch.api.settings import load_telegram_settings
 from autoresearch.core.services.admin_config import AdminConfigService
@@ -65,6 +66,7 @@ from ._commands import (
     _handle_status_query,
     _handle_task_command,
     _handle_xreach_auth_command,
+    _handle_youtube_auth_command,
 )
 from ._extract import (
     _is_approve_command,
@@ -79,6 +81,7 @@ from ._extract import (
     _is_status_query,
     _is_task_command,
     _is_xreach_auth_command,
+    _is_youtube_auth_command,
     _safe_int,
 )
 from ._guard import _guard_webhook_replay_and_rate, _validate_secret_token
@@ -126,6 +129,7 @@ def telegram_webhook(
     worker_registry: WorkerRegistryService = Depends(get_worker_registry_service),
     worker_inventory: WorkerInventoryService = Depends(get_worker_inventory_service),
     worker_scheduler: WorkerSchedulerService = Depends(get_worker_scheduler_service),
+    youtube_oauth_service: Any = Depends(get_youtube_oauth_service),
     dispatch_center: ButlerDispatchCenter = Depends(get_butler_dispatch_center),
     control_plane_service: ControlPlaneService = Depends(get_control_plane_service),
     session_event_service: SessionEventService = Depends(get_session_event_service),
@@ -148,6 +152,7 @@ def telegram_webhook(
         worker_registry=worker_registry,
         worker_inventory=worker_inventory,
         worker_scheduler=worker_scheduler,
+        youtube_oauth_service=youtube_oauth_service,
         dispatch_center=dispatch_center,
         control_plane_service=control_plane_service,
         session_event_service=session_event_service,
@@ -177,6 +182,7 @@ def legacy_telegram_webhook(
     worker_registry: WorkerRegistryService = Depends(get_worker_registry_service),
     worker_inventory: WorkerInventoryService = Depends(get_worker_inventory_service),
     worker_scheduler: WorkerSchedulerService = Depends(get_worker_scheduler_service),
+    youtube_oauth_service: Any = Depends(get_youtube_oauth_service),
     dispatch_center: ButlerDispatchCenter = Depends(get_butler_dispatch_center),
     control_plane_service: ControlPlaneService = Depends(get_control_plane_service),
     session_event_service: SessionEventService = Depends(get_session_event_service),
@@ -199,6 +205,7 @@ def legacy_telegram_webhook(
         worker_registry=worker_registry,
         worker_inventory=worker_inventory,
         worker_scheduler=worker_scheduler,
+        youtube_oauth_service=youtube_oauth_service,
         dispatch_center=dispatch_center,
         control_plane_service=control_plane_service,
         session_event_service=session_event_service,
@@ -224,6 +231,7 @@ def _handle_telegram_webhook(
     worker_registry: WorkerRegistryService,
     worker_inventory: WorkerInventoryService,
     worker_scheduler: WorkerSchedulerService,
+    youtube_oauth_service: Any,
     dispatch_center: ButlerDispatchCenter,
     control_plane_service: ControlPlaneService,
     session_event_service: SessionEventService,
@@ -422,6 +430,17 @@ def _handle_telegram_webhook(
             session_identity=session_identity,
         )
 
+    if _is_youtube_auth_command(text):
+        return _handle_youtube_auth_command(
+            chat_id=chat_id,
+            update=update,
+            extracted=extracted,
+            background_tasks=background_tasks,
+            notifier=notifier,
+            session_identity=session_identity,
+            youtube_oauth_service=youtube_oauth_service,
+        )
+
     if _is_memory_command(text):
         return _handle_memory_command(
             chat_id=chat_id,
@@ -582,6 +601,7 @@ def _handle_v2_butler_task(
         requested_by=requested_by,
         metadata={
             "source": "telegram_gateway",
+            "channel": "telegram",
             "chat_id": chat_id,
             "message_id": extracted.get("message_id"),
             "message_thread_id": extracted.get("message_thread_id"),

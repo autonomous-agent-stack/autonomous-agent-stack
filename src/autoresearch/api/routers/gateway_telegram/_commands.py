@@ -69,6 +69,7 @@ from ._extract import (
     _extract_skill_query,
     _parse_approve_query,
     _parse_task_command,
+    _parse_youtube_auth_command,
     _parse_xreach_auth_command,
     _safe_int,
 )
@@ -1493,6 +1494,159 @@ def _handle_xreach_auth_command(
             "status": requeued.status.value,
             "retry_count": requeued.retry_count,
         },
+    )
+
+
+def _handle_youtube_auth_command(
+    *,
+    chat_id: str,
+    update: dict[str, Any],
+    extracted: dict[str, Any],
+    background_tasks: BackgroundTasks,
+    notifier: TelegramNotifierService,
+    session_identity: TelegramSessionIdentityRead,
+    youtube_oauth_service: Any,
+) -> TelegramWebhookAck:
+    action, profile_id = _parse_youtube_auth_command(extracted["text"])
+    if action == "status":
+        profiles = youtube_oauth_service.list_profiles()
+        message = _compose_youtube_auth_status_message(profiles)
+        if notifier.enabled:
+            background_tasks.add_task(notifier.send_message, chat_id=chat_id, text=message)
+        return TelegramWebhookAck(
+            accepted=True,
+            update_id=_safe_int(update.get("update_id")),
+            chat_id=chat_id,
+            metadata={"source": "telegram_youtube_oauth", "action": action, "status": "listed"},
+        )
+
+    if not profile_id:
+        return _telegram_operator_rejected_ack(
+            chat_id=chat_id,
+            update=update,
+            background_tasks=background_tasks,
+            notifier=notifier,
+            source="telegram_youtube_oauth",
+            reason=(
+                "缺少 profile。\n"
+                "用法：/youtube-auth youtube_music 或 /youtube-auth youtube_learning\n"
+                "查看状态：/youtube-auth-status"
+            ),
+            metadata={"status": "missing_profile", "action": action or None},
+        )
+
+    try:
+        if action == "revoke":
+            result = youtube_oauth_service.revoke_profile(profile_id)
+            message = _compose_youtube_auth_revoke_message(result)
+        elif action == "start":
+            result = youtube_oauth_service.start_authorization(
+                profile_id,
+                requested_by=session_identity.actor.user_id or str(extracted.get("from_user_id") or chat_id),
+                metadata={
+                    "source": "telegram_youtube_oauth",
+                    "chat_id": chat_id,
+                    "session_key": session_identity.session_key,
+                },
+            )
+            message = _compose_youtube_auth_start_message(result)
+        else:
+            raise ValueError("unknown YouTube OAuth action")
+    except ValueError as exc:
+        return _telegram_operator_rejected_ack(
+            chat_id=chat_id,
+            update=update,
+            background_tasks=background_tasks,
+            notifier=notifier,
+            source="telegram_youtube_oauth",
+            reason=str(exc),
+            metadata={"status": "invalid_profile", "action": action or None, "profile_id": profile_id},
+        )
+
+    if notifier.enabled:
+        background_tasks.add_task(notifier.send_message, chat_id=chat_id, text=message)
+    return TelegramWebhookAck(
+        accepted=True,
+        update_id=_safe_int(update.get("update_id")),
+        chat_id=chat_id,
+        metadata={
+            "source": "telegram_youtube_oauth",
+            "action": action,
+            "profile_id": profile_id,
+            "status": result.get("status"),
+            "auth_status": result.get("auth_status"),
+            "scopes": result.get("scopes", []),
+        },
+    )
+
+
+def _compose_youtube_auth_status_message(profiles: list[dict[str, Any]]) -> str:
+    lines = ["[YouTube OAuth]", "只读账号状态 / Read-only profile status:"]
+    for profile in profiles:
+        status = str(profile.get("auth_status") or "auth_required")
+        marker = "authorized" if status == "authorized" else "auth_required"
+        lines.append(
+            f"- {profile.get('profile_id')}: {marker} | {profile.get('display_name')}"
+        )
+    lines.extend(
+        [
+            "",
+            "授权：/youtube-auth youtube_music 或 /youtube-auth youtube_learning",
+            "撤销：/youtube-auth-revoke <profile>",
+            "scope: https://www.googleapis.com/auth/youtube.readonly",
+        ]
+    )
+    return _truncate_telegram_text("\n".join(lines))
+
+
+def _compose_youtube_auth_start_message(result: dict[str, Any]) -> str:
+    if result.get("status") == "missing_client_config":
+        return _truncate_telegram_text(
+            "\n".join(
+                [
+                    "[YouTube OAuth]",
+                    "缺少 Google OAuth Client 配置，未生成登录链接。",
+                    "Missing Google OAuth client config.",
+                    "",
+                    "需要在本机环境配置：",
+                    "- AUTORESEARCH_GOOGLE_OAUTH_CLIENT_ID",
+                    "- AUTORESEARCH_GOOGLE_OAUTH_CLIENT_SECRET",
+                    "",
+                    "只申请 scope: https://www.googleapis.com/auth/youtube.readonly",
+                ]
+            )
+        )
+    return _truncate_telegram_text(
+        "\n".join(
+            [
+                "[YouTube OAuth]",
+                f"profile: {result.get('profile_id')}",
+                "scope: https://www.googleapis.com/auth/youtube.readonly",
+                "",
+                "请在本机浏览器打开授权链接，并选择对应 Google/YouTube 账号：",
+                str(result.get("authorization_url") or ""),
+                "",
+                "授权完成后回到 Telegram 发 /youtube-auth-status 查看状态。",
+            ]
+        )
+    )
+
+
+def _compose_youtube_auth_revoke_message(result: dict[str, Any]) -> str:
+    status = str(result.get("status") or "")
+    profile_id = str(result.get("profile_id") or "")
+    if status == "revoked":
+        message = f"已撤销 YouTube OAuth profile：{profile_id}"
+    else:
+        message = f"YouTube OAuth profile 尚未授权：{profile_id}"
+    return _truncate_telegram_text(
+        "\n".join(
+            [
+                "[YouTube OAuth]",
+                message,
+                "token 未回显，repo 内不会写入凭据。",
+            ]
+        )
     )
 
 

@@ -218,6 +218,33 @@ def _is_xreach_auth_command(text: str) -> bool:
     return normalized.startswith("/xreach-auth-")
 
 
+def _is_youtube_auth_command(text: str) -> bool:
+    normalized = text.strip().lower()
+    return (
+        normalized == "/youtube-auth"
+        or normalized.startswith("/youtube-auth ")
+        or normalized == "/youtube-auth-status"
+        or normalized == "/youtube-auth-revoke"
+        or normalized.startswith("/youtube-auth-revoke ")
+    )
+
+
+def _parse_youtube_auth_command(text: str) -> tuple[str, str]:
+    normalized = text.strip()
+    lowered = normalized.lower()
+    if lowered == "/youtube-auth-status":
+        return "status", ""
+    if lowered == "/youtube-auth-revoke":
+        return "revoke", ""
+    if lowered.startswith("/youtube-auth-revoke "):
+        return "revoke", normalized.split(" ", 1)[1].strip()
+    if lowered == "/youtube-auth":
+        return "start", ""
+    if lowered.startswith("/youtube-auth "):
+        return "start", normalized.split(" ", 1)[1].strip()
+    return "", ""
+
+
 def _parse_xreach_auth_command(text: str) -> tuple[str, str]:
     normalized = text.strip()
     lowered = normalized.lower()

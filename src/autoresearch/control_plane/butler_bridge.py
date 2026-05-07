@@ -164,6 +164,8 @@ def capability_id_for_decision(decision: ButlerDispatchDecision) -> str:
         return "excel_audit"
     if canonical == ButlerCanonicalTaskType.YOUTUBE_AUTOFLOW:
         return "youtube_autoflow"
+    if canonical == ButlerCanonicalTaskType.ENTERTAINMENT_CURATE:
+        return "entertainment_curator"
     if canonical == ButlerCanonicalTaskType.SOURCE_COLLECT:
         return "source_collect"
     if canonical in {
@@ -179,6 +181,8 @@ def capability_id_for_decision(decision: ButlerDispatchDecision) -> str:
         return "excel_audit"
     if target_agent == "youtube_ops":
         return "youtube_autoflow"
+    if target_agent == "entertainment_curator_service":
+        return "entertainment_curator"
     if target_agent == "source_collect":
         return "source_collect"
     if target_agent == "content_kb":
@@ -197,7 +201,7 @@ def _risk_tags_for_capability(
 
 
 def _heuristic_risk_tags(message: str, *, capability_id: str) -> set[str]:
-    if capability_id == "butler_context_status":
+    if capability_id in {"butler_context_status", "entertainment_curator"}:
         return set()
     normalized = message.lower()
     tags: set[str] = set()

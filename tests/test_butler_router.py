@@ -181,6 +181,14 @@ class TestButlerIntentClassification:
         result = router.classify("视频转文字 extract transcript")
         assert result.task_type == ButlerTaskType.YOUTUBE
 
+    def test_entertainment_keywords_route_to_curator(self) -> None:
+        router = ButlerIntentRouter()
+        result = router.classify("今晚 1小时 想听音乐放松")
+        assert result.task_type == ButlerTaskType.ENTERTAINMENT
+        canonical = canonical_task_type_for(result.task_type)
+        assert canonical == ButlerCanonicalTaskType.ENTERTAINMENT_CURATE
+        assert worker_task_type_for_canonical(canonical) == "noop"
+
     def test_url_extraction_without_keyword_match(self) -> None:
         router = ButlerIntentRouter()
         result = router.classify("看看这个 https://example.com")
@@ -310,6 +318,17 @@ class TestButlerDispatchCenter:
         assert decision.worker_task_type == "noop"
         assert decision.route == ButlerRoute.DIRECT
         assert decision.runtime_id == "claude"
+        assert decision.max_retries == 0
+
+    def test_entertainment_dispatch_is_direct_telegram_service_capability(self) -> None:
+        center = ButlerDispatchCenter(model_fill=ButlerModelFillService(enabled=False))
+        decision = center.dispatch("/entertain 今晚听点音乐")
+        assert decision.task_type == ButlerTaskType.ENTERTAINMENT
+        assert decision.canonical_task_type == ButlerCanonicalTaskType.ENTERTAINMENT_CURATE
+        assert decision.worker_task_type == "noop"
+        assert decision.route == ButlerRoute.DIRECT
+        assert decision.target_agent == "entertainment_curator_service"
+        assert decision.action == "entertainment.curate"
         assert decision.max_retries == 0
 
     def test_unknown_uses_valid_model_fill_decision(self) -> None:

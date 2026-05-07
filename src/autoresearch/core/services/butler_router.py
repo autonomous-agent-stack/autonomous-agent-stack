@@ -21,6 +21,7 @@ class ButlerTaskType:
     CONTENT_KB = "content_kb"
     BOOKMARK = "bookmark"
     YOUTUBE = "youtube"
+    ENTERTAINMENT = "entertainment"
     CONTEXT_STATUS = "context_status"
     UNKNOWN = "unknown"
 
@@ -28,6 +29,7 @@ class ButlerTaskType:
 class ButlerCanonicalTaskType:
     SOURCE_COLLECT = "source_collect.collect"
     YOUTUBE_AUTOFLOW = "youtube.autoflow"
+    ENTERTAINMENT_CURATE = "entertainment.curate"
     GITHUB_ISSUE_OPS = "github.issue_ops"
     GITHUB_PR_OPS = "github.pr_ops"
     EXCEL_COMMISSION = "excel.commission"
@@ -72,6 +74,12 @@ _KEYWORD_MAP: dict[str, list[str]] = {
     ButlerTaskType.YOUTUBE: [
         "youtube", "视频", "字幕下载", "字幕提取", "yt-dlp",
         "视频下载", "transcript", "视频转文字", "总结这个 youtube", "总结这个YouTube",
+    ],
+    ButlerTaskType.ENTERTAINMENT: [
+        "/entertain", "娱乐计划", "娱乐策划", "今晚听什么", "今天听什么",
+        "今晚看什么", "今天看什么", "周末看什么", "放松一下",
+        "想听音乐", "听点音乐", "音乐推荐", "歌单", "youtube music",
+        "notebooklm 整理", "notebooklm资料", "学习资料", "学习娱乐",
     ],
 }
 
@@ -143,7 +151,9 @@ class ButlerIntentRouter:
                 extracted["urls"] = urls
             return ButlerClassification(extracted_params=extracted)
 
-        if ButlerTaskType.BOOKMARK in scores:
+        if ButlerTaskType.ENTERTAINMENT in scores:
+            best_type = ButlerTaskType.ENTERTAINMENT
+        elif ButlerTaskType.BOOKMARK in scores:
             best_type = ButlerTaskType.BOOKMARK
         else:
             best_type = max(scores, key=lambda t: scores[t])
@@ -331,6 +341,7 @@ def _previous_context_confirms_kb_sync(text: str) -> bool:
 _CANONICAL_TO_LEGACY_TASK_TYPE: dict[str, str] = {
     ButlerCanonicalTaskType.SOURCE_COLLECT: ButlerTaskType.BOOKMARK,
     ButlerCanonicalTaskType.YOUTUBE_AUTOFLOW: ButlerTaskType.YOUTUBE,
+    ButlerCanonicalTaskType.ENTERTAINMENT_CURATE: ButlerTaskType.ENTERTAINMENT,
     ButlerCanonicalTaskType.GITHUB_ISSUE_OPS: ButlerTaskType.GITHUB_ADMIN,
     ButlerCanonicalTaskType.GITHUB_PR_OPS: ButlerTaskType.GITHUB_ADMIN,
     ButlerCanonicalTaskType.EXCEL_COMMISSION: ButlerTaskType.EXCEL_AUDIT,
@@ -354,6 +365,7 @@ def normalize_butler_task_type(value: str) -> str:
         ButlerTaskType.CONTENT_KB,
         ButlerTaskType.BOOKMARK,
         ButlerTaskType.YOUTUBE,
+        ButlerTaskType.ENTERTAINMENT,
         ButlerTaskType.CONTEXT_STATUS,
         ButlerTaskType.UNKNOWN,
     }
@@ -370,6 +382,8 @@ def canonical_task_type_for(task_type: str, *, action: str | None = None) -> str
     normalized_action = str(action or "").strip().lower()
     if legacy == ButlerTaskType.YOUTUBE:
         return ButlerCanonicalTaskType.YOUTUBE_AUTOFLOW
+    if legacy == ButlerTaskType.ENTERTAINMENT:
+        return ButlerCanonicalTaskType.ENTERTAINMENT_CURATE
     if legacy == ButlerTaskType.GITHUB_ADMIN:
         if "pr" in normalized_action or "pull" in normalized_action:
             return ButlerCanonicalTaskType.GITHUB_PR_OPS
@@ -389,6 +403,8 @@ def worker_task_type_for_canonical(canonical_task_type: str) -> str:
     normalized = str(canonical_task_type or "").strip().lower()
     if normalized == ButlerCanonicalTaskType.YOUTUBE_AUTOFLOW:
         return "youtube_autoflow"
+    if normalized == ButlerCanonicalTaskType.ENTERTAINMENT_CURATE:
+        return "noop"
     if normalized in {ButlerCanonicalTaskType.GITHUB_ISSUE_OPS, ButlerCanonicalTaskType.GITHUB_PR_OPS}:
         return "github_ops"
     if normalized == ButlerCanonicalTaskType.EXCEL_COMMISSION:

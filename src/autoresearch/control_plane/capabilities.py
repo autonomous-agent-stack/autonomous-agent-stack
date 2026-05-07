@@ -359,6 +359,54 @@ class ButlerContextStatusCapabilityAdapter(CapabilityAdapter):
         )
 
 
+class EntertainmentCuratorCapabilityAdapter(CapabilityAdapter):
+    descriptor = ControlPlaneCapabilityRead(
+        capability_id="entertainment_curator",
+        name="Entertainment curator / 娱乐策划",
+        type="entertainment",
+        enabled=True,
+        dispatch_mode="worker_queue",
+        description=(
+            "Telegram-only local entertainment, YouTube Music, and NotebookLM planning service. "
+            "It returns an immediate structured result and never enters the worker queue."
+        ),
+        risk_tags=[],
+        requires_approval=False,
+        external_calls_enabled=False,
+        metadata={"worker_task_type": WorkerTaskType.NOOP.value, "immediate_result": True},
+    )
+
+    def dispatch(self, task: ControlPlaneTaskRead) -> CapabilityDispatch:
+        if str(task.metadata.get("source") or "").strip() != "telegram_gateway":
+            return CapabilityDispatch(
+                immediate_result={
+                    "status": "disabled",
+                    "summary": "Entertainment Curator is Telegram-only.",
+                    "reason": "entertainment_curator only accepts Telegram gateway tasks",
+                    "source": "entertainment_curator_service",
+                    "capability_id": task.capability_id,
+                    "channel": "telegram",
+                }
+            )
+
+        from packages.entertainment_curator.service import EntertainmentCuratorTelegramService
+
+        params = task.parameters if isinstance(task.parameters, dict) else {}
+        service = EntertainmentCuratorTelegramService()
+        result = service.handle_telegram_message(
+            str(params.get("original_message") or task.intent or task.name),
+            requested_by=task.requested_by,
+            metadata={
+                **task.metadata,
+                "task_id": task.task_id,
+                "session_id": task.session_id,
+                "capability_id": task.capability_id,
+                "channel": "telegram",
+            },
+        )
+        return CapabilityDispatch(immediate_result=result)
+
+
 class HermesOpenClawCapabilityAdapter(CapabilityAdapter):
     descriptor = ControlPlaneCapabilityRead(
         capability_id="hermes_openclaw",
@@ -501,6 +549,7 @@ class ControlPlaneCapabilityRegistry:
             SourceCollectCapabilityAdapter(),
             ContentKBCapabilityAdapter(),
             ButlerContextStatusCapabilityAdapter(),
+            EntertainmentCuratorCapabilityAdapter(),
             HermesOpenClawCapabilityAdapter(),
             SecurityAuditCapabilityAdapter(),
             BoundaryCapabilityAdapter(
@@ -593,6 +642,7 @@ def _default_agent_for_capability(capability_id: str) -> str:
         "source_collect": "source_collect",
         "content_kb": "content_kb",
         "butler_context_status": "butler_orchestrator",
+        "entertainment_curator": "entertainment_curator_service",
         "hermes_openclaw": "butler_orchestrator",
         "security_audit": "security_audit",
     }.get(str(capability_id or "").strip(), "butler_orchestrator")
