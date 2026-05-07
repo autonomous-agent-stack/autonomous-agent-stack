@@ -10,6 +10,7 @@ This directory contains architecture design documents and RFCs for the AAS proje
 
 | RFC | Status | Description |
 |-----|------|------|
+| [enterprise-runtime-governance-blueprint.md](./enterprise-runtime-governance-blueprint.md) | 📝 Draft | Umbrella alignment for runtime governance, execution envelopes, evidence, supervisor sidecars, and AAS-owned resource authority |
 | [distributed-execution.md](./distributed-execution.md) | 📝 Draft | Distributed execution: Linux control plane + Mac credential-bound worker |
 | [three-machine-architecture.md](./three-machine-architecture.md) | 📝 Draft | Three-machine heterogeneous pools: Linux + Mac mini + MacBook |
 | [federation-protocol.md](./federation-protocol.md) | 📝 Draft | Federation protocol with layered trust (L0-L3) and graduated sharing |
@@ -132,9 +133,10 @@ We welcome new RFC submissions!
 **For new contributors**:
 
 1. Read [ARCHITECTURE.md](../../ARCHITECTURE.md) for current architecture
-2. Read [distributed-execution.md](./distributed-execution.md) for distributed foundations
-3. Read [three-machine-architecture.md](./three-machine-architecture.md) for multi-machine expansion
-4. Read [federation-protocol.md](./federation-protocol.md) for federation vision
+2. Read [enterprise-runtime-governance-blueprint.md](./enterprise-runtime-governance-blueprint.md) for long-term runtime governance boundaries
+3. Read [distributed-execution.md](./distributed-execution.md) for distributed foundations
+4. Read [three-machine-architecture.md](./three-machine-architecture.md) for multi-machine expansion
+5. Read [federation-protocol.md](./federation-protocol.md) for federation vision
 
 **For implementers**:
 

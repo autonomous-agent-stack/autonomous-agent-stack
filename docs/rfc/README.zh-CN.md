@@ -10,6 +10,7 @@
 
 | RFC | 状态 | 描述 |
 |-----|------|------|
+| [enterprise-runtime-governance-blueprint.zh-CN.md](./enterprise-runtime-governance-blueprint.zh-CN.md) | 📝 Draft | Runtime 治理、execution envelope、evidence、supervisor sidecar 与 AAS-owned resource authority 的 umbrella alignment |
 | [distributed-execution.md](./distributed-execution.md) | 📝 Draft | Linux 控制面 + Mac 执行节点的分布式执行架构 |
 | [three-machine-architecture.md](./three-machine-architecture.md) | 📝 Draft | Linux + Mac mini + MacBook 异构执行池设计 |
 | [federation-protocol.md](./federation-protocol.md) | 📝 Draft | 分层互信联邦协议：L0-L3 信任层级与能力共享 |
@@ -132,10 +133,11 @@ docs/rfc/
 **新加入者推荐阅读顺序**：
 
 1. 先读项目 [ARCHITECTURE.zh-CN.md](../../ARCHITECTURE.zh-CN.md) 了解当前架构
-2. 再读 [distributed-execution.md](./distributed-execution.md) 理解分布式基础
-3. 然后读 [three-machine-architecture.md](./three-machine-architecture.md) 了解多机扩展
-4. 再读 [federation-protocol.md](./federation-protocol.md) 了解联邦愿景
-5. 最后读 [federation-market-model.md](./federation-market-model.md) 了解市场机制
+2. 再读 [enterprise-runtime-governance-blueprint.zh-CN.md](./enterprise-runtime-governance-blueprint.zh-CN.md) 理解长期 runtime 治理边界
+3. 再读 [distributed-execution.md](./distributed-execution.md) 理解分布式基础
+4. 然后读 [three-machine-architecture.md](./three-machine-architecture.md) 了解多机扩展
+5. 再读 [federation-protocol.md](./federation-protocol.md) 了解联邦愿景
+6. 最后读 [federation-market-model.md](./federation-market-model.md) 了解市场机制
 
 **实现者推荐阅读顺序**：
 
