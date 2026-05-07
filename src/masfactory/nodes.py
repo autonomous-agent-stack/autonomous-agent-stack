@@ -502,7 +502,7 @@ class EvaluatorNode(MASNode):
             "sandbox_error": [
                 "Run `make ai-lab-check` before retrying the flight.",
                 "Verify Docker Desktop is running and the daemon is reachable.",
-                "Confirm `/Users/ai_lab/workspace` is mounted and writable.",
+                "Confirm the configured workspace root is mounted and writable.",
             ],
             "runtime_error": [
                 "Inspect stderr and stdout with WATCH=1 enabled.",

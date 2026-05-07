@@ -50,6 +50,7 @@ env/
 # Project specific
 artifacts/
 *.sqlite3
+*.sqlite
 *.db
 .env
 .env.local

@@ -63,7 +63,7 @@
 - 影子验证
 - 审计报告生成
 
-**数据库**: `src/memory/evolution_history.sqlite`
+**数据库**: `artifacts/opensage/evolution_history.sqlite3`
 
 **报告位置**: `docs/archive/audit_reports/`
 
@@ -101,7 +101,7 @@ OpenClaw Cron 调度器
 
 ## 📊 数据库结构
 
-### evolution_history.sqlite
+### evolution_history.sqlite3
 
 **表结构**:
 

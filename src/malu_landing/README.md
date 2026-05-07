@@ -59,7 +59,7 @@
 
 ### 启动后端
 ```bash
-cd /Volumes/PS1008/Github/autonomous-agent-stack
+cd "$AAS_REPO_ROOT"
 uvicorn src.malu_landing.api.reservation:app --reload --port 8001
 ```
 

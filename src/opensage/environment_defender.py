@@ -3,7 +3,7 @@
 
 每日凌晨 04:00 执行：
 1. 强制执行 AppleDoubleCleaner，物理抹除全库 ._ 文件
-2. 清理 90 天前的旧审计日志 (src/memory/evolution_history.sqlite)
+2. 清理 90 天前的旧审计日志 (artifacts/opensage/evolution_history.sqlite3)
 3. 重置 Docker 容器镜像，防止运行环境污染
 """
 
@@ -13,44 +13,33 @@ import subprocess
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any, Dict
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_DEFAULT_AUDIT_DB_PATH = _REPO_ROOT / "artifacts" / "opensage" / "evolution_history.sqlite3"
 
 
 class EnvironmentDefender:
     """环境防御器"""
     
     def __init__(self, project_root: str = None, external_disk: str = None):
-        # 自动检测实际挂载路径
-        if external_disk:
-            self.external_disk = Path(external_disk)
-        else:
-            # 尝试检测 PS1008 或 AI_LAB
-            if Path("/Volumes/PS1008").exists():
-                self.external_disk = Path("/Volumes/PS1008")
-            elif Path("/Volumes/AI_LAB").exists():
-                self.external_disk = Path("/Volumes/AI_LAB")
-            else:
-                raise RuntimeError("无法找到外部磁盘挂载点")
-        
-        # 自动检测项目根目录
+        # 自动检测清理根目录；默认只清理当前 checkout，避免依赖开发机挂载路径。
         if project_root:
-            self.project_root = Path(project_root)
+            self.project_root = Path(project_root).expanduser().resolve()
         else:
-            # 尝试常见路径
-            possible_paths = [
-                "/Volumes/PS1008/Github/autonomous-agent-stack",
-                "/Volumes/AI_LAB/Github/autonomous-agent-stack",
-            ]
-            for path in possible_paths:
-                if Path(path).exists():
-                    self.project_root = Path(path)
-                    break
-            else:
-                raise RuntimeError("无法找到项目根目录")
-        
-        self.db_path = self.project_root / "src" / "memory" / "evolution_history.sqlite"
+            self.project_root = Path(os.getenv("AAS_REPO_ROOT", _REPO_ROOT)).expanduser().resolve()
+
+        if external_disk:
+            self.external_disk = Path(external_disk).expanduser().resolve()
+        else:
+            cleanup_root = os.getenv("AUTORESEARCH_CLEANUP_ROOT")
+            self.external_disk = Path(cleanup_root).expanduser().resolve() if cleanup_root else self.project_root
+
+        configured_db = os.getenv("AUTORESEARCH_OPENSAGE_AUDIT_DB_PATH")
+        self.db_path = Path(configured_db).expanduser().resolve() if configured_db else _DEFAULT_AUDIT_DB_PATH
         
     def clean_apple_doubles(self, dry_run: bool = False) -> Dict[str, Any]:
         """清理 AppleDouble 文件"""

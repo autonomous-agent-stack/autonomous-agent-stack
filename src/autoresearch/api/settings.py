@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _DEFAULT_API_DB_PATH = (_REPO_ROOT / "artifacts" / "api" / "evaluations.sqlite3").resolve()
 _DEFAULT_PANEL_STATIC_DIR = (_REPO_ROOT / "panel" / "out").resolve()
+_DEFAULT_UPSTREAM_WATCH_WORKSPACE_ROOT = (_REPO_ROOT / "artifacts" / "upstream_watch").resolve()
 _WARNED_DEPRECATED_ALIASES: set[tuple[str, str]] = set()
 
 
@@ -543,7 +544,7 @@ class UpstreamWatcherSettings(_BaseApiSettings):
         validation_alias="AUTORESEARCH_UPSTREAM_WATCH_URL",
     )
     workspace_root: Path = Field(
-        default=Path("/Volumes/AI_LAB/ai_lab/workspace"),
+        default=_DEFAULT_UPSTREAM_WATCH_WORKSPACE_ROOT,
         validation_alias="AUTORESEARCH_UPSTREAM_WATCH_WORKSPACE_ROOT",
     )
     max_commits: int = Field(default=5, validation_alias="AUTORESEARCH_UPSTREAM_WATCH_MAX_COMMITS")
@@ -552,7 +553,7 @@ class UpstreamWatcherSettings(_BaseApiSettings):
     @classmethod
     def _normalize_workspace_root(cls, value: Any) -> Path:
         path = _parse_path(value)
-        return path or Path("/Volumes/AI_LAB/ai_lab/workspace")
+        return path or _DEFAULT_UPSTREAM_WATCH_WORKSPACE_ROOT
 
 
 def load_runtime_settings() -> RuntimeSettings:

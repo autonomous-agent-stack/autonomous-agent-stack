@@ -149,7 +149,7 @@ async def mark_failed(self, task_id: int, max_retries: int = 3):
 └── tests/test_state_machine_bus.py（新增，16 个测试）
 
 数据目录：
-└── data/event_bus.sqlite（自动创建）
+└── artifacts/state_machine/event_bus.sqlite3（自动创建）
 ```
 
 ---
@@ -174,7 +174,7 @@ redis_client = Redis()
 
 # 新代码
 from autoresearch.core.services.state_machine_bus import StateMachineBus
-event_bus = StateMachineBus("data/event_bus.sqlite")
+event_bus = StateMachineBus("artifacts/state_machine/event_bus.sqlite3")
 ```
 
 ---

@@ -7,9 +7,6 @@ import tempfile
 import asyncio
 from pathlib import Path
 
-# 添加项目路径
-sys.path.insert(0, "/Volumes/PS1008/Github/autonomous-agent-stack")
-
 def test_apple_double_cleaner():
     """测试 AppleDouble 清理器"""
     print("\n" + "="*50)

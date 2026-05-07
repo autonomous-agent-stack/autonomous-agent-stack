@@ -4,6 +4,8 @@ Universal State Machine Bus v2.0
 特性：零外部依赖、严格的事务锁、断电不丢消息、防并发争抢。
 """
 
+import os
+from pathlib import Path
 import sqlite3
 import json
 import logging
@@ -13,12 +15,16 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
+_REPO_ROOT = Path(__file__).resolve().parents[4]
+_DEFAULT_DB_PATH = _REPO_ROOT / "artifacts" / "state_machine" / "event_bus.sqlite3"
+
 
 class StateMachineBus:
     """SQLite 持久化状态机事件总线"""
     
-    def __init__(self, db_path: str = "data/event_bus.sqlite"):
-        self.db_path = db_path
+    def __init__(self, db_path: str | os.PathLike[str] | None = None):
+        configured = db_path or os.getenv("AUTORESEARCH_STATE_MACHINE_DB_PATH") or _DEFAULT_DB_PATH
+        self.db_path = str(Path(configured).expanduser().resolve())
         self._init_db()
     
     def _init_db(self):
@@ -142,22 +148,23 @@ class StateMachineBus:
             
             if row:
                 retry_count = row[0]
+                next_retry_count = retry_count + 1
                 
-                if retry_count < max_retries:
+                if next_retry_count < max_retries:
                     # 允许重试，退回 PENDING 状态
                     cursor.execute("""
                         UPDATE task_queue 
                         SET status = 'PENDING', retry_count = retry_count + 1, updated_at = CURRENT_TIMESTAMP 
                         WHERE id = ?
                     """, (task_id,))
-                    logger.warning(f"[EventBus] 任务执行失败，进入重试队列 ({retry_count+1}/{max_retries}) | TaskID: {task_id}")
+                    logger.warning(f"[EventBus] 任务执行失败，进入重试队列 ({next_retry_count}/{max_retries}) | TaskID: {task_id}")
                 else:
                     # 彻底失败，进入死信状态
                     cursor.execute("""
                         UPDATE task_queue 
-                        SET status = 'FAILED', updated_at = CURRENT_TIMESTAMP 
+                        SET status = 'FAILED', retry_count = ?, updated_at = CURRENT_TIMESTAMP 
                         WHERE id = ?
-                    """, (task_id,))
+                    """, (next_retry_count, task_id,))
                     logger.error(f"❌ [EventBus] 任务重试耗尽，已转入死信队列 (FAILED) | TaskID: {task_id}")
                 
                 conn.commit()

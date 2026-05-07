@@ -11,26 +11,18 @@ This verifies:
 IMPORTANT: This does NOT test business correctness. It only verifies
 that the pipeline infrastructure works correctly.
 """
-from __future__ import annotations
-
-import json
-import sqlite3
 from pathlib import Path
-from datetime import datetime, timezone
 
 import pytest
 
 from autoresearch.core.repositories.excel_jobs import (
     ExcelJobsRepository,
-    ExcelJobRecord,
 )
 from autoresearch.core.services.commission_engine import (
     CommissionEngine,
-    CommissionCalculationRequest,
 )
 from autoresearch.core.services.excel_ops import ExcelOpsService
 from autoresearch.shared.excel_ops_models import (
-    BlockedStateReason,
     ExcelJobCreateRequest,
 )
 
@@ -267,8 +259,9 @@ class TestPipelineRuntimeArtifactExclusion:
         from autoresearch.executions.runner import AgentExecutionRunner
 
         # Create a runner that uses our temp artifact dir
-        repo_root = Path("/Volumes/AI_LAB/Github/autonomous-agent-stack")
-        runner = AgentExecutionRunner(
+        repo_root = temp_artifact_dir / "repo"
+        repo_root.mkdir()
+        _runner = AgentExecutionRunner(
             repo_root=repo_root,
             runtime_root=temp_artifact_dir,
         )
@@ -385,7 +378,6 @@ class TestPipelineHygiene:
         """
         from autoresearch.core.services.commission_engine import (
             CommissionCalculationRequest as EngineRequest,
-            CommissionCalculationResult,
             CommissionEngineStatus,
         )
 
