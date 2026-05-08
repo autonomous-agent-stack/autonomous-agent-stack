@@ -510,6 +510,129 @@ def get_study_dashboard_service() -> StudyDashboardService:
 
 
 @lru_cache(maxsize=1)
+def get_life_companion_service():
+    from packages.life_companion.schema import (
+        PersonalActivityEventRead,
+        PersonalBlockRead,
+        PersonalCanvasRead,
+        PersonalContentItemRead,
+        PersonalExportJobRead,
+        PersonalFeedbackRead,
+        PersonalFlashcardRead,
+        PersonalLinkRead,
+        PersonalMentionRead,
+        PersonalNodeRead,
+        PersonalHighlightRead,
+        PersonalNoteRead,
+        PersonalRecommendationRead,
+        PersonalReviewRead,
+        PersonalDailyPlanRead,
+        PersonalPreferenceProfileRead,
+        PersonalSourceAccountRead,
+    )
+    from packages.life_companion.service import LifeCompanionRepositories, LifeCompanionService
+
+    db_path = _api_db_path()
+    return LifeCompanionService(
+        repositories=LifeCompanionRepositories(
+            contents=SQLiteModelRepository(
+                db_path=db_path,
+                table_name="personal_content_items",
+                model_cls=PersonalContentItemRead,
+            ),
+            highlights=SQLiteModelRepository(
+                db_path=db_path,
+                table_name="personal_highlights",
+                model_cls=PersonalHighlightRead,
+            ),
+            notes=SQLiteModelRepository(
+                db_path=db_path,
+                table_name="personal_notes",
+                model_cls=PersonalNoteRead,
+            ),
+            flashcards=SQLiteModelRepository(
+                db_path=db_path,
+                table_name="personal_flashcards",
+                model_cls=PersonalFlashcardRead,
+            ),
+            reviews=SQLiteModelRepository(
+                db_path=db_path,
+                table_name="personal_reviews",
+                model_cls=PersonalReviewRead,
+            ),
+            recommendations=SQLiteModelRepository(
+                db_path=db_path,
+                table_name="personal_recommendations",
+                model_cls=PersonalRecommendationRead,
+            ),
+            feedback=SQLiteModelRepository(
+                db_path=db_path,
+                table_name="personal_feedback",
+                model_cls=PersonalFeedbackRead,
+            ),
+            plans=SQLiteModelRepository(
+                db_path=db_path,
+                table_name="personal_daily_plans",
+                model_cls=PersonalDailyPlanRead,
+            ),
+            exports=SQLiteModelRepository(
+                db_path=db_path,
+                table_name="personal_export_jobs",
+                model_cls=PersonalExportJobRead,
+            ),
+            source_accounts=SQLiteModelRepository(
+                db_path=db_path,
+                table_name="personal_source_accounts",
+                model_cls=PersonalSourceAccountRead,
+            ),
+            preference_profiles=SQLiteModelRepository(
+                db_path=db_path,
+                table_name="personal_preference_profiles",
+                model_cls=PersonalPreferenceProfileRead,
+            ),
+            events=SQLiteModelRepository(
+                db_path=db_path,
+                table_name="personal_activity_events",
+                model_cls=PersonalActivityEventRead,
+            ),
+            study_items=SQLiteModelRepository(
+                db_path=db_path,
+                table_name="study_dashboard_items",
+                model_cls=StudyDashboardItemRead,
+            ),
+            nodes=SQLiteModelRepository(
+                db_path=db_path,
+                table_name="personal_nodes",
+                model_cls=PersonalNodeRead,
+            ),
+            blocks=SQLiteModelRepository(
+                db_path=db_path,
+                table_name="personal_blocks",
+                model_cls=PersonalBlockRead,
+            ),
+            links=SQLiteModelRepository(
+                db_path=db_path,
+                table_name="personal_links",
+                model_cls=PersonalLinkRead,
+            ),
+            mentions=SQLiteModelRepository(
+                db_path=db_path,
+                table_name="personal_mentions",
+                model_cls=PersonalMentionRead,
+            ),
+            canvases=SQLiteModelRepository(
+                db_path=db_path,
+                table_name="personal_canvases",
+                model_cls=PersonalCanvasRead,
+            ),
+        ),
+        artifact_root=db_path.parent / "life_companion",
+        study_workbench_settings=get_study_workbench_settings(),
+        package_enabled=get_runtime_settings().is_personal_package_enabled,
+    )
+
+
+@lru_cache(maxsize=1)
 def get_worker_inventory_service() -> WorkerInventoryService:
     return WorkerInventoryService(
         worker_registry=get_worker_registry_service(),

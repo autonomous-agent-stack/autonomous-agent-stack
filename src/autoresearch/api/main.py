@@ -19,6 +19,7 @@ from autoresearch.core.services.panel_access import assert_safe_bind_host
 from autoresearch.github_assistant.config import load_yaml_object
 from autoresearch.personal_packages import (
     PERSONAL_ENTERTAINMENT_CURATOR_PACKAGE_ID,
+    PERSONAL_LIFE_COMPANION_PACKAGE_ID,
     PERSONAL_STUDY_WORKSPACE_PACKAGE_ID,
 )
 
@@ -447,6 +448,17 @@ def create_app() -> FastAPI:
         )
     else:
         logger.info("Entertainment curator personal package disabled; YouTube OAuth router not mounted")
+
+    if settings.is_personal_package_enabled(PERSONAL_LIFE_COMPANION_PACKAGE_ID):
+        _include_router(
+            app,
+            module_path="autoresearch.api.routers.personal",
+            attribute="router",
+            required=True,
+            message="life companion personal package",
+        )
+    else:
+        logger.info("Life companion personal package disabled; personal router not mounted")
 
     _include_bridge_routers(app)
     _mount_panel_surface(app)

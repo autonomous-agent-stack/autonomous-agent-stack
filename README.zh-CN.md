@@ -121,6 +121,7 @@ make ga-release-gate
 - [架构](docs/architecture.zh-CN.md)
 - [Study Dashboard](docs/runbooks/study-dashboard.zh-CN.md)
 - [Study Workbench Sync MVP](docs/runbooks/study-workbench-sync.zh-CN.md)
+- [Life Companion 个人功能包](docs/runbooks/life-companion.zh-CN.md)
 - [为什么选择 AAS](WHY_AAS.zh-CN.md)
 - [贡献指南](CONTRIBUTING.zh-CN.md)
 - [Runtime Adapter v1](docs/runtime-adapter-v1.md)

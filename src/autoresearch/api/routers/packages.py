@@ -21,6 +21,7 @@ class PackageRead(StrictModel):
     source: str = "registry"
     route_prefixes: list[str] = Field(default_factory=list)
     capability_ids: list[str] = Field(default_factory=list)
+    dependencies: list[str] = Field(default_factory=list)
     metadata: dict[str, object] = Field(default_factory=dict)
 
 
@@ -36,6 +37,7 @@ def list_packages() -> list[PackageRead]:
             source="local_personal_package",
             route_prefixes=list(definition.route_prefixes),
             capability_ids=list(definition.capability_ids),
+            dependencies=list(definition.dependencies),
             metadata=definition.metadata or {},
         )
         for definition in PERSONAL_PACKAGE_DEFINITIONS

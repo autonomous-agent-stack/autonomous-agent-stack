@@ -7,7 +7,11 @@ from typing import Any
 
 from autoresearch.api.settings import get_runtime_settings
 from autoresearch.control_plane.contracts import ControlPlaneCapabilityRead, ControlPlaneTaskRead
-from autoresearch.personal_packages import PERSONAL_ENTERTAINMENT_CURATOR_PACKAGE_ID
+from autoresearch.personal_packages import (
+    PERSONAL_ENTERTAINMENT_CURATOR_PACKAGE_ID,
+    PERSONAL_LIFE_COMPANION_PACKAGE_ID,
+    PERSONAL_STUDY_WORKSPACE_PACKAGE_ID,
+)
 from autoresearch.shared.models import WorkerQueueItemCreateRequest, WorkerTaskType
 
 
@@ -432,6 +436,137 @@ class EntertainmentCuratorCapabilityAdapter(CapabilityAdapter):
         return CapabilityDispatch(immediate_result=result)
 
 
+class LifeCompanionCapabilityAdapter(CapabilityAdapter):
+    def __init__(self, *, capability_id: str, name: str, action: str) -> None:
+        settings = get_runtime_settings()
+        enabled = settings.is_personal_package_enabled(PERSONAL_LIFE_COMPANION_PACKAGE_ID)
+        dependencies = {
+            PERSONAL_STUDY_WORKSPACE_PACKAGE_ID: settings.is_personal_package_enabled(
+                PERSONAL_STUDY_WORKSPACE_PACKAGE_ID
+            ),
+            PERSONAL_ENTERTAINMENT_CURATOR_PACKAGE_ID: settings.is_personal_package_enabled(
+                PERSONAL_ENTERTAINMENT_CURATOR_PACKAGE_ID
+            ),
+        }
+        ready = enabled and all(dependencies.values())
+        self.action = action
+        self.descriptor = ControlPlaneCapabilityRead(
+            capability_id=capability_id,
+            name=name,
+            type="personal",
+            enabled=ready,
+            dispatch_mode="worker_queue",
+            description=(
+                "Immediate personal learning and entertainment operating-system capability. "
+                "It stays inside optional personal packages and never enters the worker queue."
+            ),
+            risk_tags=[],
+            requires_approval=False,
+            external_calls_enabled=False,
+            metadata={
+                "worker_task_type": WorkerTaskType.NOOP.value,
+                "immediate_result": True,
+                "personal_package_id": PERSONAL_LIFE_COMPANION_PACKAGE_ID,
+                "package_enabled": enabled,
+                "dependencies": dependencies,
+            },
+        )
+
+    def dispatch(self, task: ControlPlaneTaskRead) -> CapabilityDispatch:
+        metadata = self.descriptor.metadata
+        if not bool(metadata.get("package_enabled")):
+            return CapabilityDispatch(
+                immediate_result={
+                    "status": "disabled",
+                    "summary": "Life Companion package is disabled.",
+                    "reason": (
+                        "personal.life_companion is disabled; set "
+                        "AUTORESEARCH_ENABLED_PERSONAL_PACKAGES=personal.life_companion"
+                    ),
+                    "source": "life_companion_service",
+                    "capability_id": task.capability_id,
+                    "personal_package_id": PERSONAL_LIFE_COMPANION_PACKAGE_ID,
+                }
+            )
+        dependencies = metadata.get("dependencies") if isinstance(metadata.get("dependencies"), dict) else {}
+        missing = [package_id for package_id, enabled in dependencies.items() if not enabled]
+        if missing:
+            return CapabilityDispatch(
+                immediate_result={
+                    "status": "disabled",
+                    "summary": "Life Companion dependencies are not enabled.",
+                    "reason": f"missing personal package dependencies: {', '.join(missing)}",
+                    "source": "life_companion_service",
+                    "capability_id": task.capability_id,
+                    "personal_package_id": PERSONAL_LIFE_COMPANION_PACKAGE_ID,
+                    "missing_dependencies": missing,
+                }
+            )
+
+        from autoresearch.api.dependencies import get_life_companion_service
+        from packages.life_companion.schema import (
+            PersonalDailyPlanRequest,
+            PersonalEntertainmentSessionRequest,
+            PersonalExportRequest,
+            PersonalRecommendationRequest,
+            PersonalReviewRequest,
+        )
+
+        service = get_life_companion_service()
+        params = task.parameters if isinstance(task.parameters, dict) else {}
+        if self.action == "state":
+            state = service.state()
+            result = state.model_dump(mode="json")
+            result["today_home"] = {
+                "active_plan": state.active_plan.title if state.active_plan else "",
+                "due_cards": len(state.due_cards),
+                "exports": len(state.exports),
+                "next_recommendation": (
+                    state.rows[0].items[0].title
+                    if state.rows and state.rows[0].items
+                    else ""
+                ),
+            }
+            result["graph_summary"] = {
+                "node_count": len(state.graph.nodes) if state.graph else 0,
+                "link_count": len(state.graph.links) if state.graph else 0,
+                "mention_count": len(state.graph.mentions) if state.graph else 0,
+            }
+        elif self.action == "recommend":
+            result = service.recommendations(PersonalRecommendationRequest.model_validate(params)).model_dump(mode="json")
+        elif self.action == "study":
+            if str(params.get("mode") or "").strip().lower() == "review":
+                result = service.review(PersonalReviewRequest.model_validate(params))
+                result = (
+                    [item.model_dump(mode="json") for item in result]
+                    if isinstance(result, list)
+                    else result.model_dump(mode="json")
+                )
+            else:
+                result = [item.model_dump(mode="json") for item in service.create_cards(PersonalReviewRequest.model_validate(params))]
+        elif self.action == "entertainment":
+            result = service.entertainment_session(
+                PersonalEntertainmentSessionRequest.model_validate(params)
+            ).model_dump(mode="json")
+        elif self.action == "export":
+            result = service.export(PersonalExportRequest.model_validate(params)).model_dump(mode="json")
+        else:
+            result = service.daily_plan(PersonalDailyPlanRequest.model_validate(params)).model_dump(mode="json")
+        if isinstance(result, dict):
+            result.setdefault("status", "completed")
+            result.setdefault("source", "life_companion_service")
+            result.setdefault("capability_id", task.capability_id)
+            return CapabilityDispatch(immediate_result=result)
+        return CapabilityDispatch(
+            immediate_result={
+                "status": "completed",
+                "source": "life_companion_service",
+                "capability_id": task.capability_id,
+                "items": result,
+            }
+        )
+
+
 class HermesOpenClawCapabilityAdapter(CapabilityAdapter):
     descriptor = ControlPlaneCapabilityRead(
         capability_id="hermes_openclaw",
@@ -575,6 +710,31 @@ class ControlPlaneCapabilityRegistry:
             ContentKBCapabilityAdapter(),
             ButlerContextStatusCapabilityAdapter(),
             EntertainmentCuratorCapabilityAdapter(),
+            LifeCompanionCapabilityAdapter(
+                capability_id="personal_os",
+                name="Personal OS / 个人操作系统",
+                action="state",
+            ),
+            LifeCompanionCapabilityAdapter(
+                capability_id="personal_recommender",
+                name="Personal recommender / 个人推荐",
+                action="recommend",
+            ),
+            LifeCompanionCapabilityAdapter(
+                capability_id="study_coach",
+                name="Study coach / 学习教练",
+                action="study",
+            ),
+            LifeCompanionCapabilityAdapter(
+                capability_id="entertainment_dj",
+                name="Entertainment DJ / 娱乐 DJ",
+                action="entertainment",
+            ),
+            LifeCompanionCapabilityAdapter(
+                capability_id="artifact_exporter",
+                name="Artifact exporter / 学习导出",
+                action="export",
+            ),
             HermesOpenClawCapabilityAdapter(),
             SecurityAuditCapabilityAdapter(),
             BoundaryCapabilityAdapter(
@@ -668,6 +828,11 @@ def _default_agent_for_capability(capability_id: str) -> str:
         "content_kb": "content_kb",
         "butler_context_status": "butler_orchestrator",
         "entertainment_curator": "entertainment_curator_service",
+        "personal_os": "life_companion_service",
+        "personal_recommender": "life_companion_service",
+        "study_coach": "life_companion_service",
+        "entertainment_dj": "life_companion_service",
+        "artifact_exporter": "life_companion_service",
         "hermes_openclaw": "butler_orchestrator",
         "security_audit": "security_audit",
     }.get(str(capability_id or "").strip(), "butler_orchestrator")
