@@ -6,6 +6,12 @@ and durable review items in the control plane.
 
 ## Surfaces
 
+Study Dashboard is part of the optional `personal.study_workspace` package. Enable it before startup:
+
+```bash
+export AUTORESEARCH_ENABLED_PERSONAL_PACKAGES="personal.study_workspace"
+```
+
 - PWA: `http://127.0.0.1:3000/study`
 - API state: `http://127.0.0.1:8001/api/v1/study-dashboard/state`
 - Manual refresh: `POST /api/v1/study-dashboard/refresh`

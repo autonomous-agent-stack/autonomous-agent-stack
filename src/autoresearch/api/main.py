@@ -17,6 +17,10 @@ from autoresearch.build_label import get_build_label
 from autoresearch.api.settings import TelegramIngressMode, get_runtime_settings
 from autoresearch.core.services.panel_access import assert_safe_bind_host
 from autoresearch.github_assistant.config import load_yaml_object
+from autoresearch.personal_packages import (
+    PERSONAL_ENTERTAINMENT_CURATOR_PACKAGE_ID,
+    PERSONAL_STUDY_WORKSPACE_PACKAGE_ID,
+)
 
 
 _SRC_ROOT = Path(__file__).resolve().parents[2]
@@ -308,8 +312,6 @@ def create_app() -> FastAPI:
         ("autoresearch.api.routers.workers", "router", "workers"),
         ("autoresearch.api.routers.worker_runs", "router", "worker runs"),
         ("autoresearch.api.routers.worker_schedules", "router", "worker schedules"),
-        ("autoresearch.api.routers.study_workbench", "router", "study workbench"),
-        ("autoresearch.api.routers.study_dashboard", "router", "study dashboard"),
         ("autoresearch.api.routers.panel", "router", "panel api"),
         ("autoresearch.api.routers.ga", "router", "evergreen ga"),
         ("autoresearch.api.routers.models", "router", "model gateway"),
@@ -341,7 +343,6 @@ def create_app() -> FastAPI:
         ("autoresearch.api.routers.integrations", "router", "integrations"),
         ("autoresearch.api.routers.reports", "router", "reports"),
         ("autoresearch.api.routers.youtube", "router", "youtube"),
-        ("autoresearch.api.routers.youtube_oauth", "router", "youtube oauth"),
         ("autoresearch.api.routers.variants", "router", "variants"),
         ("autoresearch.api.routers.optimizations", "router", "optimizations"),
         ("autoresearch.api.routers.experiments", "router", "experiments"),
@@ -417,6 +418,35 @@ def create_app() -> FastAPI:
             required=not is_minimal,
             message="cluster",
         )
+
+    if settings.is_personal_package_enabled(PERSONAL_STUDY_WORKSPACE_PACKAGE_ID):
+        _include_router(
+            app,
+            module_path="autoresearch.api.routers.study_workbench",
+            attribute="router",
+            required=True,
+            message="study workbench personal package",
+        )
+        _include_router(
+            app,
+            module_path="autoresearch.api.routers.study_dashboard",
+            attribute="router",
+            required=True,
+            message="study dashboard personal package",
+        )
+    else:
+        logger.info("Study workspace personal package disabled; study routers not mounted")
+
+    if settings.is_personal_package_enabled(PERSONAL_ENTERTAINMENT_CURATOR_PACKAGE_ID):
+        _include_router(
+            app,
+            module_path="autoresearch.api.routers.youtube_oauth",
+            attribute="router",
+            required=True,
+            message="youtube oauth personal package",
+        )
+    else:
+        logger.info("Entertainment curator personal package disabled; YouTube OAuth router not mounted")
 
     _include_bridge_routers(app)
     _mount_panel_surface(app)

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
+
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -10,6 +13,7 @@ from autoresearch.api.routers.control_plane_v2 import (
     get_session_event_service_dependency,
     router as control_plane_router,
 )
+from autoresearch.api.settings import clear_settings_caches
 from autoresearch.control_plane.butler_bridge import (
     ButlerControlPlaneRouteRequest,
     build_task_request_from_decision,
@@ -51,6 +55,13 @@ from autoresearch.shared.models import (
     WorkerType,
 )
 from autoresearch.shared.store import InMemoryRepository
+
+
+@pytest.fixture(autouse=True)
+def clear_runtime_settings_cache() -> Iterator[None]:
+    clear_settings_caches()
+    yield
+    clear_settings_caches()
 
 
 def build_control_plane(
@@ -579,6 +590,7 @@ def test_v2_capability_registry_exposes_protocol_boundaries() -> None:
     assert capabilities["github_assistant"]["requires_approval"] is True
     assert capabilities["source_collect"]["external_calls_enabled"] is True
     assert "external_api" in capabilities["source_collect"]["risk_tags"]
+    assert capabilities["entertainment_curator"]["enabled"] is False
     assert capabilities["entertainment_curator"]["external_calls_enabled"] is False
     assert capabilities["mcp"]["external_calls_enabled"] is False
     assert capabilities["a2a"]["external_calls_enabled"] is False
@@ -706,7 +718,9 @@ def test_butler_task_routes_unknown_to_hermes_openclaw() -> None:
     assert task["status"] == ControlPlaneTaskStatus.QUEUED.value
 
 
-def test_butler_entertainment_curator_completes_without_worker_queue() -> None:
+def test_butler_entertainment_curator_completes_without_worker_queue(monkeypatch) -> None:
+    monkeypatch.setenv("AUTORESEARCH_ENABLED_PERSONAL_PACKAGES", "personal.entertainment_curator")
+    clear_settings_caches()
     service, worker_scheduler, _ = build_control_plane()
     client = build_client(service)
 
@@ -731,7 +745,33 @@ def test_butler_entertainment_curator_completes_without_worker_queue() -> None:
     assert task["result"]["recommendations"][0]["platform"] == "YouTube Music"
 
 
-def test_entertainment_curator_rejects_non_telegram_control_plane_invocation() -> None:
+def test_entertainment_curator_direct_invocation_reports_disabled_by_default(monkeypatch) -> None:
+    monkeypatch.delenv("AUTORESEARCH_ENABLED_PERSONAL_PACKAGES", raising=False)
+    clear_settings_caches()
+    service, worker_scheduler, _ = build_control_plane()
+    client = build_client(service)
+
+    response = client.post(
+        "/api/v2/tasks",
+        json={
+            "name": "non telegram entertainment",
+            "intent": "今晚听点音乐",
+            "capability_id": "entertainment_curator",
+        },
+    )
+
+    assert response.status_code == 202
+    task = response.json()
+    assert task["status"] == ControlPlaneTaskStatus.FAILED.value
+    assert task["result"]["status"] == "disabled"
+    assert task["result"]["personal_package_id"] == "personal.entertainment_curator"
+    assert task["run_id"]
+    assert worker_scheduler.get_run(task["run_id"]) is None
+
+
+def test_entertainment_curator_rejects_non_telegram_control_plane_invocation(monkeypatch) -> None:
+    monkeypatch.setenv("AUTORESEARCH_ENABLED_PERSONAL_PACKAGES", "personal.entertainment_curator")
+    clear_settings_caches()
     service, worker_scheduler, _ = build_control_plane()
     client = build_client(service)
 

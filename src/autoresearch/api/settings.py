@@ -12,6 +12,8 @@ from typing import Annotated, Any
 from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+from autoresearch.personal_packages import normalize_personal_package_ids
+
 
 logger = logging.getLogger(__name__)
 
@@ -192,6 +194,10 @@ class RuntimeSettings(_BaseApiSettings):
         validation_alias="AUTORESEARCH_ENABLE_LEGACY_TELEGRAM_WEBHOOK",
     )
     enable_webauthn: bool = Field(default=False, validation_alias="AUTORESEARCH_ENABLE_WEBAUTHN")
+    enabled_personal_packages: Annotated[set[str], NoDecode] = Field(
+        default_factory=set,
+        validation_alias="AUTORESEARCH_ENABLED_PERSONAL_PACKAGES",
+    )
     panel_static_dir: Path = Field(default=_DEFAULT_PANEL_STATIC_DIR)
 
     @field_validator("api_db_path", mode="before")
@@ -205,6 +211,14 @@ class RuntimeSettings(_BaseApiSettings):
     def _normalize_panel_static_dir(cls, value: Any) -> Path:
         path = _parse_path(value)
         return path or _DEFAULT_PANEL_STATIC_DIR
+
+    @field_validator("enabled_personal_packages", mode="before")
+    @classmethod
+    def _normalize_enabled_personal_packages(cls, value: Any) -> set[str]:
+        return normalize_personal_package_ids(_parse_string_list(value))
+
+    def is_personal_package_enabled(self, package_id: str) -> bool:
+        return str(package_id or "").strip().lower() in self.enabled_personal_packages
 
     @property
     def is_production(self) -> bool:

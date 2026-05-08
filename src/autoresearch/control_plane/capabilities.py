@@ -5,7 +5,9 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from autoresearch.api.settings import get_runtime_settings
 from autoresearch.control_plane.contracts import ControlPlaneCapabilityRead, ControlPlaneTaskRead
+from autoresearch.personal_packages import PERSONAL_ENTERTAINMENT_CURATOR_PACKAGE_ID
 from autoresearch.shared.models import WorkerQueueItemCreateRequest, WorkerTaskType
 
 
@@ -360,23 +362,46 @@ class ButlerContextStatusCapabilityAdapter(CapabilityAdapter):
 
 
 class EntertainmentCuratorCapabilityAdapter(CapabilityAdapter):
-    descriptor = ControlPlaneCapabilityRead(
-        capability_id="entertainment_curator",
-        name="Entertainment curator / 娱乐策划",
-        type="entertainment",
-        enabled=True,
-        dispatch_mode="worker_queue",
-        description=(
-            "Telegram-only local entertainment, YouTube Music, and NotebookLM planning service. "
-            "It returns an immediate structured result and never enters the worker queue."
-        ),
-        risk_tags=[],
-        requires_approval=False,
-        external_calls_enabled=False,
-        metadata={"worker_task_type": WorkerTaskType.NOOP.value, "immediate_result": True},
-    )
+    def __init__(self) -> None:
+        enabled = get_runtime_settings().is_personal_package_enabled(
+            PERSONAL_ENTERTAINMENT_CURATOR_PACKAGE_ID
+        )
+        self.descriptor = ControlPlaneCapabilityRead(
+            capability_id="entertainment_curator",
+            name="Entertainment curator / 娱乐策划",
+            type="entertainment",
+            enabled=enabled,
+            dispatch_mode="worker_queue",
+            description=(
+                "Telegram-only local entertainment, YouTube Music, and NotebookLM planning service. "
+                "It returns an immediate structured result and never enters the worker queue."
+            ),
+            risk_tags=[],
+            requires_approval=False,
+            external_calls_enabled=False,
+            metadata={
+                "worker_task_type": WorkerTaskType.NOOP.value,
+                "immediate_result": True,
+                "personal_package_id": PERSONAL_ENTERTAINMENT_CURATOR_PACKAGE_ID,
+                "package_enabled": enabled,
+            },
+        )
 
     def dispatch(self, task: ControlPlaneTaskRead) -> CapabilityDispatch:
+        if not self.descriptor.enabled:
+            return CapabilityDispatch(
+                immediate_result={
+                    "status": "disabled",
+                    "summary": "Entertainment Curator package is disabled.",
+                    "reason": (
+                        "personal.entertainment_curator is disabled; set "
+                        "AUTORESEARCH_ENABLED_PERSONAL_PACKAGES=personal.entertainment_curator"
+                    ),
+                    "source": "entertainment_curator_service",
+                    "capability_id": task.capability_id,
+                    "personal_package_id": PERSONAL_ENTERTAINMENT_CURATOR_PACKAGE_ID,
+                }
+            )
         if str(task.metadata.get("source") or "").strip() != "telegram_gateway":
             return CapabilityDispatch(
                 immediate_result={
