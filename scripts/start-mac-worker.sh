@@ -20,6 +20,8 @@ if [[ ! -x "${VENV_PYTHON}" ]]; then
 fi
 
 export PYTHONPATH="${PROJECT_ROOT}/src:${PYTHONPATH:-}"
+export AUTORESEARCH_WORKER_TOOL_PATHS="${AUTORESEARCH_WORKER_TOOL_PATHS:-/opt/homebrew/bin:/usr/local/bin:/opt/local/bin}"
+export PATH="${AUTORESEARCH_WORKER_TOOL_PATHS}:${PATH:-/usr/bin:/bin:/usr/sbin:/sbin}"
 export CONTROL_PLANE_BASE_URL="${CONTROL_PLANE_BASE_URL:-http://127.0.0.1:${AUTORESEARCH_API_PORT:-8001}}"
 export WORKER_ID="${WORKER_ID:-mac-$(hostname -s)}"
 export WORKER_NAME="${WORKER_NAME:-Mac Standby Worker}"

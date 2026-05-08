@@ -16,10 +16,14 @@ from autoresearch.shared.store import create_resource_id
 ButlerFailureKind = Literal[
     "route_mismatch",
     "dependency_missing",
+    "auth_required",
     "quota_exceeded",
     "permission_denied",
+    "permission_required",
     "worker_contract_error",
+    "contract_error",
     "runtime_unavailable",
+    "needs_user_decision",
     "unknown_complex",
 ]
 
@@ -162,13 +166,17 @@ def classify_butler_failure(request: ButlerFailureReviewRequest) -> ButlerFailur
         token in evidence
         for token in (
             "binary_missing",
+            "collector_missing",
             "executable not found",
             "executable path not found",
             "hermes executable",
             "command not found",
+            "not on path",
         )
     ):
         return "dependency_missing"
+    if any(token in evidence for token in ("collector_auth_failed", "auth_required", "login required", "not authenticated")):
+        return "auth_required"
     if "quota exceeded" in evidence or "over quota" in evidence or "quota exhausted" in evidence:
         return "quota_exceeded"
     if any(token in evidence for token in ("permission_denied", "permission denied", "not allowed", "blocked by policy", "approval_required")):
@@ -198,6 +206,8 @@ def classify_butler_failure(request: ButlerFailureReviewRequest) -> ButlerFailur
         )
     ):
         return "runtime_unavailable"
+    if any(token in evidence for token in ("needs_user_decision", "ambiguous", "ask user")):
+        return "needs_user_decision"
     return "unknown_complex"
 
 
@@ -222,6 +232,22 @@ def _review_text_for(
             "Capture required payload fields and validate before worker dispatch.",
             0.88,
         )
+    if failure_kind == "contract_error":
+        return (
+            "执行输入与能力契约不匹配，需要修正 adapter 或请求参数。 / "
+            "The execution input does not match the capability contract; fix the adapter or request parameters.",
+            "Repair the capability contract before retrying.",
+            "Validate required request fields before worker dispatch.",
+            0.88,
+        )
+    if failure_kind == "auth_required":
+        return (
+            "本机登录态或凭据需要恢复，任务应暂停并给用户可继续的恢复动作。 / "
+            "Local auth or credentials need recovery; pause the task and show resumable actions.",
+            "Pause for auth recovery and requeue after the user confirms.",
+            "Explain auth recovery steps and preserve the original run evidence.",
+            0.9,
+        )
     if failure_kind == "quota_exceeded":
         return (
             "请求被额度治理拒绝，不能交给 Hermes 执行业务绕过治理。 / "
@@ -236,6 +262,14 @@ def _review_text_for(
             "The request was blocked by permission or approval policy; preserve the governance result instead of fallback execution.",
             "Return permission denial or approval-required state.",
             "Explain permission denial and required approval path.",
+            0.9,
+        )
+    if failure_kind == "permission_required":
+        return (
+            "任务需要额外权限或审批，不能由 Hermes 直接绕过。 / "
+            "The task needs additional permission or approval; Hermes must not bypass it.",
+            "Return an approval-required state.",
+            "Explain the permission or approval path.",
             0.9,
         )
     if failure_kind == "runtime_unavailable":
@@ -253,6 +287,14 @@ def _review_text_for(
             str(request.metadata.get("suggested_route") or "review rule candidate"),
             "Derive a narrow routing rule from the failed message and observed correction.",
             0.78,
+        )
+    if failure_kind == "needs_user_decision":
+        return (
+            "当前证据显示存在产品或权限选择，需要向用户确认后再继续。 / "
+            "The evidence indicates a product or permission choice; ask the user before continuing.",
+            "Ask a concise user question and keep the run resumable.",
+            "State the smallest decision needed to continue.",
+            0.82,
         )
     return (
         "失败证据不足以安全自动修复，保留本地复盘摘要供人工判断。 / "

@@ -343,9 +343,11 @@ def test_worker_inventory_projects_active_tasks_and_latest_summary(
     assert detail2.json()["display_status"] == "busy"
 
 
+@pytest.mark.parametrize("pause_reason", ["xreach_auth_required", "xreach_setup_required"])
 def test_worker_inventory_projects_external_resume_pause_as_online(
     worker_client: TestClient,
     worker_service: WorkerRegistryService,
+    pause_reason: str,
 ) -> None:
     worker_service.register(
         WorkerRegisterRequest(
@@ -371,8 +373,8 @@ def test_worker_inventory_projects_external_resume_pause_as_online(
         queued.run_id,
         WorkerRunReportRequest(
             status="running",
-            message="waiting for X auth recovery",
-            metrics={"worker_pause_reason": "xreach_auth_required"},
+            message="waiting for X recovery",
+            metrics={"worker_pause_reason": pause_reason},
         ),
         now=utc_now(),
     )

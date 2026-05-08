@@ -248,7 +248,7 @@ def _parse_youtube_auth_command(text: str) -> tuple[str, str]:
 def _parse_xreach_auth_command(text: str) -> tuple[str, str]:
     normalized = text.strip()
     lowered = normalized.lower()
-    for action in ("open", "resume", "check"):
+    for action in ("open", "resume", "check", "cancel"):
         prefix = f"/xreach-auth-{action}"
         if lowered == prefix:
             return action, ""

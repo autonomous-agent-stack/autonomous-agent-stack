@@ -17,6 +17,19 @@ from autoresearch.shared.models import JobStatus, WorkerQueueItemRead, WorkerTas
 from autoresearch.workers.mac.config import MacWorkerConfig
 
 _XREACH_BROWSER_NAMES = {"arc", "brave", "chrome", "chromium", "edge", "firefox", "opera", "safari", "vivaldi"}
+_XREACH_KNOWN_BIN_PATHS = (
+    "/opt/homebrew/bin/xreach",
+    "/usr/local/bin/xreach",
+    "/opt/local/bin/xreach",
+)
+_XREACH_SETUP_NEXT_ACTIONS = [
+    "install_xreach",
+    "set_AUTORESEARCH_XREACH_BIN",
+    "restart_worker",
+    "fixture_smoke",
+    "recheck",
+    "cancel",
+]
 
 if TYPE_CHECKING:
     from autoresearch.agent_protocol.runtime_models import RuntimeRunRead
@@ -242,6 +255,57 @@ class MacWorkerExecutor:
                         "telegram_display_agent_names": ["source_collect", "hermes"],
                     },
                 )
+            if exc.error_kind == "collector_missing":
+                user_summary = (
+                    "X 书签采集器 xreach 缺失或 worker PATH 无法找到，"
+                    "管家已进入本机恢复诊断。"
+                )
+                user_hint = (
+                    "管家会先做本机 XReach 安装/PATH 诊断；如果无法自动修复，"
+                    "请按恢复卡片安装 xreach、设置 AUTORESEARCH_XREACH_BIN "
+                    "或传 fixture_path 做离线验证。"
+                )
+                return MacWorkerExecutionResult(
+                    message="source_collect waiting for XReach setup recovery",
+                    status=JobStatus.RUNNING,
+                    error=None,
+                    result={
+                        "task_type": WorkerTaskType.SOURCE_COLLECT.value,
+                        "source_kind": source_kind,
+                        "collector": exc.collector,
+                        "error_kind": "xreach_setup_required",
+                        "failure_kind": "dependency_missing",
+                        "exit_reason": "xreach_setup_required",
+                        "summary": user_summary,
+                        "telegram_hint": user_hint,
+                        "collector_error": str(exc),
+                        "collector_error_kind": exc.error_kind,
+                        "request_text": payload.get("request_text") or "",
+                        "can_self_repair": True,
+                        "self_repair_attempted": True,
+                        "recovery_orchestrator": "source_collect.xreach",
+                        "recovery_stage": "local_preflight",
+                        "next_actions": list(_XREACH_SETUP_NEXT_ACTIONS),
+                        "xreach_setup_status": "required",
+                        "xreach_setup_next_actions": list(_XREACH_SETUP_NEXT_ACTIONS),
+                        **exc.metadata,
+                    },
+                    metrics={
+                        "error_kind": "xreach_setup_required",
+                        "failure_kind": "dependency_missing",
+                        "exit_reason": "xreach_setup_required",
+                        "collector": exc.collector,
+                        "worker_pause_reason": "xreach_setup_required",
+                        "telegram_notify_status": "deferred",
+                        "can_self_repair": True,
+                        "self_repair_attempted": True,
+                        "recovery_orchestrator": "source_collect.xreach",
+                        "xreach_setup_status": "required",
+                        "telegram_display_runtime_id": "source_collect",
+                        "telegram_display_primary_agent": "source_collect",
+                        "telegram_display_agent_names": ["source_collect", "hermes"],
+                    },
+                )
             user_summary = _source_collect_failure_summary(exc)
             user_hint = _source_collect_failure_hint(exc)
             return MacWorkerExecutionResult(
@@ -349,6 +413,15 @@ class MacWorkerExecutor:
             summary = f"Collected {len(items)} item(s); {new_count} new since previous collection."
         else:
             summary = f"Collected {len(items)} item(s); no previous collection found."
+        recovery_metadata = {
+            key: loaded.metadata[key]
+            for key in (
+                "xreach_path_repair_status",
+                "xreach_executable_source",
+                "xreach_repaired_missing_path",
+            )
+            if key in loaded.metadata
+        }
         return MacWorkerExecutionResult(
             message=f"source_collect: {source_kind} → local artifact",
             result={
@@ -369,6 +442,7 @@ class MacWorkerExecutor:
                 "answer": answer,
                 "content_kb_payload": content_kb_payload,
                 "summary": summary,
+                **recovery_metadata,
             },
             metrics={
                 "items_collected": len(items),
@@ -376,6 +450,7 @@ class MacWorkerExecutor:
                 "known_items_collected": delta["known_item_count"],
                 "telegram_notify_status": "deferred",
                 "defer_completion_until": WorkerTaskType.CONTENT_KB_INGEST.value,
+                **recovery_metadata,
             },
         )
 
@@ -1128,12 +1203,13 @@ def _load_x_bookmark_items_from_xreach(payload: dict[str, Any]) -> _SourceCollec
             error_kind="collector_failed",
             collector=collector,
         )
-    executable = shutil.which("xreach")
+    executable, executable_metadata = _resolve_xreach_executable(payload)
     if executable is None:
         raise _SourceCollectLoadError(
             "xreach collector is not installed or not on PATH",
             error_kind="collector_missing",
             collector="xreach",
+            metadata=executable_metadata,
         )
 
     auth_metadata = _prepare_xreach_auth(executable=executable, payload=payload)
@@ -1187,6 +1263,7 @@ def _load_x_bookmark_items_from_xreach(payload: dict[str, Any]) -> _SourceCollec
         items=items,
         metadata={
             **auth_metadata,
+            **executable_metadata,
             "collector": "xreach",
             "collector_command": ["xreach", "bookmarks", "--json", "-n", str(limit)]
             + ([] if max_pages is None else ["--max-pages", str(max_pages)]),
@@ -1225,6 +1302,109 @@ def _run_xreach_bookmarks_command(
             error_kind="collector_failed",
             collector="xreach",
         ) from exc
+
+
+def _resolve_xreach_executable(payload: dict[str, Any]) -> tuple[str | None, dict[str, Any]]:
+    explicit = str(
+        payload.get("xreach_bin")
+        or payload.get("xreach_executable")
+        or os.getenv("AUTORESEARCH_XREACH_BIN")
+        or ""
+    ).strip()
+    probes: list[dict[str, str]] = []
+    if explicit:
+        path = Path(explicit).expanduser()
+        probes.append(
+            {
+                "source": "explicit",
+                "path": str(path),
+                "status": "found" if path.is_file() else "missing",
+            }
+        )
+        if path.is_file():
+            return str(path), {
+                "xreach_executable": str(path),
+                "xreach_executable_source": "explicit",
+                "xreach_path_repair_status": "explicit",
+                "xreach_setup_probes": probes,
+            }
+
+    which_path = shutil.which("xreach")
+    probes.append(
+        {
+            "source": "PATH",
+            "path": which_path or "xreach",
+            "status": "found" if which_path else "missing",
+        }
+    )
+    if which_path:
+        return which_path, {
+            "xreach_executable": which_path,
+            "xreach_executable_source": "PATH",
+            "xreach_path_repair_status": "not_needed",
+            "xreach_setup_probes": probes,
+        }
+
+    if not _truthy_env("AUTORESEARCH_XREACH_DISABLE_KNOWN_PATHS"):
+        for candidate in _xreach_known_path_candidates():
+            probes.append(
+                {
+                    "source": "known_path",
+                    "path": str(candidate),
+                    "status": "found" if candidate.is_file() else "missing",
+                }
+            )
+            if candidate.is_file():
+                return str(candidate), {
+                    "xreach_executable": str(candidate),
+                    "xreach_executable_source": "known_path",
+                    "xreach_path_repair_status": "path_repaired",
+                    "xreach_setup_probes": probes,
+                    "xreach_repaired_missing_path": True,
+                }
+
+    return None, {
+        "xreach_path_repair_status": "not_found",
+        "xreach_setup_probes": probes,
+        "xreach_known_paths_checked": [str(item) for item in _xreach_known_path_candidates()],
+    }
+
+
+def _xreach_known_path_candidates() -> list[Path]:
+    raw = os.getenv("AUTORESEARCH_XREACH_KNOWN_PATHS", "")
+    paths: list[Path] = []
+    for item in _split_path_config(raw):
+        paths.append(Path(item).expanduser())
+    for directory in _split_path_config(os.getenv("AUTORESEARCH_WORKER_TOOL_PATHS", "")):
+        paths.append(Path(directory).expanduser() / "xreach")
+    paths.extend(Path(item) for item in _XREACH_KNOWN_BIN_PATHS)
+    deduped: list[Path] = []
+    seen: set[str] = set()
+    for path in paths:
+        key = str(path)
+        if key not in seen:
+            seen.add(key)
+            deduped.append(path)
+    return deduped
+
+
+def _split_path_config(value: str | None) -> list[str]:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return []
+    parts = re.split(r"[:,]", normalized)
+    return [item.strip() for item in parts if item.strip()]
+
+
+def _truthy_env(name: str) -> bool:
+    return str(os.getenv(name) or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "y",
+        "on",
+        "enabled",
+    }
 
 
 def _prepare_xreach_auth(

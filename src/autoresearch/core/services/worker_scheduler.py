@@ -28,6 +28,7 @@ _EXTERNAL_RESUME_PAUSE_REASONS = frozenset(
     {
         "hermes_interactive_approval",
         "xreach_auth_required",
+        "xreach_setup_required",
     }
 )
 

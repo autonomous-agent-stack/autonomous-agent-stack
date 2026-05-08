@@ -211,7 +211,7 @@ class WorkerInventoryService:
         if metrics.get("hermes_interactive_waiting_for_approval") is True:
             return True
         reason = str(metrics.get("worker_pause_reason") or "").strip().lower()
-        return reason in {"hermes_interactive_approval", "xreach_auth_required"}
+        return reason in {"hermes_interactive_approval", "xreach_auth_required", "xreach_setup_required"}
 
     @staticmethod
     def _dedupe_shadowed_stale_workers(workers: list[WorkerInventoryRead]) -> list[WorkerInventoryRead]:

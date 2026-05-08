@@ -1411,6 +1411,52 @@ def _handle_xreach_auth_command(
             },
         )
 
+    if action == "cancel":
+        try:
+            cancelled = worker_scheduler.cancel_run(
+                run_id,
+                reason="xreach recovery cancelled from Telegram",
+            )
+        except WorkerReportError as exc:
+            return _telegram_operator_rejected_ack(
+                chat_id=chat_id,
+                update=update,
+                background_tasks=background_tasks,
+                notifier=notifier,
+                source="telegram_xreach_auth",
+                reason=f"暂时无法取消任务。 / Cannot cancel collection yet: {exc.detail}",
+                metadata={"status": "rejected", "run_id": run_id, "action": action},
+            )
+        except KeyError:
+            return _telegram_operator_rejected_ack(
+                chat_id=chat_id,
+                update=update,
+                background_tasks=background_tasks,
+                notifier=notifier,
+                source="telegram_xreach_auth",
+                reason=f"未找到任务。 / Run not found: {run_id}",
+                metadata={"status": "not_found", "run_id": run_id, "action": action},
+            )
+        if (cancelled.metadata or {}).get("control_plane_task_id"):
+            try:
+                control_plane_service.sync_worker_run(cancelled)
+            except Exception:
+                pass
+        message = f"已取消 X 书签采集。\nCancelled X bookmark collection.\nrun_id: {cancelled.run_id}"
+        if notifier.enabled:
+            background_tasks.add_task(notifier.send_message, chat_id=chat_id, text=message)
+        return TelegramWebhookAck(
+            accepted=True,
+            update_id=_safe_int(update.get("update_id")),
+            chat_id=chat_id,
+            metadata={
+                "source": "telegram_xreach_auth",
+                "action": action,
+                "run_id": cancelled.run_id,
+                "status": cancelled.status.value,
+            },
+        )
+
     if run.status == JobStatus.COMPLETED:
         if (run.metadata or {}).get("control_plane_task_id"):
             try:

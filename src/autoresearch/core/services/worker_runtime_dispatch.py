@@ -545,8 +545,15 @@ def _telegram_hint_for_value_error() -> str:
     )
 
 
-def _should_use_deterministic_xreach_recovery(*, payload: dict[str, Any], read: RuntimeRunRead) -> bool:
-    if not bool(payload.get("source_collect_auth_recovery")):
+def _should_use_deterministic_xreach_recovery(
+    *,
+    payload: dict[str, Any],
+    read: RuntimeRunRead,
+) -> bool:
+    if not (
+        bool(payload.get("source_collect_auth_recovery"))
+        or bool(payload.get("source_collect_setup_recovery"))
+    ):
         return False
     if read.status == JobStatus.COMPLETED:
         return False
@@ -564,27 +571,51 @@ def _deterministic_xreach_recovery_result(
 ) -> ClaudeRuntimeExecutionResult:
     source_worker_run_id = str(payload.get("source_collect_worker_run_id") or "").strip()
     source_run_id = str(payload.get("source_collect_run_id") or "").strip()
-    message_zh = (
-        "X 书签采集已暂停等待本机登录态恢复。请先完成 XReach 登录恢复，"
-        "然后点击“我已完成，继续采集”让原任务重新进入采集。"
-    )
-    message_en = (
-        "X bookmark collection is paused until the local XReach login state is restored. "
-        "Restore the login first, then choose resume collection so the original task can continue."
-    )
+    setup_recovery = bool(payload.get("source_collect_setup_recovery"))
+    if setup_recovery:
+        message_zh = (
+            "X 书签采集已暂停等待本机 xreach 安装或 PATH 恢复。请安装 xreach，"
+            "或设置 AUTORESEARCH_XREACH_BIN 后重启 worker，再点击继续采集。"
+        )
+        message_en = (
+            "X bookmark collection is paused until xreach is installed or visible to the worker PATH. "
+            "Install xreach or set AUTORESEARCH_XREACH_BIN, restart the worker, then resume collection."
+        )
+        diagnosis = "local_xreach_setup_required"
+        next_actions = [
+            "install_xreach",
+            "set_AUTORESEARCH_XREACH_BIN",
+            "restart_worker",
+            "resume_after_fix",
+            "cancel",
+        ]
+        summary = "XReach setup recovery plan generated without Hermes binary."
+    else:
+        message_zh = (
+            "X 书签采集已暂停等待本机登录态恢复。请先完成 XReach 登录恢复，"
+            "然后点击“我已完成，继续采集”让原任务重新进入采集。"
+        )
+        message_en = (
+            "X bookmark collection is paused until the local XReach login state is restored. "
+            "Restore the login first, then choose resume collection so the original task can continue."
+        )
+        diagnosis = "local_xreach_auth_required"
+        next_actions = ["open_login", "resume_after_login", "recheck_auth", "cancel"]
+        summary = "XReach auth recovery plan generated without Hermes binary."
     result = {
         "runtime_id": "hermes",
         "runtime_run_id": runtime_run_id,
-        "source_collect_auth_recovery": True,
+        "source_collect_auth_recovery": not setup_recovery,
+        "source_collect_setup_recovery": setup_recovery,
         "source_collect_run_id": source_run_id,
         "source_collect_worker_run_id": source_worker_run_id,
-        "diagnosis": "local_xreach_auth_required",
+        "diagnosis": diagnosis,
         "can_user_resolve": True,
-        "next_actions": ["open_login", "resume_after_login", "recheck_auth", "cancel"],
+        "next_actions": next_actions,
         "user_message_zh": message_zh,
         "user_message_en": message_en,
-        "resume_policy": "resume_source_collect_after_auth",
-        "summary": "XReach auth recovery plan generated without Hermes binary.",
+        "resume_policy": "resume_source_collect_after_setup" if setup_recovery else "resume_source_collect_after_auth",
+        "summary": summary,
     }
     metrics = {
         "dispatch_runtime": "hermes",
@@ -597,7 +628,7 @@ def _deterministic_xreach_recovery_result(
     if error:
         result["hermes_preflight_error"] = error
     return ClaudeRuntimeExecutionResult(
-        message="xreach auth recovery plan ready",
+        message="xreach recovery plan ready",
         status=JobStatus.COMPLETED,
         error=None,
         result=result,

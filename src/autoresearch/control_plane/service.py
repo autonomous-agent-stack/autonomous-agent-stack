@@ -572,6 +572,7 @@ class ControlPlaneService:
         self._repositories.runs.save(updated_run.run_id, updated_run)
 
         if task.run_id in {None, updated_run.run_id}:
+            recovery_projection = _worker_recovery_metadata_projection(worker_run.metadata)
             updated_task = task.model_copy(
                 update={
                     "status": task_status,
@@ -579,9 +580,28 @@ class ControlPlaneService:
                     "result": worker_run.result if worker_run.result is not None else task.result,
                     "error": worker_run.error,
                     "updated_at": max(task.updated_at, worker_run.updated_at, current),
+                    "metadata": {
+                        **task.metadata,
+                        **recovery_projection,
+                    },
                 }
             )
             self._repositories.tasks.save(updated_task.task_id, updated_task)
+            recovery_worker_run_id = recovery_projection.get("xreach_recovery_worker_run_id")
+            if recovery_worker_run_id and not task.metadata.get("xreach_recovery_worker_run_id"):
+                self._record(
+                    session_id=task.session_id,
+                    subject_type="run",
+                    subject_id=updated_run.run_id,
+                    event_type="run.recovery_queued",
+                    message="XReach recovery dispatched to Hermes.",
+                    task_id=task.task_id,
+                    run_id=updated_run.run_id,
+                    metadata={
+                        "capability_id": task.capability_id,
+                        **recovery_projection,
+                    },
+                )
         else:
             updated_task = self._project_task(task)
 
@@ -1415,6 +1435,23 @@ def _butler_route_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
             "route_repair_suggestion",
             "tool_broker",
         }
+    }
+
+
+def _worker_recovery_metadata_projection(metadata: dict[str, Any]) -> dict[str, Any]:
+    allowed = {
+        "xreach_recovery_queued",
+        "xreach_recovery_kind",
+        "xreach_recovery_worker_run_id",
+        "xreach_auth_recovery_worker_run_id",
+        "xreach_setup_recovery_worker_run_id",
+        "xreach_recovery_summary",
+        "telegram_xreach_auth_recovery_sent",
+    }
+    return {
+        key: value
+        for key, value in dict(metadata or {}).items()
+        if key in allowed and value not in (None, "")
     }
 
 

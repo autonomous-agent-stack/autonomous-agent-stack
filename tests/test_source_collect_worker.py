@@ -359,14 +359,39 @@ def test_source_collect_fixture_path_takes_precedence_over_xreach(
     assert outcome.result["source_urls"] == ["fixture://item"]
 
 
-def test_source_collect_x_bookmarks_fails_when_xreach_missing(tmp_path: Path, monkeypatch) -> None:
+def test_source_collect_x_bookmarks_uses_known_path_when_worker_path_misses_xreach(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    bin_dir = tmp_path / "known-bin"
+    _write_fake_xreach(bin_dir, json.dumps({"items": [{"text": "Known path bookmark"}]}))
     monkeypatch.setenv("PATH", str(tmp_path / "empty-bin"))
+    monkeypatch.setenv("AUTORESEARCH_XREACH_KNOWN_PATHS", str(bin_dir / "xreach"))
 
     _, outcome = _run_source_collect(tmp_path, {"source_kind": "x_bookmarks"})
 
-    assert outcome.status == JobStatus.FAILED
-    assert outcome.result["error_kind"] == "collector_missing"
+    assert outcome.status == JobStatus.COMPLETED
     assert outcome.result["collector"] == "xreach"
+    assert outcome.result["xreach_path_repair_status"] == "path_repaired"
+
+
+def test_source_collect_x_bookmarks_pauses_for_setup_recovery_when_xreach_missing(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("PATH", str(tmp_path / "empty-bin"))
+    monkeypatch.setenv("AUTORESEARCH_XREACH_DISABLE_KNOWN_PATHS", "1")
+
+    _, outcome = _run_source_collect(tmp_path, {"source_kind": "x_bookmarks"})
+
+    assert outcome.status == JobStatus.RUNNING
+    assert outcome.error is None
+    assert outcome.result["error_kind"] == "xreach_setup_required"
+    assert outcome.result["failure_kind"] == "dependency_missing"
+    assert outcome.result["collector"] == "xreach"
+    assert outcome.result["can_self_repair"] is True
+    assert "install_xreach" in outcome.result["next_actions"]
+    assert outcome.metrics["worker_pause_reason"] == "xreach_setup_required"
 
 
 def test_source_collect_x_bookmarks_classifies_xreach_auth_failure(
