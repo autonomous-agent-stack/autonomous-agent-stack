@@ -7,6 +7,12 @@ and recovers files in the background.
 
 ## Shape
 
+Study Workbench Sync is part of the optional `personal.study_workspace` package. Enable it before startup:
+
+```bash
+export AUTORESEARCH_ENABLED_PERSONAL_PACKAGES="personal.study_workspace"
+```
+
 The MVP uses three worker task types on the existing Mac standby worker:
 
 - `study_prepare`: read an Obsidian study item or explicit Markdown, render a

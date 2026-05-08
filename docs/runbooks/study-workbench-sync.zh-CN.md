@@ -4,6 +4,12 @@
 
 ## 形态
 
+Study Workbench Sync 属于可选 `personal.study_workspace` 包。启动前先显式启用：
+
+```bash
+export AUTORESEARCH_ENABLED_PERSONAL_PACKAGES="personal.study_workspace"
+```
+
 MVP 只在现有 Mac standby worker 上新增三个 worker task type：
 
 - `study_prepare`：读取 Obsidian 学习条目或显式 Markdown，生成最小 PDF，并复制到 GoodNotes / MarginNote inbox 文件夹。

@@ -24,7 +24,7 @@ from autoresearch.api.dependencies import (
     get_worker_scheduler_service,
     get_youtube_oauth_service,
 )
-from autoresearch.api.settings import load_telegram_settings
+from autoresearch.api.settings import get_runtime_settings, load_telegram_settings
 from autoresearch.core.services.admin_config import AdminConfigService
 from autoresearch.core.services.approval_decisions import ApprovalDecisionService
 from autoresearch.core.services.approval_store import ApprovalStoreService
@@ -48,6 +48,7 @@ from autoresearch.core.services.telegram_notify import TelegramNotifierService
 from autoresearch.core.services.worker_inventory import WorkerInventoryService
 from autoresearch.core.services.worker_registry import WorkerRegistryService
 from autoresearch.core.services.worker_scheduler import WorkerSchedulerService
+from autoresearch.personal_packages import PERSONAL_ENTERTAINMENT_CURATOR_PACKAGE_ID
 from autoresearch.shared.models import (
     OpenClawSessionEventAppendRequest,
     TelegramWebhookAck,
@@ -431,6 +432,16 @@ def _handle_telegram_webhook(
         )
 
     if _is_youtube_auth_command(text):
+        if not _personal_package_enabled(PERSONAL_ENTERTAINMENT_CURATOR_PACKAGE_ID):
+            return _personal_package_disabled_ack(
+                chat_id=chat_id,
+                update=update,
+                extracted=extracted,
+                background_tasks=background_tasks,
+                notifier=notifier,
+                package_id=PERSONAL_ENTERTAINMENT_CURATOR_PACKAGE_ID,
+                source="telegram_youtube_oauth",
+            )
         return _handle_youtube_auth_command(
             chat_id=chat_id,
             update=update,
@@ -626,6 +637,21 @@ def _handle_v2_butler_task(
         default_runtime_id=default_runtime_id,
         hermes_execution_mode=hermes_execution_mode,
     )
+    if (
+        routed.task_request.capability_id == "entertainment_curator"
+        and not _personal_package_enabled(PERSONAL_ENTERTAINMENT_CURATOR_PACKAGE_ID)
+    ):
+        return _personal_package_disabled_ack(
+            chat_id=chat_id,
+            update=update,
+            extracted=extracted,
+            background_tasks=background_tasks,
+            notifier=notifier,
+            package_id=PERSONAL_ENTERTAINMENT_CURATOR_PACKAGE_ID,
+            source="telegram_control_plane_v2",
+            capability_id="entertainment_curator",
+            session_id=session_id,
+        )
     if routed.task_request.capability_id == "hermes_openclaw" and append_hermes_eof_instruction:
         prompt = (
             f"{routed.task_request.intent or text}\n\n---\n"
@@ -797,6 +823,55 @@ def _control_plane_immediate_task_text(task) -> str:
         f"任务 / Task: {task_name}\n"
         f"能力 / Capability: {task.capability_id}\n\n"
         f"{body}"
+    )
+
+
+def _personal_package_enabled(package_id: str) -> bool:
+    return get_runtime_settings().is_personal_package_enabled(package_id)
+
+
+def _personal_package_disabled_ack(
+    *,
+    chat_id: str,
+    update: dict[str, Any],
+    extracted: dict[str, Any],
+    background_tasks: BackgroundTasks,
+    notifier: TelegramNotifierService,
+    package_id: str,
+    source: str,
+    capability_id: str | None = None,
+    session_id: str | None = None,
+) -> TelegramWebhookAck:
+    reason = (
+        f"Personal package is disabled: {package_id}. "
+        "Set AUTORESEARCH_ENABLED_PERSONAL_PACKAGES to enable it."
+    )
+    message = (
+        "个人功能包未启用。\n"
+        "Personal package disabled.\n\n"
+        f"package: {package_id}\n"
+        "启用方式：AUTORESEARCH_ENABLED_PERSONAL_PACKAGES="
+        f"{package_id}"
+    )
+    if notifier.enabled:
+        background_tasks.add_task(
+            notifier.send_message,
+            chat_id=chat_id,
+            text=message,
+            message_thread_id=_safe_int(extracted.get("message_thread_id")),
+        )
+    return TelegramWebhookAck(
+        accepted=False,
+        update_id=_safe_int(update.get("update_id")),
+        chat_id=chat_id,
+        session_id=session_id,
+        reason=reason,
+        metadata={
+            "source": source,
+            "status": "package_disabled",
+            "personal_package_id": package_id,
+            "capability_id": capability_id,
+        },
     )
 
 

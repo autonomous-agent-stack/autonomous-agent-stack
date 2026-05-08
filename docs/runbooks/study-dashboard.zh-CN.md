@@ -5,6 +5,12 @@ Study Dashboard 是 AAS 面向 iPad 的学习入口。它把技术来源整理�
 
 ## 入口
 
+Study Dashboard 属于可选 `personal.study_workspace` 包。启动前先显式启用：
+
+```bash
+export AUTORESEARCH_ENABLED_PERSONAL_PACKAGES="personal.study_workspace"
+```
+
 - PWA：`http://127.0.0.1:3000/study`
 - API 状态：`http://127.0.0.1:8001/api/v1/study-dashboard/state`
 - 手动刷新：`POST /api/v1/study-dashboard/refresh`

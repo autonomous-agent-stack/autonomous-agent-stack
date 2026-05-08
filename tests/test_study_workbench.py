@@ -195,9 +195,18 @@ def test_study_workbench_api_enqueues_three_tasks(tmp_path: Path) -> None:
     from fastapi.testclient import TestClient
 
     from autoresearch.api.dependencies import get_study_workbench_service, get_worker_scheduler_service
-    from autoresearch.api.main import app
+    from autoresearch.api.main import create_app
+    from autoresearch.api.settings import clear_settings_caches
 
     db_path = tmp_path / "api.sqlite3"
+    import os
+
+    old_packages = os.environ.get("AUTORESEARCH_ENABLED_PERSONAL_PACKAGES")
+    old_db_path = os.environ.get("AUTORESEARCH_API_DB_PATH")
+    os.environ["AUTORESEARCH_ENABLED_PERSONAL_PACKAGES"] = "personal.study_workspace"
+    os.environ["AUTORESEARCH_API_DB_PATH"] = str(db_path)
+    clear_settings_caches()
+    app = create_app()
     registry = WorkerRegistryService(
         repository=SQLiteModelRepository(
             db_path=db_path,
@@ -230,6 +239,15 @@ def test_study_workbench_api_enqueues_three_tasks(tmp_path: Path) -> None:
             sync = client.post("/api/v1/study-workbench/git-sync", json={"paths": []})
     finally:
         app.dependency_overrides.clear()
+        if old_packages is None:
+            os.environ.pop("AUTORESEARCH_ENABLED_PERSONAL_PACKAGES", None)
+        else:
+            os.environ["AUTORESEARCH_ENABLED_PERSONAL_PACKAGES"] = old_packages
+        if old_db_path is None:
+            os.environ.pop("AUTORESEARCH_API_DB_PATH", None)
+        else:
+            os.environ["AUTORESEARCH_API_DB_PATH"] = old_db_path
+        clear_settings_caches()
 
     assert prepare.status_code == 201
     assert ingest.status_code == 201

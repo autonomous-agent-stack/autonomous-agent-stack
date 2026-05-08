@@ -437,6 +437,7 @@ def telegram_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClie
     monkeypatch.setenv("AUTORESEARCH_TELEGRAM_CLAUDE_COMMAND_OVERRIDE", "")
     monkeypatch.setenv("AUTORESEARCH_TELEGRAM_CLAUDE_ARGS", "")
     monkeypatch.setenv("AUTORESEARCH_BUTLER_MODEL_FILL_ENABLED", "")
+    monkeypatch.setenv("AUTORESEARCH_ENABLED_PERSONAL_PACKAGES", "personal.entertainment_curator")
     monkeypatch.delenv("AUTORESEARCH_ENV", raising=False)
     monkeypatch.delenv("AUTORESEARCH_ENVIRONMENT", raising=False)
     monkeypatch.setenv("ENVIRONMENT", "development")
@@ -1082,6 +1083,44 @@ def test_telegram_entertain_command_returns_immediate_curator_result(
         app.dependency_overrides.pop(get_telegram_notifier_service, None)
 
 
+def test_telegram_entertain_command_disabled_does_not_create_control_plane_task(
+    telegram_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AUTORESEARCH_ENABLED_PERSONAL_PACKAGES", "")
+    clear_settings_caches()
+    notifier = _StubTelegramNotifier()
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+
+    try:
+        response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 13161,
+                "message": {
+                    "message_id": 891,
+                    "text": "/entertain 今晚 1小时 想听音乐放松",
+                    "chat": {"id": 97111, "type": "private"},
+                    "from": {"id": 97111, "username": "music-user"},
+                },
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["accepted"] is False
+        assert payload["metadata"]["status"] == "package_disabled"
+        assert payload["metadata"]["personal_package_id"] == "personal.entertainment_curator"
+        service = getattr(telegram_client, "_control_plane_service")
+        assert service.list_tasks() == []
+        assert notifier.messages
+        assert "Personal package disabled" in notifier.messages[-1]["text"]
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+        monkeypatch.setenv("AUTORESEARCH_ENABLED_PERSONAL_PACKAGES", "personal.entertainment_curator")
+        clear_settings_caches()
+
+
 def test_telegram_entertain_natural_language_routes_to_curator(
     telegram_client: TestClient,
 ) -> None:
@@ -1146,6 +1185,43 @@ def test_telegram_youtube_auth_command_returns_readonly_auth_link(
         assert "youtube.readonly" in notifier.messages[-1]["text"]
     finally:
         app.dependency_overrides.pop(get_telegram_notifier_service, None)
+
+
+def test_telegram_youtube_auth_disabled_returns_package_disabled(
+    telegram_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AUTORESEARCH_ENABLED_PERSONAL_PACKAGES", "")
+    clear_settings_caches()
+    notifier = _StubTelegramNotifier()
+    app.dependency_overrides[get_telegram_notifier_service] = lambda: notifier
+
+    try:
+        response = telegram_client.post(
+            "/api/v1/gateway/telegram/webhook",
+            json={
+                "update_id": 13181,
+                "message": {
+                    "message_id": 911,
+                    "text": "/youtube-auth youtube_music",
+                    "chat": {"id": 97131, "type": "private"},
+                    "from": {"id": 97131, "username": "music-auth-user"},
+                },
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["accepted"] is False
+        assert payload["metadata"]["source"] == "telegram_youtube_oauth"
+        assert payload["metadata"]["status"] == "package_disabled"
+        service = getattr(telegram_client, "_control_plane_service")
+        assert service.list_tasks() == []
+        assert "Personal package disabled" in notifier.messages[-1]["text"]
+    finally:
+        app.dependency_overrides.pop(get_telegram_notifier_service, None)
+        monkeypatch.setenv("AUTORESEARCH_ENABLED_PERSONAL_PACKAGES", "personal.entertainment_curator")
+        clear_settings_caches()
 
 
 def test_telegram_youtube_auth_status_does_not_leak_tokens(
@@ -1781,8 +1857,9 @@ def test_telegram_status_query_returns_magic_link(
         assert len(notifier.status_events) == 1
         assert notifier.status_events[0]["chat_id"] == "9527"
         assert notifier.status_events[0]["magic_link_url"] == link
-        assert "providers: 1" in notifier.status_events[0]["summary"]
-        assert "skill_providers: 1" in notifier.status_events[0]["summary"]
+        assert "暂无历史会话 / no history yet" in notifier.status_events[0]["summary"]
+        assert "Worker：0 在线" in notifier.status_events[0]["summary"]
+        assert "no registered workers" in notifier.status_events[0]["summary"]
     finally:
         app.dependency_overrides.pop(get_panel_access_service, None)
         app.dependency_overrides.pop(get_telegram_notifier_service, None)
@@ -1845,10 +1922,8 @@ def test_telegram_location_query_includes_runtime_and_worker_summary(
 
         assert len(notifier.status_events) == 1
         summary = notifier.status_events[0]["summary"]
-        assert "runtime: Linux VM (linux)" in summary
-        assert "runtime_host: linux-vm.local" in summary
-        assert "workers_online: 1" in summary
-        assert "worker linux-01 | linux/active | linux-vm.local | ok" in summary
+        assert "运行 / Runtime：Linux VM (linux)" in summary
+        assert "Worker：1 在线，0 忙碌，0 异常，0 离线" in summary
     finally:
         app.dependency_overrides.pop(get_telegram_notifier_service, None)
         app.dependency_overrides.pop(get_capability_provider_registry, None)
@@ -1910,9 +1985,8 @@ def test_telegram_worker_inventory_query_returns_inventory_card(
 
         assert len(notifier.status_events) == 1
         summary = notifier.status_events[0]["summary"]
-        assert "当前 Worker 概况" in summary
-        assert "共 1 个 worker" in summary
-        assert "linux-01：online" in summary
+        assert "运行 / Runtime：Linux VM (linux)" in summary
+        assert "Worker：1 在线，0 忙碌，0 异常，0 离线" in summary
     finally:
         app.dependency_overrides.pop(get_telegram_notifier_service, None)
         app.dependency_overrides.pop(get_capability_provider_registry, None)
