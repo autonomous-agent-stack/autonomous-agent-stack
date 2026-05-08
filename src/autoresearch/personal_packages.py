@@ -6,6 +6,7 @@ from typing import Iterable, Literal
 
 PERSONAL_STUDY_WORKSPACE_PACKAGE_ID = "personal.study_workspace"
 PERSONAL_ENTERTAINMENT_CURATOR_PACKAGE_ID = "personal.entertainment_curator"
+PERSONAL_LIFE_COMPANION_PACKAGE_ID = "personal.life_companion"
 
 
 @dataclass(frozen=True, slots=True)
@@ -15,6 +16,7 @@ class PersonalPackageDefinition:
     stability: Literal["experimental", "beta", "stable"]
     route_prefixes: tuple[str, ...] = ()
     capability_ids: tuple[str, ...] = ()
+    dependencies: tuple[str, ...] = ()
     metadata: dict[str, object] | None = None
 
 
@@ -34,6 +36,28 @@ PERSONAL_PACKAGE_DEFINITIONS: tuple[PersonalPackageDefinition, ...] = (
         route_prefixes=("/api/v1/auth/youtube",),
         capability_ids=("entertainment_curator",),
         metadata={"domain": "personal_entertainment", "channel": "telegram"},
+    ),
+    PersonalPackageDefinition(
+        package_id=PERSONAL_LIFE_COMPANION_PACKAGE_ID,
+        name="Life Companion",
+        stability="experimental",
+        route_prefixes=("/api/v1/personal",),
+        capability_ids=(
+            "personal_os",
+            "personal_recommender",
+            "study_coach",
+            "entertainment_dj",
+            "artifact_exporter",
+        ),
+        dependencies=(
+            PERSONAL_STUDY_WORKSPACE_PACKAGE_ID,
+            PERSONAL_ENTERTAINMENT_CURATOR_PACKAGE_ID,
+        ),
+        metadata={
+            "domain": "personal_life",
+            "surfaces": ["api", "telegram", "ipad_pwa"],
+            "optional": True,
+        },
     ),
 )
 

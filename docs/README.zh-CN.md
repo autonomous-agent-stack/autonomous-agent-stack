@@ -34,6 +34,7 @@
 - [Session Spine v1 runbook](runbooks/session-spine-v1.md)
 - [Worker schedules](runbooks/worker-schedules.md)
 - [Study Dashboard](runbooks/study-dashboard.zh-CN.md)
+- [Life Companion 个人功能包](runbooks/life-companion.zh-CN.md)
 - [Mac standby worker smoke](runbooks/mac-standby-worker-smoke.md)
 - [Linux remote worker](linux-remote-worker.zh-CN.md)
 - [Windows + WSL2 Hermes control plane](windows-wsl2-hermes-control-plane.md)

@@ -121,6 +121,7 @@ Start here:
 - [Architecture](docs/architecture.md)
 - [Study Dashboard](docs/runbooks/study-dashboard.md)
 - [Study Workbench Sync MVP](docs/runbooks/study-workbench-sync.md)
+- [Life Companion Personal Package](docs/runbooks/life-companion.md)
 - [Why AAS](WHY_AAS.md)
 - [Contributing](CONTRIBUTING.md)
 - [Runtime Adapter v1](docs/runtime-adapter-v1.md)

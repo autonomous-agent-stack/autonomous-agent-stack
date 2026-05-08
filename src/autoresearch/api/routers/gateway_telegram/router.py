@@ -49,6 +49,8 @@ from autoresearch.core.services.worker_inventory import WorkerInventoryService
 from autoresearch.core.services.worker_registry import WorkerRegistryService
 from autoresearch.core.services.worker_scheduler import WorkerSchedulerService
 from autoresearch.personal_packages import PERSONAL_ENTERTAINMENT_CURATOR_PACKAGE_ID
+from autoresearch.personal_packages import PERSONAL_LIFE_COMPANION_PACKAGE_ID
+from packages.life_companion.schema import PersonalFeedbackSignal
 from autoresearch.shared.models import (
     OpenClawSessionEventAppendRequest,
     TelegramWebhookAck,
@@ -452,6 +454,16 @@ def _handle_telegram_webhook(
             youtube_oauth_service=youtube_oauth_service,
         )
 
+    if _is_life_companion_command(text):
+        return _handle_life_companion_command(
+            chat_id=chat_id,
+            update=update,
+            extracted=extracted,
+            text=text,
+            background_tasks=background_tasks,
+            notifier=notifier,
+        )
+
     if _is_memory_command(text):
         return _handle_memory_command(
             chat_id=chat_id,
@@ -830,6 +842,221 @@ def _personal_package_enabled(package_id: str) -> bool:
     return get_runtime_settings().is_personal_package_enabled(package_id)
 
 
+_LIFE_COMMANDS = {
+    "/personal",
+    "/today",
+    "/for-you",
+    "/review",
+    "/cards",
+    "/dj",
+    "/reward",
+    "/export",
+    "/promote",
+    "/feedback",
+}
+
+
+def _is_life_companion_command(text: str) -> bool:
+    head = str(text or "").strip().split(maxsplit=1)[0].split("@", 1)[0].lower()
+    return head in _LIFE_COMMANDS
+
+
+def _handle_life_companion_command(
+    *,
+    chat_id: str,
+    update: dict[str, Any],
+    extracted: dict[str, Any],
+    text: str,
+    background_tasks: BackgroundTasks,
+    notifier: TelegramNotifierService,
+) -> TelegramWebhookAck:
+    if not _personal_package_enabled(PERSONAL_LIFE_COMPANION_PACKAGE_ID):
+        return _personal_package_disabled_ack(
+            chat_id=chat_id,
+            update=update,
+            extracted=extracted,
+            background_tasks=background_tasks,
+            notifier=notifier,
+            package_id=PERSONAL_LIFE_COMPANION_PACKAGE_ID,
+            source="telegram_life_companion",
+        )
+
+    from autoresearch.api.dependencies import get_life_companion_service
+    from packages.life_companion.schema import (
+        PersonalDailyPlanRequest,
+        PersonalEntertainmentSessionRequest,
+        PersonalExportRequest,
+        PersonalExportTarget,
+        PersonalFeedbackRequest,
+        PersonalFeedbackSignal,
+        PersonalPromoteRequest,
+        PersonalRecommendationRequest,
+        PersonalReviewRequest,
+    )
+
+    service = get_life_companion_service()
+    missing = [item.package_id for item in service.dependency_state() if not item.enabled]
+    if missing:
+        return _personal_package_missing_dependency_ack(
+            chat_id=chat_id,
+            update=update,
+            extracted=extracted,
+            background_tasks=background_tasks,
+            notifier=notifier,
+            package_id=PERSONAL_LIFE_COMPANION_PACKAGE_ID,
+            missing_dependencies=missing,
+            source="telegram_life_companion",
+        )
+
+    normalized = str(text or "").strip()
+    command, _, rest = normalized.partition(" ")
+    command = command.split("@", 1)[0].lower()
+    if command in {"/personal", "/today"}:
+        plan = service.daily_plan(
+            PersonalDailyPlanRequest(
+                mood="mixed",
+                focus="medium",
+                available_minutes=90,
+                requested_by=str(extracted.get("from_user_id") or chat_id),
+            )
+        )
+        message = _format_life_plan(plan)
+        status_value = "planned"
+    elif command == "/for-you":
+        recs = service.recommendations(
+            PersonalRecommendationRequest(request_text=rest, mood="mixed", limit=12)
+        )
+        message = _format_life_recommendations(recs.rows)
+        status_value = recs.status
+    elif command == "/review":
+        result = service.review(PersonalReviewRequest(limit=10))
+        cards = result if isinstance(result, list) else []
+        message = _format_life_cards(cards)
+        status_value = "review"
+    elif command == "/cards":
+        cards = service.create_cards(PersonalReviewRequest(limit=10))
+        message = _format_life_cards(cards, title="Cards generated")
+        status_value = "cards"
+    elif command in {"/dj", "/reward"}:
+        session = service.entertainment_session(
+            PersonalEntertainmentSessionRequest(
+                request_text=rest,
+                mood="mixed" if command == "/dj" else "relax",
+                focus="medium" if command == "/dj" else "low",
+                available_minutes=45 if command == "/dj" else 20,
+                requested_by=str(extracted.get("from_user_id") or chat_id),
+            )
+        )
+        message = _format_life_recommendations(
+            [
+                type("_Row", (), {
+                    "title": "Entertainment DJ",
+                    "items": session.recommendations,
+                })()
+            ]
+        )
+        status_value = session.status
+    elif command == "/export":
+        export = service.export(
+            PersonalExportRequest(
+                target=PersonalExportTarget.BOTH,
+                title=rest.strip() or "Telegram personal study pack",
+                requested_by=str(extracted.get("from_user_id") or chat_id),
+            )
+        )
+        message = (
+            "Personal export prepared.\n"
+            f"status: {export.status.value}\n"
+            f"export: {export.export_id}\n"
+            f"files: {len(export.artifact_paths)}\n"
+            f"copied: {len(export.copied_paths)}"
+        )
+        status_value = export.status.value
+    elif command == "/promote":
+        promoted = service.promote(PersonalPromoteRequest(title=rest.strip()))
+        message = (
+            "Promoted to study queue.\n"
+            f"status: {promoted.status}\n"
+            f"study_item: {promoted.study_item.item_id if promoted.study_item else '-'}"
+        )
+        status_value = promoted.status
+    elif command == "/feedback":
+        target, signal = _parse_feedback(rest)
+        feedback = service.feedback(
+            PersonalFeedbackRequest(
+                target_id=target,
+                signal=signal,
+                source="telegram",
+            )
+        )
+        message = f"Feedback recorded.\nfeedback: {feedback.feedback_id}\nsignal: {feedback.signal.value}"
+        status_value = "feedback"
+    else:
+        message = "Unknown personal command."
+        status_value = "unknown"
+
+    if notifier.enabled:
+        background_tasks.add_task(
+            notifier.send_message,
+            chat_id=chat_id,
+            text=message,
+            message_thread_id=_safe_int(extracted.get("message_thread_id")),
+        )
+    return TelegramWebhookAck(
+        accepted=True,
+        update_id=_safe_int(update.get("update_id")),
+        chat_id=chat_id,
+        metadata={
+            "source": "telegram_life_companion",
+            "status": status_value,
+            "personal_package_id": PERSONAL_LIFE_COMPANION_PACKAGE_ID,
+        },
+    )
+
+
+def _format_life_plan(plan) -> str:
+    lines = [
+        "Personal plan ready.",
+        f"plan: {plan.plan_id}",
+        f"date: {plan.plan_date}",
+        "",
+    ]
+    for block in plan.blocks[:6]:
+        lines.append(f"- {block.kind}: {block.title} ({block.minutes}m)")
+    if plan.export_job_ids:
+        lines.extend(["", f"exports: {', '.join(plan.export_job_ids)}"])
+    return "\n".join(lines)
+
+
+def _format_life_recommendations(rows) -> str:
+    lines = ["For you:"]
+    for row in rows[:4]:
+        lines.append("")
+        lines.append(str(getattr(row, "title", "Recommendations")))
+        for item in getattr(row, "items", [])[:3]:
+            lines.append(f"- {item.title} ({item.estimated_minutes}m)")
+    return "\n".join(lines).strip()
+
+
+def _format_life_cards(cards, *, title: str = "Review queue") -> str:
+    lines = [title]
+    if not cards:
+        lines.append("- no cards due")
+    for card in cards[:8]:
+        lines.append(f"- {card.card_id}: {card.front[:80]}")
+    return "\n".join(lines)
+
+
+def _parse_feedback(text: str) -> tuple[str, PersonalFeedbackSignal]:
+    parts = str(text or "").strip().split()
+    target = parts[0] if parts else "telegram"
+    raw_signal = parts[1].lower() if len(parts) > 1 else "like"
+    try:
+        return target, PersonalFeedbackSignal(raw_signal)
+    except ValueError:
+        return target, PersonalFeedbackSignal.LIKE
+
+
 def _personal_package_disabled_ack(
     *,
     chat_id: str,
@@ -871,6 +1098,45 @@ def _personal_package_disabled_ack(
             "status": "package_disabled",
             "personal_package_id": package_id,
             "capability_id": capability_id,
+        },
+    )
+
+
+def _personal_package_missing_dependency_ack(
+    *,
+    chat_id: str,
+    update: dict[str, Any],
+    extracted: dict[str, Any],
+    background_tasks: BackgroundTasks,
+    notifier: TelegramNotifierService,
+    package_id: str,
+    missing_dependencies: list[str],
+    source: str,
+) -> TelegramWebhookAck:
+    reason = f"Personal package dependencies are disabled: {', '.join(missing_dependencies)}"
+    message = (
+        "个人功能包依赖未启用。\n"
+        "Personal package dependency disabled.\n\n"
+        f"package: {package_id}\n"
+        f"missing: {', '.join(missing_dependencies)}"
+    )
+    if notifier.enabled:
+        background_tasks.add_task(
+            notifier.send_message,
+            chat_id=chat_id,
+            text=message,
+            message_thread_id=_safe_int(extracted.get("message_thread_id")),
+        )
+    return TelegramWebhookAck(
+        accepted=False,
+        update_id=_safe_int(update.get("update_id")),
+        chat_id=chat_id,
+        reason=reason,
+        metadata={
+            "source": source,
+            "status": "missing_dependency",
+            "personal_package_id": package_id,
+            "missing_dependencies": missing_dependencies,
         },
     )
 
