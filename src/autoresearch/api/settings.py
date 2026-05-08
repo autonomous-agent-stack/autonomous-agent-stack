@@ -75,6 +75,23 @@ def _parse_path(value: Any) -> Path | None:
     return Path(normalized).expanduser().resolve()
 
 
+def _parse_string_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        items = value
+    else:
+        raw = str(value).strip()
+        if not raw:
+            return []
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            parsed = None
+        items = parsed if isinstance(parsed, list) else raw.split(os.pathsep) if os.pathsep in raw else raw.split(",")
+    return [str(item).strip() for item in items if str(item).strip()]
+
+
 def _parse_string_dict(value: Any) -> dict[str, str]:
     if value is None:
         return {}
@@ -611,6 +628,45 @@ class StudyWorkbenchSettings(_BaseApiSettings):
         return raw or "inbox_review"
 
 
+class StudyDashboardSettings(_BaseApiSettings):
+    x_user_id: str = Field(default="", validation_alias="AUTORESEARCH_STUDY_DASHBOARD_X_USER_ID")
+    x_bearer_token: str = Field(default="", validation_alias="AUTORESEARCH_STUDY_DASHBOARD_X_BEARER_TOKEN")
+    youtube_api_key: str = Field(default="", validation_alias="AUTORESEARCH_STUDY_DASHBOARD_YOUTUBE_API_KEY")
+    youtube_playlist_id: str = Field(default="", validation_alias="AUTORESEARCH_STUDY_DASHBOARD_YOUTUBE_PLAYLIST_ID")
+    rss_urls: Annotated[list[str], NoDecode] = Field(
+        default_factory=list,
+        validation_alias="AUTORESEARCH_STUDY_DASHBOARD_RSS_URLS",
+    )
+    daily_hour: int = Field(default=8, ge=0, le=23, validation_alias="AUTORESEARCH_STUDY_DASHBOARD_DAILY_HOUR")
+    daily_timezone: str = Field(
+        default="Asia/Taipei",
+        validation_alias="AUTORESEARCH_STUDY_DASHBOARD_DAILY_TIMEZONE",
+    )
+    daily_item_limit: int = Field(
+        default=8,
+        ge=1,
+        le=50,
+        validation_alias="AUTORESEARCH_STUDY_DASHBOARD_DAILY_ITEM_LIMIT",
+    )
+    source_limit: int = Field(default=20, ge=1, le=100, validation_alias="AUTORESEARCH_STUDY_DASHBOARD_SOURCE_LIMIT")
+    request_timeout_seconds: float = Field(
+        default=10.0,
+        ge=1.0,
+        le=60.0,
+        validation_alias="AUTORESEARCH_STUDY_DASHBOARD_REQUEST_TIMEOUT_SECONDS",
+    )
+
+    @field_validator("rss_urls", mode="before")
+    @classmethod
+    def _normalize_rss_urls(cls, value: Any) -> list[str]:
+        return _parse_string_list(value)
+
+    @field_validator("daily_timezone", mode="before")
+    @classmethod
+    def _normalize_timezone(cls, value: Any) -> str:
+        return str(value or "Asia/Taipei").strip() or "Asia/Taipei"
+
+
 def load_runtime_settings() -> RuntimeSettings:
     return RuntimeSettings()
 
@@ -639,6 +695,10 @@ def load_upstream_watcher_settings() -> UpstreamWatcherSettings:
 
 def load_study_workbench_settings() -> StudyWorkbenchSettings:
     return StudyWorkbenchSettings()
+
+
+def load_study_dashboard_settings() -> StudyDashboardSettings:
+    return StudyDashboardSettings()
 
 
 @lru_cache(maxsize=1)
@@ -676,6 +736,11 @@ def get_study_workbench_settings() -> StudyWorkbenchSettings:
     return load_study_workbench_settings()
 
 
+@lru_cache(maxsize=1)
+def get_study_dashboard_settings() -> StudyDashboardSettings:
+    return load_study_dashboard_settings()
+
+
 def clear_settings_caches() -> None:
     get_runtime_settings.cache_clear()
     get_telegram_settings.cache_clear()
@@ -684,4 +749,5 @@ def clear_settings_caches() -> None:
     get_admin_settings.cache_clear()
     get_upstream_watcher_settings.cache_clear()
     get_study_workbench_settings.cache_clear()
+    get_study_dashboard_settings.cache_clear()
     _WARNED_DEPRECATED_ALIASES.clear()

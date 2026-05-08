@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from html.parser import HTMLParser
 import hashlib
+from io import BytesIO
 import json
 import re
 import shlex
@@ -576,6 +577,10 @@ def _opml_to_markdown(value: str) -> str:
 
 
 def _minimal_pdf(lines: list[str]) -> bytes:
+    rich_pdf = _reportlab_study_pdf(lines)
+    if rich_pdf is not None:
+        return rich_pdf
+
     escaped = [_pdf_text(line[:120]) for line in lines[:90]]
     text_ops = []
     y = 760
@@ -608,6 +613,118 @@ def _minimal_pdf(lines: list[str]) -> bytes:
         + b"\n%%EOF\n"
     )
     return pdf
+
+
+def _reportlab_study_pdf(lines: list[str]) -> bytes | None:
+    try:
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import A4, landscape
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+        from reportlab.pdfgen import canvas
+    except Exception:
+        return None
+
+    buffer = BytesIO()
+    page_size = landscape(A4)
+    width, height = page_size
+    try:
+        pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
+        font_name = "STSong-Light"
+    except Exception:
+        font_name = "Helvetica"
+
+    title = _safe_title(lines[0] if lines else "Study Note")
+    body_lines = lines[1:] if len(lines) > 1 else []
+    c = canvas.Canvas(buffer, pagesize=page_size)
+    c.setTitle(title)
+
+    def draw_frame(page_title: str) -> tuple[float, float, float]:
+        c.setFillColor(colors.HexColor("#111827"))
+        c.setFont(font_name, 18)
+        c.drawString(36, height - 42, page_title[:80])
+        c.setStrokeColor(colors.HexColor("#CBD5E1"))
+        c.line(36, height - 56, width - 36, height - 56)
+        c.setFont(font_name, 9)
+        c.setFillColor(colors.HexColor("#64748B"))
+        c.drawRightString(width - 36, height - 38, datetime.now(timezone.utc).date().isoformat())
+        note_x = width * 0.64
+        c.setStrokeColor(colors.HexColor("#94A3B8"))
+        c.roundRect(note_x, 72, width - note_x - 36, height - 150, 8, stroke=1, fill=0)
+        c.setFillColor(colors.HexColor("#334155"))
+        c.setFont(font_name, 11)
+        c.drawString(note_x + 14, height - 86, "Handwriting / Review")
+        c.setStrokeColor(colors.HexColor("#E2E8F0"))
+        y_line = height - 112
+        while y_line > 92:
+            c.line(note_x + 14, y_line, width - 50, y_line)
+            y_line -= 24
+        return 42, note_x - 24, height - 84
+
+    left_x, left_right, y = draw_frame(title)
+    c.setFillColor(colors.HexColor("#111827"))
+    c.setFont(font_name, 11)
+    for raw_line in body_lines[:260]:
+        wrapped = _wrap_pdf_line(raw_line, limit=64)
+        if not wrapped:
+            y -= 12
+            continue
+        for line in wrapped:
+            if y < 78:
+                c.showPage()
+                left_x, left_right, y = draw_frame(title)
+                c.setFillColor(colors.HexColor("#111827"))
+                c.setFont(font_name, 11)
+            c.drawString(left_x, y, line)
+            y -= 15
+
+    c.showPage()
+    draw_frame(f"{title} - Review")
+    c.setFillColor(colors.HexColor("#111827"))
+    c.setFont(font_name, 13)
+    c.drawString(42, height - 90, "Checklist")
+    c.setFont(font_name, 11)
+    checklist = [
+        "Scan the brief",
+        "Annotate one core idea",
+        "Send one item to MarginNote4",
+        "Create three review cards",
+        "Write tomorrow's gap",
+    ]
+    y = height - 120
+    for item in checklist:
+        c.rect(42, y - 2, 10, 10, stroke=1, fill=0)
+        c.drawString(60, y, item)
+        y -= 24
+    c.setFont(font_name, 13)
+    c.drawString(42, y - 18, "Blank Review")
+    y -= 48
+    c.setStrokeColor(colors.HexColor("#E2E8F0"))
+    while y > 78:
+        c.line(42, y, width * 0.58, y)
+        y -= 24
+    c.save()
+    return buffer.getvalue()
+
+
+def _wrap_pdf_line(value: str, *, limit: int) -> list[str]:
+    text = value.strip()
+    if not text:
+        return []
+    if len(text) <= limit:
+        return [text]
+    wrapped: list[str] = []
+    current = ""
+    for token in re.split(r"(\s+)", text):
+        if len(current) + len(token) <= limit:
+            current += token
+            continue
+        if current.strip():
+            wrapped.append(current.strip())
+        current = token
+    if current.strip():
+        wrapped.append(current.strip())
+    return wrapped
 
 
 def _pdf_text(value: str) -> str:
