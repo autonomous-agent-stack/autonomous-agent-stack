@@ -309,6 +309,7 @@ def create_app() -> FastAPI:
         ("autoresearch.api.routers.worker_runs", "router", "worker runs"),
         ("autoresearch.api.routers.worker_schedules", "router", "worker schedules"),
         ("autoresearch.api.routers.study_workbench", "router", "study workbench"),
+        ("autoresearch.api.routers.study_dashboard", "router", "study dashboard"),
         ("autoresearch.api.routers.panel", "router", "panel api"),
         ("autoresearch.api.routers.ga", "router", "evergreen ga"),
         ("autoresearch.api.routers.models", "router", "model gateway"),

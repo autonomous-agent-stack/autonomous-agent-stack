@@ -1616,6 +1616,7 @@ class WorkerTaskType(str, Enum):
     STUDY_PREPARE = "study_prepare"
     STUDY_INGEST = "study_ingest"
     STUDY_GIT_SYNC = "study_git_sync"
+    STUDY_DASHBOARD_DAILY = "study_dashboard_daily"
 
 
 class WorkerRunProgressRead(StrictModel):
@@ -1899,6 +1900,156 @@ class StandbyYouTubeAutoflowResult(StrictModel):
     failed_stage: str | None = None
     reason: str | None = None
     artifacts: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class StudyDashboardSourceKind(str, Enum):
+    X_BOOKMARKS = "x_bookmarks"
+    YOUTUBE_PLAYLIST = "youtube_playlist"
+    RSS = "rss"
+    LOCAL = "local"
+
+
+class StudyDashboardItemStatus(str, Enum):
+    NEW = "new"
+    UNREAD = "unread"
+    READ = "read"
+    ANNOTATED = "annotated"
+    SYNTHESIZED = "synthesized"
+    ARCHIVED = "archived"
+
+
+class StudyDashboardReadingDepth(str, Enum):
+    SKIM = "skim"
+    READ = "read"
+    DEEP = "deep"
+
+
+class StudyDashboardExportTarget(str, Enum):
+    GOODNOTES = "goodnotes"
+    MARGINNOTE = "marginnote"
+    BOTH = "both"
+
+
+class StudyDashboardSourceStatusRead(StrictModel):
+    source_kind: StudyDashboardSourceKind
+    status: Literal["connected", "not_configured", "degraded", "error"]
+    configured: bool = False
+    item_count: int = 0
+    detail: str = ""
+    updated_at: datetime
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class StudyDashboardItemRead(StrictModel):
+    item_id: str
+    source_kind: StudyDashboardSourceKind
+    source_key: str
+    title: str
+    summary: str = ""
+    why_it_matters: str = ""
+    technologies: list[str] = Field(default_factory=list)
+    source_url: str = ""
+    author: str = ""
+    published_at: datetime | None = None
+    reading_depth: StudyDashboardReadingDepth = StudyDashboardReadingDepth.READ
+    suggested_action: str = ""
+    status: StudyDashboardItemStatus = StudyDashboardItemStatus.NEW
+    score: float = Field(default=0.0, ge=0.0, le=100.0)
+    created_at: datetime
+    updated_at: datetime
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class StudyDashboardBriefRead(StrictModel):
+    brief_id: str
+    title: str
+    brief_date: str
+    status: JobStatus = JobStatus.COMPLETED
+    item_ids: list[str] = Field(default_factory=list)
+    content_markdown: str = ""
+    artifact_pdf_path: str | None = None
+    artifact_markdown_path: str | None = None
+    exports: list[dict[str, Any]] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class StudyDashboardRefreshRequest(StrictModel):
+    force: bool = False
+    include_sources: list[StudyDashboardSourceKind] = Field(default_factory=list)
+    limit: int | None = Field(default=None, ge=1, le=100)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class StudyDashboardRefreshRead(StrictModel):
+    status: JobStatus
+    sources: list[StudyDashboardSourceStatusRead] = Field(default_factory=list)
+    items: list[StudyDashboardItemRead] = Field(default_factory=list)
+    added_count: int = 0
+    updated_count: int = 0
+    skipped_count: int = 0
+    created_at: datetime
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class StudyDashboardDailyBriefRequest(StrictModel):
+    title: str = ""
+    targets: list[StudyDashboardExportTarget] = Field(default_factory=list)
+    item_limit: int | None = Field(default=None, ge=1, le=50)
+    auto_refresh: bool = True
+    requested_by: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class StudyDashboardExportRequest(StrictModel):
+    target: StudyDashboardExportTarget = StudyDashboardExportTarget.BOTH
+    requested_by: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class StudyDashboardExportRead(StrictModel):
+    brief: StudyDashboardBriefRead
+    target: StudyDashboardExportTarget
+    pdf_paths: list[str] = Field(default_factory=list)
+    markdown_paths: list[str] = Field(default_factory=list)
+    copies: list[dict[str, str]] = Field(default_factory=list)
+    created_at: datetime
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class StudyDashboardItemActionRequest(StrictModel):
+    action: Literal[
+        "mark_read",
+        "mark_annotated",
+        "mark_synthesized",
+        "archive",
+        "deep_dive",
+        "generate_cards",
+        "add_to_weekly",
+    ]
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class StudyDashboardItemActionRead(StrictModel):
+    item: StudyDashboardItemRead
+    action: str
+    message: str = ""
+    artifacts: list[dict[str, Any]] = Field(default_factory=list)
+    created_at: datetime
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class StudyDashboardStateRead(StrictModel):
+    status: Literal["ok", "degraded"]
+    today: str
+    sources: list[StudyDashboardSourceStatusRead] = Field(default_factory=list)
+    items: list[StudyDashboardItemRead] = Field(default_factory=list)
+    briefs: list[StudyDashboardBriefRead] = Field(default_factory=list)
+    quick_actions: list[dict[str, str]] = Field(default_factory=list)
+    daily_schedule: dict[str, Any] = Field(default_factory=dict)
+    generated_at: datetime
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 

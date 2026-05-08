@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="AAS Study">
+  <rect width="128" height="128" rx="24" fill="#0f172a"/>
+  <path d="M30 28h42c14 0 26 12 26 26v46H56c-14 0-26-12-26-26V28z" fill="#10b981"/>
+  <path d="M48 44h30M48 60h34M48 76h22" stroke="#ecfeff" stroke-width="8" stroke-linecap="round"/>
+  <path d="M88 30v66" stroke="#22d3ee" stroke-width="8" stroke-linecap="round"/>
+</svg>

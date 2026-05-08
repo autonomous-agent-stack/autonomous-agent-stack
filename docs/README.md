@@ -33,6 +33,7 @@ Historical reports and old checklists are preserved under `docs/archive/**` and 
 - [Butler governance runbook](runbooks/butler-governance.md)
 - [Session Spine v1 runbook](runbooks/session-spine-v1.md)
 - [Worker schedules](runbooks/worker-schedules.md)
+- [Study Dashboard](runbooks/study-dashboard.md)
 - [Mac standby worker smoke](runbooks/mac-standby-worker-smoke.md)
 - [Linux remote worker](linux-remote-worker.md)
 - [Windows + WSL2 Hermes control plane](windows-wsl2-hermes-control-plane.md)

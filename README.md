@@ -119,6 +119,7 @@ Start here:
 
 - [Documentation index](docs/README.md)
 - [Architecture](docs/architecture.md)
+- [Study Dashboard](docs/runbooks/study-dashboard.md)
 - [Study Workbench Sync MVP](docs/runbooks/study-workbench-sync.md)
 - [Why AAS](WHY_AAS.md)
 - [Contributing](CONTRIBUTING.md)

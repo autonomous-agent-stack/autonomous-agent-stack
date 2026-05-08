@@ -119,6 +119,7 @@ make ga-release-gate
 
 - [文档索引](docs/README.zh-CN.md)
 - [架构](docs/architecture.zh-CN.md)
+- [Study Dashboard](docs/runbooks/study-dashboard.zh-CN.md)
 - [Study Workbench Sync MVP](docs/runbooks/study-workbench-sync.zh-CN.md)
 - [为什么选择 AAS](WHY_AAS.zh-CN.md)
 - [贡献指南](CONTRIBUTING.zh-CN.md)

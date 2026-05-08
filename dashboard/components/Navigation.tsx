@@ -2,10 +2,11 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Activity, TestTube, GitBranch, Users } from 'lucide-react'
+import { Activity, TestTube, GitBranch, Users, NotebookPen } from 'lucide-react'
 
 const navItems = [
   { href: '/', label: '首页', icon: Activity },
+  { href: '/study', label: '学习', icon: NotebookPen },
   { href: '/tests', label: '测试', icon: TestTube },
   { href: '/parity', label: '对齐', icon: GitBranch },
   { href: '/agents', label: 'Agents', icon: Users },

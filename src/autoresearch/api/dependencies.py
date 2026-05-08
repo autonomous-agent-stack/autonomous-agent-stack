@@ -13,6 +13,7 @@ from autoresearch.api.settings import (
     get_feature_settings,
     get_panel_settings,
     get_runtime_settings,
+    get_study_dashboard_settings,
     get_study_workbench_settings,
     get_telegram_settings,
     get_upstream_watcher_settings,
@@ -82,6 +83,7 @@ from autoresearch.core.services.reports import ReportService
 from autoresearch.core.services.self_integration import SelfIntegrationService
 from autoresearch.core.services.session_events import SessionEventService
 from autoresearch.core.services.study_workbench import StudyWorkbenchService
+from autoresearch.core.services.study_dashboard import StudyDashboardService
 from autoresearch.core.services.telegram_notify import TelegramNotifierService
 from autoresearch.core.services.usage_quota import UsageLedgerEntryRead, UsageQuotaService
 from autoresearch.core.services.upstream_watcher import UpstreamWatcherService
@@ -120,6 +122,8 @@ from autoresearch.shared.models import (
     PanelAuditLogRead,
     ReportRead,
     SessionEventRead,
+    StudyDashboardBriefRead,
+    StudyDashboardItemRead,
     VariantRead,
     WorkerLeaseRead,
     WorkerQueueItemRead,
@@ -483,6 +487,25 @@ def get_study_workbench_service() -> StudyWorkbenchService:
         settings=get_study_workbench_settings(),
         state_db_path=_api_db_path(),
         artifact_root=_api_db_path().parent / "study_workbench",
+    )
+
+
+@lru_cache(maxsize=1)
+def get_study_dashboard_service() -> StudyDashboardService:
+    return StudyDashboardService(
+        settings=get_study_dashboard_settings(),
+        item_repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="study_dashboard_items",
+            model_cls=StudyDashboardItemRead,
+        ),
+        brief_repository=SQLiteModelRepository(
+            db_path=_api_db_path(),
+            table_name="study_dashboard_briefs",
+            model_cls=StudyDashboardBriefRead,
+        ),
+        study_workbench=get_study_workbench_service(),
+        artifact_root=_api_db_path().parent / "study_dashboard",
     )
 
 

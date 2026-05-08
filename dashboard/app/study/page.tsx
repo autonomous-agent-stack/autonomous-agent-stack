@@ -1,0 +1,410 @@
+'use client'
+
+import { useEffect, useMemo, useState } from 'react'
+import useSWR from 'swr'
+import {
+  BookOpen,
+  Check,
+  ClipboardList,
+  FileDown,
+  Layers,
+  NotebookPen,
+  PlayCircle,
+  RefreshCw,
+  Search,
+  Sparkles,
+} from 'lucide-react'
+import Navigation from '@/components/Navigation'
+
+const fetcher = (url: string) => fetch(url).then((res) => res.json())
+
+type SourceStatus = {
+  source_kind: string
+  status: string
+  configured: boolean
+  item_count: number
+  detail: string
+}
+
+type StudyItem = {
+  item_id: string
+  source_kind: string
+  title: string
+  summary: string
+  why_it_matters: string
+  technologies: string[]
+  source_url: string
+  reading_depth: 'skim' | 'read' | 'deep'
+  suggested_action: string
+  status: string
+  score: number
+}
+
+type Brief = {
+  brief_id: string
+  title: string
+  brief_date: string
+  item_ids: string[]
+  artifact_pdf_path?: string | null
+  exports: Array<Record<string, unknown>>
+}
+
+type StudyState = {
+  status: 'ok' | 'degraded'
+  today: string
+  sources: SourceStatus[]
+  items: StudyItem[]
+  briefs: Brief[]
+  daily_schedule: {
+    local_time?: string
+    next_run_at?: string
+  }
+}
+
+type ActionState = {
+  busy: string
+  message: string
+}
+
+const sourceLabels: Record<string, string> = {
+  x_bookmarks: 'X 书签',
+  youtube_playlist: 'YouTube 深读',
+  rss: '技术源',
+  local: '项目主题',
+}
+
+const statusLabels: Record<string, string> = {
+  new: '新',
+  unread: '待读',
+  read: '已读',
+  annotated: '已批注',
+  synthesized: '已沉淀',
+  archived: '已归档',
+}
+
+export default function StudyDashboardPage() {
+  const { data, error, mutate, isLoading } = useSWR<StudyState>('/api/study-dashboard/state', fetcher, {
+    refreshInterval: 30000,
+  })
+  const [action, setAction] = useState<ActionState>({ busy: '', message: '' })
+
+  const latestBrief = data?.briefs?.[0]
+  const videoItems = useMemo(
+    () => (data?.items || []).filter((item) => item.source_kind === 'youtube_playlist').slice(0, 5),
+    [data?.items],
+  )
+  const deepItems = useMemo(
+    () => (data?.items || []).filter((item) => item.reading_depth === 'deep').slice(0, 6),
+    [data?.items],
+  )
+  const techQueue = useMemo(
+    () => (data?.items || []).filter((item) => item.status !== 'synthesized').slice(0, 10),
+    [data?.items],
+  )
+
+  useEffect(() => {
+    if (!isLoading && data && data.items.length === 0 && action.busy !== '刷新') {
+      let cancelled = false
+      setAction({ busy: '刷新', message: '' })
+      fetch('/api/study-dashboard/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ force: false }),
+      })
+        .then(() => mutate())
+        .then(() => {
+          if (!cancelled) {
+            setAction({ busy: '', message: '刷新 完成' })
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setAction({ busy: '', message: '刷新 失败' })
+          }
+        })
+      return () => {
+        cancelled = true
+      }
+    }
+    return undefined
+  }, [action.busy, data, isLoading, mutate])
+
+  async function runAction(label: string, task: () => Promise<void>) {
+    setAction({ busy: label, message: '' })
+    try {
+      await task()
+      await mutate()
+      setAction({ busy: '', message: `${label} 完成` })
+    } catch (err) {
+      setAction({ busy: '', message: `${label} 失败` })
+    }
+  }
+
+  async function refreshSources() {
+    await fetch('/api/study-dashboard/refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ force: true }),
+    })
+  }
+
+  async function generateDailyBrief() {
+    const briefResponse = await fetch('/api/study-dashboard/briefs/daily', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targets: ['both'], auto_refresh: true }),
+    })
+    const brief = await briefResponse.json()
+    await exportBrief(brief.brief_id, 'both')
+  }
+
+  async function exportBrief(briefId: string, target: 'goodnotes' | 'marginnote' | 'both') {
+    await fetch(`/api/study-dashboard/briefs/${briefId}/export`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target }),
+    })
+  }
+
+  async function itemAction(itemId: string, itemAction: string) {
+    await fetch(`/api/study-dashboard/items/${itemId}/actions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: itemAction }),
+    })
+  }
+
+  if (error) {
+    return (
+      <>
+        <Navigation />
+        <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+          <div className="rounded-lg border border-red-500/40 bg-red-950/40 p-6 text-red-100">
+            学习手帐加载失败
+          </div>
+        </main>
+      </>
+    )
+  }
+
+  return (
+    <>
+      <Navigation />
+      <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+        <section className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="mb-2 text-sm font-medium text-emerald-300">{data?.today || '...'}</p>
+            <h1 className="text-3xl font-bold text-white sm:text-4xl">学习手帐</h1>
+            <p className="mt-2 max-w-2xl text-sm text-slate-300">
+              GoodNotes 日批注，MarginNote4 深读，技术雷达自动沉淀。
+            </p>
+          </div>
+          <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap sm:justify-end">
+            <CommandButton
+              label="刷新"
+              icon={<RefreshCw className="h-4 w-4" />}
+              busy={action.busy === '刷新'}
+              onClick={() => runAction('刷新', refreshSources)}
+            />
+            <CommandButton
+              label="手帐"
+              icon={<NotebookPen className="h-4 w-4" />}
+              busy={action.busy === '手帐'}
+              onClick={() => runAction('手帐', generateDailyBrief)}
+            />
+            <CommandButton
+              label="GoodNotes"
+              icon={<FileDown className="h-4 w-4" />}
+              disabled={!latestBrief}
+              busy={action.busy === 'GoodNotes'}
+              onClick={() => latestBrief && runAction('GoodNotes', () => exportBrief(latestBrief.brief_id, 'goodnotes'))}
+            />
+            <CommandButton
+              label="MarginNote"
+              icon={<BookOpen className="h-4 w-4" />}
+              disabled={!latestBrief}
+              busy={action.busy === 'MarginNote'}
+              onClick={() => latestBrief && runAction('MarginNote', () => exportBrief(latestBrief.brief_id, 'marginnote'))}
+            />
+            <CommandButton
+              label="深挖"
+              icon={<Search className="h-4 w-4" />}
+              disabled={!deepItems[0]}
+              busy={action.busy === '深挖'}
+              onClick={() => deepItems[0] && runAction('深挖', () => itemAction(deepItems[0].item_id, 'deep_dive'))}
+            />
+            <CommandButton
+              label="卡片"
+              icon={<Layers className="h-4 w-4" />}
+              disabled={!techQueue[0]}
+              busy={action.busy === '卡片'}
+              onClick={() => techQueue[0] && runAction('卡片', () => itemAction(techQueue[0].item_id, 'generate_cards'))}
+            />
+          </div>
+        </section>
+
+        <section className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {(data?.sources || []).map((source) => (
+            <div key={source.source_kind} className="rounded-lg border border-slate-700 bg-slate-900/70 p-4">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-semibold text-white">{sourceLabels[source.source_kind] || source.source_kind}</p>
+                <span className={source.status === 'connected' ? 'text-emerald-300' : 'text-amber-300'}>
+                  {source.item_count}
+                </span>
+              </div>
+              <p className="mt-2 truncate text-xs text-slate-400">{source.configured ? source.status : '未连接'}</p>
+            </div>
+          ))}
+        </section>
+
+        <section className="mb-6 grid gap-4 lg:grid-cols-[1.4fr_0.9fr]">
+          <div className="rounded-lg border border-slate-700 bg-slate-900/80 p-4">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-white">今日必读</h2>
+              <span className="text-xs text-slate-400">
+                {isLoading ? '加载中' : `${data?.items?.length || 0} 条`}
+              </span>
+            </div>
+            <div className="grid gap-3">
+              {(data?.items || []).slice(0, 6).map((item) => (
+                <StudyItemRow key={item.item_id} item={item} onAction={(next) => runAction(next, () => itemAction(item.item_id, next))} />
+              ))}
+            </div>
+          </div>
+
+          <div className="grid gap-4">
+            <div className="rounded-lg border border-slate-700 bg-slate-900/80 p-4">
+              <div className="mb-3 flex items-center gap-2">
+                <PlayCircle className="h-5 w-5 text-rose-300" />
+                <h2 className="text-lg font-semibold text-white">视频深读</h2>
+              </div>
+              <div className="space-y-3">
+                {videoItems.map((item) => (
+                  <CompactItem key={item.item_id} item={item} />
+                ))}
+                {!videoItems.length && <p className="text-sm text-slate-400">专用播放列表未连接</p>}
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-slate-700 bg-slate-900/80 p-4">
+              <div className="mb-3 flex items-center gap-2">
+                <ClipboardList className="h-5 w-5 text-cyan-300" />
+                <h2 className="text-lg font-semibold text-white">待补技术</h2>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {Array.from(new Set(techQueue.flatMap((item) => item.technologies))).slice(0, 12).map((tech) => (
+                  <span key={tech} className="rounded-md border border-cyan-500/30 bg-cyan-950/40 px-2 py-1 text-xs text-cyan-100">
+                    {tech}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="grid gap-4 lg:grid-cols-3">
+          <div className="rounded-lg border border-slate-700 bg-slate-900/80 p-4 lg:col-span-2">
+            <h2 className="mb-3 text-lg font-semibold text-white">长期积累</h2>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {deepItems.map((item) => (
+                <CompactItem key={item.item_id} item={item} />
+              ))}
+            </div>
+          </div>
+          <div className="rounded-lg border border-slate-700 bg-slate-900/80 p-4">
+            <h2 className="mb-3 text-lg font-semibold text-white">导出状态</h2>
+            <div className="space-y-3 text-sm text-slate-300">
+              <p>下一次：{data?.daily_schedule?.local_time || '08:00'}</p>
+              <p>最近手帐：{latestBrief?.title || '暂无'}</p>
+              <p>导出次数：{latestBrief?.exports?.length || 0}</p>
+              {action.message && <p className="text-emerald-300">{action.message}</p>}
+            </div>
+          </div>
+        </section>
+      </main>
+    </>
+  )
+}
+
+function CommandButton({
+  label,
+  icon,
+  busy,
+  disabled,
+  onClick,
+}: {
+  label: string
+  icon: React.ReactNode
+  busy?: boolean
+  disabled?: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled || busy}
+      onClick={onClick}
+      className="flex h-11 min-w-0 items-center justify-center gap-2 rounded-lg border border-slate-600 bg-slate-800 px-3 text-sm font-medium text-white hover:border-emerald-400 hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+      title={label}
+    >
+      {busy ? <RefreshCw className="h-4 w-4 animate-spin" /> : icon}
+      <span className="truncate">{label}</span>
+    </button>
+  )
+}
+
+function StudyItemRow({ item, onAction }: { item: StudyItem; onAction: (action: string) => void }) {
+  return (
+    <article className="rounded-lg border border-slate-700 bg-slate-950/50 p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <span className="rounded-md bg-emerald-950 px-2 py-1 text-xs text-emerald-200">{Math.round(item.score)}</span>
+            <span className="rounded-md bg-slate-800 px-2 py-1 text-xs text-slate-200">{item.reading_depth}</span>
+            <span className="rounded-md bg-amber-950 px-2 py-1 text-xs text-amber-200">{statusLabels[item.status] || item.status}</span>
+          </div>
+          <h3 className="line-clamp-2 text-base font-semibold text-white">{item.title}</h3>
+          <p className="mt-2 line-clamp-2 text-sm text-slate-300">{item.summary || item.why_it_matters}</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {item.technologies.slice(0, 5).map((tech) => (
+              <span key={tech} className="rounded-md bg-slate-800 px-2 py-1 text-xs text-slate-300">
+                {tech}
+              </span>
+            ))}
+          </div>
+        </div>
+        <div className="flex shrink-0 gap-2">
+          <IconButton label="deep_dive" icon={<Search className="h-4 w-4" />} onClick={() => onAction('deep_dive')} />
+          <IconButton label="generate_cards" icon={<Sparkles className="h-4 w-4" />} onClick={() => onAction('generate_cards')} />
+          <IconButton label="mark_read" icon={<Check className="h-4 w-4" />} onClick={() => onAction('mark_read')} />
+        </div>
+      </div>
+    </article>
+  )
+}
+
+function CompactItem({ item }: { item: StudyItem }) {
+  return (
+    <article className="rounded-lg border border-slate-700 bg-slate-950/50 p-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="truncate text-xs text-slate-400">{sourceLabels[item.source_kind] || item.source_kind}</span>
+        <span className="text-xs text-emerald-300">{Math.round(item.score)}</span>
+      </div>
+      <h3 className="line-clamp-2 text-sm font-semibold text-white">{item.title}</h3>
+      <p className="mt-2 line-clamp-2 text-xs text-slate-400">{item.suggested_action}</p>
+    </article>
+  )
+}
+
+function IconButton({ label, icon, onClick }: { label: string; icon: React.ReactNode; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={label}
+      className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-600 bg-slate-800 text-slate-100 hover:border-emerald-400 hover:text-white"
+    >
+      {icon}
+    </button>
+  )
+}

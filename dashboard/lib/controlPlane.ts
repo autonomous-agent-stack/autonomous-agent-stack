@@ -36,11 +36,29 @@ export function getControlPlaneBaseUrl(): string {
   return configured.replace(/\/+$/, '')
 }
 
-async function fetchControlPlaneJson<T>(path: string): Promise<T> {
+export async function fetchControlPlaneJson<T>(path: string): Promise<T> {
   const response = await fetch(`${getControlPlaneBaseUrl()}${path}`, {
     headers: {
       Accept: 'application/json',
     },
+    cache: 'no-store',
+  })
+
+  if (!response.ok) {
+    throw new Error(`control-plane request failed: ${path} -> ${response.status}`)
+  }
+
+  return (await response.json()) as T
+}
+
+export async function postControlPlaneJson<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(`${getControlPlaneBaseUrl()}${path}`, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body ?? {}),
     cache: 'no-store',
   })
 

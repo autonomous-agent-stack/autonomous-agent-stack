@@ -90,6 +90,8 @@ class MacWorkerExecutor:
             return self._execute_study_ingest(run)
         if run.task_type == WorkerTaskType.STUDY_GIT_SYNC:
             return self._execute_study_git_sync(run)
+        if run.task_type == WorkerTaskType.STUDY_DASHBOARD_DAILY:
+            return self._execute_study_dashboard_daily(run)
         raise ValueError(f"Unsupported task type: {run.task_type}")
 
     def _execute_noop(self, payload: dict[str, Any]) -> MacWorkerExecutionResult:
@@ -969,6 +971,46 @@ class MacWorkerExecutor:
             metrics={
                 "git_synced": int(result.get("status") == "completed"),
                 "git_pushed": int(bool(result.get("pushed"))),
+            },
+        )
+
+    def _execute_study_dashboard_daily(self, run: WorkerQueueItemRead) -> MacWorkerExecutionResult:
+        from autoresearch.api.settings import StudyDashboardSettings
+        from autoresearch.core.services.study_dashboard import StudyDashboardService
+        from autoresearch.shared.models import StudyDashboardBriefRead, StudyDashboardItemRead
+        from autoresearch.shared.store import SQLiteModelRepository
+
+        dashboard = StudyDashboardService(
+            settings=StudyDashboardSettings(),
+            item_repository=SQLiteModelRepository(
+                db_path=self._config.resolved_api_db_path(),
+                table_name="study_dashboard_items",
+                model_cls=StudyDashboardItemRead,
+            ),
+            brief_repository=SQLiteModelRepository(
+                db_path=self._config.resolved_api_db_path(),
+                table_name="study_dashboard_briefs",
+                model_cls=StudyDashboardBriefRead,
+            ),
+            study_workbench=self._get_study_workbench(),
+            artifact_root=self._config.housekeeping_root / "artifacts" / "study_dashboard",
+        )
+        brief = dashboard.create_daily_brief()
+        export = dashboard.export_brief(
+            brief.brief_id,
+            request=None,
+        )
+        return MacWorkerExecutionResult(
+            message=f"study_dashboard_daily generated {brief.title}",
+            result={
+                "task_type": WorkerTaskType.STUDY_DASHBOARD_DAILY.value,
+                "brief": brief.model_dump(mode="json"),
+                "export": export.model_dump(mode="json"),
+            },
+            metrics={
+                "brief_items": len(brief.item_ids),
+                "pdf_paths": len(export.pdf_paths),
+                "markdown_paths": len(export.markdown_paths),
             },
         )
 
