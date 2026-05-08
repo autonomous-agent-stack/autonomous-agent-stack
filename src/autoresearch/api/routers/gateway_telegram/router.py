@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Request, status
 
@@ -24,7 +25,7 @@ from autoresearch.api.dependencies import (
     get_worker_scheduler_service,
     get_youtube_oauth_service,
 )
-from autoresearch.api.settings import get_runtime_settings, load_telegram_settings
+from autoresearch.api.settings import get_feature_settings, get_runtime_settings, load_telegram_settings
 from autoresearch.core.services.admin_config import AdminConfigService
 from autoresearch.core.services.approval_decisions import ApprovalDecisionService
 from autoresearch.core.services.approval_store import ApprovalStoreService
@@ -462,6 +463,7 @@ def _handle_telegram_webhook(
             text=text,
             background_tasks=background_tasks,
             notifier=notifier,
+            panel_access_service=panel_access_service,
         )
 
     if _is_memory_command(text):
@@ -843,6 +845,8 @@ def _personal_package_enabled(package_id: str) -> bool:
 
 
 _LIFE_COMMANDS = {
+    "/life",
+    "/open-study",
     "/personal",
     "/today",
     "/for-you",
@@ -869,6 +873,7 @@ def _handle_life_companion_command(
     text: str,
     background_tasks: BackgroundTasks,
     notifier: TelegramNotifierService,
+    panel_access_service: PanelAccessService,
 ) -> TelegramWebhookAck:
     if not _personal_package_enabled(PERSONAL_LIFE_COMPANION_PACKAGE_ID):
         return _personal_package_disabled_ack(
@@ -911,6 +916,28 @@ def _handle_life_companion_command(
     normalized = str(text or "").strip()
     command, _, rest = normalized.partition(" ")
     command = command.split("@", 1)[0].lower()
+    if command in {"/life", "/open-study"}:
+        message, status_value, accepted = _create_life_companion_open_link(
+            panel_access_service=panel_access_service,
+            telegram_uid=str(extracted.get("from_user_id") or chat_id),
+        )
+        if notifier.enabled:
+            background_tasks.add_task(
+                notifier.send_message,
+                chat_id=chat_id,
+                text=message,
+                message_thread_id=_safe_int(extracted.get("message_thread_id")),
+            )
+        return TelegramWebhookAck(
+            accepted=accepted,
+            update_id=_safe_int(update.get("update_id")),
+            chat_id=chat_id,
+            metadata={
+                "source": "telegram_life_companion_open",
+                "status": status_value,
+                "personal_package_id": PERSONAL_LIFE_COMPANION_PACKAGE_ID,
+            },
+        )
     if command in {"/personal", "/today"}:
         plan = service.daily_plan(
             PersonalDailyPlanRequest(
@@ -1011,6 +1038,37 @@ def _handle_life_companion_command(
             "status": status_value,
             "personal_package_id": PERSONAL_LIFE_COMPANION_PACKAGE_ID,
         },
+    )
+
+
+def _create_life_companion_open_link(
+    *,
+    panel_access_service: PanelAccessService,
+    telegram_uid: str,
+) -> tuple[str, str, bool]:
+    feature_settings = get_feature_settings()
+    if not feature_settings.personal_remote_enabled:
+        return (
+            "Life Companion remote entry is disabled.\n"
+            "Enable AUTORESEARCH_PERSONAL_REMOTE_ENABLED=true before opening /study remotely.",
+            "remote_disabled",
+            False,
+        )
+    try:
+        magic = panel_access_service.create_magic_link(telegram_uid)
+    except (RuntimeError, PermissionError, ValueError) as exc:
+        return (f"Life Companion link unavailable.\nreason: {exc}", "remote_failed", False)
+    token = dict(parse_qsl(urlparse(magic.url).query)).get("token", "")
+    parsed = urlparse(feature_settings.personal_remote_base_url.strip() or "http://127.0.0.1:3000/study")
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    query["token"] = token
+    url = urlunparse(parsed._replace(query=urlencode(query)))
+    return (
+        "Life Companion is ready.\n"
+        f"Open study console: {url}\n"
+        f"expires_at: {magic.expires_at.isoformat()}",
+        "magic_link_created",
+        True,
     )
 
 

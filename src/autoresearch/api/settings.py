@@ -468,6 +468,14 @@ class PanelSettings(_BaseApiSettings):
 
 
 class FeatureSettings(_BaseApiSettings):
+    personal_remote_enabled: bool = Field(
+        default=False,
+        validation_alias="AUTORESEARCH_PERSONAL_REMOTE_ENABLED",
+    )
+    personal_remote_base_url: str = Field(
+        default="http://127.0.0.1:3000/study",
+        validation_alias="AUTORESEARCH_PERSONAL_REMOTE_BASE_URL",
+    )
     enable_mirofish_gate: bool = Field(
         default=False,
         validation_alias=AliasChoices("AUTORESEARCH_ENABLE_MIROFISH_GATE", "AUTORESEARCH_MIROFISH_ENABLED"),

@@ -513,10 +513,15 @@ def get_study_dashboard_service() -> StudyDashboardService:
 def get_life_companion_service():
     from packages.life_companion.schema import (
         PersonalActivityEventRead,
+        PersonalBlockRead,
+        PersonalCanvasRead,
         PersonalContentItemRead,
         PersonalExportJobRead,
         PersonalFeedbackRead,
         PersonalFlashcardRead,
+        PersonalLinkRead,
+        PersonalMentionRead,
+        PersonalNodeRead,
         PersonalHighlightRead,
         PersonalNoteRead,
         PersonalRecommendationRead,
@@ -594,6 +599,31 @@ def get_life_companion_service():
                 db_path=db_path,
                 table_name="study_dashboard_items",
                 model_cls=StudyDashboardItemRead,
+            ),
+            nodes=SQLiteModelRepository(
+                db_path=db_path,
+                table_name="personal_nodes",
+                model_cls=PersonalNodeRead,
+            ),
+            blocks=SQLiteModelRepository(
+                db_path=db_path,
+                table_name="personal_blocks",
+                model_cls=PersonalBlockRead,
+            ),
+            links=SQLiteModelRepository(
+                db_path=db_path,
+                table_name="personal_links",
+                model_cls=PersonalLinkRead,
+            ),
+            mentions=SQLiteModelRepository(
+                db_path=db_path,
+                table_name="personal_mentions",
+                model_cls=PersonalMentionRead,
+            ),
+            canvases=SQLiteModelRepository(
+                db_path=db_path,
+                table_name="personal_canvases",
+                model_cls=PersonalCanvasRead,
             ),
         ),
         artifact_root=db_path.parent / "life_companion",

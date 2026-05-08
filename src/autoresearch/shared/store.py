@@ -26,6 +26,8 @@ class Repository(Protocol, Generic[T]):
 
     def list(self) -> list[T]: ...
 
+    def delete(self, resource_id: str) -> bool: ...
+
 
 class InMemoryRepository(Generic[T], Repository[T]):
     """Simple in-memory repository."""
@@ -42,6 +44,9 @@ class InMemoryRepository(Generic[T], Repository[T]):
 
     def list(self) -> list[T]:
         return list(self._items.values())
+
+    def delete(self, resource_id: str) -> bool:
+        return self._items.pop(resource_id, None) is not None
 
 
 class SQLiteModelRepository(Generic[T], Repository[T]):
@@ -98,6 +103,18 @@ class SQLiteModelRepository(Generic[T], Repository[T]):
                 """
             ).fetchall()
         return [self._deserialize(row["payload_json"]) for row in rows]
+
+    def delete(self, resource_id: str) -> bool:
+        with self._connect() as connection:
+            cursor = connection.execute(
+                f"""
+                DELETE FROM {self._table_name}
+                WHERE resource_id = ?
+                """,
+                (resource_id,),
+            )
+            connection.commit()
+            return cursor.rowcount > 0
 
     def _initialize(self) -> None:
         with self._connect() as connection:

@@ -515,7 +515,23 @@ class LifeCompanionCapabilityAdapter(CapabilityAdapter):
         service = get_life_companion_service()
         params = task.parameters if isinstance(task.parameters, dict) else {}
         if self.action == "state":
-            result = service.state().model_dump(mode="json")
+            state = service.state()
+            result = state.model_dump(mode="json")
+            result["today_home"] = {
+                "active_plan": state.active_plan.title if state.active_plan else "",
+                "due_cards": len(state.due_cards),
+                "exports": len(state.exports),
+                "next_recommendation": (
+                    state.rows[0].items[0].title
+                    if state.rows and state.rows[0].items
+                    else ""
+                ),
+            }
+            result["graph_summary"] = {
+                "node_count": len(state.graph.nodes) if state.graph else 0,
+                "link_count": len(state.graph.links) if state.graph else 0,
+                "mention_count": len(state.graph.mentions) if state.graph else 0,
+            }
         elif self.action == "recommend":
             result = service.recommendations(PersonalRecommendationRequest.model_validate(params)).model_dump(mode="json")
         elif self.action == "study":

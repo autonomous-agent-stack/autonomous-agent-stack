@@ -64,6 +64,31 @@ class PersonalReviewRating(str, Enum):
     EASY = "easy"
 
 
+class PersonalNodeKind(str, Enum):
+    CONTENT = "content"
+    CONCEPT = "concept"
+    SOURCE = "source"
+    TAG = "tag"
+    CARD = "card"
+    PLAN = "plan"
+    RECOMMENDATION = "recommendation"
+    EXPORT = "export"
+    ENTERTAINMENT = "entertainment"
+    CANVAS = "canvas"
+
+
+class PersonalLinkRelation(str, Enum):
+    REFERENCES = "references"
+    MENTIONS = "mentions"
+    TAGGED_AS = "tagged_as"
+    DERIVED_FROM = "derived_from"
+    SOURCE_OF = "source_of"
+    SUPPORTS = "supports"
+    CONTRADICTS = "contradicts"
+    PART_OF = "part_of"
+    PROMOTES_TO = "promotes_to"
+
+
 class LifeCompanionDependencyRead(StrictModel):
     package_id: str
     enabled: bool = False
@@ -357,11 +382,179 @@ class PersonalActivityEventRequest(StrictModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class PersonalNodeRead(StrictModel):
+    node_id: str
+    kind: PersonalNodeKind
+    title: str
+    body: str = ""
+    source_id: str = ""
+    source_table: str = ""
+    source_url: str = ""
+    tags: list[str] = Field(default_factory=list)
+    aliases: list[str] = Field(default_factory=list)
+    properties: dict[str, Any] = Field(default_factory=dict)
+    backlink_count: int = 0
+    outgoing_count: int = 0
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class PersonalBlockRead(StrictModel):
+    block_id: str
+    node_id: str
+    content: str
+    ordinal: int = 0
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class PersonalLinkCreateRequest(StrictModel):
+    source_node_id: str
+    target_node_id: str
+    relation: PersonalLinkRelation = PersonalLinkRelation.REFERENCES
+    anchor_text: str = ""
+    source_block_id: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class PersonalLinkRead(StrictModel):
+    link_id: str
+    source_node_id: str
+    target_node_id: str
+    relation: PersonalLinkRelation = PersonalLinkRelation.REFERENCES
+    anchor_text: str = ""
+    source_block_id: str = ""
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+    created_at: datetime = Field(default_factory=utc_now)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class PersonalMentionRead(StrictModel):
+    mention_id: str
+    source_node_id: str
+    source_block_id: str = ""
+    target_text: str
+    normalized_target: str
+    suggested_node_id: str = ""
+    status: Literal["pending", "promoted", "dismissed"] = "pending"
+    context: str = ""
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class PersonalMentionPromoteRequest(StrictModel):
+    mention_id: str
+    target_node_id: str = ""
+    relation: PersonalLinkRelation = PersonalLinkRelation.MENTIONS
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class PersonalGraphRead(StrictModel):
+    status: Literal["ok", "disabled", "missing_dependency"] = "ok"
+    root_node_id: str = ""
+    nodes: list[PersonalNodeRead] = Field(default_factory=list)
+    links: list[PersonalLinkRead] = Field(default_factory=list)
+    mentions: list[PersonalMentionRead] = Field(default_factory=list)
+    depth: int = 1
+    generated_at: datetime = Field(default_factory=utc_now)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class PersonalCanvasRead(StrictModel):
+    canvas_id: str
+    title: str
+    nodes: list[dict[str, Any]] = Field(default_factory=list)
+    edges: list[dict[str, Any]] = Field(default_factory=list)
+    viewport: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class PersonalCanvasUpsertRequest(StrictModel):
+    canvas_id: str = "default"
+    title: str = "Life Companion Map"
+    nodes: list[dict[str, Any]] = Field(default_factory=list)
+    edges: list[dict[str, Any]] = Field(default_factory=list)
+    viewport: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class PersonalInterfacePanelRead(StrictModel):
+    panel_id: str
+    title: str
+    view_kind: Literal[
+        "today_home",
+        "filtered_view",
+        "object_dashboard",
+        "graph",
+        "canvas",
+        "portal",
+        "review_queue",
+        "entertainment_dj",
+        "export_status",
+        "blind_spots",
+        "hot_feed",
+        "tracking",
+        "boredom_feed",
+        "timeline",
+    ]
+    priority: float = Field(default=50.0, ge=0.0, le=100.0)
+    reason: str = ""
+    source_pattern: str = ""
+    query: str = ""
+    node_ids: list[str] = Field(default_factory=list)
+    recommendation_ids: list[str] = Field(default_factory=list)
+    action_ids: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class PersonalInterfaceLayoutRequest(StrictModel):
+    intent: str = ""
+    mood: str = "mixed"
+    focus: Literal["low", "medium", "high"] = "medium"
+    available_minutes: int = Field(default=90, ge=5, le=720)
+    priorities: dict[str, float] = Field(default_factory=dict)
+    include_overlooked: bool = True
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class PersonalInterfaceLayoutRead(StrictModel):
+    status: Literal["ok", "disabled", "missing_dependency"] = "ok"
+    mode: Literal["auto", "focus", "review", "explore", "export", "reward"] = "auto"
+    headline: str = "Life Companion"
+    intent: str = ""
+    panels: list[PersonalInterfacePanelRead] = Field(default_factory=list)
+    overlooked: list[str] = Field(default_factory=list)
+    benchmark_patterns: list[str] = Field(default_factory=list)
+    generated_at: datetime = Field(default_factory=utc_now)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class PersonalAccessMagicLinkRequest(StrictModel):
+    telegram_uid: str = "local-user"
+    ttl_seconds: int | None = Field(default=None, ge=30, le=86400)
+
+
+class PersonalAccessRead(StrictModel):
+    status: Literal["created", "verified", "disabled", "failed"]
+    enabled: bool = False
+    url: str = ""
+    expires_at: datetime | None = None
+    telegram_uid: str = ""
+    reason: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class PersonalSearchRead(StrictModel):
     query: str
     items: list[PersonalContentItemRead] = Field(default_factory=list)
     recommendations: list[PersonalRecommendationRead] = Field(default_factory=list)
     cards: list[PersonalFlashcardRead] = Field(default_factory=list)
+    nodes: list[PersonalNodeRead] = Field(default_factory=list)
     generated_at: datetime = Field(default_factory=utc_now)
 
 
@@ -376,6 +569,10 @@ class LifeCompanionStateRead(StrictModel):
     exports: list[PersonalExportJobRead] = Field(default_factory=list)
     source_accounts: list[PersonalSourceAccountRead] = Field(default_factory=list)
     preference_profile: PersonalPreferenceProfileRead | None = None
+    graph: PersonalGraphRead | None = None
+    canvas: PersonalCanvasRead | None = None
+    layout: PersonalInterfaceLayoutRead | None = None
+    access: PersonalAccessRead | None = None
     recent_activity: list[PersonalActivityEventRead] = Field(default_factory=list)
     generated_at: datetime = Field(default_factory=utc_now)
     metadata: dict[str, Any] = Field(default_factory=dict)
